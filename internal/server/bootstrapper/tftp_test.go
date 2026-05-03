@@ -171,3 +171,73 @@ func TestTFTPBootstrapper_FileDownload(t *testing.T) {
 	// サーバーを停止
 	bs.Stop()
 }
+
+func TestResolveTFTPFilePath(t *testing.T) {
+	t.Run("allows file inside root", func(t *testing.T) {
+		root := t.TempDir()
+		filePath := filepath.Join(root, "images", "ipxe.efi")
+		if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+			t.Fatalf("failed to create file dir: %v", err)
+		}
+		if err := os.WriteFile(filePath, []byte("ipxe"), 0644); err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+
+		resolved, err := resolveTFTPFilePath(root, "images/ipxe.efi")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		want, err := filepath.EvalSymlinks(filePath)
+		if err != nil {
+			t.Fatalf("failed to eval file path: %v", err)
+		}
+		if resolved != want {
+			t.Fatalf("expected path %q, got %q", want, resolved)
+		}
+	})
+
+	t.Run("rejects symlink escape", func(t *testing.T) {
+		root := t.TempDir()
+		outside := t.TempDir()
+		targetDir := filepath.Join(outside, "sensitive")
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			t.Fatalf("failed to create target dir: %v", err)
+		}
+
+		linkPath := filepath.Join(root, "link")
+		if err := os.Symlink(targetDir, linkPath); err != nil {
+			t.Fatalf("failed to create symlink: %v", err)
+		}
+
+		_, err := resolveTFTPFilePath(root, "link/secret.txt")
+		if err == nil {
+			t.Fatal("expected symlink traversal to be rejected")
+		}
+	})
+}
+
+func TestOpenTFTPFile(t *testing.T) {
+	t.Run("rejects file larger than limit", func(t *testing.T) {
+		root := t.TempDir()
+		filePath := filepath.Join(root, "large.img")
+		file, err := os.Create(filePath)
+		if err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+		if err := file.Truncate(maxTFTPFileSize + 1); err != nil {
+			t.Fatalf("failed to enlarge file: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("failed to close file: %v", err)
+		}
+
+		opened, err := openTFTPFile(root, "large.img")
+		if opened != nil {
+			_ = opened.Close()
+		}
+		if err == nil {
+			t.Fatal("expected oversized file to be rejected")
+		}
+	})
+}

@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const maxTFTPFileSize int64 = 64 << 20
+
 // hasPathPrefix は、target が prefix 以下のパスかどうかをチェックします。
 func hasPathPrefix(path, prefix string) bool {
 	rel, err := filepath.Rel(prefix, path)
@@ -28,6 +30,51 @@ func hasPathPrefix(path, prefix string) bool {
 		return false
 	}
 	return len(rel) > 0 && rel[0] != '.'
+}
+
+func resolveTFTPFilePath(root, filename string) (string, error) {
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve tftp root: %w", err)
+	}
+	resolvedRoot, err = filepath.EvalSymlinks(resolvedRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve tftp root: %w", err)
+	}
+
+	cleanedFilename := filepath.Clean(string(filepath.Separator) + filename)
+	cleanedFilename = cleanedFilename[1:]
+	filePath := filepath.Join(resolvedRoot, cleanedFilename)
+	resolved, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file path: %w", err)
+	}
+	if !hasPathPrefix(resolved, resolvedRoot) {
+		return "", fmt.Errorf("access denied: path traversal detected")
+	}
+	return resolved, nil
+}
+
+func openTFTPFile(root, filename string) (*os.File, error) {
+	resolved, err := resolveTFTPFilePath(root, filename)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("failed to stat TFTP file: %w", err)
+	}
+	if info.Size() > maxTFTPFileSize {
+		_ = file.Close()
+		return nil, fmt.Errorf("access denied: file exceeds TFTP size limit")
+	}
+	return file, nil
 }
 
 // TFTPBootstrapper は組み込み TFTP サーバーの実装です。
@@ -73,19 +120,9 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	// TFTP サーバーを作成
 	readHandler := func(filename string, rf io.ReaderFrom) error {
 		lg.Info("TFTP リードリクエスト", "filename", filename)
-		filePath := filepath.Join(b.root, filename)
-		resolved, err := filepath.Abs(filePath)
+		file, err := openTFTPFile(b.root, filename)
 		if err != nil {
 			lg.Error(err, "ファイルパスの解決に失敗しました", "filename", filename)
-			return fmt.Errorf("failed to resolve file path: %w", err)
-		}
-		if !hasPathPrefix(resolved, b.root) {
-			lg.Error(nil, "パストラバーサルの試行を検出しました", "filename", filename, "requested_path", resolved)
-			return fmt.Errorf("access denied: path traversal detected")
-		}
-		file, err := os.Open(resolved)
-		if err != nil {
-			lg.Error(err, "TFTPファイルの開閉に失敗しました", "filename", filename)
 			return err
 		}
 		defer func() {

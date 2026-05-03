@@ -72,14 +72,10 @@ func NewHandler(cl client.Client, scheme *runtime.Scheme) http.Handler {
 			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 		}
 
-		script, err := generateIPXEScript(c, &machine, targetHost)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, "failed to generate iPXE script")
-		}
+		script := generateIPXEScript(c, &machine, targetHost)
 
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	})
-
 	return e
 }
 
@@ -88,7 +84,7 @@ func normalizeMAC(mac string) string {
 	return strings.ToLower(s)
 }
 
-func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost) (string, error) {
+func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost) string {
 	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
 	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
 	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
@@ -113,7 +109,7 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 	}
 	sb.WriteString("boot\n")
 
-	return sb.String(), nil
+	return sb.String()
 }
 
 func NewServer(cl client.Client, scheme *runtime.Scheme, addr string) *Server {

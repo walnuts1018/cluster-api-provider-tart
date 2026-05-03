@@ -233,7 +233,7 @@ run = '''
 set -euo pipefail
 IMG="${IMG:-controller:latest}"
 mise run manifests
-cd config/manager && kustomize edit set image controller="$IMG"
+(cd config/manager && kustomize edit set image controller="$IMG")
 kustomize build config/default | kubectl apply -f -
 '''
 

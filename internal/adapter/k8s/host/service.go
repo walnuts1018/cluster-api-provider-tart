@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,7 +34,7 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 
 	for i := range hosts.Items {
 		candidate := &hosts.Items[i]
-		if candidate.Status.State != infrastructurev1alpha1.TartHostStateAvailable || candidate.Status.MachineRef != nil {
+		if !hostdomain.IsAvailableForReservation(candidate) {
 			continue
 		}
 
@@ -47,21 +45,17 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 			}
 			return nil, err
 		}
-		if current.Status.State != infrastructurev1alpha1.TartHostStateAvailable || current.Status.MachineRef != nil {
+		if !hostdomain.IsAvailableForReservation(current) {
 			continue
 		}
 
-		current.Status.State = infrastructurev1alpha1.TartHostStateReserved
-		current.Status.MachineRef = hostdomain.RefForMachine(machine)
-		current.Status.ObservedGeneration = current.Generation
-		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
-			Type:               "Available",
-			Status:             metav1.ConditionFalse,
-			Reason:             "Reserved",
-			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
-			ObservedGeneration: current.Generation,
-		})
-		if err := s.client.Status().Update(ctx, current); err != nil {
+		original := current.DeepCopy()
+		status, err := hostdomain.ReserveStatus(current, machine)
+		if err != nil {
+			return nil, err
+		}
+		current.Status = status
+		if err := s.client.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
 			if apierrors.IsConflict(err) {
 				continue
 			}
@@ -75,27 +69,21 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 
 func (s *Service) MarkProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
 	original := host.DeepCopy()
-	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioning
-	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type:               "Available",
-		Status:             metav1.ConditionFalse,
-		Reason:             "Provisioning",
-		Message:            "Host is provisioning a TartMachine after Wake-on-LAN",
-		ObservedGeneration: host.Generation,
-	})
+	status, err := hostdomain.ProvisioningStatus(host)
+	if err != nil {
+		return err
+	}
+	host.Status = status
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 
 func (s *Service) MarkProvisioned(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
 	original := host.DeepCopy()
-	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioned
-	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type:               "Available",
-		Status:             metav1.ConditionFalse,
-		Reason:             "Provisioned",
-		Message:            "Host has been provisioned successfully",
-		ObservedGeneration: host.Generation,
-	})
+	status, err := hostdomain.ProvisionedStatus(host)
+	if err != nil {
+		return err
+	}
+	host.Status = status
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 
@@ -121,16 +109,7 @@ func (s *Service) ReleaseAssigned(ctx context.Context, machine *infrastructurev1
 
 func (s *Service) MarkAvailable(ctx context.Context, host *infrastructurev1alpha1.TartHost, reason, message string) error {
 	original := host.DeepCopy()
-	host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
-	host.Status.MachineRef = nil
-	host.Status.ObservedGeneration = host.Generation
-	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type:               "Available",
-		Status:             metav1.ConditionTrue,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: host.Generation,
-	})
+	host.Status = hostdomain.AvailableStatus(host, reason, message)
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 

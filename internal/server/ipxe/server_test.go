@@ -39,6 +39,7 @@ func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Obj
 		ro = append(ro, obj)
 	}
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(ro...)
+	builder.WithStatusSubresource(&infrastructurev1alpha1.TartHost{}, &infrastructurev1alpha1.TartMachine{})
 	builder.WithIndex(&infrastructurev1alpha1.TartHost{}, "spec.macAddress", func(rawObj client.Object) []string {
 		host := rawObj.(*infrastructurev1alpha1.TartHost)
 		if mac, err := ipxe.NormalizeMAC(host.Spec.MACAddress); err == nil {

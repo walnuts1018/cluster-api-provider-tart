@@ -61,6 +61,10 @@ type TartMachineStatus struct {
 	// +optional
 	BootstrapToken string `json:"bootstrapToken,omitempty"`
 
+	// bootstrapSecretName is the Secret name that stores bootstrap data served once to the host.
+	// +optional
+	BootstrapSecretName string `json:"bootstrapSecretName,omitempty"`
+
 	// provisioningStartTime is the start of the WoL and metadata access window.
 	// +optional
 	ProvisioningStartTime *metav1.Time `json:"provisioningStartTime,omitempty"`

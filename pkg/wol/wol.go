@@ -54,7 +54,9 @@ func (s Sender) Send(macAddress string) error {
 	if err != nil {
 		return fmt.Errorf("failed to dial wol address: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	if _, err := conn.Write(packet); err != nil {
 		return fmt.Errorf("failed to send wol magic packet: %w", err)

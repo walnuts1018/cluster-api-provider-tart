@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v4"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
@@ -43,15 +44,17 @@ func NewService(hostReader HostReader, hostProvisioner HostProvisioner, wolSende
 }
 
 func (s *service) Begin(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
+	log := ctrllog.FromContext(ctx).WithName("provisioning")
 	if err := retry.Do(
 		func() error {
 			return s.wolSender.Send(hostdomain.BootMACAddress(host))
 		},
+		retry.Context(ctx),
 		retry.MaxDelay(2*time.Second),
 		retry.Attempts(3),
 		retry.LastErrorOnly(true),
 		retry.OnRetry(func(n uint, err error) {
-			fmt.Printf("retrying WoL send (attempt %d/%d): %v\n", n+1, 3, err)
+			log.Error(err, "Retrying WoL send", "attempt", n+1, "maxAttempts", 3, "mac", hostdomain.BootMACAddress(host))
 		}),
 	); err != nil {
 		return fmt.Errorf("failed to send wake-on-lan after retries: %w", err)

@@ -19,11 +19,13 @@ package controller
 import (
 	"context"
 	"slices"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -498,6 +500,104 @@ var _ = Describe("TartMachine Controller", func() {
 				err := k8sClient.Get(ctx, typeNamespacedName, &infrastructurev1alpha1.TartMachine{})
 				g.Expect(errors.IsNotFound(err)).To(BeTrue())
 			}).Should(Succeed())
+		})
+	})
+
+	Context("When BootstrapToken has expired (TokenExpiresAt in the past)", func() {
+		const resourceName = "test-expired-token-resource"
+		const hostName = "test-expired-token-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress:     "00:11:22:33:44:aa",
+					BootMACAddress: "00:11:22:33:44:bb",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+
+			// ホストを Reserved 状態に設定
+			host.Status.State = infrastructurev1alpha1.TartHostStateReserved
+			host.Status.MachineRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			}
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+
+			// machine の status を設定（トークン期限が過去）
+			pastTime := metav1.NewTime(time.Now().Add(-11 * time.Minute))
+			machine.Status.HostRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartHost",
+				Namespace:  host.Namespace,
+				Name:       host.Name,
+				UID:        host.UID,
+			}
+			machine.Status.BootstrapToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901"
+			machine.Status.TokenExpiresAt = &pastTime
+			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should regenerate a new bootstrap token, re-send WoL, and transition host to Provisioning", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedMachine := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updatedMachine)).To(Succeed())
+			Expect(updatedMachine.Status.HostRef).NotTo(BeNil())
+			Expect(updatedMachine.Status.HostRef.Name).To(Equal(hostName))
+			Expect(updatedMachine.Status.BootstrapToken).To(MatchRegexp(`^[A-Za-z0-9]{64}$`))
+			Expect(updatedMachine.Status.TokenExpiresAt).NotTo(BeNil())
+			Expect(updatedMachine.Status.TokenExpiresAt.After(time.Now())).To(BeTrue())
+			Expect(updatedMachine.Status.Ready).To(BeFalse())
+			Expect(apimeta.IsStatusConditionTrue(updatedMachine.Status.Conditions, "Provisioning")).To(BeFalse())
+			provisioningCond := apimeta.FindStatusCondition(updatedMachine.Status.Conditions, "Provisioning")
+			Expect(provisioningCond).NotTo(BeNil())
+			Expect(provisioningCond.Reason).To(Equal("TokenExpired"))
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:bb"))
 		})
 	})
 })

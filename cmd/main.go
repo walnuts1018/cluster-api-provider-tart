@@ -225,17 +225,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.TartHostReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	reconcilers, err := InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
+	if err != nil {
+		setupLog.Error(err, "Failed to initialize reconcilers")
+		os.Exit(1)
+	}
+
+	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
 		os.Exit(1)
 	}
-	if err := (&controller.TartMachineReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	if err := reconcilers.TartMachine.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachine")
 		os.Exit(1)
 	}

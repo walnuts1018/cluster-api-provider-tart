@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,20 +34,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
 type TartMachineReconciler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	WakeOnLANSender WakeOnLANSender
-}
-
-// WakeOnLANSender はホストの電源投入を行うための境界です。
-type WakeOnLANSender interface {
-	Send(macAddress string) error
+	Scheme       *runtime.Scheme
+	HostService  applicationhost.Service
+	Provisioning applicationprovisioning.Service
 }
 
 const bootstrapTokenTTL = 10 * time.Minute
@@ -92,7 +89,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// HostRef が設定済みの場合はホストの Provisioning 状態を確認し、
 	// 未完了であれば WoL 再送信と状態遷移を行います（前回 reconcile の途中失敗からの再試行）。
 	if machine.Status.HostRef != nil {
-		return r.ensureHostProvisioning(ctx, &machine)
+		if err := r.provisioningService().Ensure(ctx, &machine); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// ワンタイムトークンは Bootstrap Data の推測困難な URL とシングルショット配信の基礎になります。
@@ -101,7 +101,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token: %w", err)
 	}
 
-	host, err := r.reserveAvailableHost(ctx, &machine)
+	host, err := r.hostService().ReserveAvailable(ctx, &machine)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -123,7 +123,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	original := machine.DeepCopy()
 	now := metav1.Now()
 	expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
-	machine.Status.HostRef = tartHostRef(host)
+	machine.Status.HostRef = hostdomain.RefForHost(host)
 	machine.Status.BootstrapToken = token.String()
 	machine.Status.ProvisioningStartTime = &now
 	machine.Status.TokenExpiresAt = &expiresAt
@@ -139,11 +139,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if err := r.wakeOnLANSender().Send(bootMACAddress(host)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
-	}
-
-	if err := r.markHostProvisioning(ctx, host); err != nil {
+	if err := r.provisioningService().Begin(ctx, host); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -166,7 +162,7 @@ func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *in
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.releaseAssignedHost(ctx, machine); err != nil {
+	if err := r.hostService().ReleaseAssigned(ctx, machine); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -175,146 +171,18 @@ func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *in
 	return ctrl.Result{}, r.Patch(ctx, machine, client.MergeFrom(original))
 }
 
-// ensureHostProvisioning は HostRef が設定済みの機械に対して、
-// 割り当てホストが Provisioning 状態であることを保証します。
-// 前回の reconcile が WoL 送信や状態遷移の途中で失敗した場合のリカバリに使用します。
-func (r *TartMachineReconciler) ensureHostProvisioning(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (ctrl.Result, error) {
-	var host infrastructurev1alpha1.TartHost
-	if err := r.Get(ctx, types.NamespacedName{
-		Namespace: machine.Status.HostRef.Namespace,
-		Name:      machine.Status.HostRef.Name,
-	}, &host); err != nil {
-		return ctrl.Result{}, err
+func (r *TartMachineReconciler) hostService() applicationhost.Service {
+	if r.HostService != nil {
+		return r.HostService
 	}
-
-	// すでに Provisioning 以降の状態であれば対応不要
-	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning ||
-		host.Status.State == infrastructurev1alpha1.TartHostStateProvisioned {
-		return ctrl.Result{}, nil
-	}
-
-	if err := r.wakeOnLANSender().Send(bootMACAddress(&host)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
-	}
-	return ctrl.Result{}, r.markHostProvisioning(ctx, &host)
+	panic("HostService is not configured")
 }
 
-func (r *TartMachineReconciler) wakeOnLANSender() WakeOnLANSender {
-	if r.WakeOnLANSender != nil {
-		return r.WakeOnLANSender
+func (r *TartMachineReconciler) provisioningService() applicationprovisioning.Service {
+	if r.Provisioning != nil {
+		return r.Provisioning
 	}
-	return wol.DefaultSender()
-}
-
-func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
-	var hosts infrastructurev1alpha1.TartHostList
-	if err := r.List(ctx, &hosts, client.InNamespace(machine.Namespace)); err != nil {
-		return nil, err
-	}
-
-	for i := range hosts.Items {
-		candidate := &hosts.Items[i]
-		if candidate.Status.State != infrastructurev1alpha1.TartHostStateAvailable || candidate.Status.MachineRef != nil {
-			continue
-		}
-
-		host := &infrastructurev1alpha1.TartHost{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(candidate), host); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			return nil, err
-		}
-		if host.Status.State != infrastructurev1alpha1.TartHostStateAvailable || host.Status.MachineRef != nil {
-			continue
-		}
-
-		host.Status.State = infrastructurev1alpha1.TartHostStateReserved
-		host.Status.MachineRef = tartMachineRef(machine)
-		host.Status.ObservedGeneration = host.Generation
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               "Available",
-			Status:             metav1.ConditionFalse,
-			Reason:             "Reserved",
-			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
-			ObservedGeneration: host.Generation,
-		})
-		if err := r.Status().Update(ctx, host); err != nil {
-			if apierrors.IsConflict(err) {
-				continue
-			}
-			return nil, err
-		}
-		return host, nil
-	}
-
-	return nil, nil
-}
-
-func (r *TartMachineReconciler) markHostProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
-	original := host.DeepCopy()
-	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioning
-	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type:               "Available",
-		Status:             metav1.ConditionFalse,
-		Reason:             "Provisioning",
-		Message:            "Host is provisioning a TartMachine after Wake-on-LAN",
-		ObservedGeneration: host.Generation,
-	})
-	return r.Status().Patch(ctx, host, client.MergeFrom(original))
-}
-
-func (r *TartMachineReconciler) releaseAssignedHost(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
-	if machine.Status.HostRef == nil {
-		return nil
-	}
-
-	var host infrastructurev1alpha1.TartHost
-	if err := r.Get(ctx, types.NamespacedName{
-		Namespace: machine.Status.HostRef.Namespace,
-		Name:      machine.Status.HostRef.Name,
-	}, &host); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return err
-	}
-
-	if host.Status.MachineRef == nil ||
-		host.Status.MachineRef.Name != machine.Name ||
-		host.Status.MachineRef.Namespace != machine.Namespace ||
-		(host.Status.MachineRef.UID != "" && machine.UID != "" && host.Status.MachineRef.UID != machine.UID) {
-		return nil
-	}
-
-	return markHostAvailable(ctx, r.Status(), &host, "Released", fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name))
-}
-
-func bootMACAddress(host *infrastructurev1alpha1.TartHost) string {
-	if host.Spec.BootMACAddress != "" {
-		return host.Spec.BootMACAddress
-	}
-	return host.Spec.MACAddress
-}
-
-func tartHostRef(host *infrastructurev1alpha1.TartHost) *corev1.ObjectReference {
-	return &corev1.ObjectReference{
-		APIVersion: infrastructurev1alpha1.GroupVersion.String(),
-		Kind:       "TartHost",
-		Namespace:  host.Namespace,
-		Name:       host.Name,
-		UID:        host.UID,
-	}
-}
-
-func tartMachineRef(machine *infrastructurev1alpha1.TartMachine) *corev1.ObjectReference {
-	return &corev1.ObjectReference{
-		APIVersion: infrastructurev1alpha1.GroupVersion.String(),
-		Kind:       "TartMachine",
-		Namespace:  machine.Namespace,
-		Name:       machine.Name,
-		UID:        machine.UID,
-	}
+	panic("Provisioning service is not configured")
 }
 
 // SetupWithManager sets up the controller with the Manager.

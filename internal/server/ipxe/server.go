@@ -286,7 +286,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("iPXE HTTP サーバーを起動します", "addr", s.addr)
+		log.Info("Starting iPXE HTTP server", "addr", s.addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
@@ -299,7 +299,7 @@ func (s *Server) Start(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		log.Info("iPXE HTTP サーバーを停止します", "addr", s.addr)
+		log.Info("Stopping iPXE HTTP server", "addr", s.addr)
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return err
 		}

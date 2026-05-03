@@ -119,7 +119,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 		_ = b.Stop()
 	}()
 
-	lg.Info("DHCP サーバーを起動しました")
+	lg.Info("DHCP server started")
 	return nil
 }
 

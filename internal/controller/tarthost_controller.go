@@ -66,7 +66,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := markHostAvailable(ctx, r.Status(), &host, "InventoryReady", "Host is available for TartMachine assignment"); err != nil {
 			return ctrl.Result{}, err
 		}
-		log.Info("TartHost を利用可能状態にしました", "host", req.String())
+		log.Info("Set TartHost to available state", "host", req.String())
 	}
 
 	if host.Status.MachineRef != nil {

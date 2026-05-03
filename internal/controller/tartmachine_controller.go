@@ -147,7 +147,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	log.Info("TartMachine に TartHost を割り当てました", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
+	log.Info("Assigned TartHost to TartMachine", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
 	return ctrl.Result{}, nil
 }
 
@@ -213,12 +213,22 @@ func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machin
 	}
 
 	for i := range hosts.Items {
-		host := &hosts.Items[i]
+		candidate := &hosts.Items[i]
+		if candidate.Status.State != infrastructurev1alpha1.TartHostStateAvailable || candidate.Status.MachineRef != nil {
+			continue
+		}
+
+		host := &infrastructurev1alpha1.TartHost{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(candidate), host); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
 		if host.Status.State != infrastructurev1alpha1.TartHostStateAvailable || host.Status.MachineRef != nil {
 			continue
 		}
 
-		original := host.DeepCopy()
 		host.Status.State = infrastructurev1alpha1.TartHostStateReserved
 		host.Status.MachineRef = tartMachineRef(machine)
 		host.Status.ObservedGeneration = host.Generation
@@ -229,7 +239,10 @@ func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machin
 			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
 			ObservedGeneration: host.Generation,
 		})
-		if err := r.Status().Patch(ctx, host, client.MergeFrom(original)); err != nil {
+		if err := r.Status().Update(ctx, host); err != nil {
+			if apierrors.IsConflict(err) {
+				continue
+			}
 			return nil, err
 		}
 		return host, nil
@@ -331,7 +344,7 @@ func (r *TartMachineReconciler) tartHostToUnassignedTartMachines(ctx context.Con
 
 	var machines infrastructurev1alpha1.TartMachineList
 	if err := r.List(ctx, &machines, client.InNamespace(host.Namespace)); err != nil {
-		logf.FromContext(ctx).Error(err, "未割当 TartMachine の一覧取得に失敗しました", "host", client.ObjectKeyFromObject(host).String())
+		logf.FromContext(ctx).Error(err, "Failed to list unassigned TartMachines", "host", client.ObjectKeyFromObject(host).String())
 		return nil
 	}
 

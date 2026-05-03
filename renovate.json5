@@ -1,0 +1,22 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'github>walnuts1018/renovate-config',
+  ],
+  customManagers: [
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^config/.*/kustomization.yaml$/',
+        '/^test/utils/utils.go$/',
+      ],
+      matchStringsStrategy: 'any',
+      matchStrings: [
+        'https:\\/\\/github\\.com\\/(?<depName>.*?)\\/releases\\/download\\/(?<currentValue>[^\\/]+)\\/.*\\s*',
+        'https:\\/\\/raw\\.githubusercontent\\.com\\/(?<depName>.*?)\\/refs\\/tags\\/(?<currentValue>[^\\/]+)\\/.*\\s*',
+        'https:\\/\\/raw\\.githubusercontent\\.com\\/(?<depName>[^/]+\\/[^/]+?)\\/(?<currentValue>[^\\/]+?)\\/.*\\s*',
+      ],
+      datasourceTemplate: 'github-tags',
+    },
+  ],
+}

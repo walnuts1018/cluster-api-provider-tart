@@ -21,8 +21,12 @@ func TestNewTFTPBootstrapper(t *testing.T) {
 		if bs.addr != ":69" {
 			t.Errorf("expected addr :69, got %s", bs.addr)
 		}
-		if bs.root != tmpDir {
-			t.Errorf("expected root %s, got %s", tmpDir, bs.root)
+		resolvedRoot, err := filepath.EvalSymlinks(tmpDir)
+		if err != nil {
+			t.Fatalf("failed to eval root path: %v", err)
+		}
+		if bs.root != resolvedRoot {
+			t.Errorf("expected root %s, got %s", resolvedRoot, bs.root)
 		}
 	})
 
@@ -205,6 +209,12 @@ func TestResolveTFTPFilePath(t *testing.T) {
 			t.Fatalf("failed to create target dir: %v", err)
 		}
 
+		// ターゲットにダミーファイルを作成し、EvalSymlinks が成功するようにする
+		targetFile := filepath.Join(targetDir, "secret.txt")
+		if err := os.WriteFile(targetFile, []byte("secret"), 0644); err != nil {
+			t.Fatalf("failed to create target file: %v", err)
+		}
+
 		linkPath := filepath.Join(root, "link")
 		if err := os.Symlink(targetDir, linkPath); err != nil {
 			t.Fatalf("failed to create symlink: %v", err)
@@ -238,6 +248,22 @@ func TestOpenTFTPFile(t *testing.T) {
 		}
 		if err == nil {
 			t.Fatal("expected oversized file to be rejected")
+		}
+	})
+
+	t.Run("rejects directory", func(t *testing.T) {
+		root := t.TempDir()
+		subDir := filepath.Join(root, "subdir")
+		if err := os.MkdirAll(subDir, 0755); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+
+		opened, err := openTFTPFile(root, "subdir")
+		if opened != nil {
+			_ = opened.Close()
+		}
+		if err == nil {
+			t.Fatal("expected directory to be rejected")
 		}
 	})
 }

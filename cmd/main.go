@@ -20,19 +20,22 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"log/slog"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -68,6 +71,8 @@ func main() {
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var logLevelStr string
+	var logTypeStr string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -90,13 +95,15 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	flag.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
+	flag.StringVar(&logTypeStr, "log-type", "json", "Log type (json, text)")
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := createLogger(logLevelStr, logTypeStr)
+	logrLogger := logr.FromSlogHandler(logger.Handler())
+	slog.SetDefault(logger)
+	klog.SetLogger(logrLogger)
+	ctrl.SetLogger(logrLogger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -259,5 +266,58 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
+	}
+}
+
+type LogType string
+
+const (
+	LogTypeJSON LogType = "json"
+	LogTypeText LogType = "text"
+)
+
+func createLogger(logLevelStr, logTypeStr string) *slog.Logger {
+	logLevel := resolveLogLevel(logLevelStr)
+	logType := resolveLogType(logTypeStr)
+
+	options := &slog.HandlerOptions{
+		Level:     logLevel,
+		AddSource: logLevel == slog.LevelDebug,
+	}
+
+	var handler slog.Handler
+	switch logType {
+	case LogTypeText:
+		handler = slog.NewTextHandler(os.Stdout, options)
+	default:
+		handler = slog.NewJSONHandler(os.Stdout, options)
+	}
+
+	return slog.New(handler)
+}
+
+func resolveLogLevel(logLevelStr string) slog.Level {
+	switch strings.ToLower(logLevelStr) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+func resolveLogType(logTypeStr string) LogType {
+	switch strings.ToLower(logTypeStr) {
+	case string(LogTypeText):
+		return LogTypeText
+	case string(LogTypeJSON):
+		return LogTypeJSON
+	default:
+		return LogTypeJSON
 	}
 }

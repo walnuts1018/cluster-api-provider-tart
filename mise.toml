@@ -8,3 +8,19 @@ kubebuilder = "latest"
 kubectl = "latest"
 tilt = "latest"
 golangci-lint = "latest"
+
+[tasks.generate]
+description = "DeepCopy コードを生成する"
+run = "make generate"
+
+[tasks.manifests]
+description = "CRD と RBAC マニフェストを生成する"
+run = "make manifests"
+
+[tasks.test]
+description = "Go テストを実行する"
+run = "make test"
+
+[tasks.lint]
+description = "golangci-lint を実行する"
+run = "make lint"

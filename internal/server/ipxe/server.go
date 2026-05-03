@@ -98,7 +98,7 @@ func NormalizeMAC(mac string) (string, error) {
 	return hw.String(), nil
 }
 
-func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, requestedMAC string) string {
+func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMachine, _ *infrastructurev1alpha1.TartHost, requestedMAC string) string {
 	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
 	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
 	// serverURL := fmt.Sprintf("http://%s", c.Request().Host)
@@ -119,12 +119,12 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 	// }
 
 	if params == "" {
-		sb.WriteString(fmt.Sprintf("kernel %s\n", machine.Spec.Image))
+		fmt.Fprintf(&sb, "kernel %s\n", machine.Spec.Image)
 	} else {
-		sb.WriteString(fmt.Sprintf("kernel %s %s\n", machine.Spec.Image, params))
+		fmt.Fprintf(&sb, "kernel %s %s\n", machine.Spec.Image, params)
 	}
 	if machine.Spec.Initrd != "" {
-		sb.WriteString(fmt.Sprintf("initrd %s\n", machine.Spec.Initrd))
+		fmt.Fprintf(&sb, "initrd %s\n", machine.Spec.Initrd)
 	}
 	sb.WriteString("boot\n")
 

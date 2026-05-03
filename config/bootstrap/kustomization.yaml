@@ -1,0 +1,8 @@
+namespace: cluster-api-provider-tart-system
+
+namePrefix: cluster-api-provider-tart-
+
+resources:
+- bootstrap_configmap.yaml
+- bootstrap_deployment.yaml
+- bootstrap_service.yaml

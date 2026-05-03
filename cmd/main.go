@@ -20,19 +20,21 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"log/slog"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -41,6 +43,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
+	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -63,16 +66,20 @@ func main() {
 	var enableLeaderElection bool
 	var ipxeBindAddress string
 	var bootstrapBindAddress string
+	var assetsRoot string
 	var tftpRoot string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
+	var logLevelStr string
+	var logTypeStr string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":67", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
+	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -88,13 +95,15 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	flag.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
+	flag.StringVar(&logTypeStr, "log-type", "json", "Log type (json, text)")
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	logger := applogger.Create(logLevelStr, logTypeStr)
+	logrLogger := logr.FromSlogHandler(logger.Handler())
+	slog.SetDefault(logger)
+	klog.SetLogger(logrLogger)
+	ctrl.SetLogger(logrLogger)
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -226,7 +235,7 @@ func main() {
 		os.Exit(1)
 	}
 	if ipxeBindAddress != "0" {
-		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress)); err != nil {
+		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress, assetsRoot)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
 			os.Exit(1)
 		}

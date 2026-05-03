@@ -26,10 +26,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
@@ -169,6 +172,41 @@ func tartMachineRef(machine *infrastructurev1alpha1.TartMachine) *corev1.ObjectR
 func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1alpha1.TartMachine{}).
+		// TartHost が Available になったとき、同 namespace の未割当 TartMachine を再 reconcile します。
+		Watches(
+			&infrastructurev1alpha1.TartHost{},
+			handler.EnqueueRequestsFromMapFunc(r.tartHostToUnassignedTartMachines),
+		).
 		Named("tartmachine").
 		Complete(r)
+}
+
+// tartHostToUnassignedTartMachines は TartHost の変更を受け取り、
+// 同 namespace の未割当 TartMachine を reconcile キューに積みます。
+func (r *TartMachineReconciler) tartHostToUnassignedTartMachines(ctx context.Context, obj client.Object) []reconcile.Request {
+	host, ok := obj.(*infrastructurev1alpha1.TartHost)
+	if !ok {
+		return nil
+	}
+	if host.Status.State != infrastructurev1alpha1.TartHostStateAvailable {
+		return nil
+	}
+
+	var machines infrastructurev1alpha1.TartMachineList
+	if err := r.List(ctx, &machines, client.InNamespace(host.Namespace)); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(machines.Items))
+	for _, machine := range machines.Items {
+		if machine.Status.HostRef == nil {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: machine.Namespace,
+					Name:      machine.Name,
+				},
+			})
+		}
+	}
+	return requests
 }

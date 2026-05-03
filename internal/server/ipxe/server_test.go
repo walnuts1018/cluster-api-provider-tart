@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
@@ -18,6 +19,9 @@ import (
 func setupScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add corev1 scheme: %v", err)
+	}
 	if err := infrastructurev1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add scheme: %v", err)
 	}
@@ -31,6 +35,7 @@ func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Obj
 		ro = append(ro, obj)
 	}
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(ro...)
+	builder.WithStatusSubresource(&infrastructurev1alpha1.TartHost{}, &infrastructurev1alpha1.TartMachine{})
 	builder.WithIndex(&infrastructurev1alpha1.TartHost{}, "spec.macAddress", func(rawObj client.Object) []string {
 		host := rawObj.(*infrastructurev1alpha1.TartHost)
 		if mac, err := ipxe.NormalizeMAC(host.Spec.MACAddress); err == nil {
@@ -174,6 +179,81 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 		}
 	})
+}
+
+func TestHandlerMetadataSingleUse(t *testing.T) {
+	scheme := setupScheme(t)
+	mac := "00:11:22:33:44:55"
+	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
+	now := metav1.NewTime(time.Now())
+	expiresAt := metav1.NewTime(now.Add(10 * time.Minute))
+
+	host := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: mac,
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine",
+				Namespace: "default",
+			},
+		},
+	}
+	machine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+		},
+		Status: infrastructurev1alpha1.TartMachineStatus{
+			BootstrapToken:        token,
+			BootstrapSecretName:   "test-bootstrap-data",
+			ProvisioningStartTime: &now,
+			TokenExpiresAt:        &expiresAt,
+		},
+	}
+	bootstrapSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-bootstrap-data",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"value": []byte("machine-config"),
+		},
+	}
+
+	cl := setupFakeClient(t, scheme, host, machine, bootstrapSecret)
+	handler := ipxe.NewHandler(cl)
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/"+mac+"?token="+token, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Body.String(); got != "machine-config" {
+		t.Fatalf("first body = %q, want %q", got, "machine-config")
+	}
+
+	var updated infrastructurev1alpha1.TartMachine
+	if err := cl.Get(req.Context(), client.ObjectKey{Name: "test-machine", Namespace: "default"}, &updated); err != nil {
+		t.Fatalf("failed to get updated machine: %v", err)
+	}
+	if updated.Status.BootstrapToken != "" {
+		t.Fatalf("BootstrapToken = %q, want empty after first download", updated.Status.BootstrapToken)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodGet, "/metadata/"+mac+"?token="+token, nil)
+	secondRec := httptest.NewRecorder()
+	handler.ServeHTTP(secondRec, secondReq)
+
+	if secondRec.Code != http.StatusForbidden {
+		t.Fatalf("second status = %d, want %d\nbody=%s", secondRec.Code, http.StatusForbidden, secondRec.Body.String())
+	}
 }
 
 func TestHandlerServesHealthEndpoints(t *testing.T) {

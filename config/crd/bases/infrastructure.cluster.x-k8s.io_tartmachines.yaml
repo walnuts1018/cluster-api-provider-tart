@@ -63,6 +63,10 @@ spec:
           status:
             description: status defines the observed state of TartMachine
             properties:
+              bootstrapSecretName:
+                description: bootstrapSecretName is the Secret name that stores bootstrap
+                  data served once to the host.
+                type: string
               bootstrapToken:
                 description: bootstrapToken is an unguessable one-time token for serving
                   bootstrap data.

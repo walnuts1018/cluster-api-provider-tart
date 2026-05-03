@@ -2,6 +2,7 @@ package ipxe
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -38,54 +40,60 @@ func NewHandler(cl client.Client) http.Handler {
 		if mac == "" {
 			return c.String(http.StatusBadRequest, "mac query parameter is required")
 		}
-		normalizedMAC, err := NormalizeMAC(mac)
+		targetHost, machine, normalizedMAC, err := findAssignedMachine(c.Request().Context(), cl, mac)
 		if err != nil {
-			return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
+			return renderMachineLookupError(c, mac, err)
 		}
 
-		ctx := c.Request().Context()
-
-		// Use index to find TartHost by MAC address
-		var hosts infrastructurev1alpha1.TartHostList
-		if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
-			return c.String(http.StatusInternalServerError, "failed to list hosts by macAddress")
-		}
-
-		// Also check bootMACAddress if not found by macAddress
-		var bootHosts infrastructurev1alpha1.TartHostList
-		if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
-			return c.String(http.StatusInternalServerError, "failed to list hosts by bootMACAddress")
-		}
-
-		var targetHost *infrastructurev1alpha1.TartHost
-		if len(bootHosts.Items) > 0 {
-			targetHost = &bootHosts.Items[0]
-		} else if len(hosts.Items) > 0 {
-			targetHost = &hosts.Items[0]
-		}
-
-		if targetHost == nil {
-			return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
-		}
-
-		if targetHost.Status.MachineRef == nil {
-			return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
-		}
-
-		var machine infrastructurev1alpha1.TartMachine
-		if err := cl.Get(ctx, client.ObjectKey{
-			Namespace: targetHost.Status.MachineRef.Namespace,
-			Name:      targetHost.Status.MachineRef.Name,
-		}, &machine); err != nil {
-			if apierrors.IsNotFound(err) {
-				return c.String(http.StatusNotFound, "assigned TartMachine not found")
-			}
-			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-		}
-
-		script := generateIPXEScript(c, &machine, targetHost, normalizedMAC)
+		script := generateIPXEScript(c, machine, targetHost, normalizedMAC)
 
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
+	})
+	e.GET("/metadata/:mac", func(c *echo.Context) error {
+		token := c.QueryParam("token")
+		if token == "" {
+			return c.String(http.StatusBadRequest, "token query parameter is required")
+		}
+
+		_, machine, _, err := findAssignedMachine(c.Request().Context(), cl, c.Param("mac"))
+		if err != nil {
+			return renderMachineLookupError(c, c.Param("mac"), err)
+		}
+
+		if !bootstrapTokenMatches(machine.Status.BootstrapToken, token) {
+			return c.String(http.StatusForbidden, "invalid bootstrap token")
+		}
+		if machine.Status.TokenExpiresAt != nil && time.Now().After(machine.Status.TokenExpiresAt.Time) {
+			return c.String(http.StatusForbidden, "bootstrap token has expired")
+		}
+		if machine.Status.BootstrapSecretName == "" {
+			return c.String(http.StatusNotFound, "bootstrap secret is not configured")
+		}
+
+		var bootstrapSecret corev1.Secret
+		if err := cl.Get(c.Request().Context(), client.ObjectKey{
+			Namespace: machine.Namespace,
+			Name:      machine.Status.BootstrapSecretName,
+		}, &bootstrapSecret); err != nil {
+			if apierrors.IsNotFound(err) {
+				return c.String(http.StatusNotFound, "bootstrap secret was not found")
+			}
+			return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
+		}
+
+		bootstrapData, ok := bootstrapSecret.Data["value"]
+		if !ok {
+			return c.String(http.StatusInternalServerError, "bootstrap secret does not contain value data")
+		}
+
+		if err := consumeBootstrapToken(c.Request().Context(), cl, machine); err != nil {
+			if apierrors.IsConflict(err) {
+				return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+			}
+			return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
+		}
+
+		return c.Blob(http.StatusOK, "application/octet-stream", bootstrapData)
 	})
 	return e
 }
@@ -129,6 +137,82 @@ func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMac
 	sb.WriteString("boot\n")
 
 	return sb.String()
+}
+
+func findAssignedMachine(ctx context.Context, cl client.Client, mac string) (*infrastructurev1alpha1.TartHost, *infrastructurev1alpha1.TartMachine, string, error) {
+	normalizedMAC, err := NormalizeMAC(mac)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("%w: %s", errInvalidMAC, mac)
+	}
+
+	var hosts infrastructurev1alpha1.TartHostList
+	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
+		return nil, nil, "", fmt.Errorf("%w: %w", errListHostsByMAC, err)
+	}
+
+	var bootHosts infrastructurev1alpha1.TartHostList
+	if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
+		return nil, nil, "", fmt.Errorf("%w: %w", errListHostsByBootMAC, err)
+	}
+
+	var targetHost *infrastructurev1alpha1.TartHost
+	if len(bootHosts.Items) > 0 {
+		targetHost = &bootHosts.Items[0]
+	} else if len(hosts.Items) > 0 {
+		targetHost = &hosts.Items[0]
+	}
+	if targetHost == nil {
+		return nil, nil, normalizedMAC, apierrors.NewNotFound(infrastructurev1alpha1.GroupVersion.WithResource("tarthosts").GroupResource(), normalizedMAC)
+	}
+	if targetHost.Status.MachineRef == nil {
+		return nil, nil, normalizedMAC, errHostNotAssigned
+	}
+
+	var machine infrastructurev1alpha1.TartMachine
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: targetHost.Status.MachineRef.Namespace,
+		Name:      targetHost.Status.MachineRef.Name,
+	}, &machine); err != nil {
+		return nil, nil, normalizedMAC, err
+	}
+
+	return targetHost, &machine, normalizedMAC, nil
+}
+
+var (
+	errHostNotAssigned    = errors.New("host is not assigned to any machine")
+	errInvalidMAC         = errors.New("invalid mac address")
+	errListHostsByMAC     = errors.New("failed to list hosts by mac address")
+	errListHostsByBootMAC = errors.New("failed to list hosts by boot mac address")
+)
+
+func renderMachineLookupError(c *echo.Context, mac string, err error) error {
+	switch {
+	case errors.Is(err, errHostNotAssigned):
+		return c.String(http.StatusPreconditionFailed, errHostNotAssigned.Error())
+	case errors.Is(err, errInvalidMAC):
+		return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
+	case apierrors.IsNotFound(err):
+		return c.String(http.StatusNotFound, "assigned resource was not found")
+	case errors.Is(err, errListHostsByMAC), errors.Is(err, errListHostsByBootMAC):
+		return c.String(http.StatusInternalServerError, "failed to list hosts by mac address")
+	default:
+		return c.String(http.StatusInternalServerError, "failed to resolve assigned TartMachine")
+	}
+}
+
+func bootstrapTokenMatches(expected, provided string) bool {
+	if expected == "" || len(expected) != len(provided) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
+}
+
+func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
+	original := machine.DeepCopy()
+	machine.Status.BootstrapToken = ""
+	machine.Status.TokenExpiresAt = nil
+	return cl.Status().Patch(ctx, machine, client.MergeFrom(original))
 }
 
 func NewServer(cl client.Client, addr string) *Server {

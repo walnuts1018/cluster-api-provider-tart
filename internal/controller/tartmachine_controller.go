@@ -34,24 +34,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
-	provisioningdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/provisioning"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
 type TartMachineReconciler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	WakeOnLANSender WakeOnLANSender
-	HostService     hostdomain.Service
-	Provisioning    provisioningdomain.Service
-}
-
-// WakeOnLANSender はホストの電源投入を行うための境界です。
-type WakeOnLANSender interface {
-	Send(macAddress string) error
+	Scheme       *runtime.Scheme
+	HostService  applicationhost.Service
+	Provisioning applicationprovisioning.Service
 }
 
 const bootstrapTokenTTL = 10 * time.Minute
@@ -177,28 +171,18 @@ func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *in
 	return ctrl.Result{}, r.Patch(ctx, machine, client.MergeFrom(original))
 }
 
-// ensureHostProvisioning は HostRef が設定済みの機械に対して、
-// 割り当てホストが Provisioning 状態であることを保証します。
-// 前回の reconcile が WoL 送信や状態遷移の途中で失敗した場合のリカバリに使用します。
-func (r *TartMachineReconciler) wakeOnLANSender() WakeOnLANSender {
-	if r.WakeOnLANSender != nil {
-		return r.WakeOnLANSender
-	}
-	return wol.DefaultSender()
-}
-
-func (r *TartMachineReconciler) hostService() hostdomain.Service {
+func (r *TartMachineReconciler) hostService() applicationhost.Service {
 	if r.HostService != nil {
 		return r.HostService
 	}
-	return hostdomain.NewService(r.Client)
+	panic("HostService is not configured")
 }
 
-func (r *TartMachineReconciler) provisioningService() provisioningdomain.Service {
+func (r *TartMachineReconciler) provisioningService() applicationprovisioning.Service {
 	if r.Provisioning != nil {
 		return r.Provisioning
 	}
-	return provisioningdomain.NewService(r.Client, r.hostService(), r.wakeOnLANSender())
+	panic("Provisioning service is not configured")
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -24,13 +24,16 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 )
 
 const tartMachineHostCleanupFinalizerName = "infrastructure.cluster.x-k8s.io/tartmachine-host-cleanup"
@@ -95,11 +98,7 @@ var _ = Describe("TartMachine Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			wolSender := &fakeWakeOnLANSender{}
-			controllerReconciler := &TartMachineReconciler{
-				Client:          k8sClient,
-				Scheme:          k8sClient.Scheme(),
-				WakeOnLANSender: wolSender,
-			}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -188,11 +187,7 @@ var _ = Describe("TartMachine Controller", func() {
 
 		It("should resend Wake-on-LAN and transition host to Provisioning", func() {
 			wolSender := &fakeWakeOnLANSender{}
-			controllerReconciler := &TartMachineReconciler{
-				Client:          k8sClient,
-				Scheme:          k8sClient.Scheme(),
-				WakeOnLANSender: wolSender,
-			}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -273,7 +268,7 @@ var _ = Describe("TartMachine Controller", func() {
 			machine := &infrastructurev1alpha1.TartMachine{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, machine)).To(Succeed())
 
-			Expect(hostdomain.NewService(k8sClient).ReleaseAssigned(ctx, machine)).To(Succeed())
+			Expect(k8shost.NewService(k8sClient).ReleaseAssigned(ctx, machine)).To(Succeed())
 
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
@@ -332,11 +327,7 @@ var _ = Describe("TartMachine Controller", func() {
 
 		It("should send Wake-on-LAN to boot MAC address", func() {
 			wolSender := &fakeWakeOnLANSender{}
-			controllerReconciler := &TartMachineReconciler{
-				Client:          k8sClient,
-				Scheme:          k8sClient.Scheme(),
-				WakeOnLANSender: wolSender,
-			}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -395,11 +386,7 @@ var _ = Describe("TartMachine Controller", func() {
 		})
 
 		It("should release the assigned host before removing the finalizer", func() {
-			controllerReconciler := &TartMachineReconciler{
-				Client:          k8sClient,
-				Scheme:          k8sClient.Scheme(),
-				WakeOnLANSender: &fakeWakeOnLANSender{},
-			}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), &fakeWakeOnLANSender{})
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,
@@ -437,6 +424,16 @@ type fakeWakeOnLANSender struct {
 func (s *fakeWakeOnLANSender) Send(macAddress string) error {
 	s.sentMACAddresses = append(s.sentMACAddresses, macAddress)
 	return nil
+}
+
+func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, wolSender applicationprovisioning.WakeOnLANSender) *TartMachineReconciler {
+	hostService := k8shost.NewService(k8sClient)
+	return &TartMachineReconciler{
+		Client:       k8sClient,
+		Scheme:       scheme,
+		HostService:  hostService,
+		Provisioning: applicationprovisioning.NewService(hostService, hostService, wolSender),
+	}
 }
 
 func cleanupTartMachine(ctx context.Context, key types.NamespacedName) {

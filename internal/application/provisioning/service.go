@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
@@ -15,7 +12,11 @@ type WakeOnLANSender interface {
 	Send(macAddress string) error
 }
 
-type HostService interface {
+type HostReader interface {
+	GetAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error)
+}
+
+type HostProvisioner interface {
 	MarkProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error
 }
 
@@ -25,16 +26,16 @@ type Service interface {
 }
 
 type service struct {
-	client      client.Client
-	hostService HostService
-	wolSender   WakeOnLANSender
+	hostReader      HostReader
+	hostProvisioner HostProvisioner
+	wolSender       WakeOnLANSender
 }
 
-func NewService(k8sClient client.Client, hostService HostService, wolSender WakeOnLANSender) Service {
+func NewService(hostReader HostReader, hostProvisioner HostProvisioner, wolSender WakeOnLANSender) Service {
 	return &service{
-		client:      k8sClient,
-		hostService: hostService,
-		wolSender:   wolSender,
+		hostReader:      hostReader,
+		hostProvisioner: hostProvisioner,
+		wolSender:       wolSender,
 	}
 }
 
@@ -42,7 +43,7 @@ func (s *service) Begin(ctx context.Context, host *infrastructurev1alpha1.TartHo
 	if err := s.wolSender.Send(hostdomain.BootMACAddress(host)); err != nil {
 		return fmt.Errorf("failed to send wake-on-lan: %w", err)
 	}
-	return s.hostService.MarkProvisioning(ctx, host)
+	return s.hostProvisioner.MarkProvisioning(ctx, host)
 }
 
 func (s *service) Ensure(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
@@ -50,18 +51,15 @@ func (s *service) Ensure(ctx context.Context, machine *infrastructurev1alpha1.Ta
 		return nil
 	}
 
-	var currentHost infrastructurev1alpha1.TartHost
-	if err := s.client.Get(ctx, types.NamespacedName{
-		Namespace: machine.Status.HostRef.Namespace,
-		Name:      machine.Status.HostRef.Name,
-	}, &currentHost); err != nil {
+	host, err := s.hostReader.GetAssigned(ctx, machine)
+	if err != nil {
 		return err
 	}
 
-	if currentHost.Status.State == infrastructurev1alpha1.TartHostStateProvisioning ||
-		currentHost.Status.State == infrastructurev1alpha1.TartHostStateProvisioned {
+	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning ||
+		host.Status.State == infrastructurev1alpha1.TartHostStateProvisioned {
 		return nil
 	}
 
-	return s.Begin(ctx, &currentHost)
+	return s.Begin(ctx, host)
 }

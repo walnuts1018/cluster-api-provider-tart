@@ -8,9 +8,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
-	provisioningdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 )
 
@@ -19,11 +20,11 @@ type Reconcilers struct {
 	TartMachine *controller.TartMachineReconciler
 }
 
-func provideWakeOnLANSender() provisioningdomain.WakeOnLANSender {
+func provideWakeOnLANSender() applicationprovisioning.WakeOnLANSender {
 	return wol.DefaultSender()
 }
 
-func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, hostService hostdomain.Service) *controller.TartHostReconciler {
+func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, hostService applicationhost.Service) *controller.TartHostReconciler {
 	return &controller.TartHostReconciler{
 		Client:      k8sClient,
 		Scheme:      scheme,
@@ -34,8 +35,8 @@ func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, 
 func provideTartMachineReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
-	hostService hostdomain.Service,
-	provisioningService provisioningdomain.Service,
+	hostService applicationhost.Service,
+	provisioningService applicationprovisioning.Service,
 ) *controller.TartMachineReconciler {
 	return &controller.TartMachineReconciler{
 		Client:       k8sClient,
@@ -57,10 +58,12 @@ func provideReconcilers(
 
 func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Reconcilers, error) {
 	wire.Build(
-		hostdomain.NewService,
-		wire.Bind(new(provisioningdomain.HostService), new(hostdomain.Service)),
+		k8shost.NewService,
+		wire.Bind(new(applicationhost.Service), new(*k8shost.Service)),
+		wire.Bind(new(applicationprovisioning.HostReader), new(*k8shost.Service)),
+		wire.Bind(new(applicationprovisioning.HostProvisioner), new(*k8shost.Service)),
 		provideWakeOnLANSender,
-		provisioningdomain.NewService,
+		applicationprovisioning.NewService,
 		provideTartHostReconciler,
 		provideTartMachineReconciler,
 		provideReconcilers,

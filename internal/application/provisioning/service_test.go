@@ -5,27 +5,15 @@ import (
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
 func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	testScheme := runtime.NewScheme()
-	if err := scheme.AddToScheme(testScheme); err != nil {
-		t.Fatalf("failed to add core scheme: %v", err)
-	}
-	if err := infrastructurev1alpha1.AddToScheme(testScheme); err != nil {
-		t.Fatalf("failed to add infrastructure scheme: %v", err)
-	}
-
 	host := &infrastructurev1alpha1.TartHost{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "host-a",
@@ -41,15 +29,9 @@ func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 		},
 	}
 
-	fakeClient := fake.NewClientBuilder().
-		WithScheme(testScheme).
-		WithStatusSubresource(&infrastructurev1alpha1.TartHost{}).
-		WithObjects(host).
-		Build()
-
-	hostService := hostdomain.NewService(fakeClient)
+	hostService := &fakeHostService{}
 	sender := &fakeWakeOnLANSender{}
-	svc := NewService(fakeClient, hostService, sender)
+	svc := NewService(hostService, hostService, sender)
 
 	if err := svc.Begin(ctx, host); err != nil {
 		t.Fatalf("Begin returned error: %v", err)
@@ -58,14 +40,23 @@ func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 	if len(sender.sentMACAddresses) != 1 || sender.sentMACAddresses[0] != "00:11:22:33:44:66" {
 		t.Fatalf("unexpected WoL destination: %#v", sender.sentMACAddresses)
 	}
+	if hostService.provisioningHost != host {
+		t.Fatal("host was not marked as provisioning")
+	}
+}
 
-	updatedHost := &infrastructurev1alpha1.TartHost{}
-	if err := fakeClient.Get(ctx, types.NamespacedName{Name: host.Name, Namespace: host.Namespace}, updatedHost); err != nil {
-		t.Fatalf("failed to get updated host: %v", err)
-	}
-	if updatedHost.Status.State != infrastructurev1alpha1.TartHostStateProvisioning {
-		t.Fatalf("host state = %s, want %s", updatedHost.Status.State, infrastructurev1alpha1.TartHostStateProvisioning)
-	}
+type fakeHostService struct {
+	assignedHost     *infrastructurev1alpha1.TartHost
+	provisioningHost *infrastructurev1alpha1.TartHost
+}
+
+func (f *fakeHostService) GetAssigned(_ context.Context, _ *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
+	return f.assignedHost, nil
+}
+
+func (f *fakeHostService) MarkProvisioning(_ context.Context, host *infrastructurev1alpha1.TartHost) error {
+	f.provisioningHost = host
+	return nil
 }
 
 type fakeWakeOnLANSender struct {

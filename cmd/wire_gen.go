@@ -7,9 +7,10 @@
 package main
 
 import (
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	host2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -25,7 +26,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme2 *runtime.Scheme) (Re
 	service := host.NewService(k8sClient)
 	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme2, service)
 	wakeOnLANSender := provideWakeOnLANSender()
-	provisioningService := provisioning.NewService(k8sClient, service, wakeOnLANSender)
+	provisioningService := provisioning.NewService(service, service, wakeOnLANSender)
 	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme2, service, provisioningService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler)
 	return reconcilers, nil
@@ -42,7 +43,7 @@ func provideWakeOnLANSender() provisioning.WakeOnLANSender {
 	return wol.DefaultSender()
 }
 
-func provideTartHostReconciler(k8sClient client.Client, scheme2 *runtime.Scheme, hostService host.Service) *controller.TartHostReconciler {
+func provideTartHostReconciler(k8sClient client.Client, scheme2 *runtime.Scheme, hostService host2.Service) *controller.TartHostReconciler {
 	return &controller.TartHostReconciler{
 		Client:      k8sClient,
 		Scheme:      scheme2,
@@ -52,7 +53,7 @@ func provideTartHostReconciler(k8sClient client.Client, scheme2 *runtime.Scheme,
 
 func provideTartMachineReconciler(
 	k8sClient client.Client, scheme2 *runtime.Scheme,
-	hostService host.Service,
+	hostService host2.Service,
 	provisioningService provisioning.Service,
 ) *controller.TartMachineReconciler {
 	return &controller.TartMachineReconciler{

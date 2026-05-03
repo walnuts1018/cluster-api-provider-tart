@@ -28,14 +28,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 )
 
 // TartHostReconciler reconciles a TartHost object
 type TartHostReconciler struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	HostService hostdomain.Service
+	HostService applicationhost.Service
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;create;update;patch;delete
@@ -76,7 +76,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 		if released {
-			log.Info("存在しない TartMachine への参照を解放しました", "host", req.String())
+			log.Info("Released stale TartMachine reference", "host", req.String())
 		}
 	}
 
@@ -95,11 +95,11 @@ func (r *TartHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *TartHostReconciler) hostService() hostdomain.Service {
+func (r *TartHostReconciler) hostService() applicationhost.Service {
 	if r.HostService != nil {
 		return r.HostService
 	}
-	return hostdomain.NewService(r.Client)
+	panic("HostService is not configured")
 }
 
 func (r *TartHostReconciler) tartMachineToReferencedTartHosts(ctx context.Context, obj client.Object) []reconcile.Request {

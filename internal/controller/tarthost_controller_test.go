@@ -32,7 +32,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 )
 
 var _ = Describe("TartHost Controller", func() {
@@ -76,8 +76,9 @@ var _ = Describe("TartHost Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &TartHostReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:      k8sClient,
+				Scheme:      k8sClient.Scheme(),
+				HostService: k8shost.NewService(k8sClient),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -131,8 +132,9 @@ var _ = Describe("TartHost Controller", func() {
 
 		It("should reset the host to Available", func() {
 			controllerReconciler := &TartHostReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:      k8sClient,
+				Scheme:      k8sClient.Scheme(),
+				HostService: k8shost.NewService(k8sClient),
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -189,7 +191,7 @@ var _ = Describe("TartHost Controller", func() {
 				WithObjects(machine, host).
 				Build()
 
-			released, err := hostdomain.NewService(cl).ReleaseMissingReference(context.Background(), host)
+			released, err := k8shost.NewService(cl).ReleaseMissingReference(context.Background(), host)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(released).To(BeTrue())
 

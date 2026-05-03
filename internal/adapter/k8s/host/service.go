@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,25 +11,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
-type Service interface {
-	ReserveAvailable(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error)
-	MarkProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error
-	ReleaseAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error
-	MarkAvailable(ctx context.Context, host *infrastructurev1alpha1.TartHost, reason, message string) error
-	ReleaseMissingReference(ctx context.Context, host *infrastructurev1alpha1.TartHost) (bool, error)
-}
+var _ applicationhost.Service = (*Service)(nil)
+var _ applicationprovisioning.HostReader = (*Service)(nil)
+var _ applicationprovisioning.HostProvisioner = (*Service)(nil)
 
-type service struct {
+type Service struct {
 	client client.Client
 }
 
-func NewService(k8sClient client.Client) Service {
-	return &service{client: k8sClient}
+func NewService(k8sClient client.Client) *Service {
+	return &Service{client: k8sClient}
 }
 
-func (s *service) ReserveAvailable(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
+func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
 	var hosts infrastructurev1alpha1.TartHostList
 	if err := s.client.List(ctx, &hosts, client.InNamespace(machine.Namespace)); err != nil {
 		return nil, err
@@ -55,7 +53,7 @@ func (s *service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 
 		original := host.DeepCopy()
 		host.Status.State = infrastructurev1alpha1.TartHostStateReserved
-		host.Status.MachineRef = RefForMachine(machine)
+		host.Status.MachineRef = hostdomain.RefForMachine(machine)
 		host.Status.ObservedGeneration = host.Generation
 		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
 			Type:               "Available",
@@ -76,7 +74,7 @@ func (s *service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 	return nil, nil
 }
 
-func (s *service) MarkProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
+func (s *Service) MarkProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
 	original := host.DeepCopy()
 	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioning
 	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
@@ -89,30 +87,27 @@ func (s *service) MarkProvisioning(ctx context.Context, host *infrastructurev1al
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 
-func (s *service) ReleaseAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
+func (s *Service) ReleaseAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
 	if machine.Status.HostRef == nil {
 		return nil
 	}
 
-	var currentHost infrastructurev1alpha1.TartHost
-	if err := s.client.Get(ctx, types.NamespacedName{
-		Namespace: machine.Status.HostRef.Namespace,
-		Name:      machine.Status.HostRef.Name,
-	}, &currentHost); err != nil {
+	currentHost, err := s.GetAssigned(ctx, machine)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return err
 	}
 
-	if !MachineRefMatches(currentHost.Status.MachineRef, machine) {
+	if !hostdomain.MachineRefMatches(currentHost.Status.MachineRef, machine) {
 		return nil
 	}
 
-	return s.MarkAvailable(ctx, &currentHost, "Released", fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name))
+	return s.MarkAvailable(ctx, currentHost, "Released", fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name))
 }
 
-func (s *service) MarkAvailable(ctx context.Context, host *infrastructurev1alpha1.TartHost, reason, message string) error {
+func (s *Service) MarkAvailable(ctx context.Context, host *infrastructurev1alpha1.TartHost, reason, message string) error {
 	original := host.DeepCopy()
 	host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
 	host.Status.MachineRef = nil
@@ -127,7 +122,7 @@ func (s *service) MarkAvailable(ctx context.Context, host *infrastructurev1alpha
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 
-func (s *service) ReleaseMissingReference(ctx context.Context, host *infrastructurev1alpha1.TartHost) (bool, error) {
+func (s *Service) ReleaseMissingReference(ctx context.Context, host *infrastructurev1alpha1.TartHost) (bool, error) {
 	ref := host.Status.MachineRef
 	if ref == nil {
 		return false, nil
@@ -135,7 +130,7 @@ func (s *service) ReleaseMissingReference(ctx context.Context, host *infrastruct
 
 	var machine infrastructurev1alpha1.TartMachine
 	err := s.client.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, &machine)
-	if err == nil && MachineRefMatches(host.Status.MachineRef, &machine) {
+	if err == nil && hostdomain.MachineRefMatches(host.Status.MachineRef, &machine) {
 		return false, nil
 	}
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -148,50 +143,17 @@ func (s *service) ReleaseMissingReference(ctx context.Context, host *infrastruct
 	return true, s.MarkAvailable(ctx, host, "MachineMissing", fmt.Sprintf("Released stale TartMachine reference %s/%s", ref.Namespace, ref.Name))
 }
 
-func BootMACAddress(host *infrastructurev1alpha1.TartHost) string {
-	if host.Spec.BootMACAddress != "" {
-		return host.Spec.BootMACAddress
+func (s *Service) GetAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
+	if machine.Status.HostRef == nil {
+		return nil, nil
 	}
-	return host.Spec.MACAddress
-}
 
-func RefForHost(host *infrastructurev1alpha1.TartHost) *corev1.ObjectReference {
-	return &corev1.ObjectReference{
-		APIVersion: infrastructurev1alpha1.GroupVersion.String(),
-		Kind:       "TartHost",
-		Namespace:  host.Namespace,
-		Name:       host.Name,
-		UID:        host.UID,
+	var host infrastructurev1alpha1.TartHost
+	if err := s.client.Get(ctx, types.NamespacedName{
+		Namespace: machine.Status.HostRef.Namespace,
+		Name:      machine.Status.HostRef.Name,
+	}, &host); err != nil {
+		return nil, err
 	}
-}
-
-func RefForMachine(machine *infrastructurev1alpha1.TartMachine) *corev1.ObjectReference {
-	return &corev1.ObjectReference{
-		APIVersion: infrastructurev1alpha1.GroupVersion.String(),
-		Kind:       "TartMachine",
-		Namespace:  machine.Namespace,
-		Name:       machine.Name,
-		UID:        machine.UID,
-	}
-}
-
-func MachineRefMatches(ref *corev1.ObjectReference, machine *infrastructurev1alpha1.TartMachine) bool {
-	if ref == nil {
-		return false
-	}
-	if ref.Name != machine.Name || ref.Namespace != machine.Namespace {
-		return false
-	}
-	return ref.UID == "" || machine.UID == "" || ref.UID == machine.UID
-}
-
-func MachineRefIndexValue(ref *corev1.ObjectReference) string {
-	if ref == nil {
-		return ""
-	}
-	return ref.Namespace + "/" + ref.Name + "/" + string(ref.UID)
-}
-
-func MachineRefIndexValueForMachine(machine *infrastructurev1alpha1.TartMachine) string {
-	return machine.Namespace + "/" + machine.Name + "/" + string(machine.UID)
+	return &host, nil
 }

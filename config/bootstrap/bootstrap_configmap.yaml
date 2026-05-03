@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bootstrap-dnsmasq
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-tart
+    app.kubernetes.io/component: bootstrap-dnsmasq
+    app.kubernetes.io/managed-by: kustomize
+data:
+  dnsmasq.conf: |
+    port=0
+    log-dhcp
+    log-queries
+    dhcp-range=192.0.2.0,proxy
+    dhcp-no-override
+    pxe-service=X86PC,"Tart iPXE",ipxe.efi
+    enable-tftp
+    tftp-root=/var/lib/tftpboot
+    dhcp-match=set:ipxe,175
+    dhcp-boot=tag:!ipxe,ipxe.efi
+    dhcp-boot=tag:ipxe,http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/ipxe

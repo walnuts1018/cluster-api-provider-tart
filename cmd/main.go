@@ -63,6 +63,7 @@ func main() {
 	var enableLeaderElection bool
 	var ipxeBindAddress string
 	var bootstrapBindAddress string
+	var assetsRoot string
 	var tftpRoot string
 	var probeAddr string
 	var secureMetrics bool
@@ -73,6 +74,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":67", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
+	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -226,7 +228,7 @@ func main() {
 		os.Exit(1)
 	}
 	if ipxeBindAddress != "0" {
-		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress)); err != nil {
+		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress, assetsRoot)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
 			os.Exit(1)
 		}

@@ -6,23 +6,32 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Server struct {
-	client client.Client
-	addr   string
+	client     client.Client
+	addr       string
+	assetsRoot string
 }
 
-func NewHandler(cl client.Client) http.Handler {
+type HandlerConfig struct {
+	AssetsRoot string
+}
+
+func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
 	e := echo.New()
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
@@ -33,60 +42,11 @@ func NewHandler(cl client.Client) http.Handler {
 	e.GET("/readyz", func(c *echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	})
-	e.GET("/ipxe", func(c *echo.Context) error {
-		mac := c.QueryParam("mac")
-		if mac == "" {
-			return c.String(http.StatusBadRequest, "mac query parameter is required")
-		}
-		normalizedMAC, err := NormalizeMAC(mac)
-		if err != nil {
-			return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
-		}
-
-		ctx := c.Request().Context()
-
-		// Use index to find TartHost by MAC address
-		var hosts infrastructurev1alpha1.TartHostList
-		if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
-			return c.String(http.StatusInternalServerError, "failed to list hosts by macAddress")
-		}
-
-		// Also check bootMACAddress if not found by macAddress
-		var bootHosts infrastructurev1alpha1.TartHostList
-		if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
-			return c.String(http.StatusInternalServerError, "failed to list hosts by bootMACAddress")
-		}
-
-		var targetHost *infrastructurev1alpha1.TartHost
-		if len(bootHosts.Items) > 0 {
-			targetHost = &bootHosts.Items[0]
-		} else if len(hosts.Items) > 0 {
-			targetHost = &hosts.Items[0]
-		}
-
-		if targetHost == nil {
-			return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
-		}
-
-		if targetHost.Status.MachineRef == nil {
-			return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
-		}
-
-		var machine infrastructurev1alpha1.TartMachine
-		if err := cl.Get(ctx, client.ObjectKey{
-			Namespace: targetHost.Status.MachineRef.Namespace,
-			Name:      targetHost.Status.MachineRef.Name,
-		}, &machine); err != nil {
-			if apierrors.IsNotFound(err) {
-				return c.String(http.StatusNotFound, "assigned TartMachine not found")
-			}
-			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-		}
-
-		script := generateIPXEScript(c, &machine, targetHost, normalizedMAC)
-
-		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
-	})
+	e.GET("/ipxe", func(c *echo.Context) error { return handleIPXE(c, cl) })
+	e.GET("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl) })
+	if config.AssetsRoot != "" {
+		e.Static("/assets", config.AssetsRoot)
+	}
 	return e
 }
 
@@ -98,25 +58,78 @@ func NormalizeMAC(mac string) (string, error) {
 	return hw.String(), nil
 }
 
-func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMachine, _ *infrastructurev1alpha1.TartHost, requestedMAC string) string {
-	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
-	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
-	// serverURL := fmt.Sprintf("http://%s", c.Request().Host)
+func handleIPXE(c *echo.Context, cl client.Client) error {
+	mac := c.QueryParam("mac")
+	if mac == "" {
+		return c.String(http.StatusBadRequest, "mac query parameter is required")
+	}
+	normalizedMAC, err := NormalizeMAC(mac)
+	if err != nil {
+		return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
+	}
+
+	ctx := c.Request().Context()
+
+	targetHost, err := findHostByMAC(ctx, cl, normalizedMAC)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, err.Error())
+	}
+	if targetHost == nil {
+		return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
+	}
+	if targetHost.Status.MachineRef == nil {
+		return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
+	}
+
+	var machine infrastructurev1alpha1.TartMachine
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: targetHost.Status.MachineRef.Namespace,
+		Name:      targetHost.Status.MachineRef.Name,
+	}, &machine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return c.String(http.StatusNotFound, "assigned TartMachine not found")
+		}
+		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+	}
+
+	script := generateIPXEScript(c, &machine)
+	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
+}
+
+func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) (*infrastructurev1alpha1.TartHost, error) {
+	var hosts infrastructurev1alpha1.TartHostList
+	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
+		return nil, fmt.Errorf("failed to list hosts by macAddress")
+	}
+
+	var bootHosts infrastructurev1alpha1.TartHostList
+	if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
+		return nil, fmt.Errorf("failed to list hosts by bootMACAddress")
+	}
+
+	if len(bootHosts.Items) > 0 {
+		return &bootHosts.Items[0], nil
+	}
+	if len(hosts.Items) > 0 {
+		return &hosts.Items[0], nil
+	}
+	return nil, nil
+}
+
+func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine) string {
+	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
 
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
-	// カーネルパラメータの組み立て
 	params := strings.Join(machine.Spec.KernelParams, " ")
-
-	// TODO: metadata URL endpoint is not implemented yet. Feature-gate or implement it before enabling talos.config.
-	// if machine.Status.BootstrapToken != "" {
-	// 	metadataURL := fmt.Sprintf("%s/metadata/%s?token=%s", serverURL, requestedMAC, machine.Status.BootstrapToken)
-	// 	if params != "" {
-	// 		params += " "
-	// 	}
-	// 	params += fmt.Sprintf("talos.config=%s", metadataURL)
-	// }
+	metadataURL := buildMetadataURL(serverURL, machine)
+	if metadataURL != "" {
+		if params != "" {
+			params += " "
+		}
+		params += "talos.config=" + metadataURL
+	}
 
 	if params == "" {
 		fmt.Fprintf(&sb, "kernel %s\n", machine.Spec.Image)
@@ -131,10 +144,96 @@ func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMac
 	return sb.String()
 }
 
-func NewServer(cl client.Client, addr string) *Server {
+func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine) string {
+	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
+	if machine.Status.BootstrapToken == "" {
+		return serverURL + metadataPath
+	}
+	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(machine.Status.BootstrapToken))
+}
+
+func handleMetadata(c *echo.Context, cl client.Client) error {
+	ctx := c.Request().Context()
+
+	var machine infrastructurev1alpha1.TartMachine
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: c.Param("namespace"),
+		Name:      c.Param("name"),
+	}, &machine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return c.String(http.StatusNotFound, "TartMachine not found")
+		}
+		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+	}
+
+	secretName, err := bootstrapDataSecretName(ctx, cl, &machine)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return c.String(http.StatusNotFound, "bootstrap secret owner Machine not found")
+		}
+		return c.String(http.StatusPreconditionFailed, err.Error())
+	}
+
+	var secret corev1.Secret
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: machine.Namespace,
+		Name:      secretName,
+	}, &secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return c.String(http.StatusNotFound, "bootstrap secret not found")
+		}
+		return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
+	}
+
+	data, ok := secret.Data["value"]
+	if !ok {
+		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
+	}
+	return c.Blob(http.StatusOK, "application/octet-stream", data)
+}
+
+func bootstrapDataSecretName(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (string, error) {
+	gvk, name := ownerMachineReference(machine)
+	if name == "" {
+		gvk = schema.GroupVersionKind{Group: "cluster.x-k8s.io", Version: "v1beta1", Kind: "Machine"}
+		name = machine.Name
+	}
+
+	var capiMachine unstructured.Unstructured
+	capiMachine.SetGroupVersionKind(gvk)
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: name}, &capiMachine); err != nil {
+		return "", err
+	}
+
+	secretName, found, err := unstructured.NestedString(capiMachine.Object, "spec", "bootstrap", "dataSecretName")
+	if err != nil {
+		return "", fmt.Errorf("failed to read bootstrap dataSecretName: %w", err)
+	}
+	if !found || secretName == "" {
+		return "", fmt.Errorf("bootstrap dataSecretName is not set")
+	}
+	return secretName, nil
+}
+
+func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.GroupVersionKind, string) {
+	for _, owner := range machine.OwnerReferences {
+		if owner.Kind != "Machine" {
+			continue
+		}
+		gv, err := schema.ParseGroupVersion(owner.APIVersion)
+		if err != nil {
+			return schema.GroupVersionKind{}, owner.Name
+		}
+		return gv.WithKind(owner.Kind), owner.Name
+	}
+	return schema.GroupVersionKind{}, ""
+}
+
+func NewServer(cl client.Client, addr, assetsRoot string) *Server {
 	return &Server{
-		client: cl,
-		addr:   addr,
+		client:     cl,
+		addr:       addr,
+		assetsRoot: assetsRoot,
 	}
 }
 
@@ -147,7 +246,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(s.client),
+		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -3,6 +3,8 @@ package ipxe_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,23 +12,28 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func setupScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
-	scheme := runtime.NewScheme()
-	if err := infrastructurev1alpha1.AddToScheme(scheme); err != nil {
+	s := runtime.NewScheme()
+	if err := infrastructurev1alpha1.AddToScheme(s); err != nil {
 		t.Fatalf("failed to add scheme: %v", err)
 	}
-	return scheme
+	if err := scheme.AddToScheme(s); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
+	}
+	return s
 }
 
 func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Object) client.Client {
 	t.Helper()
-	var ro []runtime.Object
+	ro := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
 		ro = append(ro, obj)
 	}
@@ -116,9 +123,10 @@ func TestHandlerDynamicScript(t *testing.T) {
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
+		req.Host = "bootstrap.example.invalid"
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -133,17 +141,17 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "initrd https://example.com/initrd") {
 			t.Errorf("body missing initrd: %s", body)
 		}
-		// Commented out since metadata server is not implemented yet
-		// if !strings.Contains(body, "talos.config=http://") {
-		// 	t.Errorf("body missing talos.config: %s", body)
-		// }
+		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-1?token="+token) {
+			t.Errorf("body missing talos.config metadata URL: %s", body)
+		}
 	})
 
 	t.Run("ValidRequest_BootMACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+bootMAC, nil)
+		req.Host = "bootstrap.example.invalid"
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -152,15 +160,15 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
 			t.Errorf("body missing kernel image for boot mac: %s", body)
 		}
-		if strings.Contains(body, "kernel https://example.com/vmlinuz-boot ") {
-			t.Errorf("body has trailing space after kernel without params: %s", body)
+		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-2") {
+			t.Errorf("body missing metadata URL for boot mac: %s", body)
 		}
 	})
 
 	t.Run("MissingMAC", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
@@ -169,11 +177,93 @@ func TestHandlerDynamicScript(t *testing.T) {
 	t.Run("HostNotFound", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:aa:bb:cc:dd:ee", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 		}
 	})
+}
+
+func TestHandlerServesMetadata(t *testing.T) {
+	s := setupScheme(t)
+
+	tartMachine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine",
+			Namespace: "default",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "cluster.x-k8s.io/v1beta1",
+					Kind:       "Machine",
+					Name:       "capi-machine",
+				},
+			},
+		},
+	}
+	capiMachine := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "cluster.x-k8s.io/v1beta1",
+			"kind":       "Machine",
+			"metadata": map[string]any{
+				"name":      "capi-machine",
+				"namespace": "default",
+			},
+			"spec": map[string]any{
+				"bootstrap": map[string]any{
+					"dataSecretName": "bootstrap-secret",
+				},
+			},
+		},
+	}
+	bootstrapSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "bootstrap-secret",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"value": []byte("bootstrap-config"),
+		},
+	}
+
+	cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
+	rec := httptest.NewRecorder()
+
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if body := rec.Body.String(); body != "bootstrap-config" {
+		t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+	}
+}
+
+func TestHandlerServesAssets(t *testing.T) {
+	s := setupScheme(t)
+	cl := setupFakeClient(t, s)
+
+	assetsRoot := t.TempDir()
+	assetPath := filepath.Join(assetsRoot, "images", "kernel")
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0755); err != nil {
+		t.Fatalf("failed to create asset directory: %v", err)
+	}
+	if err := os.WriteFile(assetPath, []byte("kernel-image"), 0644); err != nil {
+		t.Fatalf("failed to write asset: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/assets/images/kernel", nil)
+	rec := httptest.NewRecorder()
+
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{AssetsRoot: assetsRoot}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if body := rec.Body.String(); body != "kernel-image" {
+		t.Fatalf("body = %q, want %q", body, "kernel-image")
+	}
 }
 
 func TestHandlerServesHealthEndpoints(t *testing.T) {
@@ -182,7 +272,7 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
@@ -192,7 +282,7 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 
 func TestNewServerDisablesLeaderElection(t *testing.T) {
 	cl := setupFakeClient(t, setupScheme(t))
-	server := ipxe.NewServer(cl, ":8082")
+	server := ipxe.NewServer(cl, ":8082", "")
 
 	if server.Addr() != ":8082" {
 		t.Fatalf("Addr = %q, want %q", server.Addr(), ":8082")

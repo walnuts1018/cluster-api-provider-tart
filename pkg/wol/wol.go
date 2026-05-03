@@ -8,8 +8,8 @@ import (
 
 const (
 	defaultBroadcastAddress = "255.255.255.255:9"
-	magicPacketHeaderSize  = 6
-	magicPacketRepeatCount = 16
+	magicPacketHeaderSize   = 6
+	magicPacketRepeatCount  = 16
 )
 
 // MagicPacket は Wake-on-LAN で使う Magic Packet を生成します。

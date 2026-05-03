@@ -35,12 +35,19 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
 type TartMachineReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme          *runtime.Scheme
+	WakeOnLANSender WakeOnLANSender
+}
+
+// WakeOnLANSender はホストの電源投入を行うための境界です。
+type WakeOnLANSender interface {
+	Send(macAddress string) error
 }
 
 const bootstrapTokenTTL = 10 * time.Minute
@@ -98,6 +105,14 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.Status().Patch(ctx, &machine, client.MergeFrom(original))
 	}
 
+	if err := r.wakeOnLANSender().Send(bootMACAddress(host)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
+	}
+
+	if err := r.markHostProvisioning(ctx, host); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	original := machine.DeepCopy()
 	now := metav1.Now()
 	expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
@@ -109,8 +124,8 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	apimeta.SetStatusCondition(&machine.Status.Conditions, metav1.Condition{
 		Type:               "HostReserved",
 		Status:             metav1.ConditionTrue,
-		Reason:             "HostReserved",
-		Message:            fmt.Sprintf("Reserved TartHost %s/%s", host.Namespace, host.Name),
+		Reason:             "ProvisioningStarted",
+		Message:            fmt.Sprintf("Reserved TartHost %s/%s and sent Wake-on-LAN", host.Namespace, host.Name),
 		ObservedGeneration: machine.Generation,
 	})
 	if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
@@ -119,6 +134,13 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("TartMachine に TartHost を割り当てました", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
 	return ctrl.Result{}, nil
+}
+
+func (r *TartMachineReconciler) wakeOnLANSender() WakeOnLANSender {
+	if r.WakeOnLANSender != nil {
+		return r.WakeOnLANSender
+	}
+	return wol.DefaultSender()
 }
 
 func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
@@ -151,6 +173,26 @@ func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machin
 	}
 
 	return nil, nil
+}
+
+func (r *TartMachineReconciler) markHostProvisioning(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
+	original := host.DeepCopy()
+	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioning
+	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+		Type:               "Available",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Provisioning",
+		Message:            "Host is provisioning a TartMachine after Wake-on-LAN",
+		ObservedGeneration: host.Generation,
+	})
+	return r.Status().Patch(ctx, host, client.MergeFrom(original))
+}
+
+func bootMACAddress(host *infrastructurev1alpha1.TartHost) string {
+	if host.Spec.BootMACAddress != "" {
+		return host.Spec.BootMACAddress
+	}
+	return host.Spec.MACAddress
 }
 
 func tartHostRef(host *infrastructurev1alpha1.TartHost) *corev1.ObjectReference {

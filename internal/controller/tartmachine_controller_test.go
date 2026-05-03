@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -95,9 +96,11 @@ var _ = Describe("TartMachine Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
+			wolSender := &fakeWakeOnLANSender{}
 			controllerReconciler := &TartMachineReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:          k8sClient,
+				Scheme:          k8sClient.Scheme(),
+				WakeOnLANSender: wolSender,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
@@ -111,6 +114,89 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
 			Expect(updated.Status.BootstrapToken).To(MatchRegexp(`^[A-Za-z0-9]{64}$`))
 			Expect(updated.Status.TokenExpiresAt).NotTo(BeNil())
+			Expect(updated.Status.ProvisioningStartTime).NotTo(BeNil())
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:66"))
+		})
+	})
+
+	Context("When a TartHost has a dedicated boot MAC address", func() {
+		const resourceName = "test-boot-mac-resource"
+		const hostName = "test-boot-mac-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress:     "00:11:22:33:44:77",
+					BootMACAddress: "00:11:22:33:44:88",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{}
+			if err := k8sClient.Get(ctx, typeNamespacedName, machine); err == nil {
+				Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
+			}
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should send Wake-on-LAN to boot MAC address", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := &TartMachineReconciler{
+				Client:          k8sClient,
+				Scheme:          k8sClient.Scheme(),
+				WakeOnLANSender: wolSender,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:88"))
+			Expect(slices.Contains(wolSender.sentMACAddresses, "00:11:22:33:44:77")).To(BeFalse())
 		})
 	})
 })
+
+type fakeWakeOnLANSender struct {
+	sentMACAddresses []string
+}
+
+func (s *fakeWakeOnLANSender) Send(macAddress string) error {
+	s.sentMACAddresses = append(s.sentMACAddresses, macAddress)
+	return nil
+}

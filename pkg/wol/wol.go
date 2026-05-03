@@ -2,6 +2,7 @@ package wol
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 )
@@ -54,12 +55,18 @@ func (s Sender) Send(macAddress string) error {
 	if err != nil {
 		return fmt.Errorf("failed to dial wol address: %w", err)
 	}
-	defer func() {
-		_ = conn.Close()
-	}()
 
 	if _, err := conn.Write(packet); err != nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			return errors.Join(
+				fmt.Errorf("failed to send wol magic packet: %w", err),
+				fmt.Errorf("failed to close wol connection: %w", closeErr),
+			)
+		}
 		return fmt.Errorf("failed to send wol magic packet: %w", err)
+	}
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("failed to close wol connection: %w", err)
 	}
 	return nil
 }

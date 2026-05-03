@@ -51,7 +51,6 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 			continue
 		}
 
-		original := current.DeepCopy()
 		current.Status.State = infrastructurev1alpha1.TartHostStateReserved
 		current.Status.MachineRef = hostdomain.RefForMachine(machine)
 		current.Status.ObservedGeneration = current.Generation
@@ -62,7 +61,7 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
 			ObservedGeneration: current.Generation,
 		})
-		if err := s.client.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
+		if err := s.client.Status().Update(ctx, current); err != nil {
 			if apierrors.IsConflict(err) {
 				continue
 			}

@@ -44,6 +44,10 @@ spec:
                   assets server.
                 minLength: 1
                 type: string
+              initrd:
+                description: initrd is the boot initrd image URL or a path served
+                  by the assets server.
+                type: string
               kernelParams:
                 description: kernelParams are passed from iPXE to the OS kernel.
                 items:

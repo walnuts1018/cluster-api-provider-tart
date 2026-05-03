@@ -20,6 +20,20 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+      - name: init-tftp
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -e
+          apk add --no-network --allow-untrusted /tmp/null 2>/dev/null || apk add --no-cache wget
+          wget -O /var/lib/tftpboot/ipxe.efi https://boot.ipxe.org/ipxe.efi
+          # Add other bootloaders if needed, e.g., undionly.kpxe for BIOS
+          # wget -O /var/lib/tftpboot/undionly.kpxe https://boot.ipxe.org/undionly.kpxe
+        volumeMounts:
+        - name: tftp-root
+          mountPath: /var/lib/tftpboot
       containers:
       - name: dnsmasq
         image: quay.io/poseidon/dnsmasq:v1.0.1

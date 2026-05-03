@@ -18,4 +18,6 @@ data:
     tftp-root=/var/lib/tftpboot
     dhcp-match=set:ipxe,175
     dhcp-boot=tag:!ipxe,ipxe.efi
-    dhcp-boot=tag:ipxe,http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/ipxe
+    # NOTE: The following URL must be reachable by the physical PC.
+    # Since physical PCs usually cannot resolve K8s internal DNS, use the IP address of the manager node or a LoadBalancer IP.
+    dhcp-boot=tag:ipxe,http://<MANAGER_IP>:8082/ipxe

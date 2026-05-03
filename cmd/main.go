@@ -232,7 +232,7 @@ func main() {
 		}
 	}
 	if bootstrapBindAddress != "0" {
-		bs, err := bootstrapper.NewDnsmasqBootstrapper(tftpRoot, bootstrapBindAddress)
+		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress)
 		if err != nil {
 			setupLog.Error(err, "Failed to create bootstrap server")
 			os.Exit(1)

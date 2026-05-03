@@ -153,7 +153,8 @@ func (r *TartMachineReconciler) ensureHostProvisioning(ctx context.Context, mach
 	}
 
 	// すでに Provisioning 以降の状態であれば対応不要
-	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning {
+	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning ||
+		host.Status.State == infrastructurev1alpha1.TartHostStateProvisioned {
 		return ctrl.Result{}, nil
 	}
 

@@ -82,16 +82,5 @@
 
 ## 　実装のフェーズ分け
 
-段階的な開発を推奨する。
+段階的な開発を推奨する。詳細は `architecture` および `tasks` スキルを参照してください。
 
-- [ ] **Phase 1: インベントリ管理と電源操作**
-  - `DesktopHost` / `DesktopMachine` CRDの実装。
-  - MACアドレスによるWoL送信ロジックの実装。
-- [ ] **Phase 2: ネットワークブート基盤**
-  - `dnsmasq` を使った DHCP/TFTP Pod の構築と、ダミーの iPXE スクリプト配信。
-- [ ] **Phase 3: メタデータサーバーと汎用化**
-  - Bootstrap Secret を Opaque データとして配信する HTTP サーバーの実装。
-  - セキュリティ要件 (ワンタイムトークン、シングルショット配信) の実装。
-- [ ] **Phase 4: CAPI 統合とテスト**
-  - Cluster API コアコントローラーとの連携テスト。
-  - Ubuntu+Kubeadm、Talos の両テンプレートでのプロビジョニング確認。

@@ -220,6 +220,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &infrastructurev1alpha1.TartHost{}, "status.machineRef", controller.IndexTartHostByMachineRef); err != nil {
+		setupLog.Error(err, "Failed to create index for TartHost MachineRef")
+		os.Exit(1)
+	}
+
 	if err := (&controller.TartHostReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),

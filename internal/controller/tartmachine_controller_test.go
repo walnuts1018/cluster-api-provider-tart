@@ -205,6 +205,88 @@ var _ = Describe("TartMachine Controller", func() {
 		})
 	})
 
+	Context("When deleting a TartMachine after its name was reused", func() {
+		const resourceName = "test-reused-machine"
+		const hostName = "test-reused-machine-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:98",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+
+			host.Status.State = infrastructurev1alpha1.TartHostStateReserved
+			host.Status.MachineRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        "stale-machine-uid",
+			}
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+
+			machine.Status.HostRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartHost",
+				Namespace:  host.Namespace,
+				Name:       host.Name,
+				UID:        host.UID,
+			}
+			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should not release a host that references another machine UID", func() {
+			controllerReconciler := &TartMachineReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			machine := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, machine)).To(Succeed())
+
+			Expect(controllerReconciler.releaseAssignedHost(ctx, machine)).To(Succeed())
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateReserved))
+			Expect(updatedHost.Status.MachineRef).NotTo(BeNil())
+			Expect(updatedHost.Status.MachineRef.UID).To(Equal(types.UID("stale-machine-uid")))
+		})
+	})
+
 	Context("When a TartHost has a dedicated boot MAC address", func() {
 		const resourceName = "test-boot-mac-resource"
 		const hostName = "test-boot-mac-host"

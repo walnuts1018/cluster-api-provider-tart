@@ -24,9 +24,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
@@ -140,6 +143,79 @@ var _ = Describe("TartHost Controller", func() {
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateAvailable))
 			Expect(updated.Status.MachineRef).To(BeNil())
+		})
+	})
+
+	Context("When a reserved host points to a TartMachine with the same name but different UID", func() {
+		It("should release the stale reference and report that it was released", func() {
+			testScheme := runtime.NewScheme()
+			Expect(scheme.AddToScheme(testScheme)).To(Succeed())
+			Expect(infrastructurev1alpha1.AddToScheme(testScheme)).To(Succeed())
+
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "reused-machine",
+					Namespace: "default",
+					UID:       "current-machine-uid",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "stale-host",
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:97",
+				},
+				Status: infrastructurev1alpha1.TartHostStatus{
+					State: infrastructurev1alpha1.TartHostStateReserved,
+					MachineRef: &corev1.ObjectReference{
+						APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+						Kind:       "TartMachine",
+						Namespace:  "default",
+						Name:       "reused-machine",
+						UID:        "stale-machine-uid",
+					},
+				},
+			}
+
+			cl := fake.NewClientBuilder().
+				WithScheme(testScheme).
+				WithStatusSubresource(&infrastructurev1alpha1.TartHost{}).
+				WithObjects(machine, host).
+				Build()
+
+			controllerReconciler := &TartHostReconciler{
+				Client: cl,
+				Scheme: testScheme,
+			}
+
+			released, err := controllerReconciler.releaseMissingMachineReference(context.Background(), host)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(released).To(BeTrue())
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(cl.Get(context.Background(), types.NamespacedName{Name: "stale-host", Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateAvailable))
+			Expect(updatedHost.Status.MachineRef).To(BeNil())
+		})
+	})
+
+	Context("MachineRef index helper", func() {
+		It("should build a unique index key from namespace, name, and UID", func() {
+			ref := &corev1.ObjectReference{
+				Namespace: "default",
+				Name:      "machine-a",
+				UID:       "machine-uid",
+			}
+
+			Expect(tartHostMachineRefIndexValue(ref)).To(Equal("default/machine-a/machine-uid"))
+			Expect(IndexTartHostByMachineRef(&infrastructurev1alpha1.TartHost{
+				Status: infrastructurev1alpha1.TartHostStatus{MachineRef: ref},
+			})).To(Equal([]string{"default/machine-a/machine-uid"}))
 		})
 	})
 })

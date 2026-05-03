@@ -269,22 +269,12 @@ func (r *TartMachineReconciler) releaseAssignedHost(ctx context.Context, machine
 
 	if host.Status.MachineRef == nil ||
 		host.Status.MachineRef.Name != machine.Name ||
-		host.Status.MachineRef.Namespace != machine.Namespace {
+		host.Status.MachineRef.Namespace != machine.Namespace ||
+		(host.Status.MachineRef.UID != "" && machine.UID != "" && host.Status.MachineRef.UID != machine.UID) {
 		return nil
 	}
 
-	original := host.DeepCopy()
-	host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
-	host.Status.MachineRef = nil
-	host.Status.ObservedGeneration = host.Generation
-	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-		Type:               "Available",
-		Status:             metav1.ConditionTrue,
-		Reason:             "Released",
-		Message:            fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name),
-		ObservedGeneration: host.Generation,
-	})
-	return r.Status().Patch(ctx, &host, client.MergeFrom(original))
+	return markHostAvailable(ctx, r.Status(), &host, "Released", fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name))
 }
 
 func bootMACAddress(host *infrastructurev1alpha1.TartHost) string {

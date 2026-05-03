@@ -42,14 +42,24 @@ func TestHandlerRejectsNonGET(t *testing.T) {
 	}
 }
 
+func TestHandlerServesHealthEndpoints(t *testing.T) {
+	for _, path := range []string{"/livez", "/readyz"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
+		}
+	}
+}
+
 func TestNewServerDisablesLeaderElection(t *testing.T) {
 	server := ipxe.NewServer(":8082")
 
-	if server.Server == nil {
-		t.Fatal("Server = nil, want initialized HTTP server")
-	}
-	if server.Server.Addr != ":8082" {
-		t.Fatalf("Addr = %q, want %q", server.Server.Addr, ":8082")
+	if server.Addr() != ":8082" {
+		t.Fatalf("Addr = %q, want %q", server.Addr(), ":8082")
 	}
 	if server.NeedLeaderElection() {
 		t.Fatal("NeedLeaderElection = true, want false")

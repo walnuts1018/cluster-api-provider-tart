@@ -2,25 +2,281 @@
 "go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "latest"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "latest"
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "latest"
-"go:github.com/golangci/golangci-lint/cmd/golangci-lint" = "latest"
 kind = "latest"
 kubebuilder = "latest"
 kubectl = "latest"
 tilt = "latest"
 golangci-lint = "latest"
 
-[tasks.generate]
-description = "DeepCopy コードを生成する"
-run = "make generate"
+[env]
+GOCACHE = "{{config_root}}/.cache/go-build"
+GOLANGCI_LINT_CACHE = "{{config_root}}/.cache/golangci-lint"
+
+[tasks.all]
+description = "デフォルトのビルド処理を実行する"
+run = "mise run build"
+
+[tasks.help]
+description = "利用可能な mise task を表示する"
+run = "mise tasks"
 
 [tasks.manifests]
 description = "CRD と RBAC マニフェストを生成する"
-run = "make manifests"
+run = 'controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases'
+
+[tasks.generate]
+description = "DeepCopy コードを生成する"
+run = 'controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."'
+
+[tasks.fmt]
+description = "Go コードを go fmt で整形する"
+run = "go fmt ./..."
+
+[tasks.vet]
+description = "Go コードを go vet で検証する"
+run = "go vet ./..."
 
 [tasks.test]
 description = "Go テストを実行する"
-run = "make test"
+run = '''
+set -euo pipefail
+mise run manifests
+mise run generate
+mise run fmt
+mise run vet
+LOCALBIN="${LOCALBIN:-$PWD/bin}"
+ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
+KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
+  go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
+'''
+
+[tasks.setup-test-e2e]
+description = "e2e テスト用の Kind クラスタを作成する"
+run = '''
+set -euo pipefail
+KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
+if kind get clusters | grep -qx "$KIND_CLUSTER"; then
+  echo "Kind cluster '$KIND_CLUSTER' already exists. Skipping creation."
+else
+  echo "Creating Kind cluster '$KIND_CLUSTER'..."
+  kind create cluster --name "$KIND_CLUSTER"
+fi
+'''
+
+[tasks.test-e2e]
+description = "Kind を使って e2e テストを実行する"
+run = '''
+set -euo pipefail
+mise run setup-test-e2e
+mise run manifests
+mise run generate
+mise run fmt
+mise run vet
+KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
+KIND=kind KIND_CLUSTER="$KIND_CLUSTER" go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+mise run cleanup-test-e2e
+'''
+
+[tasks.cleanup-test-e2e]
+description = "e2e テスト用の Kind クラスタを削除する"
+run = '''
+set -euo pipefail
+KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
+kind delete cluster --name "$KIND_CLUSTER"
+'''
+
+[tasks.ensure-custom-golangci-lint]
+description = "カスタム golangci-lint バイナリを用意する"
+run = '''
+set -euo pipefail
+mkdir -p bin
+if [ -f .custom-gcl.yml ] && [ ! -x bin/golangci-lint ]; then
+  echo "Building custom golangci-lint with plugins..."
+  golangci-lint custom --destination bin --name golangci-lint-custom
+  mv -f bin/golangci-lint-custom bin/golangci-lint
+fi
+'''
 
 [tasks.lint]
 description = "golangci-lint を実行する"
-run = "make lint"
+run = '''
+set -euo pipefail
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint run
+else
+  golangci-lint run
+fi
+'''
+
+[tasks.lint-fix]
+description = "golangci-lint の自動修正を実行する"
+run = '''
+set -euo pipefail
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint run --fix
+else
+  golangci-lint run --fix
+fi
+'''
+
+[tasks.lint-config]
+description = "golangci-lint 設定を検証する"
+run = '''
+set -euo pipefail
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint config verify
+else
+  golangci-lint config verify
+fi
+'''
+
+[tasks.build]
+description = "manager バイナリをビルドする"
+run = '''
+set -euo pipefail
+mise run manifests
+mise run generate
+mise run fmt
+mise run vet
+mkdir -p bin
+go build -o bin/manager cmd/main.go
+'''
+
+[tasks.run]
+description = "ローカルホストで controller を実行する"
+run = '''
+set -euo pipefail
+mise run manifests
+mise run generate
+mise run fmt
+mise run vet
+go run ./cmd/main.go
+'''
+
+[tasks.docker-build]
+description = "manager のコンテナイメージをビルドする"
+run = '''
+set -euo pipefail
+IMG="${IMG:-controller:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" build -t "$IMG" .
+'''
+
+[tasks.docker-push]
+description = "manager のコンテナイメージを push する"
+run = '''
+set -euo pipefail
+IMG="${IMG:-controller:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" push "$IMG"
+'''
+
+[tasks.docker-buildx]
+description = "manager のマルチアーキテクチャイメージを buildx でビルドして push する"
+run = '''
+set -euo pipefail
+IMG="${IMG:-controller:latest}"
+PLATFORMS="${PLATFORMS:-linux/arm64,linux/amd64,linux/s390x,linux/ppc64le}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+sed -e '1 s/\(^FROM\)/FROM --platform=\${BUILDPLATFORM}/; t' -e ' 1,// s//FROM --platform=\${BUILDPLATFORM}/' Dockerfile > Dockerfile.cross
+"$CONTAINER_TOOL" buildx create --name cluster-api-provider-tart-builder || true
+"$CONTAINER_TOOL" buildx use cluster-api-provider-tart-builder
+"$CONTAINER_TOOL" buildx build --push --platform="$PLATFORMS" --tag "$IMG" -f Dockerfile.cross . || true
+"$CONTAINER_TOOL" buildx rm cluster-api-provider-tart-builder || true
+rm Dockerfile.cross
+'''
+
+[tasks.build-installer]
+description = "CRD と deployment を含む install.yaml を生成する"
+run = '''
+set -euo pipefail
+IMG="${IMG:-controller:latest}"
+mise run manifests
+mise run generate
+mkdir -p dist
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/default > dist/install.yaml
+'''
+
+[tasks.install]
+description = "現在の kubeconfig のクラスタへ CRD を install する"
+run = '''
+set -euo pipefail
+mise run manifests
+out="$(kustomize build config/crd 2>/dev/null || true)"
+if [ -n "$out" ]; then
+  printf '%s\n' "$out" | kubectl apply -f -
+else
+  echo "No CRDs to install; skipping."
+fi
+'''
+
+[tasks.uninstall]
+description = "現在の kubeconfig のクラスタから CRD を uninstall する"
+run = '''
+set -euo pipefail
+IGNORE_NOT_FOUND="${IGNORE_NOT_FOUND:-false}"
+mise run manifests
+out="$(kustomize build config/crd 2>/dev/null || true)"
+if [ -n "$out" ]; then
+  printf '%s\n' "$out" | kubectl delete --ignore-not-found="$IGNORE_NOT_FOUND" -f -
+else
+  echo "No CRDs to delete; skipping."
+fi
+'''
+
+[tasks.deploy]
+description = "現在の kubeconfig のクラスタへ controller を deploy する"
+run = '''
+set -euo pipefail
+IMG="${IMG:-controller:latest}"
+mise run manifests
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/default | kubectl apply -f -
+'''
+
+[tasks.undeploy]
+description = "現在の kubeconfig のクラスタから controller を undeploy する"
+run = '''
+set -euo pipefail
+IGNORE_NOT_FOUND="${IGNORE_NOT_FOUND:-false}"
+kustomize build config/default | kubectl delete --ignore-not-found="$IGNORE_NOT_FOUND" -f -
+'''
+
+[tasks.kustomize]
+description = "kustomize が mise 経由で利用できることを確認する"
+run = "kustomize version"
+
+[tasks.controller-gen]
+description = "controller-gen が mise 経由で利用できることを確認する"
+run = "controller-gen --version"
+
+[tasks.setup-envtest]
+description = "envtest バイナリを用意する"
+run = '''
+set -euo pipefail
+LOCALBIN="${LOCALBIN:-$PWD/bin}"
+ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
+mkdir -p "$LOCALBIN"
+echo "Setting up envtest binaries for Kubernetes version $ENVTEST_K8S_VERSION..."
+setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path
+'''
+
+[tasks.envtest]
+description = "setup-envtest が mise 経由で利用できることを確認する"
+run = "setup-envtest --help"
+
+[tasks.golangci-lint]
+description = "golangci-lint が mise 経由で利用できることを確認する"
+run = '''
+set -euo pipefail
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint version
+else
+  golangci-lint version
+fi
+'''

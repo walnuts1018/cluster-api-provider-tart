@@ -22,7 +22,6 @@ import (
 	"flag"
 	"log/slog"
 	"os"
-	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -44,6 +43,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
+	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -99,7 +99,7 @@ func main() {
 	flag.StringVar(&logTypeStr, "log-type", "json", "Log type (json, text)")
 	flag.Parse()
 
-	logger := createLogger(logLevelStr, logTypeStr)
+	logger := applogger.Create(logLevelStr, logTypeStr)
 	logrLogger := logr.FromSlogHandler(logger.Handler())
 	slog.SetDefault(logger)
 	klog.SetLogger(logrLogger)
@@ -266,58 +266,5 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
-	}
-}
-
-type LogType string
-
-const (
-	LogTypeJSON LogType = "json"
-	LogTypeText LogType = "text"
-)
-
-func createLogger(logLevelStr, logTypeStr string) *slog.Logger {
-	logLevel := resolveLogLevel(logLevelStr)
-	logType := resolveLogType(logTypeStr)
-
-	options := &slog.HandlerOptions{
-		Level:     logLevel,
-		AddSource: logLevel == slog.LevelDebug,
-	}
-
-	var handler slog.Handler
-	switch logType {
-	case LogTypeText:
-		handler = slog.NewTextHandler(os.Stdout, options)
-	default:
-		handler = slog.NewJSONHandler(os.Stdout, options)
-	}
-
-	return slog.New(handler)
-}
-
-func resolveLogLevel(logLevelStr string) slog.Level {
-	switch strings.ToLower(logLevelStr) {
-	case "debug":
-		return slog.LevelDebug
-	case "info":
-		return slog.LevelInfo
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-func resolveLogType(logTypeStr string) LogType {
-	switch strings.ToLower(logTypeStr) {
-	case string(LogTypeText):
-		return LogTypeText
-	case string(LogTypeJSON):
-		return LogTypeJSON
-	default:
-		return LogTypeJSON
 	}
 }

@@ -1,11 +1,11 @@
-package main
+package logger
 
 import (
 	"log/slog"
 	"testing"
 )
 
-func TestResolveLogLevel(t *testing.T) {
+func TestResolveLevel(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -25,24 +25,24 @@ func TestResolveLogLevel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := resolveLogLevel(tt.input); got != tt.want {
-				t.Fatalf("resolveLogLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			if got := ResolveLevel(tt.input); got != tt.want {
+				t.Fatalf("ResolveLevel(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestResolveLogType(t *testing.T) {
+func TestResolveType(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name  string
 		input string
-		want  LogType
+		want  Type
 	}{
-		{name: "json", input: "json", want: LogTypeJSON},
-		{name: "text", input: "TEXT", want: LogTypeText},
-		{name: "invalid falls back to json", input: "pretty", want: LogTypeJSON},
+		{name: "json", input: "json", want: TypeJSON},
+		{name: "text", input: "TEXT", want: TypeText},
+		{name: "invalid falls back to json", input: "pretty", want: TypeJSON},
 	}
 
 	for _, tt := range tests {
@@ -50,8 +50,8 @@ func TestResolveLogType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := resolveLogType(tt.input); got != tt.want {
-				t.Fatalf("resolveLogType(%q) = %q, want %q", tt.input, got, tt.want)
+			if got := ResolveType(tt.input); got != tt.want {
+				t.Fatalf("ResolveType(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}

@@ -5,6 +5,8 @@ metadata:
     control-plane: controller-manager
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
+  # "system" は Kustomize の namePrefix (cluster-api-provider-tart-) により
+  # "cluster-api-provider-tart-system" に変換されるプレースホルダーです。
   name: system
 ---
 apiVersion: apps/v1

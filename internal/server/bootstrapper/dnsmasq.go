@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -31,6 +33,8 @@ type DnsmasqBootstrapper struct {
 	iPXEPath   string
 	dnsmasqCmd *exec.Cmd
 	dnsmasqPID int
+	mu         sync.Mutex
+	logger     logr.Logger
 }
 
 // NewDnsmasqBootstrapper は新しい DnsmasqBootstrapper を作成します。
@@ -97,16 +101,20 @@ func (b *DnsmasqBootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start dnsmasq: %w", err)
 	}
 
+	b.mu.Lock()
 	b.dnsmasqCmd = cmd
 	b.dnsmasqPID = cmd.Process.Pid
+	b.logger = lg
+	b.mu.Unlock()
 
 	lg.Info("dnsmasq を起動しました", "pid", b.dnsmasqPID)
 
-	// コンテキストがキャンセルされるまで dnsmasq プロセスの終了を待機
-	// コンテキストがキャンセルされた場合はプロセスも終了する
+	// コンテキストがキャンセルされた場合はプロセスも停止する
 	go func() {
 		<-ctx.Done()
-		_ = b.Stop()
+		if stopErr := b.Stop(); stopErr != nil {
+			lg.Error(stopErr, "dnsmasq の停止に失敗しました")
+		}
 	}()
 
 	// dnsmasq プロセスの終了を待機
@@ -116,7 +124,7 @@ func (b *DnsmasqBootstrapper) Start(ctx context.Context) error {
 		lg.Error(err, "dnsmasq プロセスがエラーで終了しました")
 	}
 
-	return nil
+	return err
 }
 
 // Addr はサーバーのアドレスを返します。
@@ -139,7 +147,7 @@ func extractInterface(addr string) string {
 	}
 
 	// ホスト名にコロンが含まれている場合はインターフェースとして扱う
-	if idx := indexOf(host, ':'); idx != -1 {
+	if idx := strings.IndexByte(host, ':'); idx != -1 {
 		return host[:idx]
 	}
 
@@ -148,50 +156,40 @@ func extractInterface(addr string) string {
 		return ""
 	}
 
-	// ホスト名が空でない場合はそれをインターフェースとして扱う（例: eth0:67 の場合）
-	if host != "" {
-		return host
-	}
-
-	// デフォルトは空（すべてのインターフェース）
-	return ""
-}
-
-// indexOf は文字列内で指定された文字の最初のインデックスを返します。
-func indexOf(s string, c byte) int {
-	for i := range len(s) {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
+	return host
 }
 
 // Stop は dnsmasq プロセスを停止します。
 func (b *DnsmasqBootstrapper) Stop() error {
-	if b.dnsmasqCmd == nil || b.dnsmasqCmd.Process == nil {
+	b.mu.Lock()
+	cmd := b.dnsmasqCmd
+	pid := b.dnsmasqPID
+	lg := b.logger
+	b.mu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
 
-	lg := log.FromContext(context.Background()).WithName("bootstrapper")
-	lg.Info("dnsmasq を停止します", "pid", b.dnsmasqPID)
+	lg = lg.WithName("bootstrapper")
+	lg.Info("dnsmasq を停止します", "pid", pid)
 
 	// プロセスにシグナルを送って graceful shutdown を試みる
-	if err := b.dnsmasqCmd.Process.Signal(os.Interrupt); err != nil {
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
 		return fmt.Errorf("failed to send interrupt signal: %w", err)
 	}
 
 	// 5秒以内に終了するか確認
 	done := make(chan error, 1)
 	go func() {
-		done <- b.dnsmasqCmd.Wait()
+		done <- cmd.Wait()
 	}()
 
 	select {
 	case <-time.After(5 * time.Second):
 		// タイムアウトしたら強制終了
-		lg.Info("dnsmasq が 5 秒以内に終了しなかったため、強制終了します", "pid", b.dnsmasqPID)
-		if err := b.dnsmasqCmd.Process.Kill(); err != nil {
+		lg.Info("dnsmasq が 5 秒以内に終了しなかったため、強制終了します", "pid", pid)
+		if err := cmd.Process.Kill(); err != nil {
 			return fmt.Errorf("failed to kill dnsmasq process: %w", err)
 		}
 	case err := <-done:
@@ -200,6 +198,6 @@ func (b *DnsmasqBootstrapper) Stop() error {
 		}
 	}
 
-	lg.Info("dnsmasq を停止しました", "pid", b.dnsmasqPID)
+	lg.Info("dnsmasq を停止しました", "pid", pid)
 	return nil
 }

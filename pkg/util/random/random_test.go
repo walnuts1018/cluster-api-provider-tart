@@ -24,6 +24,15 @@ func Test_random_SecureString(t *testing.T) {
 		wantErr bool
 	}{
 		{
+			name: "empty base returns error",
+			args: args{
+				length: 10,
+				base:   "",
+			},
+			want:    want{},
+			wantErr: true,
+		},
+		{
 			name: "normal",
 			args: args{
 				length: 10,

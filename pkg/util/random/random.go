@@ -2,7 +2,9 @@ package random
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
+	"math/big"
 	mathrand "math/rand/v2"
 	"strings"
 )
@@ -36,15 +38,20 @@ func (r random) InsecureString(length uint, base string) string {
 }
 
 func (r random) SecureString(length uint, base string) (string, error) {
-	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("failed to read random: %w", err)
+	if len(base) == 0 {
+		return "", errors.New("base must not be empty")
 	}
 
+	// crypto/rand.Int で均一な分布のインデックスを生成し、modulo バイアスを排除します。
+	baseLen := big.NewInt(int64(len(base)))
 	var sb strings.Builder
 	sb.Grow(int(length))
-	for _, v := range b {
-		sb.WriteByte(base[int(v)%len(base)])
+	for i := uint(0); i < length; i++ {
+		idx, err := rand.Int(rand.Reader, baseLen)
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random index: %w", err)
+		}
+		sb.WriteByte(base[idx.Int64()])
 	}
 	return sb.String(), nil
 }

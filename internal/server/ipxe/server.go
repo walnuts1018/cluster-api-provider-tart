@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -11,18 +12,17 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Server struct {
 	client client.Client
-	scheme *runtime.Scheme
 	addr   string
 }
 
-func NewHandler(cl client.Client, scheme *runtime.Scheme) http.Handler {
+func NewHandler(cl client.Client) http.Handler {
 	e := echo.New()
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
@@ -38,22 +38,30 @@ func NewHandler(cl client.Client, scheme *runtime.Scheme) http.Handler {
 		if mac == "" {
 			return c.String(http.StatusBadRequest, "mac query parameter is required")
 		}
-		normalizedMAC := normalizeMAC(mac)
+		normalizedMAC, err := NormalizeMAC(mac)
+		if err != nil {
+			return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
+		}
 
 		ctx := c.Request().Context()
+
+		// Use index to find TartHost by MAC address
 		var hosts infrastructurev1alpha1.TartHostList
-		if err := cl.List(ctx, &hosts); err != nil {
-			return c.String(http.StatusInternalServerError, "failed to list hosts")
+		if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
+			return c.String(http.StatusInternalServerError, "failed to list hosts by macAddress")
+		}
+
+		// Also check bootMACAddress if not found by macAddress
+		var bootHosts infrastructurev1alpha1.TartHostList
+		if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
+			return c.String(http.StatusInternalServerError, "failed to list hosts by bootMACAddress")
 		}
 
 		var targetHost *infrastructurev1alpha1.TartHost
-		for i := range hosts.Items {
-			host := &hosts.Items[i]
-			if normalizeMAC(host.Spec.MACAddress) == normalizedMAC ||
-				(host.Spec.BootMACAddress != "" && normalizeMAC(host.Spec.BootMACAddress) == normalizedMAC) {
-				targetHost = host
-				break
-			}
+		if len(bootHosts.Items) > 0 {
+			targetHost = &bootHosts.Items[0]
+		} else if len(hosts.Items) > 0 {
+			targetHost = &hosts.Items[0]
 		}
 
 		if targetHost == nil {
@@ -69,39 +77,46 @@ func NewHandler(cl client.Client, scheme *runtime.Scheme) http.Handler {
 			Namespace: targetHost.Status.MachineRef.Namespace,
 			Name:      targetHost.Status.MachineRef.Name,
 		}, &machine); err != nil {
+			if apierrors.IsNotFound(err) {
+				return c.String(http.StatusNotFound, "assigned TartMachine not found")
+			}
 			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 		}
 
-		script := generateIPXEScript(c, &machine, targetHost)
+		script := generateIPXEScript(c, &machine, targetHost, normalizedMAC)
 
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	})
 	return e
 }
 
-func normalizeMAC(mac string) string {
-	s := strings.ReplaceAll(mac, "-", ":")
-	return strings.ToLower(s)
+func NormalizeMAC(mac string) (string, error) {
+	hw, err := net.ParseMAC(mac)
+	if err != nil {
+		return "", err
+	}
+	return hw.String(), nil
 }
 
-func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost) string {
+func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, requestedMAC string) string {
 	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
 	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
-	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
+	// serverURL := fmt.Sprintf("http://%s", c.Request().Host)
 
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
 	// カーネルパラメータの組み立て
 	params := strings.Join(machine.Spec.KernelParams, " ")
-	if machine.Status.BootstrapToken != "" {
-		metadataURL := fmt.Sprintf("%s/metadata/%s?token=%s", serverURL, host.Spec.MACAddress, machine.Status.BootstrapToken)
-		// Talos Linux を想定したデフォルトのパラメータ追加例
-		if params != "" {
-			params += " "
-		}
-		params += fmt.Sprintf("talos.config=%s", metadataURL)
-	}
+
+	// TODO: metadata URL endpoint is not implemented yet. Feature-gate or implement it before enabling talos.config.
+	// if machine.Status.BootstrapToken != "" {
+	// 	metadataURL := fmt.Sprintf("%s/metadata/%s?token=%s", serverURL, requestedMAC, machine.Status.BootstrapToken)
+	// 	if params != "" {
+	// 		params += " "
+	// 	}
+	// 	params += fmt.Sprintf("talos.config=%s", metadataURL)
+	// }
 
 	if params == "" {
 		sb.WriteString(fmt.Sprintf("kernel %s\n", machine.Spec.Image))
@@ -116,10 +131,9 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 	return sb.String()
 }
 
-func NewServer(cl client.Client, scheme *runtime.Scheme, addr string) *Server {
+func NewServer(cl client.Client, addr string) *Server {
 	return &Server{
 		client: cl,
-		scheme: scheme,
 		addr:   addr,
 	}
 }
@@ -133,7 +147,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(s.client, s.scheme),
+		Handler:           NewHandler(s.client),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

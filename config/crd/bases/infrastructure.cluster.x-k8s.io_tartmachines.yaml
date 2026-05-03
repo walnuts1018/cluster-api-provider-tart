@@ -23,10 +23,6 @@ spec:
       jsonPath: .status.hostRef.name
       name: Host
       type: string
-    - description: Latest condition type
-      jsonPath: .status.conditions[-1:].type
-      name: State
-      type: string
     - description: CreationTimestamp is a timestamp representing the server time when
         this object was created.
       jsonPath: .metadata.creationTimestamp

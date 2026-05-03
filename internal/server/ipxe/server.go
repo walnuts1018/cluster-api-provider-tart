@@ -103,7 +103,11 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 		params += fmt.Sprintf("talos.config=%s", metadataURL)
 	}
 
-	sb.WriteString(fmt.Sprintf("kernel %s %s\n", machine.Spec.Image, params))
+	if params == "" {
+		sb.WriteString(fmt.Sprintf("kernel %s\n", machine.Spec.Image))
+	} else {
+		sb.WriteString(fmt.Sprintf("kernel %s %s\n", machine.Spec.Image, params))
+	}
 	if machine.Spec.Initrd != "" {
 		sb.WriteString(fmt.Sprintf("initrd %s\n", machine.Spec.Initrd))
 	}

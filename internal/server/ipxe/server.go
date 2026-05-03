@@ -15,6 +15,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -145,10 +146,10 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 }
 
 func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
 	if machine.Status.BootstrapToken == "" {
-		return serverURL + metadataPath
+		return ""
 	}
+	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
 	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(machine.Status.BootstrapToken))
 }
 
@@ -164,6 +165,19 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 			return c.String(http.StatusNotFound, "TartMachine not found")
 		}
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+	}
+
+	if machine.Status.BootstrapToken == "" {
+		return c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
+	}
+
+	providedToken := c.QueryParam("token")
+	if providedToken != machine.Status.BootstrapToken {
+		return c.String(http.StatusUnauthorized, "invalid or missing token")
+	}
+
+	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&metav1.Time{Time: time.Now()}) {
+		return c.String(http.StatusNotFound, "token has expired")
 	}
 
 	secretName, err := bootstrapDataSecretName(ctx, cl, &machine)
@@ -223,6 +237,9 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 		gv, err := schema.ParseGroupVersion(owner.APIVersion)
 		if err != nil {
 			return schema.GroupVersionKind{}, owner.Name
+		}
+		if gv.Group != "cluster.x-k8s.io" {
+			continue
 		}
 		return gv.WithKind(owner.Kind), owner.Name
 	}

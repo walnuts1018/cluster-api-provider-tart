@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
@@ -117,6 +118,9 @@ func TestHandlerDynamicScript(t *testing.T) {
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image: "https://example.com/vmlinuz-boot",
 		},
+		Status: infrastructurev1alpha1.TartMachineStatus{
+			BootstrapToken: token,
+		},
 	}
 
 	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2)
@@ -160,7 +164,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
 			t.Errorf("body missing kernel image for boot mac: %s", body)
 		}
-		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-2") {
+		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-2?token="+token) {
 			t.Errorf("body missing metadata URL for boot mac: %s", body)
 		}
 	})
@@ -186,58 +190,285 @@ func TestHandlerDynamicScript(t *testing.T) {
 
 func TestHandlerServesMetadata(t *testing.T) {
 	s := setupScheme(t)
+	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
 
-	tartMachine := &infrastructurev1alpha1.TartMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine",
-			Namespace: "default",
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: "cluster.x-k8s.io/v1beta1",
-					Kind:       "Machine",
-					Name:       "capi-machine",
+	t.Run("ValidToken", func(t *testing.T) {
+		farFuture := metav1.Now().Add(1 * time.Hour)
+		tartMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "cluster.x-k8s.io/v1beta1",
+						Kind:       "Machine",
+						Name:       "capi-machine",
+					},
 				},
 			},
-		},
-	}
-	capiMachine := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "cluster.x-k8s.io/v1beta1",
-			"kind":       "Machine",
-			"metadata": map[string]any{
-				"name":      "capi-machine",
-				"namespace": "default",
+			Status: infrastructurev1alpha1.TartMachineStatus{
+				BootstrapToken: token,
+				TokenExpiresAt: &metav1.Time{Time: farFuture},
 			},
-			"spec": map[string]any{
-				"bootstrap": map[string]any{
-					"dataSecretName": "bootstrap-secret",
+		}
+		capiMachine := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"kind":       "Machine",
+				"metadata": map[string]any{
+					"name":      "capi-machine",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"bootstrap": map[string]any{
+						"dataSecretName": "bootstrap-secret",
+					},
 				},
 			},
-		},
-	}
-	bootstrapSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "bootstrap-secret",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"value": []byte("bootstrap-config"),
-		},
-	}
+		}
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bootstrap-secret",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": []byte("bootstrap-config"),
+			},
+		}
 
-	cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
 
-	req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
-	rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
+		rec := httptest.NewRecorder()
 
-	ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	if body := rec.Body.String(); body != "bootstrap-config" {
-		t.Fatalf("body = %q, want %q", body, "bootstrap-config")
-	}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if body := rec.Body.String(); body != "bootstrap-config" {
+			t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+		}
+	})
+
+	t.Run("MissingToken", func(t *testing.T) {
+		farFuture := metav1.Now().Add(1 * time.Hour)
+		tartMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "cluster.x-k8s.io/v1beta1",
+						Kind:       "Machine",
+						Name:       "capi-machine",
+					},
+				},
+			},
+			Status: infrastructurev1alpha1.TartMachineStatus{
+				BootstrapToken: token,
+				TokenExpiresAt: &metav1.Time{Time: farFuture},
+			},
+		}
+		capiMachine := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"kind":       "Machine",
+				"metadata": map[string]any{
+					"name":      "capi-machine",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"bootstrap": map[string]any{
+						"dataSecretName": "bootstrap-secret",
+					},
+				},
+			},
+		}
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bootstrap-secret",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": []byte("bootstrap-config"),
+			},
+		}
+
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("InvalidToken", func(t *testing.T) {
+		farFuture := metav1.Now().Add(1 * time.Hour)
+		tartMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "cluster.x-k8s.io/v1beta1",
+						Kind:       "Machine",
+						Name:       "capi-machine",
+					},
+				},
+			},
+			Status: infrastructurev1alpha1.TartMachineStatus{
+				BootstrapToken: token,
+				TokenExpiresAt: &metav1.Time{Time: farFuture},
+			},
+		}
+		capiMachine := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"kind":       "Machine",
+				"metadata": map[string]any{
+					"name":      "capi-machine",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"bootstrap": map[string]any{
+						"dataSecretName": "bootstrap-secret",
+					},
+				},
+			},
+		}
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bootstrap-secret",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": []byte("bootstrap-config"),
+			},
+		}
+
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=invalidtoken", nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("ExpiredToken", func(t *testing.T) {
+		pastTime := metav1.Now().Add(-1 * time.Hour)
+		tartMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "cluster.x-k8s.io/v1beta1",
+						Kind:       "Machine",
+						Name:       "capi-machine",
+					},
+				},
+			},
+			Status: infrastructurev1alpha1.TartMachineStatus{
+				BootstrapToken: token,
+				TokenExpiresAt: &metav1.Time{Time: pastTime},
+			},
+		}
+		capiMachine := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"kind":       "Machine",
+				"metadata": map[string]any{
+					"name":      "capi-machine",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"bootstrap": map[string]any{
+						"dataSecretName": "bootstrap-secret",
+					},
+				},
+			},
+		}
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bootstrap-secret",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": []byte("bootstrap-config"),
+			},
+		}
+
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("EmptyBootstrapToken", func(t *testing.T) {
+		tartMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion: "cluster.x-k8s.io/v1beta1",
+						Kind:       "Machine",
+						Name:       "capi-machine",
+					},
+				},
+			},
+		}
+		capiMachine := &unstructured.Unstructured{
+			Object: map[string]any{
+				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"kind":       "Machine",
+				"metadata": map[string]any{
+					"name":      "capi-machine",
+					"namespace": "default",
+				},
+				"spec": map[string]any{
+					"bootstrap": map[string]any{
+						"dataSecretName": "bootstrap-secret",
+					},
+				},
+			},
+		}
+		bootstrapSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "bootstrap-secret",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"value": []byte("bootstrap-config"),
+			},
+		}
+
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=anything", nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusPreconditionFailed {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusPreconditionFailed)
+		}
+	})
 }
 
 func TestHandlerServesAssets(t *testing.T) {

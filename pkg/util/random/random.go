@@ -42,7 +42,8 @@ func (r random) SecureString(length uint, base string) (string, error) {
 		return "", errors.New("base must not be empty")
 	}
 
-	// crypto/rand.Int で均一な分布のインデックスを生成し、modulo バイアスを排除します。
+	// modulo バイアスを排除してセキュアなトークン生成を実現するため、
+	// crypto/rand.Int で base 長を上限とした均一な分布のインデックスを生成します。
 	baseLen := big.NewInt(int64(len(base)))
 	var sb strings.Builder
 	sb.Grow(int(length))

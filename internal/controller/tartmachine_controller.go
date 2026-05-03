@@ -172,7 +172,8 @@ func tartMachineRef(machine *infrastructurev1alpha1.TartMachine) *corev1.ObjectR
 func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1alpha1.TartMachine{}).
-		// TartHost が Available になったとき、同 namespace の未割当 TartMachine を再 reconcile します。
+		// Available な TartHost 出現時に即座にマシン割り当てを行うため、
+		// TartHost の状態変化を watch して未割当 TartMachine を再 reconcile します。
 		Watches(
 			&infrastructurev1alpha1.TartHost{},
 			handler.EnqueueRequestsFromMapFunc(r.tartHostToUnassignedTartMachines),
@@ -194,6 +195,7 @@ func (r *TartMachineReconciler) tartHostToUnassignedTartMachines(ctx context.Con
 
 	var machines infrastructurev1alpha1.TartMachineList
 	if err := r.List(ctx, &machines, client.InNamespace(host.Namespace)); err != nil {
+		logf.FromContext(ctx).Error(err, "未割当 TartMachine の一覧取得に失敗しました", "host", client.ObjectKeyFromObject(host).String())
 		return nil
 	}
 

@@ -84,22 +84,31 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// HostRef が設定済みの場合はホストの Provisioning 状態を確認し、
 	// 未完了であれば WoL 再送信と状態遷移を行います（前回 reconcile の途中失敗からの再試行）。
 	if machine.Status.HostRef != nil {
-		// トークン期限が切れている場合はリトライのために状態をリセット
+		// トークン期限が切れている場合は新しいトークンを発行し、WoL を再送信してリトライ
 		if machine.Status.TokenExpiresAt != nil && time.Now().After(machine.Status.TokenExpiresAt.Time) {
-			log.Info("Bootstrap token expired, resetting provisioning state for retry", "machine", client.ObjectKeyFromObject(&machine).String())
+			log.Info("Bootstrap token expired, regenerating token and retrying", "machine", client.ObjectKeyFromObject(&machine).String())
+			newToken, err := onetimetoken.New()
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token for retry: %w", err)
+			}
 			original := machine.DeepCopy()
-			machine.Status.BootstrapToken = ""
-			machine.Status.ProvisioningStartTime = nil
-			machine.Status.TokenExpiresAt = nil
+			now := metav1.Now()
+			expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
+			machine.Status.BootstrapToken = newToken.String()
+			machine.Status.ProvisioningStartTime = &now
+			machine.Status.TokenExpiresAt = &expiresAt
 			apimeta.SetStatusCondition(&machine.Status.Conditions, metav1.Condition{
 				Type:               "Provisioning",
 				Status:             metav1.ConditionFalse,
 				Reason:             "TokenExpired",
-				Message:            "Bootstrap token expired, retrying provisioning",
+				Message:            "Bootstrap token expired, regenerating and retrying",
 				ObservedGeneration: machine.Generation,
 			})
 			machine.Status.ObservedGeneration = machine.Generation
 			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, err
+			}
+			if err := r.provisioningService().Ensure(ctx, &machine); err != nil {
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil

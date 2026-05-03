@@ -37,6 +37,7 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -57,6 +58,7 @@ func main() {
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
+	var ipxeBindAddress string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -64,6 +66,7 @@ func main() {
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -190,6 +193,12 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachine")
 		os.Exit(1)
+	}
+	if ipxeBindAddress != "0" {
+		if err := mgr.Add(ipxe.NewServer(ipxeBindAddress)); err != nil {
+			setupLog.Error(err, "Failed to add iPXE server")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 

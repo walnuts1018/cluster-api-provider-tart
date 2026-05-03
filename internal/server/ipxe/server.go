@@ -3,6 +3,9 @@ package ipxe
 import (
 	"fmt"
 	"net/http"
+	"time"
+
+	crmanager "sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 const dummyScript = `#!ipxe
@@ -25,4 +28,18 @@ func NewHandler() http.Handler {
 	})
 
 	return mux
+}
+
+func NewServer(addr string) *crmanager.Server {
+	shutdownTimeout := 5 * time.Second
+
+	return &crmanager.Server{
+		Name: "ipxe",
+		Server: &http.Server{
+			Addr:    addr,
+			Handler: NewHandler(),
+		},
+		OnlyServeWhenLeader: false,
+		ShutdownTimeout:     &shutdownTimeout,
+	}
 }

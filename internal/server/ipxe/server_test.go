@@ -41,3 +41,17 @@ func TestHandlerRejectsNonGET(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 	}
 }
+
+func TestNewServerDisablesLeaderElection(t *testing.T) {
+	server := ipxe.NewServer(":8082")
+
+	if server.Server == nil {
+		t.Fatal("Server = nil, want initialized HTTP server")
+	}
+	if server.Server.Addr != ":8082" {
+		t.Fatalf("Addr = %q, want %q", server.Server.Addr, ":8082")
+	}
+	if server.NeedLeaderElection() {
+		t.Fatal("NeedLeaderElection = true, want false")
+	}
+}

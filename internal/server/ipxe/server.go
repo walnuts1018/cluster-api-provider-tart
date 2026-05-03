@@ -203,6 +203,14 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 	if !ok {
 		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
 	}
+
+	if err := consumeBootstrapToken(ctx, cl, &machine); err != nil {
+		if apierrors.IsConflict(err) {
+			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+		}
+		return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
+	}
+
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 
@@ -244,6 +252,12 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 		return gv.WithKind(owner.Kind), owner.Name
 	}
 	return schema.GroupVersionKind{}, ""
+}
+
+func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
+	machine.Status.BootstrapToken = ""
+	machine.Status.TokenExpiresAt = nil
+	return cl.Status().Update(ctx, machine)
 }
 
 func NewServer(cl client.Client, addr, assetsRoot string) *Server {

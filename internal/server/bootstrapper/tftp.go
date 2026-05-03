@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const maxTFTPFileSize int64 = 64 << 20
+
 // hasPathPrefix は、target が prefix 以下のパスかどうかをチェックします。
 func hasPathPrefix(path, prefix string) bool {
 	rel, err := filepath.Rel(prefix, path)
@@ -30,6 +32,59 @@ func hasPathPrefix(path, prefix string) bool {
 	return len(rel) > 0 && rel[0] != '.'
 }
 
+// resolveTFTPFilePath は、TFTP ルート相対の filename から安全なファイルパスを解決します。
+// パストラバーサルの試みは拒否され、エラーを返します。
+func resolveTFTPFilePath(root, filename string) (string, error) {
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve tftp root: %w", err)
+	}
+	resolvedRoot, err = filepath.EvalSymlinks(resolvedRoot)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve tftp root: %w", err)
+	}
+
+	cleanedFilename := filepath.Clean(string(filepath.Separator) + filename)
+	cleanedFilename = cleanedFilename[1:]
+	filePath := filepath.Join(resolvedRoot, cleanedFilename)
+	resolved, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve file path: %w", err)
+	}
+	if !hasPathPrefix(resolved, resolvedRoot) {
+		return "", fmt.Errorf("access denied: path traversal detected")
+	}
+	return resolved, nil
+}
+
+// openTFTPFile は、解決済みパスのファイルを開きます。
+// 通常ファイル以外（ディレクトリやデバイスファイルなど）は拒否されます。
+func openTFTPFile(root, filename string) (*os.File, error) {
+	resolved, err := resolveTFTPFilePath(root, filename)
+	if err != nil {
+		return nil, err
+	}
+
+	file, err := os.Open(resolved)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, fmt.Errorf("failed to stat TFTP file: %w", err)
+	}
+	if info.Size() > maxTFTPFileSize {
+		_ = file.Close()
+		return nil, fmt.Errorf("access denied: file exceeds TFTP size limit")
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, fmt.Errorf("access denied: not a regular file")
+	}
+	return file, nil
+}
+
 // TFTPBootstrapper は組み込み TFTP サーバーの実装です。
 // iPXE ブートローダなどのファイルを配信します。
 type TFTPBootstrapper struct {
@@ -43,6 +98,7 @@ type TFTPBootstrapper struct {
 
 // NewTFTPBootstrapper は新しい TFTPBootstrapper を作成します。
 // root は TFTP サーバーのルートディレクトリ、addr はバインドアドレスです。
+// root は絶対パスとシンボリックリンク解決後のパスに事前解決されます。
 func NewTFTPBootstrapper(root, addr string) (*TFTPBootstrapper, error) {
 	if root == "" {
 		return nil, fmt.Errorf("root is required")
@@ -56,10 +112,20 @@ func NewTFTPBootstrapper(root, addr string) (*TFTPBootstrapper, error) {
 		return nil, fmt.Errorf("failed to create tftp root directory: %w", err)
 	}
 
+	// ルートを絶対パスに解決し、シンボリックリンクを展開（一度だけ実行）
+	resolvedRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve tftp root path: %w", err)
+	}
+	realRoot, err := filepath.EvalSymlinks(resolvedRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to evaluate symlinks in tftp root: %w", err)
+	}
+
 	return &TFTPBootstrapper{
-		root: root,
-		addr: addr,
-		done: make(chan struct{}),
+		root:       realRoot,
+		addr:       addr,
+		done:       make(chan struct{}),
 	}, nil
 }
 
@@ -73,17 +139,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	// TFTP サーバーを作成
 	readHandler := func(filename string, rf io.ReaderFrom) error {
 		lg.Info("TFTP read request", "filename", filename)
-		filePath := filepath.Join(b.root, filename)
-		resolved, err := filepath.Abs(filePath)
-		if err != nil {
-			lg.Error(err, "Failed to resolve file path", "filename", filename)
-			return fmt.Errorf("failed to resolve file path: %w", err)
-		}
-		if !hasPathPrefix(resolved, b.root) {
-			lg.Error(nil, "Path traversal attempt detected", "filename", filename, "requested_path", resolved)
-			return fmt.Errorf("access denied: path traversal detected")
-		}
-		file, err := os.Open(resolved)
+		file, err := openTFTPFile(b.root, filename)
 		if err != nil {
 			lg.Error(err, "Failed to open TFTP file", "filename", filename)
 			return err

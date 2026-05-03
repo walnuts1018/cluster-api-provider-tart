@@ -18,7 +18,7 @@ const Alphanumeric = Alphabets + Numbers
 const AlphanumericSymbols = Alphanumeric + Symbols
 
 type Random interface {
-	InsecureString(length uint, base string) string
+	InsecureString(length uint, base string) (string, error)
 	SecureString(length uint, base string) (string, error)
 }
 
@@ -28,13 +28,16 @@ func New() Random {
 	return random{}
 }
 
-func (r random) InsecureString(length uint, base string) string {
+func (r random) InsecureString(length uint, base string) (string, error) {
 	runes := []rune(base)
+	if len(runes) == 0 {
+		return "", errors.New("base must not be empty")
+	}
 	result := make([]rune, length)
 	for i := range result {
 		result[i] = runes[mathrand.IntN(len(runes))]
 	}
-	return string(result)
+	return string(result), nil
 }
 
 func (r random) SecureString(length uint, base string) (string, error) {
@@ -63,8 +66,8 @@ func NewDummy() Random {
 	return dummy{}
 }
 
-func (d dummy) InsecureString(length uint, base string) string {
-	return "dummy"
+func (d dummy) InsecureString(length uint, base string) (string, error) {
+	return "dummy", nil
 }
 
 func (d dummy) SecureString(length uint, base string) (string, error) {

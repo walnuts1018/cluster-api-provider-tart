@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,6 +40,7 @@ import (
 	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
@@ -65,8 +68,17 @@ const tartMachineHostCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmac
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	ctx, span := telemetry.Tracer.Start(ctx, "TartMachine.Reconcile")
+	span.SetAttributes(
+		attribute.String("kubernetes.resource.name", req.Name),
+		attribute.String("kubernetes.resource.namespace", req.Namespace),
+	)
+	defer span.End()
+
 	var machine infrastructurev1alpha1.TartMachine
 	if err := r.Get(ctx, req.NamespacedName, &machine); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -74,7 +86,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	if !machine.DeletionTimestamp.IsZero() {
-		return r.reconcileDelete(ctx, &machine)
+		if err := r.reconcileDelete(ctx, &machine); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if err := r.ensureFinalizer(ctx, &machine); err != nil {
@@ -204,18 +219,18 @@ func (r *TartMachineReconciler) ensureFinalizer(ctx context.Context, machine *in
 	return r.Patch(ctx, machine, client.MergeFrom(original))
 }
 
-func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (ctrl.Result, error) {
+func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
 	if !controllerutil.ContainsFinalizer(machine, tartMachineHostCleanupFinalizer) {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	if err := r.hostService().ReleaseAssigned(ctx, machine); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 
 	original := machine.DeepCopy()
 	controllerutil.RemoveFinalizer(machine, tartMachineHostCleanupFinalizer)
-	return ctrl.Result{}, r.Patch(ctx, machine, client.MergeFrom(original))
+	return r.Patch(ctx, machine, client.MergeFrom(original))
 }
 
 func (r *TartMachineReconciler) hostService() applicationhost.Service {

@@ -12,6 +12,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -58,8 +61,8 @@ func NewDHCPBootstrapper(tftpRoot, addr string) (*DHCPBootstrapper, error) {
 
 // StartWithContext は DHCP サーバーを ProxyDHCP モードで起動します。
 func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
-	lg := log.FromContext(ctx).WithName("bootstrapper")
 	b.mu.Lock()
+	lg := log.FromContext(ctx).WithName("bootstrapper")
 	b.logger = lg
 	b.mu.Unlock()
 
@@ -133,11 +136,21 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 			return
 		}
 
+		_, span := telemetry.Tracer.Start(context.Background(), "DHCP.BootRequest")
+		defer span.End()
+
+		span.SetAttributes(
+			attribute.String("dhcp.client_mac", m.ClientHWAddr.String()),
+			attribute.String("dhcp.message_type", m.MessageType().String()),
+			attribute.String("dhcp.transaction_id", fmt.Sprintf("%#x", m.TransactionID)),
+		)
+
 		// ProxyDHCP では、既存のDHCPサーバーが応答した後にのみ応答する
 		// つまり、Option 54 (Server Identifier) が設定されていないパケットにのみ応答する
 		serverID := m.GetOneOption(dhcpv4.OptionServerIdentifier)
 		if serverID != nil {
 			lg.Info("Skipping ProxyDHCP response, existing DHCP server already responded")
+			span.SetAttributes(attribute.Bool("dhcp.proxy_skip", true))
 			return
 		}
 
@@ -148,15 +161,21 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			lg.Error(err, "Failed to create DHCP response")
 			return
 		}
 
 		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			lg.Error(err, "Failed to send DHCP response")
 			return
 		}
 
+		span.SetStatus(codes.Ok, "")
+		span.SetAttributes(attribute.String("dhcp.boot_file", iPXEBootFileName))
 		lg.Info("Sent DHCP Offer", "client_mac", m.ClientHWAddr.String(), "boot_file", iPXEBootFileName)
 	}
 }

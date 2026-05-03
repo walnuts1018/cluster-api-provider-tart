@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,6 +31,7 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 // TartHostReconciler reconciles a TartHost object
@@ -48,8 +51,17 @@ type TartHostReconciler struct {
 func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
+	ctx, span := telemetry.Tracer.Start(ctx, "TartHost.Reconcile")
+	span.SetAttributes(
+		attribute.String("kubernetes.resource.name", req.Name),
+		attribute.String("kubernetes.resource.namespace", req.Namespace),
+	)
+	defer span.End()
+
 	var host infrastructurev1alpha1.TartHost
 	if err := r.Get(ctx, req.NamespacedName, &host); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}

@@ -30,7 +30,7 @@ func setupScheme(t *testing.T) *runtime.Scheme {
 
 func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Object) client.Client {
 	t.Helper()
-	var ro []runtime.Object
+	ro := make([]runtime.Object, 0, len(objects))
 	for _, obj := range objects {
 		ro = append(ro, obj)
 	}

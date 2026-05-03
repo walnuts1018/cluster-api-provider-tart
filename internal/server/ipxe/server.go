@@ -40,12 +40,12 @@ func NewHandler(cl client.Client) http.Handler {
 		if mac == "" {
 			return c.String(http.StatusBadRequest, "mac query parameter is required")
 		}
-		targetHost, machine, normalizedMAC, err := findAssignedMachine(c.Request().Context(), cl, mac)
+		targetHost, machine, err := findAssignedMachine(c.Request().Context(), cl, mac)
 		if err != nil {
 			return renderMachineLookupError(c, mac, err)
 		}
 
-		script := generateIPXEScript(c, machine, targetHost, normalizedMAC)
+		script := generateIPXEScript(c, machine, targetHost)
 
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	})
@@ -55,7 +55,7 @@ func NewHandler(cl client.Client) http.Handler {
 			return c.String(http.StatusBadRequest, "token query parameter is required")
 		}
 
-		_, machine, _, err := findAssignedMachine(c.Request().Context(), cl, c.Param("mac"))
+		_, machine, err := findAssignedMachine(c.Request().Context(), cl, c.Param("mac"))
 		if err != nil {
 			return renderMachineLookupError(c, c.Param("mac"), err)
 		}
@@ -106,7 +106,7 @@ func NormalizeMAC(mac string) (string, error) {
 	return hw.String(), nil
 }
 
-func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMachine, _ *infrastructurev1alpha1.TartHost, requestedMAC string) string {
+func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMachine, _ *infrastructurev1alpha1.TartHost) string {
 	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
 	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
 	// serverURL := fmt.Sprintf("http://%s", c.Request().Host)
@@ -139,20 +139,20 @@ func generateIPXEScript(_ *echo.Context, machine *infrastructurev1alpha1.TartMac
 	return sb.String()
 }
 
-func findAssignedMachine(ctx context.Context, cl client.Client, mac string) (*infrastructurev1alpha1.TartHost, *infrastructurev1alpha1.TartMachine, string, error) {
+func findAssignedMachine(ctx context.Context, cl client.Client, mac string) (*infrastructurev1alpha1.TartHost, *infrastructurev1alpha1.TartMachine, error) {
 	normalizedMAC, err := NormalizeMAC(mac)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("%w: %s", errInvalidMAC, mac)
+		return nil, nil, fmt.Errorf("%w: %s", errInvalidMAC, mac)
 	}
 
 	var hosts infrastructurev1alpha1.TartHostList
 	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
-		return nil, nil, "", fmt.Errorf("%w: %w", errListHostsByMAC, err)
+		return nil, nil, fmt.Errorf("%w: %w", errListHostsByMAC, err)
 	}
 
 	var bootHosts infrastructurev1alpha1.TartHostList
 	if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
-		return nil, nil, "", fmt.Errorf("%w: %w", errListHostsByBootMAC, err)
+		return nil, nil, fmt.Errorf("%w: %w", errListHostsByBootMAC, err)
 	}
 
 	var targetHost *infrastructurev1alpha1.TartHost
@@ -162,10 +162,10 @@ func findAssignedMachine(ctx context.Context, cl client.Client, mac string) (*in
 		targetHost = &hosts.Items[0]
 	}
 	if targetHost == nil {
-		return nil, nil, normalizedMAC, apierrors.NewNotFound(infrastructurev1alpha1.GroupVersion.WithResource("tarthosts").GroupResource(), normalizedMAC)
+		return nil, nil, apierrors.NewNotFound(infrastructurev1alpha1.GroupVersion.WithResource("tarthosts").GroupResource(), normalizedMAC)
 	}
 	if targetHost.Status.MachineRef == nil {
-		return nil, nil, normalizedMAC, errHostNotAssigned
+		return nil, nil, errHostNotAssigned
 	}
 
 	var machine infrastructurev1alpha1.TartMachine
@@ -173,10 +173,10 @@ func findAssignedMachine(ctx context.Context, cl client.Client, mac string) (*in
 		Namespace: targetHost.Status.MachineRef.Namespace,
 		Name:      targetHost.Status.MachineRef.Name,
 	}, &machine); err != nil {
-		return nil, nil, normalizedMAC, err
+		return nil, nil, err
 	}
 
-	return targetHost, &machine, normalizedMAC, nil
+	return targetHost, &machine, nil
 }
 
 var (
@@ -209,10 +209,9 @@ func bootstrapTokenMatches(expected, provided string) bool {
 }
 
 func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
-	original := machine.DeepCopy()
 	machine.Status.BootstrapToken = ""
 	machine.Status.TokenExpiresAt = nil
-	return cl.Status().Patch(ctx, machine, client.MergeFrom(original))
+	return cl.Status().Update(ctx, machine)
 }
 
 func NewServer(cl client.Client, addr string) *Server {

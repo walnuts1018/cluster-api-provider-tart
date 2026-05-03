@@ -196,7 +196,7 @@ IMG="${IMG:-controller:latest}"
 mise run manifests
 mise run generate
 mkdir -p dist
-cd config/manager && kustomize edit set image controller="$IMG"
+(cd config/manager && kustomize edit set image controller="$IMG")
 kustomize build config/default > dist/install.yaml
 '''
 

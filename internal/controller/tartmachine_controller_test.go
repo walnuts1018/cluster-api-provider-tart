@@ -22,6 +22,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -120,6 +121,94 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
 			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:66"))
+		})
+	})
+
+	Context("When machine has HostRef but host is still Reserved (retry after partial failure)", func() {
+		const resourceName = "test-retry-resource"
+		const hostName = "test-retry-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:99",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+
+			// ホストを Reserved 状態に設定（WoL 送信後のマシン status patch が失敗した状態を再現）
+			host.Status.State = infrastructurev1alpha1.TartHostStateReserved
+			host.Status.MachineRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			}
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+
+			// machine.Status.HostRef を設定（HostRef は書き込み済みだが Provisioning 遷移が未完了の状態）
+			machine.Status.HostRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartHost",
+				Namespace:  host.Namespace,
+				Name:       host.Name,
+				UID:        host.UID,
+			}
+			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{}
+			if err := k8sClient.Get(ctx, typeNamespacedName, machine); err == nil {
+				Expect(k8sClient.Delete(ctx, machine)).To(Succeed())
+			}
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should resend Wake-on-LAN and transition host to Provisioning", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := &TartMachineReconciler{
+				Client:          k8sClient,
+				Scheme:          k8sClient.Scheme(),
+				WakeOnLANSender: wolSender,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:99"))
 		})
 	})
 

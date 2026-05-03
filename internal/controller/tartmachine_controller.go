@@ -78,8 +78,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	// HostRef が設定済みの場合はホストの Provisioning 状態を確認し、
+	// 未完了であれば WoL 再送信と状態遷移を行います（前回 reconcile の途中失敗からの再試行）。
 	if machine.Status.HostRef != nil {
-		return ctrl.Result{}, nil
+		return r.ensureHostProvisioning(ctx, &machine)
 	}
 
 	// ワンタイムトークンは Bootstrap Data の推測困難な URL とシングルショット配信の基礎になります。
@@ -105,14 +107,8 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.Status().Patch(ctx, &machine, client.MergeFrom(original))
 	}
 
-	if err := r.wakeOnLANSender().Send(bootMACAddress(host)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
-	}
-
-	if err := r.markHostProvisioning(ctx, host); err != nil {
-		return ctrl.Result{}, err
-	}
-
+	// ホスト予約直後に machine.Status.HostRef を書き込み、以降の手順で失敗しても
+	// 再 reconcile 時に同じホストを使用できるようにします。
 	original := machine.DeepCopy()
 	now := metav1.Now()
 	expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
@@ -132,8 +128,39 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
+	if err := r.wakeOnLANSender().Send(bootMACAddress(host)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
+	}
+
+	if err := r.markHostProvisioning(ctx, host); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	log.Info("TartMachine に TartHost を割り当てました", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
 	return ctrl.Result{}, nil
+}
+
+// ensureHostProvisioning は HostRef が設定済みの機械に対して、
+// 割り当てホストが Provisioning 状態であることを保証します。
+// 前回の reconcile が WoL 送信や状態遷移の途中で失敗した場合のリカバリに使用します。
+func (r *TartMachineReconciler) ensureHostProvisioning(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (ctrl.Result, error) {
+	var host infrastructurev1alpha1.TartHost
+	if err := r.Get(ctx, types.NamespacedName{
+		Namespace: machine.Status.HostRef.Namespace,
+		Name:      machine.Status.HostRef.Name,
+	}, &host); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// すでに Provisioning 以降の状態であれば対応不要
+	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning {
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.wakeOnLANSender().Send(bootMACAddress(&host)); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to send wake-on-lan: %w", err)
+	}
+	return ctrl.Result{}, r.markHostProvisioning(ctx, &host)
 }
 
 func (r *TartMachineReconciler) wakeOnLANSender() WakeOnLANSender {

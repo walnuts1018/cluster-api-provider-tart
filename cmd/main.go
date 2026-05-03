@@ -39,6 +39,7 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	// +kubebuilder:scaffold:imports
 )
@@ -61,6 +62,8 @@ func main() {
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
 	var ipxeBindAddress string
+	var bootstrapBindAddress string
+	var tftpRoot string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -69,6 +72,8 @@ func main() {
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
+	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":67", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
+	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -223,6 +228,17 @@ func main() {
 	if ipxeBindAddress != "0" {
 		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
+			os.Exit(1)
+		}
+	}
+	if bootstrapBindAddress != "0" {
+		bs, err := bootstrapper.NewDnsmasqBootstrapper(tftpRoot, bootstrapBindAddress)
+		if err != nil {
+			setupLog.Error(err, "Failed to create bootstrap server")
+			os.Exit(1)
+		}
+		if err := mgr.Add(bs); err != nil {
+			setupLog.Error(err, "Failed to add bootstrap server")
 			os.Exit(1)
 		}
 	}

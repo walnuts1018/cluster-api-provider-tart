@@ -72,31 +72,31 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	// TFTP サーバーを作成
 	readHandler := func(filename string, rf io.ReaderFrom) error {
-		lg.Info("TFTP リードリクエスト", "filename", filename)
+		lg.Info("TFTP read request", "filename", filename)
 		filePath := filepath.Join(b.root, filename)
 		resolved, err := filepath.Abs(filePath)
 		if err != nil {
-			lg.Error(err, "ファイルパスの解決に失敗しました", "filename", filename)
+			lg.Error(err, "Failed to resolve file path", "filename", filename)
 			return fmt.Errorf("failed to resolve file path: %w", err)
 		}
 		if !hasPathPrefix(resolved, b.root) {
-			lg.Error(nil, "パストラバーサルの試行を検出しました", "filename", filename, "requested_path", resolved)
+			lg.Error(nil, "Path traversal attempt detected", "filename", filename, "requested_path", resolved)
 			return fmt.Errorf("access denied: path traversal detected")
 		}
 		file, err := os.Open(resolved)
 		if err != nil {
-			lg.Error(err, "TFTPファイルの開閉に失敗しました", "filename", filename)
+			lg.Error(err, "Failed to open TFTP file", "filename", filename)
 			return err
 		}
 		defer func() {
 			if err := file.Close(); err != nil {
-				lg.Error(err, "TFTPファイルのクローズに失敗しました", "filename", filename)
+				lg.Error(err, "Failed to close TFTP file", "filename", filename)
 			}
 		}()
 
 		_, err = rf.ReadFrom(file)
 		if err != nil {
-			lg.Error(err, "TFTPファイルの読み取りに失敗しました", "filename", filename)
+			lg.Error(err, "Failed to read TFTP file", "filename", filename)
 			return err
 		}
 		return nil
@@ -108,7 +108,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	b.server = server
 	b.mu.Unlock()
 
-	lg.Info("TFTP サーバーを起動します", "address", b.addr, "root", b.root)
+	lg.Info("Starting TFTP server", "address", b.addr, "root", b.root)
 
 	// サーバーの起動完了を待機するためのチャネル
 	serveStarted := make(chan error, 1)
@@ -116,7 +116,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	go func() {
 		udpAddr, err := net.ResolveUDPAddr("udp4", b.addr)
 		if err != nil {
-			lg.Error(err, "UDPアドレスの解決に失敗しました", "address", b.addr)
+			lg.Error(err, "Failed to resolve UDP address", "address", b.addr)
 			serveStarted <- fmt.Errorf("failed to resolve UDP address: %w", err)
 			close(b.done)
 			return
@@ -124,7 +124,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 		conn, err := net.ListenUDP("udp4", udpAddr)
 		if err != nil {
-			lg.Error(err, "UDPリスニングに失敗しました", "address", b.addr)
+			lg.Error(err, "Failed to listen UDP", "address", b.addr)
 			serveStarted <- fmt.Errorf("failed to listen UDP: %w", err)
 			close(b.done)
 			return
@@ -132,7 +132,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
 		if err := server.Serve(conn); err != nil && !errors.Is(err, context.Canceled) {
-			lg.Error(err, "TFTP サーバーがエラーで終了しました")
+			lg.Error(err, "TFTP server exited with error")
 		}
 		_ = conn.Close()
 		close(b.done)
@@ -154,7 +154,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 		_ = b.Stop()
 	}()
 
-	lg.Info("TFTP サーバーを起動しました")
+	lg.Info("TFTP server started")
 	return nil
 }
 
@@ -179,12 +179,12 @@ func (b *TFTPBootstrapper) Stop() error {
 	}
 
 	lg := b.logger.WithName("tftp")
-	lg.Info("TFTP サーバーを停止します")
+	lg.Info("Stopping TFTP server")
 
 	// サーバーを停止
 	server.Shutdown()
 
 	<-b.done
-	lg.Info("TFTP サーバーを停止しました")
+	lg.Info("TFTP server stopped")
 	return nil
 }

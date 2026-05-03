@@ -90,7 +90,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 	b.server = server
 	b.mu.Unlock()
 
-	lg.Info("DHCP サーバーを起動します", "address", b.addr)
+	lg.Info("Starting DHCP server", "address", b.addr)
 
 	// サーバーの起動完了を待機するためのチャネル
 	serveStarted := make(chan struct{})
@@ -99,7 +99,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
 		if err := server.Serve(); err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
-				lg.Error(err, "DHCP サーバーがエラーで終了しました")
+				lg.Error(err, "DHCP server exited with error")
 			}
 		}
 		close(b.done)
@@ -137,7 +137,7 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 		// つまり、Option 54 (Server Identifier) が設定されていないパケットにのみ応答する
 		serverID := m.GetOneOption(dhcpv4.OptionServerIdentifier)
 		if serverID != nil {
-			lg.Info("既存のDHCPサーバーが応答済みなので、ProxyDHCP応答をスキップします")
+			lg.Info("Skipping ProxyDHCP response, existing DHCP server already responded")
 			return
 		}
 
@@ -148,16 +148,16 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
-			lg.Error(err, "DHCPレスポンスの作成に失敗しました")
+			lg.Error(err, "Failed to create DHCP response")
 			return
 		}
 
 		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
-			lg.Error(err, "DHCPレスポンスの送信に失敗しました")
+			lg.Error(err, "Failed to send DHCP response")
 			return
 		}
 
-		lg.Info("DHCP Offerを送信しました", "client_mac", m.ClientHWAddr.String(), "boot_file", iPXEBootFileName)
+		lg.Info("Sent DHCP Offer", "client_mac", m.ClientHWAddr.String(), "boot_file", iPXEBootFileName)
 	}
 }
 
@@ -182,13 +182,13 @@ func (b *DHCPBootstrapper) Stop() error {
 	}
 
 	lg := b.logger.WithName("bootstrapper")
-	lg.Info("DHCP サーバーを停止します")
+	lg.Info("Stopping DHCP server")
 
 	if err := server.Close(); err != nil {
-		lg.Error(err, "DHCP サーバーの停止中にエラーが発生しました")
+		lg.Error(err, "Error occurred while stopping DHCP server")
 		return fmt.Errorf("failed to close DHCP server: %w", err)
 	}
 
-	lg.Info("DHCP サーバーを停止しました")
+	lg.Info("DHCP server stopped")
 	return nil
 }

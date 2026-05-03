@@ -136,7 +136,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	log.Info("TartMachine に TartHost を割り当てました", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
+	log.Info("Assigned TartHost to TartMachine", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
 	return ctrl.Result{}, nil
 }
 
@@ -283,7 +283,7 @@ func (r *TartMachineReconciler) tartHostToUnassignedTartMachines(ctx context.Con
 
 	var machines infrastructurev1alpha1.TartMachineList
 	if err := r.List(ctx, &machines, client.InNamespace(host.Namespace)); err != nil {
-		logf.FromContext(ctx).Error(err, "未割当 TartMachine の一覧取得に失敗しました", "host", client.ObjectKeyFromObject(host).String())
+		logf.FromContext(ctx).Error(err, "Failed to list unassigned TartMachines", "host", client.ObjectKeyFromObject(host).String())
 		return nil
 	}
 

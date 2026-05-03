@@ -74,7 +74,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if err := r.Status().Patch(ctx, &host, client.MergeFrom(original)); err != nil {
 			return ctrl.Result{}, err
 		}
-		log.Info("TartHost を利用可能状態にしました", "host", req.String())
+		log.Info("Set TartHost to available state", "host", req.String())
 	}
 
 	return ctrl.Result{}, nil

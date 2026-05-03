@@ -38,6 +38,10 @@ type TartMachineSpec struct {
 	// kernelParams are passed from iPXE to the OS kernel.
 	// +optional
 	KernelParams []string `json:"kernelParams,omitempty"`
+
+	// initrd is the boot initrd image URL or a path served by the assets server.
+	// +optional
+	Initrd string `json:"initrd,omitempty"`
 }
 
 // TartMachineStatus defines the observed state of TartMachine.

@@ -47,6 +47,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image:        "https://example.com/vmlinuz",
 			KernelParams: []string{"console=ttyS0"},
+			Initrd:       "https://example.com/initrd",
 		},
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			BootstrapToken: token,
@@ -72,6 +73,9 @@ func TestHandlerDynamicScript(t *testing.T) {
 		}
 		if !strings.Contains(body, "console=ttyS0") {
 			t.Errorf("body missing kernel params: %s", body)
+		}
+		if !strings.Contains(body, "initrd https://example.com/initrd") {
+			t.Errorf("body missing initrd: %s", body)
 		}
 		if !strings.Contains(body, "talos.config=http://") {
 			t.Errorf("body missing talos.config: %s", body)

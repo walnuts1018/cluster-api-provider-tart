@@ -108,8 +108,9 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 	}
 
 	sb.WriteString(fmt.Sprintf("kernel %s %s\n", machine.Spec.Image, params))
-	// initrd は現状 Spec にないので、とりあえず空か固定値を検討（将来的に Spec に追加が必要そう）
-	// sb.WriteString("initrd ...\n")
+	if machine.Spec.Initrd != "" {
+		sb.WriteString(fmt.Sprintf("initrd %s\n", machine.Spec.Initrd))
+	}
 	sb.WriteString("boot\n")
 
 	return sb.String(), nil

@@ -18,14 +18,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
@@ -39,6 +40,7 @@ type TartHostReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/finalizers,verbs=update
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -61,20 +63,20 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if host.Status.State == "" {
-		original := host.DeepCopy()
-		host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
-		host.Status.ObservedGeneration = host.Generation
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
-			Type:               "Available",
-			Status:             metav1.ConditionTrue,
-			Reason:             "InventoryReady",
-			Message:            "Host is available for TartMachine assignment",
-			ObservedGeneration: host.Generation,
-		})
-		if err := r.Status().Patch(ctx, &host, client.MergeFrom(original)); err != nil {
+		if err := markHostAvailable(ctx, r.Status(), &host, "InventoryReady", "Host is available for TartMachine assignment"); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Set TartHost to available state", "host", req.String())
+	}
+
+	if host.Status.MachineRef != nil {
+		released, err := r.releaseMissingMachineReference(ctx, &host)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if released {
+			log.Info("存在しない TartMachine への参照を解放しました", "host", req.String())
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -84,6 +86,60 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 func (r *TartHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1alpha1.TartHost{}).
+		Watches(
+			&infrastructurev1alpha1.TartMachine{},
+			handler.EnqueueRequestsFromMapFunc(r.tartMachineToReferencedTartHosts),
+		).
 		Named("tarthost").
 		Complete(r)
+}
+
+func (r *TartHostReconciler) releaseMissingMachineReference(ctx context.Context, host *infrastructurev1alpha1.TartHost) (bool, error) {
+	ref := host.Status.MachineRef
+	if ref == nil {
+		return false, nil
+	}
+
+	var machine infrastructurev1alpha1.TartMachine
+	err := r.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, &machine)
+	if err == nil && machine.UID == ref.UID {
+		return false, nil
+	}
+	if err != nil && !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	if err == nil && ref.UID != "" && machine.UID != ref.UID {
+		return true, markHostAvailable(ctx, r.Status(), host, "StaleMachineReference", fmt.Sprintf("Host reference to TartMachine %s/%s became stale", ref.Namespace, ref.Name))
+	}
+
+	return true, markHostAvailable(ctx, r.Status(), host, "MachineMissing", fmt.Sprintf("Released stale TartMachine reference %s/%s", ref.Namespace, ref.Name))
+}
+
+func (r *TartHostReconciler) tartMachineToReferencedTartHosts(ctx context.Context, obj client.Object) []reconcile.Request {
+	machine, ok := obj.(*infrastructurev1alpha1.TartMachine)
+	if !ok {
+		return nil
+	}
+
+	var hosts infrastructurev1alpha1.TartHostList
+	if err := r.List(
+		ctx,
+		&hosts,
+		client.InNamespace(machine.Namespace),
+		client.MatchingFields{tartHostMachineRefField: tartHostMachineRefIndexValueForMachine(machine)},
+	); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0)
+	for i := range hosts.Items {
+		host := &hosts.Items[i]
+		if machineRefMatches(host.Status.MachineRef, machine) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(host),
+			})
+		}
+	}
+
+	return requests
 }

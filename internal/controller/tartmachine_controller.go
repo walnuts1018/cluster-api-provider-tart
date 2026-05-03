@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -51,6 +52,8 @@ type WakeOnLANSender interface {
 }
 
 const bootstrapTokenTTL = 10 * time.Minute
+
+const tartMachineHostCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmachine-host-cleanup"
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
@@ -75,6 +78,14 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
+		return ctrl.Result{}, err
+	}
+
+	if !machine.DeletionTimestamp.IsZero() {
+		return r.reconcileDelete(ctx, &machine)
+	}
+
+	if err := r.ensureFinalizer(ctx, &machine); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -138,6 +149,30 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	log.Info("Assigned TartHost to TartMachine", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
 	return ctrl.Result{}, nil
+}
+
+func (r *TartMachineReconciler) ensureFinalizer(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
+	if controllerutil.ContainsFinalizer(machine, tartMachineHostCleanupFinalizer) {
+		return nil
+	}
+
+	original := machine.DeepCopy()
+	controllerutil.AddFinalizer(machine, tartMachineHostCleanupFinalizer)
+	return r.Patch(ctx, machine, client.MergeFrom(original))
+}
+
+func (r *TartMachineReconciler) reconcileDelete(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(machine, tartMachineHostCleanupFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.releaseAssignedHost(ctx, machine); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	original := machine.DeepCopy()
+	controllerutil.RemoveFinalizer(machine, tartMachineHostCleanupFinalizer)
+	return ctrl.Result{}, r.Patch(ctx, machine, client.MergeFrom(original))
 }
 
 // ensureHostProvisioning は HostRef が設定済みの機械に対して、
@@ -227,6 +262,32 @@ func (r *TartMachineReconciler) markHostProvisioning(ctx context.Context, host *
 		ObservedGeneration: host.Generation,
 	})
 	return r.Status().Patch(ctx, host, client.MergeFrom(original))
+}
+
+func (r *TartMachineReconciler) releaseAssignedHost(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
+	if machine.Status.HostRef == nil {
+		return nil
+	}
+
+	var host infrastructurev1alpha1.TartHost
+	if err := r.Get(ctx, types.NamespacedName{
+		Namespace: machine.Status.HostRef.Namespace,
+		Name:      machine.Status.HostRef.Name,
+	}, &host); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	if host.Status.MachineRef == nil ||
+		host.Status.MachineRef.Name != machine.Name ||
+		host.Status.MachineRef.Namespace != machine.Namespace ||
+		(host.Status.MachineRef.UID != "" && machine.UID != "" && host.Status.MachineRef.UID != machine.UID) {
+		return nil
+	}
+
+	return markHostAvailable(ctx, r.Status(), &host, "Released", fmt.Sprintf("Released from TartMachine %s/%s", machine.Namespace, machine.Name))
 }
 
 func bootMACAddress(host *infrastructurev1alpha1.TartHost) string {

@@ -3,24 +3,26 @@ package ipxe
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
+	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const dummyScript = `#!ipxe
-echo Tart placeholder boot script
-sleep 3
-`
-
 type Server struct {
-	addr string
+	client client.Client
+	scheme *runtime.Scheme
+	addr   string
 }
 
-func NewHandler() http.Handler {
+func NewHandler(cl client.Client, scheme *runtime.Scheme) http.Handler {
 	e := echo.New()
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
@@ -32,14 +34,93 @@ func NewHandler() http.Handler {
 		return c.NoContent(http.StatusOK)
 	})
 	e.GET("/ipxe", func(c *echo.Context) error {
-		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(dummyScript))
+		mac := c.QueryParam("mac")
+		if mac == "" {
+			return c.String(http.StatusBadRequest, "mac query parameter is required")
+		}
+		normalizedMAC := normalizeMAC(mac)
+
+		ctx := c.Request().Context()
+		var hosts infrastructurev1alpha1.TartHostList
+		if err := cl.List(ctx, &hosts); err != nil {
+			return c.String(http.StatusInternalServerError, "failed to list hosts")
+		}
+
+		var targetHost *infrastructurev1alpha1.TartHost
+		for i := range hosts.Items {
+			host := &hosts.Items[i]
+			if normalizeMAC(host.Spec.MACAddress) == normalizedMAC ||
+				(host.Spec.BootMACAddress != "" && normalizeMAC(host.Spec.BootMACAddress) == normalizedMAC) {
+				targetHost = host
+				break
+			}
+		}
+
+		if targetHost == nil {
+			return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
+		}
+
+		if targetHost.Status.MachineRef == nil {
+			return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
+		}
+
+		var machine infrastructurev1alpha1.TartMachine
+		if err := cl.Get(ctx, client.ObjectKey{
+			Namespace: targetHost.Status.MachineRef.Namespace,
+			Name:      targetHost.Status.MachineRef.Name,
+		}, &machine); err != nil {
+			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+		}
+
+		script, err := generateIPXEScript(c, &machine, targetHost)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "failed to generate iPXE script")
+		}
+
+		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	})
 
 	return e
 }
 
-func NewServer(addr string) *Server {
-	return &Server{addr: addr}
+func normalizeMAC(mac string) string {
+	s := strings.ReplaceAll(mac, "-", ":")
+	return strings.ToLower(s)
+}
+
+func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost) (string, error) {
+	// TODO: Assets サーバーや Metadata サーバーの URL 組み立てロジックを実装する。
+	// 現時点ではプレースホルダーとして簡易的なスクリプトを生成します。
+	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
+
+	var sb strings.Builder
+	sb.WriteString("#!ipxe\n")
+
+	// カーネルパラメータの組み立て
+	params := strings.Join(machine.Spec.KernelParams, " ")
+	if machine.Status.BootstrapToken != "" {
+		metadataURL := fmt.Sprintf("%s/metadata/%s?token=%s", serverURL, host.Spec.MACAddress, machine.Status.BootstrapToken)
+		// Talos Linux を想定したデフォルトのパラメータ追加例
+		if params != "" {
+			params += " "
+		}
+		params += fmt.Sprintf("talos.config=%s", metadataURL)
+	}
+
+	sb.WriteString(fmt.Sprintf("kernel %s %s\n", machine.Spec.Image, params))
+	// initrd は現状 Spec にないので、とりあえず空か固定値を検討（将来的に Spec に追加が必要そう）
+	// sb.WriteString("initrd ...\n")
+	sb.WriteString("boot\n")
+
+	return sb.String(), nil
+}
+
+func NewServer(cl client.Client, scheme *runtime.Scheme, addr string) *Server {
+	return &Server{
+		client: cl,
+		scheme: scheme,
+		addr:   addr,
+	}
 }
 
 func (s *Server) Addr() string {
@@ -51,7 +132,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(),
+		Handler:           NewHandler(s.client, s.scheme),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

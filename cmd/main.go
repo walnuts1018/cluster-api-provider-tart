@@ -195,7 +195,7 @@ func main() {
 		os.Exit(1)
 	}
 	if ipxeBindAddress != "0" {
-		if err := mgr.Add(ipxe.NewServer(ipxeBindAddress)); err != nil {
+		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), mgr.GetScheme(), ipxeBindAddress)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
 			os.Exit(1)
 		}

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	mathrand "math/rand/v2"
+	"strings"
 )
 
 const UpperLetters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -40,11 +41,12 @@ func (r random) SecureString(length uint, base string) (string, error) {
 		return "", fmt.Errorf("failed to read random: %w", err)
 	}
 
-	var result string
+	var sb strings.Builder
+	sb.Grow(int(length))
 	for _, v := range b {
-		result += string(base[int(v)%len(base)])
+		sb.WriteByte(base[int(v)%len(base)])
 	}
-	return result, nil
+	return sb.String(), nil
 }
 
 type dummy struct{}

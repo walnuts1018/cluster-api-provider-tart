@@ -178,12 +178,22 @@ func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machin
 	}
 
 	for i := range hosts.Items {
-		host := &hosts.Items[i]
+		candidate := &hosts.Items[i]
+		if candidate.Status.State != infrastructurev1alpha1.TartHostStateAvailable || candidate.Status.MachineRef != nil {
+			continue
+		}
+
+		host := &infrastructurev1alpha1.TartHost{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(candidate), host); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
 		if host.Status.State != infrastructurev1alpha1.TartHostStateAvailable || host.Status.MachineRef != nil {
 			continue
 		}
 
-		original := host.DeepCopy()
 		host.Status.State = infrastructurev1alpha1.TartHostStateReserved
 		host.Status.MachineRef = tartMachineRef(machine)
 		host.Status.ObservedGeneration = host.Generation
@@ -194,7 +204,10 @@ func (r *TartMachineReconciler) reserveAvailableHost(ctx context.Context, machin
 			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
 			ObservedGeneration: host.Generation,
 		})
-		if err := r.Status().Patch(ctx, host, client.MergeFrom(original)); err != nil {
+		if err := r.Status().Update(ctx, host); err != nil {
+			if apierrors.IsConflict(err) {
+				continue
+			}
 			return nil, err
 		}
 		return host, nil

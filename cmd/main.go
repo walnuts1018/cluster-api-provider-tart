@@ -41,12 +41,9 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
-	provisioningdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -228,23 +225,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	hostService := hostdomain.NewService(mgr.GetClient())
-	provisioningService := provisioningdomain.NewService(mgr.GetClient(), hostService, wol.DefaultSender())
+	reconcilers, err := InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
+	if err != nil {
+		setupLog.Error(err, "Failed to initialize reconcilers")
+		os.Exit(1)
+	}
 
-	if err := (&controller.TartHostReconciler{
-		Client:      mgr.GetClient(),
-		Scheme:      mgr.GetScheme(),
-		HostService: hostService,
-	}).SetupWithManager(mgr); err != nil {
+	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
 		os.Exit(1)
 	}
-	if err := (&controller.TartMachineReconciler{
-		Client:       mgr.GetClient(),
-		Scheme:       mgr.GetScheme(),
-		HostService:  hostService,
-		Provisioning: provisioningService,
-	}).SetupWithManager(mgr); err != nil {
+	if err := reconcilers.TartMachine.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachine")
 		os.Exit(1)
 	}

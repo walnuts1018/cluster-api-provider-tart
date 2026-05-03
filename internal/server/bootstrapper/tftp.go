@@ -123,9 +123,9 @@ func NewTFTPBootstrapper(root, addr string) (*TFTPBootstrapper, error) {
 	}
 
 	return &TFTPBootstrapper{
-		root:       realRoot,
-		addr:       addr,
-		done:       make(chan struct{}),
+		root: realRoot,
+		addr: addr,
+		done: make(chan struct{}),
 	}, nil
 }
 

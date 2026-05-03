@@ -1,5 +1,6 @@
 [tools]
 "go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "latest"
+"go:github.com/google/wire/cmd/wire" = "latest"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "latest"
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "latest"
 kind = "latest"
@@ -27,7 +28,14 @@ run = 'controller-gen rbac:roleName=manager-role crd webhook paths="./..." outpu
 
 [tasks.generate]
 description = "DeepCopy コードを生成する"
-run = 'controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."'
+run = '''
+controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
+mise run wire
+'''
+
+[tasks.wire]
+description = "wire injector を生成する"
+run = "(cd cmd && wire)"
 
 [tasks.fmt]
 description = "Go コードを go fmt で整形する"
@@ -236,6 +244,10 @@ run = "kustomize version"
 [tasks.controller-gen]
 description = "controller-gen が mise 経由で利用できることを確認する"
 run = "controller-gen --version"
+
+[tasks.wire-bin]
+description = "wire が mise 経由で利用できることを確認する"
+run = "wire help"
 
 [tasks.setup-envtest]
 description = "envtest バイナリを用意する"

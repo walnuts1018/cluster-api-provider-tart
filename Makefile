@@ -34,6 +34,10 @@ manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefin
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(MISE_ENV) $(MISE) run generate
 
+.PHONY: wire
+wire: ## Generate dependency injection code with wire.
+	$(MISE_ENV) $(MISE) run wire
+
 .PHONY: fmt
 fmt: ## Run go fmt against code.
 	$(MISE_ENV) $(MISE) run fmt
@@ -123,6 +127,10 @@ kustomize: ## Verify kustomize is available through mise.
 .PHONY: controller-gen
 controller-gen: ## Verify controller-gen is available through mise.
 	$(MISE_ENV) $(MISE) run controller-gen
+
+.PHONY: wire-bin
+wire-bin: ## Verify wire is available through mise.
+	$(MISE_ENV) $(MISE) run wire-bin
 
 .PHONY: setup-envtest
 setup-envtest: ## Download the binaries required for ENVTEST in the local bin directory.

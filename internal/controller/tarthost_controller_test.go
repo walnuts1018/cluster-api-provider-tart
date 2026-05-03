@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
 var _ = Describe("TartHost Controller", func() {
@@ -188,12 +189,7 @@ var _ = Describe("TartHost Controller", func() {
 				WithObjects(machine, host).
 				Build()
 
-			controllerReconciler := &TartHostReconciler{
-				Client: cl,
-				Scheme: testScheme,
-			}
-
-			released, err := controllerReconciler.releaseMissingMachineReference(context.Background(), host)
+			released, err := hostdomain.NewService(cl).ReleaseMissingReference(context.Background(), host)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(released).To(BeTrue())
 

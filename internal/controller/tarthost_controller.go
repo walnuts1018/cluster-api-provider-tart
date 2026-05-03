@@ -18,7 +18,6 @@ package controller
 
 import (
 	"context"
-	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,12 +28,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
 // TartHostReconciler reconciles a TartHost object
 type TartHostReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme      *runtime.Scheme
+	HostService hostdomain.Service
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;create;update;patch;delete
@@ -63,14 +64,14 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if host.Status.State == "" {
-		if err := markHostAvailable(ctx, r.Status(), &host, "InventoryReady", "Host is available for TartMachine assignment"); err != nil {
+		if err := r.hostService().MarkAvailable(ctx, &host, "InventoryReady", "Host is available for TartMachine assignment"); err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info("Set TartHost to available state", "host", req.String())
 	}
 
 	if host.Status.MachineRef != nil {
-		released, err := r.releaseMissingMachineReference(ctx, &host)
+		released, err := r.hostService().ReleaseMissingReference(ctx, &host)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
@@ -94,25 +95,11 @@ func (r *TartHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *TartHostReconciler) releaseMissingMachineReference(ctx context.Context, host *infrastructurev1alpha1.TartHost) (bool, error) {
-	ref := host.Status.MachineRef
-	if ref == nil {
-		return false, nil
+func (r *TartHostReconciler) hostService() hostdomain.Service {
+	if r.HostService != nil {
+		return r.HostService
 	}
-
-	var machine infrastructurev1alpha1.TartMachine
-	err := r.Get(ctx, client.ObjectKey{Namespace: ref.Namespace, Name: ref.Name}, &machine)
-	if err == nil && machine.UID == ref.UID {
-		return false, nil
-	}
-	if err != nil && !apierrors.IsNotFound(err) {
-		return false, err
-	}
-	if err == nil && ref.UID != "" && machine.UID != ref.UID {
-		return true, markHostAvailable(ctx, r.Status(), host, "StaleMachineReference", fmt.Sprintf("Host reference to TartMachine %s/%s became stale", ref.Namespace, ref.Name))
-	}
-
-	return true, markHostAvailable(ctx, r.Status(), host, "MachineMissing", fmt.Sprintf("Released stale TartMachine reference %s/%s", ref.Namespace, ref.Name))
+	return hostdomain.NewService(r.Client)
 }
 
 func (r *TartHostReconciler) tartMachineToReferencedTartHosts(ctx context.Context, obj client.Object) []reconcile.Request {

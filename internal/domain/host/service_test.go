@@ -1,4 +1,4 @@
-package controller
+package host
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
 
-func TestReserveAvailableHostContinuesOnConflict(t *testing.T) {
+func TestServiceReserveAvailableContinuesOnConflict(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -67,27 +67,24 @@ func TestReserveAvailableHostContinuesOnConflict(t *testing.T) {
 		WithObjects(machine, firstHost, secondHost).
 		Build()
 
-	reconciler := &TartMachineReconciler{
-		Client: &conflictOnFirstHostStatusClient{
-			Client:       baseClient,
-			conflictHost: types.NamespacedName{Name: firstHost.Name, Namespace: firstHost.Namespace},
-			winningMachine: &corev1.ObjectReference{
-				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
-				Kind:       "TartMachine",
-				Namespace:  "default",
-				Name:       "machine-b",
-				UID:        types.UID("machine-b-uid"),
-			},
+	svc := NewService(&conflictOnFirstHostStatusClient{
+		Client:       baseClient,
+		conflictHost: types.NamespacedName{Name: firstHost.Name, Namespace: firstHost.Namespace},
+		winningMachine: &corev1.ObjectReference{
+			APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+			Kind:       "TartMachine",
+			Namespace:  "default",
+			Name:       "machine-b",
+			UID:        types.UID("machine-b-uid"),
 		},
-		Scheme: testScheme,
-	}
+	})
 
-	reservedHost, err := reconciler.reserveAvailableHost(ctx, machine)
+	reservedHost, err := svc.ReserveAvailable(ctx, machine)
 	if err != nil {
-		t.Fatalf("reserveAvailableHost returned error: %v", err)
+		t.Fatalf("ReserveAvailable returned error: %v", err)
 	}
 	if reservedHost == nil {
-		t.Fatal("reserveAvailableHost returned nil host")
+		t.Fatal("ReserveAvailable returned nil host")
 	}
 	if reservedHost.Name != secondHost.Name {
 		t.Fatalf("reserved wrong host: got %s want %s", reservedHost.Name, secondHost.Name)

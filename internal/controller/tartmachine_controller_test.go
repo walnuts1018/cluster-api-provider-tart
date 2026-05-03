@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
 const tartMachineHostCleanupFinalizerName = "infrastructure.cluster.x-k8s.io/tartmachine-host-cleanup"
@@ -269,15 +270,10 @@ var _ = Describe("TartMachine Controller", func() {
 		})
 
 		It("should not release a host that references another machine UID", func() {
-			controllerReconciler := &TartMachineReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
 			machine := &infrastructurev1alpha1.TartMachine{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, machine)).To(Succeed())
 
-			Expect(controllerReconciler.releaseAssignedHost(ctx, machine)).To(Succeed())
+			Expect(hostdomain.NewService(k8sClient).ReleaseAssigned(ctx, machine)).To(Succeed())
 
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())

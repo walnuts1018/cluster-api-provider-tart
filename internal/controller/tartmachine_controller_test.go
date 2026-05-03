@@ -173,6 +173,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Name:       host.Name,
 				UID:        host.UID,
 			}
+			machine.Status.BootstrapToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901"
 			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
 		})
 
@@ -275,6 +276,90 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateReserved))
 			Expect(updatedHost.Status.MachineRef).NotTo(BeNil())
 			Expect(updatedHost.Status.MachineRef.UID).To(Equal(types.UID("stale-machine-uid")))
+		})
+	})
+
+	Context("When BootstrapToken is consumed after metadata delivery", func() {
+		const resourceName = "test-provisioned-resource"
+		const hostName = "test-provisioned-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress:     "00:11:22:33:44:99",
+					BootMACAddress: "00:11:22:33:44:88",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+
+			host.Status.State = infrastructurev1alpha1.TartHostStateProvisioning
+			host.Status.MachineRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  machine.Namespace,
+				Name:       machine.Name,
+				UID:        machine.UID,
+			}
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+
+			machine.Status.HostRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartHost",
+				Namespace:  host.Namespace,
+				Name:       host.Name,
+				UID:        host.UID,
+			}
+			machine.Status.BootstrapToken = ""
+			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should set TartMachine Ready=true and transition TartHost to Provisioned", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updatedMachine := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updatedMachine)).To(Succeed())
+			Expect(updatedMachine.Status.Ready).To(BeTrue())
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioned))
 		})
 	})
 

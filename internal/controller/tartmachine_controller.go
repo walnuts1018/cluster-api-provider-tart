@@ -92,6 +92,28 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.provisioningService().Ensure(ctx, &machine); err != nil {
 			return ctrl.Result{}, err
 		}
+
+		// BootstrapToken が消費された（メタデータ配信が完了した）場合、
+		// TartMachine を Ready に遷移させ、TartHost を Provisioned にします。
+		if machine.Status.BootstrapToken == "" {
+			original := machine.DeepCopy()
+			machine.Status.Ready = true
+			machine.Status.ObservedGeneration = machine.Generation
+			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			host, err := r.hostService().GetAssigned(ctx, &machine)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if host != nil {
+				if err := r.hostService().MarkProvisioned(ctx, host); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+
 		return ctrl.Result{}, nil
 	}
 

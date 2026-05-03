@@ -87,6 +87,19 @@ func (s *Service) MarkProvisioning(ctx context.Context, host *infrastructurev1al
 	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
 }
 
+func (s *Service) MarkProvisioned(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
+	original := host.DeepCopy()
+	host.Status.State = infrastructurev1alpha1.TartHostStateProvisioned
+	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+		Type:               "Available",
+		Status:             metav1.ConditionFalse,
+		Reason:             "Provisioned",
+		Message:            "Host has been provisioned successfully",
+		ObservedGeneration: host.Generation,
+	})
+	return s.client.Status().Patch(ctx, host, client.MergeFrom(original))
+}
+
 func (s *Service) ReleaseAssigned(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
 	if machine.Status.HostRef == nil {
 		return nil

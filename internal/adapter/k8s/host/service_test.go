@@ -147,6 +147,52 @@ func (w *conflictOnFirstHostStatusWriter) Patch(ctx context.Context, obj client.
 	})
 }
 
+func TestServiceMarkProvisioned(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	testScheme := runtime.NewScheme()
+	if err := scheme.AddToScheme(testScheme); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
+	}
+	if err := infrastructurev1alpha1.AddToScheme(testScheme); err != nil {
+		t.Fatalf("failed to add infrastructure scheme: %v", err)
+	}
+
+	host := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "test-host",
+			Namespace:       "default",
+			UID:             types.UID("test-host-uid"),
+			ResourceVersion: "1",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
+		},
+	}
+
+	client := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1alpha1.TartHost{}).
+		WithObjects(host).
+		Build()
+
+	svc := NewService(client)
+
+	err := svc.MarkProvisioned(ctx, host)
+	if err != nil {
+		t.Fatalf("MarkProvisioned returned error: %v", err)
+	}
+
+	updatedHost := &infrastructurev1alpha1.TartHost{}
+	if err := client.Get(ctx, types.NamespacedName{Name: host.Name, Namespace: host.Namespace}, updatedHost); err != nil {
+		t.Fatalf("failed to get host: %v", err)
+	}
+	if updatedHost.Status.State != infrastructurev1alpha1.TartHostStateProvisioned {
+		t.Fatalf("host state = %s, want %s", updatedHost.Status.State, infrastructurev1alpha1.TartHostStateProvisioned)
+	}
+}
+
 func (w *conflictOnFirstHostStatusWriter) conflictOnce(ctx context.Context, obj client.Object, next func() error) error {
 	host, ok := obj.(*infrastructurev1alpha1.TartHost)
 	if ok && !*w.conflicted && client.ObjectKeyFromObject(host) == w.conflictHost {

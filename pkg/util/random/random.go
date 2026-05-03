@@ -18,7 +18,7 @@ const Alphanumeric = Alphabets + Numbers
 const AlphanumericSymbols = Alphanumeric + Symbols
 
 type Random interface {
-	InsecureString(length uint, base string) string
+	InsecureString(length uint, base string) (string, error)
 	SecureString(length uint, base string) (string, error)
 }
 
@@ -28,13 +28,16 @@ func New() Random {
 	return random{}
 }
 
-func (r random) InsecureString(length uint, base string) string {
+func (r random) InsecureString(length uint, base string) (string, error) {
 	runes := []rune(base)
+	if len(runes) == 0 {
+		return "", errors.New("base must not be empty")
+	}
 	result := make([]rune, length)
 	for i := range result {
 		result[i] = runes[mathrand.IntN(len(runes))]
 	}
-	return string(result)
+	return string(result), nil
 }
 
 func (r random) SecureString(length uint, base string) (string, error) {
@@ -42,7 +45,8 @@ func (r random) SecureString(length uint, base string) (string, error) {
 		return "", errors.New("base must not be empty")
 	}
 
-	// crypto/rand.Int で均一な分布のインデックスを生成し、modulo バイアスを排除します。
+	// modulo バイアスを排除してセキュアなトークン生成を実現するため、
+	// crypto/rand.Int で base 長を上限とした均一な分布のインデックスを生成します。
 	baseLen := big.NewInt(int64(len(base)))
 	var sb strings.Builder
 	sb.Grow(int(length))
@@ -62,8 +66,8 @@ func NewDummy() Random {
 	return dummy{}
 }
 
-func (d dummy) InsecureString(length uint, base string) string {
-	return "dummy"
+func (d dummy) InsecureString(length uint, base string) (string, error) {
+	return "dummy", nil
 }
 
 func (d dummy) SecureString(length uint, base string) (string, error) {

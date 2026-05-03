@@ -42,10 +42,10 @@ PRの本文には、`Closes #<Issue番号>` や `Resolves #<Issue番号>` を含
 
 ```bash
 # Pull Requestの作成例
-gh pr create --title "feat: Implement ProxyDHCP for Bootstrapper" --body "Resolves #6
+gh pr create --title "feat: Implement Native ProxyDHCP for Controller" --body "Resolves #6
 
 ## 変更内容
-- dnsmasqの設定を追加
+- github.com/insomniacslk/dhcp を用いた DHCP サーバーの組み込み
 - ProxyDHCPモードの有効化"
 ```
 

@@ -39,11 +39,11 @@
 - 本プロジェクトは、IPMIやBMCなどの高度な管理インターフェースを持たない「一般的なデスクトップ物理PC」を対象とした、**Cluster API (CAPI) のカスタム Infrastructure Provider (cluster-api-provider-tart)** です。
 - OS / Bootstrap に依存せず、Kubeadm (Ubuntu等) と Talos Linux などを共通の仕組みでプロビジョニングします。
 - SSH接続によるPush型ではなく、物理PCが自ら設定を取得しにくるメタデータサーバー方式（Pull型）を採用します。
-- コントローラー、DHCPサーバー（ProxyDHCP）、HTTPサーバー等の全コンポーネントをマネジメントクラスタ上で稼働させます。
+- **Monolithic Controller**: コントローラー、DHCPサーバー、TFTPサーバー、HTTPサーバーを複数のコンテナに分けるのではなく、単一のGoバイナリ（コントローラープロセス）内にすべて組み込んで実装します。これにより、K8sのステートとネットワーク応答をシームレスに同期させます。
 
 ### セキュリティとプロビジョニングのルール
 
-- **ProxyDHCPのサポート**: 既存のネットワーク環境（ルーターやDHCPサーバー）に影響を与えないよう、IPアドレスの配布は行わず Proxy モードで iPXE のみを提供してください。
+- **組み込みネットワークサーバーによるProxyDHCPサポート**: 既存のネットワーク環境（ルーターやDHCPサーバー）に影響を与えないよう、IPアドレスの配布は行わず Proxy モードで iPXE のみを提供してください。Goライブラリ (`github.com/insomniacslk/dhcp`) を利用してコントローラー内で実装します。
 - **Bootstrap Data の保護**:
   - メタデータ（Secret）の配信は推測不可能な One Time Token を用いて行います。
   - アクセス許可は WoL 送信からの一定時間（例: 10分）に限定し、タイムアウト処理を実装してください。
@@ -73,7 +73,12 @@
 - CRDとして以下の2つを定義・管理します。
   - `TartHost`: 物理PCのインベントリ管理（MACアドレスとステータスを保持）。
   - `TartMachine`: CAPI の `Machine` に対応するインフラリソース（ブートOSイメージやカーネルパラメータなどを保持）。
-- DHCP/TFTPサーバーには `dnsmasq` 等を用い、動的な iPXE スクリプト生成と Opaque な Bootstrap Secret の安全な配信機能をHTTPサーバーとして実装します。
+- **Infrastructure Controller (The Brain)**: 単一のPod (`hostNetwork: true`) で稼働し、以下の機能をGoroutineとして並行起動します。
+  - **K8s Reconciler**: CRDの監視、PCの割り当て、WoL送信、トークン管理。
+  - **Embedded DHCP Server**: `insomniacslk/dhcp` を利用。PXEブート要求を捕捉し、iPXEブートローダのパスを応答。
+  - **Embedded TFTP Server**: `pin/tftp` を利用。iPXEバイナリ (`ipxe.efi`) を配信。
+  - **Embedded HTTP Server**: カーネル/initrd、動的iPXEスクリプト、および機密データ (Bootstrap Secret) をセキュアに配信。
+
 
 ## リトライ
 

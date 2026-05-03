@@ -155,6 +155,11 @@ func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMach
 func handleMetadata(c *echo.Context, cl client.Client) error {
 	ctx := c.Request().Context()
 
+	providedToken := c.QueryParam("token")
+	if providedToken == "" {
+		return c.String(http.StatusUnauthorized, "token is required")
+	}
+
 	var machine infrastructurev1alpha1.TartMachine
 	if err := cl.Get(ctx, client.ObjectKey{
 		Namespace: c.Param("namespace"),
@@ -170,7 +175,6 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
 	}
 
-	providedToken := c.QueryParam("token")
 	if providedToken != machine.Status.BootstrapToken {
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
@@ -202,6 +206,25 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 	data, ok := secret.Data["value"]
 	if !ok {
 		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
+	}
+
+	// Re-fetch the machine to ensure token hasn't been consumed by concurrent request
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: c.Param("namespace"),
+		Name:      c.Param("name"),
+	}, &machine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return c.String(http.StatusNotFound, "TartMachine not found")
+		}
+		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+	}
+
+	if machine.Status.BootstrapToken == "" {
+		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+	}
+
+	if machine.Status.BootstrapToken != providedToken {
+		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 	}
 
 	if err := consumeBootstrapToken(ctx, cl, &machine); err != nil {
@@ -286,7 +309,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("iPXE HTTP サーバーを起動します", "addr", s.addr)
+		log.Info("Starting iPXE HTTP server", "addr", s.addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
@@ -299,7 +322,7 @@ func (s *Server) Start(ctx context.Context) error {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		log.Info("iPXE HTTP サーバーを停止します", "addr", s.addr)
+		log.Info("Stopping iPXE HTTP server", "addr", s.addr)
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return err
 		}

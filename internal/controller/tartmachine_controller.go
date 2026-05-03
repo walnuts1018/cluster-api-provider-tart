@@ -84,6 +84,27 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// HostRef が設定済みの場合はホストの Provisioning 状態を確認し、
 	// 未完了であれば WoL 再送信と状態遷移を行います（前回 reconcile の途中失敗からの再試行）。
 	if machine.Status.HostRef != nil {
+		// トークン期限が切れている場合はリトライのために状態をリセット
+		if machine.Status.TokenExpiresAt != nil && time.Now().After(machine.Status.TokenExpiresAt.Time) {
+			log.Info("Bootstrap token expired, resetting provisioning state for retry", "machine", client.ObjectKeyFromObject(&machine).String())
+			original := machine.DeepCopy()
+			machine.Status.BootstrapToken = ""
+			machine.Status.ProvisioningStartTime = nil
+			machine.Status.TokenExpiresAt = nil
+			apimeta.SetStatusCondition(&machine.Status.Conditions, metav1.Condition{
+				Type:               "Provisioning",
+				Status:             metav1.ConditionFalse,
+				Reason:             "TokenExpired",
+				Message:            "Bootstrap token expired, retrying provisioning",
+				ObservedGeneration: machine.Generation,
+			})
+			machine.Status.ObservedGeneration = machine.Generation
+			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		}
+
 		if err := r.provisioningService().Ensure(ctx, &machine); err != nil {
 			return ctrl.Result{}, err
 		}

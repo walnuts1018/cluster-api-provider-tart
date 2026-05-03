@@ -43,7 +43,7 @@ var _ = Describe("TartHost Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
 		tarthost := &infrastructurev1alpha1.TartHost{}
 
@@ -65,7 +65,6 @@ var _ = Describe("TartHost Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
 			resource := &infrastructurev1alpha1.TartHost{}
 			err := k8sClient.Get(ctx, typeNamespacedName, resource)
 			Expect(err).NotTo(HaveOccurred())

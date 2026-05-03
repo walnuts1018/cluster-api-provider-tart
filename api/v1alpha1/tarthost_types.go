@@ -67,7 +67,7 @@ type TartHostStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// TartHostState は物理ホストのライフサイクル状態です。
+// TartHostState represents the lifecycle state of a physical host.
 type TartHostState string
 
 const (
@@ -79,6 +79,10 @@ const (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`,description="Host allocation state"
+// +kubebuilder:printcolumn:name="MAC Address",type=string,JSONPath=`.spec.macAddress`,description="NIC MAC address"
+// +kubebuilder:printcolumn:name="Boot MAC Address",type=string,JSONPath=`.spec.bootMacAddress`,description="PXE boot NIC MAC address"
+// +kubebuilder:printcolumn:name="Machine",type=string,JSONPath=`.status.machineRef.name`,description="Assigned TartMachine"
 
 // TartHost is the Schema for the tarthosts API
 type TartHost struct {

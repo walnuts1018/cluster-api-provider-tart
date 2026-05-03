@@ -99,22 +99,29 @@ func handleIPXE(c *echo.Context, cl client.Client) error {
 
 func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) (*infrastructurev1alpha1.TartHost, error) {
 	var hosts infrastructurev1alpha1.TartHostList
-	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
-		return nil, fmt.Errorf("failed to list hosts by macAddress")
+	if err := cl.List(ctx, &hosts, client.InNamespace("")); err != nil {
+		return nil, fmt.Errorf("failed to list hosts")
 	}
 
-	var bootHosts infrastructurev1alpha1.TartHostList
-	if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
-		return nil, fmt.Errorf("failed to list hosts by bootMACAddress")
+	var bootHost *infrastructurev1alpha1.TartHost
+	var regularHost *infrastructurev1alpha1.TartHost
+
+	for i := range hosts.Items {
+		host := &hosts.Items[i]
+		if mac, err := NormalizeMAC(host.Spec.MACAddress); err == nil && mac == normalizedMAC && regularHost == nil {
+			regularHost = host
+		}
+		if host.Spec.BootMACAddress != "" {
+			if bootMAC, err := NormalizeMAC(host.Spec.BootMACAddress); err == nil && bootMAC == normalizedMAC && bootHost == nil {
+				bootHost = host
+			}
+		}
 	}
 
-	if len(bootHosts.Items) > 0 {
-		return &bootHosts.Items[0], nil
+	if bootHost != nil {
+		return bootHost, nil
 	}
-	if len(hosts.Items) > 0 {
-		return &hosts.Items[0], nil
-	}
-	return nil, nil
+	return regularHost, nil
 }
 
 func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine) string {
@@ -176,7 +183,8 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
 
-	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&metav1.Time{Time: time.Now()}) {
+	now := metav1.NewTime(time.Now())
+	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&now) {
 		return c.String(http.StatusNotFound, "token has expired")
 	}
 

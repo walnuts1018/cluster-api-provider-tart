@@ -14,7 +14,25 @@ spec:
     singular: tartmachine
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Ready status
+      jsonPath: .status.ready
+      name: Ready
+      type: string
+    - description: Assigned TartHost
+      jsonPath: .status.hostRef.name
+      name: Host
+      type: string
+    - description: Latest condition type
+      jsonPath: .status.conditions[-1:].type
+      name: State
+      type: string
+    - description: CreationTimestamp is a timestamp representing the server time when
+        this object was created.
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TartMachine is the Schema for the tartmachines API

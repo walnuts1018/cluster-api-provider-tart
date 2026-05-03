@@ -117,15 +117,11 @@ func TestTFTPBootstrapper_Start_InvalidAddress(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// アドレスが無効でもStart自体は成功する（UDP解決がStart内で発生）
-	// 実際にはListenUDPがエラーを返す
+	// アドレスが無効の場合、StartWithContextはエラーを返す
 	err = bs.StartWithContext(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for invalid address")
 	}
-
-	// サーバーを停止
-	bs.Stop()
 }
 
 func TestTFTPBootstrapper_Stop_NilServer(t *testing.T) {

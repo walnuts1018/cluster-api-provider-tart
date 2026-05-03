@@ -161,5 +161,3 @@ func TestDHCPBootstrapper_Stop_NilServer(t *testing.T) {
 		t.Errorf("expected no error when stopping nil server, got: %v", err)
 	}
 }
-
-

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -49,7 +50,7 @@ func NewDHCPBootstrapper(tftpRoot, addr string) (*DHCPBootstrapper, error) {
 	return &DHCPBootstrapper{
 		tftpRoot: tftpRoot,
 		addr:     addr,
-		iPXEPath: fmt.Sprintf("%s/%s", tftpRoot, iPXEBootFileName),
+		iPXEPath: filepath.Join(tftpRoot, iPXEBootFileName),
 		done:     make(chan struct{}),
 		logger:   logr.Discard(),
 	}, nil
@@ -91,8 +92,11 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	lg.Info("DHCP サーバーを起動します", "address", b.addr)
 
+	// サーバーの起動完了を待機するためのチャネル
+	serveStarted := make(chan struct{})
 	// サーバーを別ゴルーチンで起動
 	go func() {
+		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
 		if err := server.Serve(); err != nil {
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
 				lg.Error(err, "DHCP サーバーがエラーで終了しました")
@@ -101,10 +105,18 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 		close(b.done)
 	}()
 
+	// サーバーの起動完了を待機（Serveが開始されたことを確認）
+	select {
+	case <-serveStarted:
+		// Serve()が正常に開始された
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	// コンテキストがキャンセルされた場合はサーバーも停止する
 	go func() {
 		<-ctx.Done()
-		b.Stop()
+		_ = b.Stop()
 	}()
 
 	lg.Info("DHCP サーバーを起動しました")
@@ -133,6 +145,7 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 		resp, err := dhcpv4.NewReplyFromRequest(m,
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
 			dhcpv4.WithOption(dhcpv4.OptBootFileName(iPXEBootFileName)),
+			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
 			lg.Error(err, "DHCPレスポンスの作成に失敗しました")
@@ -171,9 +184,11 @@ func (b *DHCPBootstrapper) Stop() error {
 	lg := b.logger.WithName("bootstrapper")
 	lg.Info("DHCP サーバーを停止します")
 
-	// サーバーを停止（conn.Closeを内部で呼び出す）
-	// server4.ServerはServe()メソッドのみを提供し、明示的なshutdownメソッドはない
-	// context cancellationによってServeが終了する
+	if err := server.Close(); err != nil {
+		lg.Error(err, "DHCP サーバーの停止中にエラーが発生しました")
+		return fmt.Errorf("failed to close DHCP server: %w", err)
+	}
+
 	lg.Info("DHCP サーバーを停止しました")
 	return nil
 }

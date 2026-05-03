@@ -112,7 +112,9 @@ func (c *combinedBootstrapperImpl) TFTPRoot() string {
 	return c.tftp.root
 }
 
-// Start は Bootstrapperインターフェースの実装です（内部用）。
+// StartWithContext は Bootstrapper インターフェースの実装です。
+// Bootstrapper インターフェースの契約上 StartWithContext が呼び出される可能性があるため、
+// 内部で Start を呼び出す際は nil ではなく背景コンテキストを使用します。
 func (c *combinedBootstrapperImpl) StartWithContext(ctx context.Context) error {
-	return c.Start(nil)
+	return c.Start(ctx)
 }

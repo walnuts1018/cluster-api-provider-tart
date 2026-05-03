@@ -1,6 +1,6 @@
 module github.com/walnuts1018/cluster-api-provider-tart
 
-go 1.25.3
+go 1.26.2
 
 require (
 	dario.cat/mergo v1.0.2

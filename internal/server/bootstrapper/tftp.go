@@ -15,6 +15,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// hasPathPrefix は、target が prefix 以下のパスかどうかをチェックします。
+func hasPathPrefix(path, prefix string) bool {
+	rel, err := filepath.Rel(prefix, path)
+	if err != nil {
+		return false
+	}
+	if rel == "." {
+		return true
+	}
+	if filepath.IsAbs(rel) {
+		return false
+	}
+	return len(rel) > 0 && rel[0] != '.'
+}
+
 // TFTPBootstrapper は組み込み TFTP サーバーの実装です。
 // iPXE ブートローダなどのファイルを配信します。
 type TFTPBootstrapper struct {
@@ -59,12 +74,25 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	readHandler := func(filename string, rf io.ReaderFrom) error {
 		lg.Info("TFTP リードリクエスト", "filename", filename)
 		filePath := filepath.Join(b.root, filename)
-		file, err := os.Open(filePath)
+		resolved, err := filepath.Abs(filePath)
+		if err != nil {
+			lg.Error(err, "ファイルパスの解決に失敗しました", "filename", filename)
+			return fmt.Errorf("failed to resolve file path: %w", err)
+		}
+		if !hasPathPrefix(resolved, b.root) {
+			lg.Error(nil, "パストラバーサルの試行を検出しました", "filename", filename, "requested_path", resolved)
+			return fmt.Errorf("access denied: path traversal detected")
+		}
+		file, err := os.Open(resolved)
 		if err != nil {
 			lg.Error(err, "TFTPファイルの開閉に失敗しました", "filename", filename)
 			return err
 		}
-		defer file.Close()
+		defer func() {
+			if err := file.Close(); err != nil {
+				lg.Error(err, "TFTPファイルのクローズに失敗しました", "filename", filename)
+			}
+		}()
 
 		_, err = rf.ReadFrom(file)
 		if err != nil {
@@ -74,25 +102,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 		return nil
 	}
 
-	writeHandler := func(filename string, wt io.WriterTo) error {
-		lg.Info("TFTP ライトリクエスト", "filename", filename)
-		filePath := filepath.Join(b.root, filename)
-		file, err := os.Create(filePath)
-		if err != nil {
-			lg.Error(err, "TFTPファイルの作成に失敗しました", "filename", filename)
-			return err
-		}
-		defer file.Close()
-
-		_, err = wt.WriteTo(file)
-		if err != nil {
-			lg.Error(err, "TFTPファイルの書き込みに失敗しました", "filename", filename)
-			return err
-		}
-		return nil
-	}
-
-	server := tftp.NewServer(readHandler, writeHandler)
+	server := tftp.NewServer(readHandler, nil)
 
 	b.mu.Lock()
 	b.server = server
@@ -100,11 +110,14 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	lg.Info("TFTP サーバーを起動します", "address", b.addr, "root", b.root)
 
+	// サーバーの起動完了を待機するためのチャネル
+	serveStarted := make(chan error, 1)
 	// サーバーを別ゴルーチンで起動
 	go func() {
 		udpAddr, err := net.ResolveUDPAddr("udp4", b.addr)
 		if err != nil {
 			lg.Error(err, "UDPアドレスの解決に失敗しました", "address", b.addr)
+			serveStarted <- fmt.Errorf("failed to resolve UDP address: %w", err)
 			close(b.done)
 			return
 		}
@@ -112,21 +125,33 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 		conn, err := net.ListenUDP("udp4", udpAddr)
 		if err != nil {
 			lg.Error(err, "UDPリスニングに失敗しました", "address", b.addr)
+			serveStarted <- fmt.Errorf("failed to listen UDP: %w", err)
 			close(b.done)
 			return
 		}
 
+		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
 		if err := server.Serve(conn); err != nil && !errors.Is(err, context.Canceled) {
 			lg.Error(err, "TFTP サーバーがエラーで終了しました")
 		}
-		conn.Close()
+		_ = conn.Close()
 		close(b.done)
 	}()
+
+	// サーバーの起動完了を待機（起動エラーがあれば即座に返す）
+	select {
+	case err := <-serveStarted:
+		if err != nil {
+			return fmt.Errorf("TFTP server failed to start: %w", err)
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 
 	// コンテキストがキャンセルされた場合はサーバーも停止する
 	go func() {
 		<-ctx.Done()
-		b.Stop()
+		_ = b.Stop()
 	}()
 
 	lg.Info("TFTP サーバーを起動しました")

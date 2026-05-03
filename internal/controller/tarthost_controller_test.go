@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -83,6 +84,62 @@ var _ = Describe("TartHost Controller", func() {
 			updated := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateAvailable))
+		})
+	})
+
+	Context("When a reserved host points to a missing TartMachine", func() {
+		const resourceName = "test-orphan-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:99",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateReserved
+			host.Status.MachineRef = &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  "default",
+				Name:       "missing-machine",
+			}
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			resource := &infrastructurev1alpha1.TartHost{}
+			err := k8sClient.Get(ctx, typeNamespacedName, resource)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+		})
+
+		It("should reset the host to Available", func() {
+			controllerReconciler := &TartHostReconciler{
+				Client: k8sClient,
+				Scheme: k8sClient.Scheme(),
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateAvailable))
+			Expect(updated.Status.MachineRef).To(BeNil())
 		})
 	})
 })

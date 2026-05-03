@@ -62,6 +62,9 @@ spec:
               bootstrapToken:
                 description: bootstrapToken is an unguessable one-time token for serving
                   bootstrap data.
+                maxLength: 64
+                minLength: 64
+                pattern: ^[A-Za-z0-9]+$
                 type: string
               conditions:
                 description: |-

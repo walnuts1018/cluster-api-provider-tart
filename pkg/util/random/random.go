@@ -46,7 +46,7 @@ func (r random) SecureString(length uint, base string) (string, error) {
 	baseLen := big.NewInt(int64(len(base)))
 	var sb strings.Builder
 	sb.Grow(int(length))
-	for i := uint(0); i < length; i++ {
+	for range length {
 		idx, err := rand.Int(rand.Reader, baseLen)
 		if err != nil {
 			return "", fmt.Errorf("failed to generate random index: %w", err)

@@ -51,6 +51,9 @@ type TartMachineStatus struct {
 	HostRef *corev1.ObjectReference `json:"hostRef,omitempty"`
 
 	// bootstrapToken is an unguessable one-time token for serving bootstrap data.
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9]+$`
+	// +kubebuilder:validation:MinLength=64
+	// +kubebuilder:validation:MaxLength=64
 	// +optional
 	BootstrapToken string `json:"bootstrapToken,omitempty"`
 

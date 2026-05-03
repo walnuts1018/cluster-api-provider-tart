@@ -109,7 +109,7 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.HostRef).NotTo(BeNil())
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
-			Expect(updated.Status.BootstrapToken).NotTo(BeEmpty())
+			Expect(updated.Status.BootstrapToken).To(MatchRegexp(`^[A-Za-z0-9]{64}$`))
 			Expect(updated.Status.TokenExpiresAt).NotTo(BeNil())
 		})
 	})

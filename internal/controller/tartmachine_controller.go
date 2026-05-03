@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/uuid"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -35,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
@@ -75,6 +75,12 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
+	// ワンタイムトークンは Bootstrap Data の推測困難な URL とシングルショット配信の基礎になります。
+	token, err := onetimetoken.New()
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token: %w", err)
+	}
+
 	host, err := r.reserveAvailableHost(ctx, &machine)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -96,8 +102,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	now := metav1.Now()
 	expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
 	machine.Status.HostRef = tartHostRef(host)
-	// ワンタイムトークンは Bootstrap Data の推測困難な URL とシングルショット配信の基礎になります。
-	machine.Status.BootstrapToken = string(uuid.NewUUID())
+	machine.Status.BootstrapToken = token.String()
 	machine.Status.ProvisioningStartTime = &now
 	machine.Status.TokenExpiresAt = &expiresAt
 	machine.Status.ObservedGeneration = machine.Generation

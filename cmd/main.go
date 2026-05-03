@@ -44,6 +44,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -100,6 +101,17 @@ func main() {
 	flag.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.StringVar(&logTypeStr, "log-type", "json", "Log type (json, text)")
 	flag.Parse()
+
+	ctx := context.Background()
+
+	otelProvider, err := telemetry.NewProvider(ctx)
+	if err != nil {
+		setupLog.Error(err, "Failed to create OpenTelemetry provider")
+		os.Exit(1)
+	}
+	telemetry.SetupSignalHandler(ctx, func(shutdownCtx context.Context) error {
+		return otelProvider.Shutdown(shutdownCtx)
+	})
 
 	logger := applogger.Create(logLevelStr, logTypeStr)
 	logrLogger := logr.FromSlogHandler(logger.Handler())

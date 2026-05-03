@@ -12,6 +12,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pin/tftp/v3"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -138,9 +141,18 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	// TFTP サーバーを作成
 	readHandler := func(filename string, rf io.ReaderFrom) error {
+		_, span := telemetry.Tracer.Start(context.Background(), "TFTP.ReadFile")
+		defer span.End()
+
+		span.SetAttributes(
+			attribute.String("tftp.filename", filename),
+		)
+
 		lg.Info("TFTP read request", "filename", filename)
 		file, err := openTFTPFile(b.root, filename)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			lg.Error(err, "Failed to open TFTP file", "filename", filename)
 			return err
 		}
@@ -152,9 +164,13 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 		_, err = rf.ReadFrom(file)
 		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
 			lg.Error(err, "Failed to read TFTP file", "filename", filename)
 			return err
 		}
+
+		span.SetStatus(codes.Ok, "")
 		return nil
 	}
 

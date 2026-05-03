@@ -10,9 +10,14 @@ import (
 	"strings"
 	"time"
 
+	echootel "github.com/labstack/echo-opentelemetry"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +42,12 @@ func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
 
+	e.Use(echootel.NewMiddlewareWithConfig(echootel.Config{
+		ServerName:     "tart",
+		TracerProvider: otel.GetTracerProvider(),
+		MeterProvider:  otel.GetMeterProvider(),
+	}))
+
 	e.GET("/livez", func(c *echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	})
@@ -60,6 +71,9 @@ func NormalizeMAC(mac string) (string, error) {
 }
 
 func handleIPXE(c *echo.Context, cl client.Client) error {
+	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "IPXE.Get")
+	defer span.End()
+
 	mac := c.QueryParam("mac")
 	if mac == "" {
 		return c.String(http.StatusBadRequest, "mac query parameter is required")
@@ -69,16 +83,20 @@ func handleIPXE(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("invalid mac address format: %s", mac))
 	}
 
-	ctx := c.Request().Context()
+	span.SetAttributes(attribute.String("ipxe.mac", normalizedMAC))
 
 	targetHost, err := findHostByMAC(ctx, cl, normalizedMAC)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, err.Error())
 	}
 	if targetHost == nil {
+		span.SetStatus(codes.Error, "host not found")
 		return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
 	}
 	if targetHost.Status.MachineRef == nil {
+		span.SetStatus(codes.Error, "host not assigned")
 		return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
 	}
 
@@ -88,12 +106,16 @@ func handleIPXE(c *echo.Context, cl client.Client) error {
 		Name:      targetHost.Status.MachineRef.Name,
 	}, &machine); err != nil {
 		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "machine not found")
 			return c.String(http.StatusNotFound, "assigned TartMachine not found")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
 	script := generateIPXEScript(c, &machine)
+	span.SetStatus(codes.Ok, "IPXE script generated")
 	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 }
 
@@ -153,10 +175,17 @@ func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMach
 }
 
 func handleMetadata(c *echo.Context, cl client.Client) error {
-	ctx := c.Request().Context()
+	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("metadata.namespace", c.Param("namespace")),
+		attribute.String("metadata.name", c.Param("name")),
+	)
 
 	providedToken := c.QueryParam("token")
 	if providedToken == "" {
+		span.SetStatus(codes.Error, "token required")
 		return c.String(http.StatusUnauthorized, "token is required")
 	}
 
@@ -166,29 +195,38 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		Name:      c.Param("name"),
 	}, &machine); err != nil {
 		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "machine not found")
 			return c.String(http.StatusNotFound, "TartMachine not found")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
 	if machine.Status.BootstrapToken == "" {
+		span.SetStatus(codes.Error, "token not set")
 		return c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
 	}
 
 	if providedToken != machine.Status.BootstrapToken {
+		span.SetStatus(codes.Error, "invalid token")
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
 
 	now := metav1.NewTime(time.Now())
 	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&now) {
+		span.SetStatus(codes.Error, "token expired")
 		return c.String(http.StatusNotFound, "token has expired")
 	}
 
 	secretName, err := bootstrapDataSecretName(ctx, cl, &machine)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "owner not found")
 			return c.String(http.StatusNotFound, "bootstrap secret owner Machine not found")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusPreconditionFailed, err.Error())
 	}
 
@@ -198,42 +236,54 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		Name:      secretName,
 	}, &secret); err != nil {
 		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "secret not found")
 			return c.String(http.StatusNotFound, "bootstrap secret not found")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
 	}
 
 	data, ok := secret.Data["value"]
 	if !ok {
+		span.SetStatus(codes.Error, "secret missing value key")
 		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
 	}
 
-	// Re-fetch the machine to ensure token hasn't been consumed by concurrent request
 	if err := cl.Get(ctx, client.ObjectKey{
 		Namespace: c.Param("namespace"),
 		Name:      c.Param("name"),
 	}, &machine); err != nil {
 		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "machine not found on re-fetch")
 			return c.String(http.StatusNotFound, "TartMachine not found")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
 	if machine.Status.BootstrapToken == "" {
+		span.SetStatus(codes.Error, "token consumed")
 		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 	}
 
 	if machine.Status.BootstrapToken != providedToken {
+		span.SetStatus(codes.Error, "token consumed")
 		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 	}
 
 	if err := consumeBootstrapToken(ctx, cl, &machine); err != nil {
 		if apierrors.IsConflict(err) {
+			span.SetStatus(codes.Error, "token consumed by conflict")
 			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
 	}
 
+	span.SetStatus(codes.Ok, "bootstrap token consumed")
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
 

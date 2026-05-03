@@ -47,7 +47,7 @@ var _ = Describe("TartMachine Controller", func() {
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
+			Namespace: "default",
 		}
 		tartmachine := &infrastructurev1alpha1.TartMachine{}
 

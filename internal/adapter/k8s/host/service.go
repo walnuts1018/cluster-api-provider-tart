@@ -40,35 +40,35 @@ func (s *Service) ReserveAvailable(ctx context.Context, machine *infrastructurev
 			continue
 		}
 
-		host := &infrastructurev1alpha1.TartHost{}
-		if err := s.client.Get(ctx, client.ObjectKeyFromObject(candidate), host); err != nil {
+		current := &infrastructurev1alpha1.TartHost{}
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(candidate), current); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
 			return nil, err
 		}
-		if host.Status.State != infrastructurev1alpha1.TartHostStateAvailable || host.Status.MachineRef != nil {
+		if current.Status.State != infrastructurev1alpha1.TartHostStateAvailable || current.Status.MachineRef != nil {
 			continue
 		}
 
-		original := host.DeepCopy()
-		host.Status.State = infrastructurev1alpha1.TartHostStateReserved
-		host.Status.MachineRef = hostdomain.RefForMachine(machine)
-		host.Status.ObservedGeneration = host.Generation
-		apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+		original := current.DeepCopy()
+		current.Status.State = infrastructurev1alpha1.TartHostStateReserved
+		current.Status.MachineRef = hostdomain.RefForMachine(machine)
+		current.Status.ObservedGeneration = current.Generation
+		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
 			Type:               "Available",
 			Status:             metav1.ConditionFalse,
 			Reason:             "Reserved",
 			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
-			ObservedGeneration: host.Generation,
+			ObservedGeneration: current.Generation,
 		})
-		if err := s.client.Status().Patch(ctx, host, client.MergeFrom(original)); err != nil {
+		if err := s.client.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
 			if apierrors.IsConflict(err) {
 				continue
 			}
 			return nil, err
 		}
-		return host, nil
+		return current, nil
 	}
 
 	return nil, nil

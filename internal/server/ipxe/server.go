@@ -98,18 +98,17 @@ func handleIPXE(c *echo.Context, cl client.Client) error {
 }
 
 func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) (*infrastructurev1alpha1.TartHost, error) {
-	var hosts infrastructurev1alpha1.TartHostList
-	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
-		return nil, fmt.Errorf("failed to list hosts by macAddress")
-	}
-
 	var bootHosts infrastructurev1alpha1.TartHostList
 	if err := cl.List(ctx, &bootHosts, client.MatchingFields{"spec.bootMACAddress": normalizedMAC}); err != nil {
 		return nil, fmt.Errorf("failed to list hosts by bootMACAddress")
 	}
-
 	if len(bootHosts.Items) > 0 {
 		return &bootHosts.Items[0], nil
+	}
+
+	var hosts infrastructurev1alpha1.TartHostList
+	if err := cl.List(ctx, &hosts, client.MatchingFields{"spec.macAddress": normalizedMAC}); err != nil {
+		return nil, fmt.Errorf("failed to list hosts by macAddress")
 	}
 	if len(hosts.Items) > 0 {
 		return &hosts.Items[0], nil
@@ -176,7 +175,8 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
 
-	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&metav1.Time{Time: time.Now()}) {
+	now := metav1.NewTime(time.Now())
+	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&now) {
 		return c.String(http.StatusNotFound, "token has expired")
 	}
 

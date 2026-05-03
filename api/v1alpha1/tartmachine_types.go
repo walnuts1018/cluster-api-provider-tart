@@ -94,6 +94,9 @@ type TartMachineStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.ready`,description="Ready status"
+// +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.status.hostRef.name`,description="Assigned TartHost"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`,description="CreationTimestamp is a timestamp representing the server time when this object was created."
 
 // TartMachine is the Schema for the tartmachines API
 type TartMachine struct {

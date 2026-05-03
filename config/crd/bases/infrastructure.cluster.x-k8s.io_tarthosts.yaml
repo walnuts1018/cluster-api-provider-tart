@@ -14,7 +14,24 @@ spec:
     singular: tarthost
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Host allocation state
+      jsonPath: .status.state
+      name: State
+      type: string
+    - description: NIC MAC address
+      jsonPath: .spec.macAddress
+      name: MAC Address
+      type: string
+    - description: PXE boot NIC MAC address
+      jsonPath: .spec.bootMacAddress
+      name: Boot MAC Address
+      type: string
+    - description: Assigned TartMachine
+      jsonPath: .status.machineRef.name
+      name: Machine
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TartHost is the Schema for the tarthosts API

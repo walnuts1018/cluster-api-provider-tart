@@ -11,6 +11,7 @@
 - ツールをインストールする際は、必ずmise経由でインストールしてください。
 - 定期的に実行するコマンドはmiseのtaskとして定義してください。
 - Kubernetesコントローラの実装、Custom ResourceやWebHookの追加には必ずcontroller-genやkubebuilderを用いてください。
+- テスト用のドメインが必要な場合は、`hoge.test.walnuts.dev`や`hoge.sample.walnuts.dev`を利用して下さい。
 
 ### 開発再開
 

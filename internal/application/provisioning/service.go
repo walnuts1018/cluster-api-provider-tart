@@ -56,6 +56,10 @@ func (s *service) Ensure(ctx context.Context, machine *infrastructurev1alpha1.Ta
 		return err
 	}
 
+	if !hostdomain.MachineRefMatches(host.Status.MachineRef, machine) {
+		return nil
+	}
+
 	if host.Status.State == infrastructurev1alpha1.TartHostStateProvisioning ||
 		host.Status.State == infrastructurev1alpha1.TartHostStateProvisioned {
 		return nil

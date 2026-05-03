@@ -141,6 +141,7 @@ mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+mkdir -p bin
 go build -o bin/manager cmd/main.go
 '''
 

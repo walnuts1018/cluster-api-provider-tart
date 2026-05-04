@@ -12,25 +12,47 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Common build dependencies for Debian
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS base
+RUN apt-get update && apt-get install -y \
+    git \
+    make \
+    gcc \
+    binutils-dev \
+    liblzma-dev \
+    perl \
+    bash \
+    mtools \
+    xorriso \
+    && rm -rf /var/lib/apt/lists/*
+
 # Build iPXE for x86_64
-FROM --platform=$BUILDPLATFORM alpine:3.20 AS builder-amd64
-RUN apk add --no-cache git make gcc musl-dev binutils perl bash xz-dev mtools xorriso
+FROM base AS builder-amd64
+# Ensure we have the right compiler for x86_64 (native or cross)
+RUN if [ "$(uname -m)" != "x86_64" ]; then \
+        apt-get update && apt-get install -y gcc-x86-64-linux-gnu && rm -rf /var/lib/apt/lists/*; \
+    fi
 RUN git clone --depth 1 https://github.com/ipxe/ipxe.git /ipxe
 WORKDIR /ipxe/src
-RUN make bin-x86_64-efi/ipxe.efi
+RUN if [ "$(uname -m)" != "x86_64" ]; then \
+        make CROSS_COMPILE=x86_64-linux-gnu- bin-x86_64-efi/ipxe.efi; \
+    else \
+        make bin-x86_64-efi/ipxe.efi; \
+    fi
 
 # Build iPXE for arm64
-FROM --platform=$BUILDPLATFORM alpine:3.20 AS builder-arm64
-RUN apk add --no-cache git make gcc musl-dev binutils perl bash xz-dev mtools xorriso
-# Note: In a real multi-arch build environment, we might need cross-compilers
-# but for simplicity in this Dockerfile, we assume the builder can handle it 
-# or we rely on buildx's emulation if needed.
-RUN apk add --no-cache gcc-aarch64-none-elf || true
+FROM base AS builder-arm64
+# Ensure we have the right compiler for arm64 (native or cross)
+RUN if [ "$(uname -m)" != "aarch64" ]; then \
+        apt-get update && apt-get install -y gcc-aarch64-linux-gnu && rm -rf /var/lib/apt/lists/*; \
+    fi
 RUN git clone --depth 1 https://github.com/ipxe/ipxe.git /ipxe
 WORKDIR /ipxe/src
-# If native build is not possible, we'd need CROSS_COMPILE=aarch64-linux-gnu- 
-# But let's try a simple build first, assuming target-specific builders.
-RUN make bin-arm64-efi/ipxe.efi || (apk add --no-cache gcc-armv7-none-eabi && make bin-arm64-efi/ipxe.efi)
+RUN if [ "$(uname -m)" != "aarch64" ]; then \
+        make CROSS_COMPILE=aarch64-linux-gnu- bin-arm64-efi/ipxe.efi; \
+    else \
+        make bin-arm64-efi/ipxe.efi; \
+    fi
 
 # Final Stage: Collect both
 FROM scratch

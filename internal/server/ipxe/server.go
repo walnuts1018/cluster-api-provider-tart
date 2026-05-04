@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -328,9 +329,13 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 }
 
 func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
-	machine.Status.BootstrapToken = ""
-	machine.Status.TokenExpiresAt = nil
-	return cl.Status().Update(ctx, machine)
+	original := machine.DeepCopy()
+	status, err := machinedomain.BootstrapTokenConsumedStatus(machine)
+	if err != nil {
+		return err
+	}
+	machine.Status = status
+	return cl.Status().Patch(ctx, machine, client.MergeFrom(original))
 }
 
 func NewServer(cl client.Client, addr, assetsRoot string) *Server {

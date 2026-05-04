@@ -168,6 +168,13 @@ func TestServiceMarkProvisioned(t *testing.T) {
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateProvisioning,
+			MachineRef: &corev1.ObjectReference{
+				APIVersion: infrastructurev1alpha1.GroupVersion.String(),
+				Kind:       "TartMachine",
+				Namespace:  "default",
+				Name:       "machine-a",
+				UID:        types.UID("machine-a-uid"),
+			},
 		},
 	}
 

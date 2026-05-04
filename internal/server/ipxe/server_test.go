@@ -197,8 +197,9 @@ func TestHandlerServesMetadata(t *testing.T) {
 		farFuture := metav1.Now().Add(1 * time.Hour)
 		tartMachine := &infrastructurev1alpha1.TartMachine{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
+				Name:       "test-machine",
+				Namespace:  "default",
+				Generation: 3,
 				OwnerReferences: []metav1.OwnerReference{
 					{
 						APIVersion: "cluster.x-k8s.io/v1beta1",
@@ -208,8 +209,13 @@ func TestHandlerServesMetadata(t *testing.T) {
 				},
 			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
-				BootstrapToken: token,
-				TokenExpiresAt: &metav1.Time{Time: farFuture},
+				HostRef: &corev1.ObjectReference{
+					Name:      "test-host",
+					Namespace: "default",
+				},
+				BootstrapToken:        token,
+				ProvisioningStartTime: &metav1.Time{Time: farFuture.Add(-10 * time.Minute)},
+				TokenExpiresAt:        &metav1.Time{Time: farFuture},
 			},
 		}
 		capiMachine := &unstructured.Unstructured{
@@ -249,6 +255,26 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		if body := rec.Body.String(); body != "bootstrap-config" {
 			t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+		}
+
+		updated := &infrastructurev1alpha1.TartMachine{}
+		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
+			t.Fatalf("failed to get TartMachine after metadata delivery: %v", err)
+		}
+		if updated.Status.Ready {
+			t.Fatal("ready = true, want false until controller marks the machine ready")
+		}
+		if updated.Status.BootstrapToken != "" {
+			t.Fatalf("bootstrapToken = %q, want empty", updated.Status.BootstrapToken)
+		}
+		if updated.Status.TokenExpiresAt != nil {
+			t.Fatalf("tokenExpiresAt = %#v, want nil", updated.Status.TokenExpiresAt)
+		}
+		if updated.Status.ProvisioningStartTime == nil {
+			t.Fatal("provisioningStartTime = nil, want preserved value")
+		}
+		if updated.Status.ObservedGeneration != tartMachine.Generation {
+			t.Fatalf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, tartMachine.Generation)
 		}
 	})
 

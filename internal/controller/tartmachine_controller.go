@@ -38,7 +38,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
@@ -100,26 +100,19 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// 未完了であれば WoL 再送信と状態遷移を行います（前回 reconcile の途中失敗からの再試行）。
 	if machine.Status.HostRef != nil {
 		// トークン期限が切れている場合は新しいトークンを発行し、WoL を再送信してリトライ
-		if machine.Status.TokenExpiresAt != nil && time.Now().After(machine.Status.TokenExpiresAt.Time) {
+		now := time.Now()
+		if machinedomain.TokenExpired(&machine, now) {
 			log.Info("Bootstrap token expired, regenerating token and retrying", "machine", client.ObjectKeyFromObject(&machine).String())
 			newToken, err := onetimetoken.New()
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token for retry: %w", err)
 			}
 			original := machine.DeepCopy()
-			now := metav1.Now()
-			expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
-			machine.Status.BootstrapToken = newToken.String()
-			machine.Status.ProvisioningStartTime = &now
-			machine.Status.TokenExpiresAt = &expiresAt
-			apimeta.SetStatusCondition(&machine.Status.Conditions, metav1.Condition{
-				Type:               "Provisioning",
-				Status:             metav1.ConditionFalse,
-				Reason:             "TokenExpired",
-				Message:            "Bootstrap token expired, regenerating and retrying",
-				ObservedGeneration: machine.Generation,
-			})
-			machine.Status.ObservedGeneration = machine.Generation
+			status, err := machinedomain.RetryExpiredTokenStatus(&machine, newToken.String(), now, bootstrapTokenTTL)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			machine.Status = status
 			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -137,8 +130,11 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		// TartMachine を Ready に遷移させ、TartHost を Provisioned にします。
 		if machine.Status.BootstrapToken == "" {
 			original := machine.DeepCopy()
-			machine.Status.Ready = true
-			machine.Status.ObservedGeneration = machine.Generation
+			status, err := machinedomain.ReadyStatus(&machine)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			machine.Status = status
 			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -183,20 +179,11 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// ホスト予約直後に machine.Status.HostRef を書き込み、以降の手順で失敗しても
 	// 再 reconcile 時に同じホストを使用できるようにします。
 	original := machine.DeepCopy()
-	now := metav1.Now()
-	expiresAt := metav1.NewTime(now.Add(bootstrapTokenTTL))
-	machine.Status.HostRef = hostdomain.RefForHost(host)
-	machine.Status.BootstrapToken = token.String()
-	machine.Status.ProvisioningStartTime = &now
-	machine.Status.TokenExpiresAt = &expiresAt
-	machine.Status.ObservedGeneration = machine.Generation
-	apimeta.SetStatusCondition(&machine.Status.Conditions, metav1.Condition{
-		Type:               "HostReserved",
-		Status:             metav1.ConditionTrue,
-		Reason:             "ProvisioningStarted",
-		Message:            fmt.Sprintf("Reserved TartHost %s/%s and sent Wake-on-LAN", host.Namespace, host.Name),
-		ObservedGeneration: machine.Generation,
-	})
+	status, err := machinedomain.BeginProvisioningStatus(&machine, host, token.String(), time.Now(), bootstrapTokenTTL)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	machine.Status = status
 	if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}

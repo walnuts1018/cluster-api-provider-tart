@@ -199,7 +199,7 @@ jobs:
           path: dist
 
       - name: Upload components.yaml to release
-        uses: softprops/action-gh-release@de2c0eb89ae2a0938768861c17b2c637469c8863 # v1.0.7
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: dist/components.yaml
           tag_name: ${{ github.ref_name }}

@@ -101,8 +101,10 @@ spec:
         volumeMounts:
         - name: tftp-root
           mountPath: /var/lib/tftpboot
+          readOnly: true
       volumes:
       - name: tftp-root
-        emptyDir: {}
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

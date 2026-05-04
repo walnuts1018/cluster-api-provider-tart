@@ -276,3 +276,19 @@ else
   golangci-lint version
 fi
 '''
+
+[tasks.docker-build-ipxe]
+description = "iPXE OCI artifact をビルドする"
+run = '''
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" build -t "$IMG" ./hack/ipxe-artifact
+'''
+
+[tasks.docker-push-ipxe]
+description = "iPXE OCI artifact を push する"
+run = '''
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" push "$IMG"
+'''

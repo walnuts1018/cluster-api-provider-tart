@@ -80,5 +80,5 @@ spec:
       volumes:
       - name: bootloader
         image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}
           pullPolicy: IfNotPresent

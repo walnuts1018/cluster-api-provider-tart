@@ -16,7 +16,7 @@ func TestManagerManifestEnablesEmbeddedBootstrapServers(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"hostNetwork: true",
-		"dnsPolicy: ClusterFirstWithHostNet",
+		"dnsPolicy: Default",
 		"containerPort: 67",
 		"containerPort: 69",
 		"protocol: UDP",

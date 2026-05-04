@@ -22,7 +22,7 @@ spec:
         app.kubernetes.io/name: cluster-api-provider-tart
     spec:
       hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: Default
       securityContext:
         runAsNonRoot: true
         seccompProfile:

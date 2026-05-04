@@ -32,15 +32,19 @@ type TartMachineSpec struct {
 
 	// image is the boot OS image URL or a path served by the assets server.
 	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$`
 	// +required
 	Image string `json:"image"`
 
 	// kernelParams are passed from iPXE to the OS kernel.
 	// +optional
+	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:items:Pattern=`^[a-zA-Z0-9._-]+=[a-zA-Z0-9._-]+$`
 	KernelParams []string `json:"kernelParams,omitempty"`
 
 	// initrd is the boot initrd image URL or a path served by the assets server.
 	// +optional
+	// +kubebuilder:validation:Pattern=`^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$`
 	Initrd string `json:"initrd,omitempty"`
 }
 
@@ -96,7 +100,7 @@ type TartMachineStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.ready`,description="Ready status"
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.status.hostRef.name`,description="Assigned TartHost"
-// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`,description="CreationTimestamp is a timestamp representing the server time when this object was created."
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`
 
 // TartMachine is the Schema for the tartmachines API
 type TartMachine struct {

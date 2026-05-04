@@ -18,13 +18,14 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -56,7 +57,7 @@ var _ = Describe("TartMachine Controller", func() {
 		BeforeEach(func() {
 			By("creating the custom resource for the Kind TartMachine")
 			err := k8sClient.Get(ctx, typeNamespacedName, tartmachine)
-			if err != nil && errors.IsNotFound(err) {
+			if err != nil && k8serrors.IsNotFound(err) {
 				resource := &infrastructurev1alpha1.TartMachine{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
@@ -72,7 +73,7 @@ var _ = Describe("TartMachine Controller", func() {
 			host := &infrastructurev1alpha1.TartHost{}
 			hostKey := types.NamespacedName{Name: hostName, Namespace: "default"}
 			err = k8sClient.Get(ctx, hostKey, host)
-			if err != nil && errors.IsNotFound(err) {
+			if err != nil && k8serrors.IsNotFound(err) {
 				host = &infrastructurev1alpha1.TartHost{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      hostName,
@@ -498,7 +499,7 @@ var _ = Describe("TartMachine Controller", func() {
 				g.Expect(host.Status.MachineRef).To(BeNil())
 
 				err := k8sClient.Get(ctx, typeNamespacedName, &infrastructurev1alpha1.TartMachine{})
-				g.Expect(errors.IsNotFound(err)).To(BeTrue())
+				g.Expect(k8serrors.IsNotFound(err)).To(BeTrue())
 			}).Should(Succeed())
 		})
 	})
@@ -600,6 +601,185 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:bb"))
 		})
 	})
+
+	Context("When MarkProvisioning fails with a non-conflict error", func() {
+		const resourceName = "test-mark-provisioning-failure"
+		const hostName = "test-mark-provisioning-failure-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress:     "00:11:22:33:44:cc",
+					BootMACAddress: "00:11:22:33:44:dd",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should return the error from the provisioning service", func() {
+			failingProvisioning := &failingProvisioningService{
+				beginErr: fmt.Errorf("mark provisioning failed"),
+			}
+			controllerReconciler := &TartMachineReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				HostService:  k8shost.NewService(k8sClient),
+				Provisioning: failingProvisioning,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("mark provisioning failed"))
+		})
+	})
+
+	Context("When no available hosts exist", func() {
+		const resourceName = "test-no-hosts"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+		})
+
+		It("should set HostReserved condition with NoAvailableHost reason", func() {
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), &fakeWakeOnLANSender{})
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			condition := apimeta.FindStatusCondition(updated.Status.Conditions, "HostReserved")
+			Expect(condition).NotTo(BeNil())
+			Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+			Expect(condition.Reason).To(Equal("NoAvailableHost"))
+		})
+	})
+
+	Context("When Begin fails after WoL is sent", func() {
+		const resourceName = "test-begin-failure"
+		const hostName = "test-begin-failure-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:ee",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should leave host in Reserved state and return error", func() {
+			failingProvisioning := &failingProvisioningService{
+				beginErr: fmt.Errorf("begin failed"),
+			}
+			controllerReconciler := &TartMachineReconciler{
+				Client:       k8sClient,
+				Scheme:       k8sClient.Scheme(),
+				HostService:  k8shost.NewService(k8sClient),
+				Provisioning: failingProvisioning,
+			}
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("begin failed"))
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateReserved))
+		})
+	})
 })
 
 type fakeWakeOnLANSender struct {
@@ -623,7 +803,7 @@ func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, w
 
 func cleanupTartMachine(ctx context.Context, key types.NamespacedName) {
 	machine := &infrastructurev1alpha1.TartMachine{}
-	if err := k8sClient.Get(ctx, key, machine); errors.IsNotFound(err) {
+	if err := k8sClient.Get(ctx, key, machine); k8serrors.IsNotFound(err) {
 		return
 	} else {
 		Expect(err).NotTo(HaveOccurred())
@@ -638,7 +818,7 @@ func cleanupTartMachine(ctx context.Context, key types.NamespacedName) {
 	Eventually(func(g Gomega) {
 		current := &infrastructurev1alpha1.TartMachine{}
 		err := k8sClient.Get(ctx, key, current)
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			return
 		}
 		g.Expect(err).NotTo(HaveOccurred())
@@ -646,3 +826,19 @@ func cleanupTartMachine(ctx context.Context, key types.NamespacedName) {
 		g.Expect(k8sClient.Update(ctx, current)).To(Succeed())
 	}).Should(Succeed())
 }
+
+type failingProvisioningService struct {
+	beginErr error
+}
+
+func (s *failingProvisioningService) Begin(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
+	if s.beginErr != nil {
+		return s.beginErr
+	}
+	return nil
+}
+
+func (s *failingProvisioningService) Ensure(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
+	return nil
+}
+

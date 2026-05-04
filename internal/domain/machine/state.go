@@ -25,7 +25,7 @@ func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *
 	expiresAt := metav1.NewTime(now.Add(ttl))
 	status.Ready = false
 	status.HostRef = hostdomain.RefForHost(host)
-	status.BootstrapToken = string(token)
+	status.BootstrapToken = token.String()
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
 	status.ObservedGeneration = machine.Generation

@@ -1,0 +1,15 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-tart
+    app.kubernetes.io/managed-by: kustomize
+  name: tartmachinetemplate-sample
+spec:
+  template:
+    spec:
+      image: https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz
+      initrd: https://assets.hoge.test.walnuts.dev/ubuntu/initrd
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp

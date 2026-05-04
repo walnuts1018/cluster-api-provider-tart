@@ -105,7 +105,6 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 func TestDHCPBootstrapper_Start_WithoutIPXE(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// iPXE ファイルを作成せずにテスト
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -114,12 +113,12 @@ func TestDHCPBootstrapper_Start_WithoutIPXE(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err = bs.StartWithContext(ctx)
-	if err == nil {
-		t.Fatal("expected error when iPXE bootloader is missing")
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start DHCP server without iPXE file: %v", err)
 	}
-	if want := "iPXE bootloader not found"; !strings.Contains(err.Error(), want) {
-		t.Errorf("expected error containing %q, got %q", want, err.Error())
+
+	if bs.server == nil {
+		t.Fatal("expected non-nil server after Start")
 	}
 }
 

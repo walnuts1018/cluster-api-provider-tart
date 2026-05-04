@@ -66,12 +66,14 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 	b.logger = lg
 	b.mu.Unlock()
 
-	// iPXE ローダが存在することを確認
+	// iPXE ローダは外部ConfigMapやホストボリュームで後から配置される場合があるため、
+	// 起動時には警告に留め、実際の配信可否はTFTPサーバー側でリクエスト時に判定します。
 	if _, err := os.Stat(b.iPXEPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("iPXE bootloader not found at %s. Please place undionly.kpxe or ipxe.kpxe in the TFTP root directory", b.iPXEPath)
+			lg.Info("iPXE bootloader is not found yet", "path", b.iPXEPath)
+		} else {
+			return fmt.Errorf("failed to check iPXE bootloader: %w", err)
 		}
-		return fmt.Errorf("failed to check iPXE bootloader: %w", err)
 	}
 
 	// バインドアドレスからUDPアドレスを作成

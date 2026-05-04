@@ -165,14 +165,10 @@ jobs:
       - name: Setup tools
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
 
-      - name: Sync Helm chart CRDs
-        run: mise run sync-helm-chart
-
       - name: Set chart version
         run: |
           sed -i "s/version: .*/version: ${{ github.ref_name }}/g" charts/cluster-api-provider-tart/Chart.yaml
           sed -i "s/appVersion: .*/appVersion: \"${{ github.ref_name }}\"/g" charts/cluster-api-provider-tart/Chart.yaml
-          sed -i "s/tag: .*/tag: ${{ github.ref_name }}/g" charts/cluster-api-provider-tart/values.yaml
 
       - name: Configure Git
         run: |

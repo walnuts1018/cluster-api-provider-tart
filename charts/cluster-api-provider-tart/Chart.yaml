@@ -2,5 +2,5 @@ apiVersion: v2
 name: cluster-api-provider-tart
 description: A Helm chart for Cluster API Provider Tart - a Kubernetes cluster API provider for local bare-metal desktop PCs
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: version-placeholder
+appVersion: "version-placeholder"

@@ -16,6 +16,8 @@ import (
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
+
+	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
 
 var _ = Describe("Provisioning E2E tests", func() {
@@ -26,6 +28,8 @@ var _ = Describe("Provisioning E2E tests", func() {
 		watchCancel context.CancelFunc
 		result      *clusterctl.ApplyClusterTemplateAndWaitResult
 		clusterName string
+
+		simulators []*HostSimulator
 	)
 
 	BeforeEach(func() {
@@ -40,9 +44,28 @@ var _ = Describe("Provisioning E2E tests", func() {
 			Name:      fmt.Sprintf("tart-e2e-%s", util.RandomString(6)),
 			LogFolder: filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
 		})
+
+		By("Creating TartHosts and starting simulators")
+		macs := []string{"52:54:00:12:34:56", "52:54:00:12:34:57"}
+		for i, mac := range macs {
+			host := &infrastructurev1alpha1.TartHost{}
+			host.Name = fmt.Sprintf("%s-host-%d", clusterName, i)
+			host.Namespace = namespace.Name
+			host.Spec.MACAddress = mac
+			host.Spec.BootMACAddress = mac
+
+			Expect(bootstrapClusterProxy.GetClient().Create(ctx, host)).To(Succeed())
+
+			sim := NewHostSimulator(mac, "br0")
+			simulators = append(simulators, sim)
+			go sim.Start(ctx)
+		}
 	})
 
 	AfterEach(func() {
+		for _, sim := range simulators {
+			sim.Stop()
+		}
 		if result.Cluster != nil {
 			framework.DumpSpecResourcesAndCleanup(ctx, clusterName, bootstrapClusterProxy, artifactsFolder, namespace.Name, namespace, watchCancel, result.Cluster, e2eConfig.GetIntervals, skipCleanup)
 		}

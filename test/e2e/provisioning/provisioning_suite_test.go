@@ -35,8 +35,6 @@ import (
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	ctrl "sigs.k8s.io/controller-runtime"
-
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
 
 var (
@@ -52,7 +50,7 @@ var (
 	bootstrapClusterProvider bootstrap.ClusterProvider
 	bootstrapClusterProxy    framework.ClusterProxy
 
-	scheme = runtime.NewScheme()
+	scheme = newScheme()
 )
 
 func init() {
@@ -60,8 +58,6 @@ func init() {
 	flag.StringVar(&artifactsFolder, "e2e.artifacts-folder", "", "folder where e2e test artifact should be stored")
 	flag.BoolVar(&skipCleanup, "e2e.skip-resource-cleanup", false, "if true, the resource cleanup after tests will be skipped")
 	flag.BoolVar(&useExisting, "e2e.use-existing-cluster", false, "if true, the test uses the current cluster instead of creating a new one")
-
-	_ = infrastructurev1alpha1.AddToScheme(scheme)
 }
 
 func TestE2E(t *testing.T) {

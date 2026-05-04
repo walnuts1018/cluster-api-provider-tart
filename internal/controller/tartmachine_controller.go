@@ -248,7 +248,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	log.Info("Assigned TartHost to TartMachine", "machine", req.String(), "host", client.ObjectKeyFromObject(host).String())
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 func (r *TartMachineReconciler) ensureFinalizer(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {

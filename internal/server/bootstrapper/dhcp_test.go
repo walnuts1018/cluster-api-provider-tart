@@ -21,9 +21,6 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 		if bs.addr != ":67" {
 			t.Errorf("expected addr :67, got %s", bs.addr)
 		}
-		if bs.iPXEPath != filepath.Join(tmpDir, iPXEBootFileName) {
-			t.Errorf("expected iPXEPath %s, got %s", filepath.Join(tmpDir, iPXEBootFileName), bs.iPXEPath)
-		}
 	})
 
 	t.Run("empty tftpRoot", func(t *testing.T) {
@@ -74,7 +71,7 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// iPXE ブートローダファイルを偽造
-	iPXEPath := filepath.Join(tmpDir, iPXEBootFileName)
+	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
 	if err := os.WriteFile(iPXEPath, []byte("fake ipxe binary"), 0644); err != nil {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
@@ -126,7 +123,7 @@ func TestDHCPBootstrapper_Start_InvalidAddress(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// iPXE ブートローダファイルを偽造
-	iPXEPath := filepath.Join(tmpDir, iPXEBootFileName)
+	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
 	if err := os.WriteFile(iPXEPath, []byte("fake ipxe binary"), 0644); err != nil {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}

@@ -1,0 +1,62 @@
+name: iPXE Artifact Build
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag for manual publishing.
+        required: true
+        default: dev
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-ipxe
+
+jobs:
+  build-and-push:
+    name: Build and Push OCI Artifact
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@3041bf56c941b39bc010a03d69c7da2f17079b77 # v6.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        with:
+          version: latest
+
+      - name: Build iPXE binaries
+        run: |
+          mkdir -p dist/ipxe
+          docker buildx build --platform linux/amd64,linux/arm64 -f hack/ipxe-artifact/Dockerfile --output type=local,dest=dist/ipxe .
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            image_tag="${{ github.ref_name }}"
+          else
+            image_tag="latest"
+          fi
+          echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Push OCI Artifact using ORAS
+        run: |
+          go run hack/ipxe-artifact/main.go \
+            -dir dist/ipxe \
+            -repo ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            -tag ${{ steps.tag.outputs.ImageTag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -77,7 +77,7 @@
 - **Infrastructure Controller (The Brain)**: 単一のPod (`hostNetwork: true`) で稼働し、以下の機能をGoroutineとして並行起動します。
   - **K8s Reconciler**: CRDの監視、PCの割り当て、WoL送信、トークン管理。
   - **Embedded DHCP Server**: `insomniacslk/dhcp` を利用。PXEブート要求を捕捉し、iPXEブートローダのパスを応答。
-  - **Embedded TFTP Server**: `pin/tftp` を利用。iPXEバイナリ (`ipxe.efi`) を配信。
+  - **Embedded TFTP Server**: `pin/tftp` を利用。アーキテクチャに応じた iPXE バイナリ (`ipxe-x86_64.efi`, `ipxe-arm64.efi`) を配信。
   - **Embedded HTTP Server**: カーネル/initrd、動的iPXEスクリプト、および機密データ (Bootstrap Secret) をセキュアに配信。
 
 ## リトライ

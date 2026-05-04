@@ -2,6 +2,12 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag for manual publishing.
+        required: true
+        default: dev
 
 permissions:
   contents: read
@@ -11,8 +17,45 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  manifest:
+    name: Release manifest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            image_tag="${{ github.ref_name }}"
+          else
+            image_tag="${{ inputs.image_tag }}"
+          fi
+          echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release manifest
+        run: |
+          IMG="${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" mise run build-installer
+
+      - name: Upload release manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: install.yaml
+          path: dist/install.yaml
+          if-no-files-found: error
+
   build:
-    name: Build Docker Image
+    name: Build ${{ matrix.key }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         include:
@@ -22,10 +65,6 @@ jobs:
           - key: linux-arm64
             os: ubuntu-24.04-arm
             platform: linux/arm64
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-      packages: write
     steps:
       - name: Check out
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -67,6 +106,7 @@ jobs:
           retention-days: 1
 
   merge:
+    name: Merge multi-arch image
     runs-on: ubuntu-latest
     needs: build
     permissions:
@@ -92,16 +132,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get Tag from Release
-        id: GetTag
-        run: echo "ImageTag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            image_tag="${{ github.ref_name }}"
+          else
+            image_tag="${{ inputs.image_tag }}"
+          fi
+          echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
             -t "${REGISTRY}/${IMAGE_NAME}:latest" \
-            -t "${REGISTRY}/${IMAGE_NAME}:${{ steps.GetTag.outputs.ImageTag }}" \
+            -t "${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" \
             $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
 
   chart-release:

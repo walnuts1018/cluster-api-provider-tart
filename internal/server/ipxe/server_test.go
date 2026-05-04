@@ -90,9 +90,6 @@ func TestHandlerDynamicScript(t *testing.T) {
 			KernelParams: []string{"console=ttyS0"},
 			Initrd:       "https://example.com/initrd",
 		},
-		Status: infrastructurev1alpha1.TartMachineStatus{
-			BootstrapToken: token,
-		},
 	}
 
 	host2 := &infrastructurev1alpha1.TartHost{
@@ -119,12 +116,27 @@ func TestHandlerDynamicScript(t *testing.T) {
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image: "https://example.com/vmlinuz-boot",
 		},
-		Status: infrastructurev1alpha1.TartMachineStatus{
-			BootstrapToken: token,
+	}
+	tokenSecret1 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-1-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
+	tokenSecret2 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-2-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
 		},
 	}
 
-	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2)
+	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, tokenSecret1, tokenSecret2)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
@@ -213,9 +225,17 @@ func TestHandlerServesMetadata(t *testing.T) {
 					Name:      "test-host",
 					Namespace: "default",
 				},
-				BootstrapToken:        token,
 				ProvisioningStartTime: &metav1.Time{Time: farFuture.Add(-10 * time.Minute)},
 				TokenExpiresAt:        &metav1.Time{Time: farFuture},
+			},
+		}
+		tokenSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-bootstrap-token",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"token": []byte(token),
 			},
 		}
 		capiMachine := &unstructured.Unstructured{
@@ -243,7 +263,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 			},
 		}
 
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()
@@ -264,9 +284,6 @@ func TestHandlerServesMetadata(t *testing.T) {
 		if updated.Status.Ready {
 			t.Fatal("ready = true, want false until controller marks the machine ready")
 		}
-		if updated.Status.BootstrapToken != "" {
-			t.Fatalf("bootstrapToken = %q, want empty", updated.Status.BootstrapToken)
-		}
 		if updated.Status.TokenExpiresAt != nil {
 			t.Fatalf("tokenExpiresAt = %#v, want nil", updated.Status.TokenExpiresAt)
 		}
@@ -275,6 +292,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		if updated.Status.ObservedGeneration != tartMachine.Generation {
 			t.Fatalf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, tartMachine.Generation)
+		}
+		remainingSecret := &corev1.Secret{}
+		err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret)
+		if err == nil {
+			t.Fatal("bootstrap token secret still exists after metadata delivery")
 		}
 	})
 
@@ -293,8 +315,16 @@ func TestHandlerServesMetadata(t *testing.T) {
 				},
 			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
-				BootstrapToken: token,
 				TokenExpiresAt: &metav1.Time{Time: farFuture},
+			},
+		}
+		tokenSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-bootstrap-token",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"token": []byte(token),
 			},
 		}
 		capiMachine := &unstructured.Unstructured{
@@ -322,7 +352,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 			},
 		}
 
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
 		rec := httptest.NewRecorder()
@@ -349,8 +379,16 @@ func TestHandlerServesMetadata(t *testing.T) {
 				},
 			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
-				BootstrapToken: token,
 				TokenExpiresAt: &metav1.Time{Time: farFuture},
+			},
+		}
+		tokenSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-bootstrap-token",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"token": []byte(token),
 			},
 		}
 		capiMachine := &unstructured.Unstructured{
@@ -378,7 +416,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 			},
 		}
 
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=invalidtoken", nil)
 		rec := httptest.NewRecorder()
@@ -405,8 +443,16 @@ func TestHandlerServesMetadata(t *testing.T) {
 				},
 			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
-				BootstrapToken: token,
 				TokenExpiresAt: &metav1.Time{Time: pastTime},
+			},
+		}
+		tokenSecret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-bootstrap-token",
+				Namespace: "default",
+			},
+			Data: map[string][]byte{
+				"token": []byte(token),
 			},
 		}
 		capiMachine := &unstructured.Unstructured{
@@ -434,7 +480,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 			},
 		}
 
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()

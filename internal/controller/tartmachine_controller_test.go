@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
@@ -112,9 +113,11 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.HostRef).NotTo(BeNil())
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
-			Expect(updated.Status.BootstrapToken).To(MatchRegexp(`^[A-Za-z0-9]{64}$`))
 			Expect(updated.Status.TokenExpiresAt).NotTo(BeNil())
 			Expect(updated.Status.ProvisioningStartTime).NotTo(BeNil())
+			tokenSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: k8sbootstraptoken.SecretName(updated), Namespace: updated.Namespace}, tokenSecret)).To(Succeed())
+			Expect(tokenSecret.Data["token"]).To(HaveLen(64))
 
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
@@ -176,7 +179,9 @@ var _ = Describe("TartMachine Controller", func() {
 				Name:       host.Name,
 				UID:        host.UID,
 			}
-			machine.Status.BootstrapToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901"
+			expiresAt := metav1.NewTime(time.Now().Add(10 * time.Minute))
+			machine.Status.TokenExpiresAt = &expiresAt
+			Expect(k8sbootstraptoken.NewService(k8sClient).Ensure(ctx, machine, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901")).To(Succeed())
 			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
 		})
 
@@ -334,7 +339,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Name:       host.Name,
 				UID:        host.UID,
 			}
-			machine.Status.BootstrapToken = ""
+			machine.Status.TokenExpiresAt = nil
 			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
 		})
 
@@ -559,8 +564,8 @@ var _ = Describe("TartMachine Controller", func() {
 				Name:       host.Name,
 				UID:        host.UID,
 			}
-			machine.Status.BootstrapToken = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901"
 			machine.Status.TokenExpiresAt = &pastTime
+			Expect(k8sbootstraptoken.NewService(k8sClient).Ensure(ctx, machine, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678901")).To(Succeed())
 			Expect(k8sClient.Status().Update(ctx, machine)).To(Succeed())
 		})
 
@@ -586,7 +591,6 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updatedMachine)).To(Succeed())
 			Expect(updatedMachine.Status.HostRef).NotTo(BeNil())
 			Expect(updatedMachine.Status.HostRef.Name).To(Equal(hostName))
-			Expect(updatedMachine.Status.BootstrapToken).To(MatchRegexp(`^[A-Za-z0-9]{64}$`))
 			Expect(updatedMachine.Status.TokenExpiresAt).NotTo(BeNil())
 			Expect(updatedMachine.Status.TokenExpiresAt.After(time.Now())).To(BeTrue())
 			Expect(updatedMachine.Status.Ready).To(BeFalse())
@@ -594,6 +598,9 @@ var _ = Describe("TartMachine Controller", func() {
 			provisioningCond := apimeta.FindStatusCondition(updatedMachine.Status.Conditions, "Provisioning")
 			Expect(provisioningCond).NotTo(BeNil())
 			Expect(provisioningCond.Reason).To(Equal("TokenExpired"))
+			tokenSecret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: k8sbootstraptoken.SecretName(updatedMachine), Namespace: updatedMachine.Namespace}, tokenSecret)).To(Succeed())
+			Expect(tokenSecret.Data["token"]).To(HaveLen(64))
 
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
@@ -905,10 +912,12 @@ func (s *fakeWakeOnLANSender) Send(macAddress string) error {
 
 func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, wolSender applicationprovisioning.WakeOnLANSender) *TartMachineReconciler {
 	hostService := k8shost.NewService(k8sClient)
+	tokenService := k8sbootstraptoken.NewService(k8sClient)
 	return &TartMachineReconciler{
 		Client:       k8sClient,
 		Scheme:       scheme,
 		HostService:  hostService,
+		TokenService: tokenService,
 		Provisioning: applicationprovisioning.NewService(hostService, hostService, wolSender),
 	}
 }

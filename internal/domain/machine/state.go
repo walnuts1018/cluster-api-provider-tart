@@ -10,12 +10,11 @@ import (
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
-	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 )
 
 var ErrIllegalMachineState = errors.New("illegal TartMachine state")
 
-func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, token onetimetoken.OneTimeToken, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
+func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
 	if err := validateUnassignedMachineStatus(machine.Status); err != nil {
 		return infrastructurev1alpha1.TartMachineStatus{}, err
 	}
@@ -25,7 +24,6 @@ func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *
 	expiresAt := metav1.NewTime(now.Add(ttl))
 	status.Ready = false
 	status.HostRef = hostdomain.RefForHost(host)
-	status.BootstrapToken = token.String()
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
 	status.ObservedGeneration = machine.Generation
@@ -39,7 +37,7 @@ func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *
 	return *status, nil
 }
 
-func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token onetimetoken.OneTimeToken, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
+func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
 	if err := validateProvisioningMachineStatus(machine.Status); err != nil {
 		return infrastructurev1alpha1.TartMachineStatus{}, err
 	}
@@ -51,7 +49,6 @@ func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token 
 	startedAt := metav1.NewTime(now)
 	expiresAt := metav1.NewTime(now.Add(ttl))
 	status.Ready = false
-	status.BootstrapToken = token.String()
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
 	status.ObservedGeneration = machine.Generation
@@ -83,7 +80,6 @@ func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine) (
 	}
 
 	status := machine.Status.DeepCopy()
-	status.BootstrapToken = ""
 	status.TokenExpiresAt = nil
 	status.ObservedGeneration = machine.Generation
 	return *status, nil
@@ -94,21 +90,21 @@ func TokenExpired(machine *infrastructurev1alpha1.TartMachine, now time.Time) bo
 }
 
 func validateUnassignedMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
-	if status.Ready || status.HostRef != nil || status.BootstrapToken != "" || status.ProvisioningStartTime != nil || status.TokenExpiresAt != nil {
+	if status.Ready || status.HostRef != nil || status.ProvisioningStartTime != nil || status.TokenExpiresAt != nil {
 		return ErrIllegalMachineState
 	}
 	return nil
 }
 
 func validateProvisioningMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
-	if status.Ready || status.HostRef == nil || status.BootstrapToken == "" || status.TokenExpiresAt == nil {
+	if status.Ready || status.HostRef == nil || status.TokenExpiresAt == nil {
 		return ErrIllegalMachineState
 	}
 	return nil
 }
 
 func validateTokenConsumedMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
-	if status.Ready || status.HostRef == nil || status.BootstrapToken != "" || status.TokenExpiresAt != nil {
+	if status.Ready || status.HostRef == nil || status.TokenExpiresAt != nil {
 		return ErrIllegalMachineState
 	}
 	return nil

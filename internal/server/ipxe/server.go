@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"go.opentelemetry.io/otel"
@@ -128,7 +129,12 @@ func handleIPXE(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
-	script := generateIPXEScript(c, &machine)
+	script, err := generateIPXEScript(c, cl, &machine)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to resolve bootstrap token")
+	}
 	span.SetStatus(codes.Ok, "IPXE script generated")
 	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 }
@@ -152,14 +158,17 @@ func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) 
 	return nil, nil
 }
 
-func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMachine) string {
+func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (string, error) {
 	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
 
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
 	params := strings.Join(machine.Spec.KernelParams, " ")
-	metadataURL := buildMetadataURL(serverURL, machine)
+	metadataURL, err := buildMetadataURL(c.Request().Context(), cl, serverURL, machine)
+	if err != nil {
+		return "", err
+	}
 	if metadataURL != "" {
 		if params != "" {
 			params += " "
@@ -177,15 +186,19 @@ func generateIPXEScript(c *echo.Context, machine *infrastructurev1alpha1.TartMac
 	}
 	sb.WriteString("boot\n")
 
-	return sb.String()
+	return sb.String(), nil
 }
 
-func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine) string {
-	if machine.Status.BootstrapToken == "" {
-		return ""
+func buildMetadataURL(ctx context.Context, cl client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine) (string, error) {
+	token, exists, err := k8sbootstraptoken.NewService(cl).Get(ctx, machine)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", nil
 	}
 	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(machine.Status.BootstrapToken))
+	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token.String())), nil
 }
 
 func handleMetadata(c *echo.Context, cl client.Client) error {
@@ -217,12 +230,19 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
-	if machine.Status.BootstrapToken == "" {
+	tokenService := k8sbootstraptoken.NewService(cl)
+	expectedToken, exists, err := tokenService.Get(ctx, &machine)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to get bootstrap token")
+	}
+	if !exists {
 		span.SetStatus(codes.Error, "token not set")
 		return c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
 	}
 
-	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(machine.Status.BootstrapToken)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
 		span.SetStatus(codes.Error, "invalid token")
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
@@ -277,7 +297,13 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
-	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(machine.Status.BootstrapToken)) != 1 {
+	expectedToken, exists, err = tokenService.Get(ctx, &machine)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to get bootstrap token")
+	}
+	if !exists || subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
 		span.SetStatus(codes.Error, "token consumed")
 		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 	}
@@ -337,6 +363,9 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 }
 
 func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
+	if err := k8sbootstraptoken.NewService(cl).Delete(ctx, machine); err != nil {
+		return err
+	}
 	original := machine.DeepCopy()
 	status, err := machinedomain.BootstrapTokenConsumedStatus(machine)
 	if err != nil {

@@ -32,19 +32,19 @@ type TartMachineSpec struct {
 
 	// image is the boot OS image URL or a path served by the assets server.
 	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:Pattern=`^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$`
 	// +required
 	Image string `json:"image"`
 
 	// kernelParams are passed from iPXE to the OS kernel.
 	// +optional
 	// +kubebuilder:validation:MaxItems=100
-	// +kubebuilder:validation:items:Pattern=`^[a-zA-Z0-9._-]+=[a-zA-Z0-9._-]+$`
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=2048
 	KernelParams []string `json:"kernelParams,omitempty"`
 
 	// initrd is the boot initrd image URL or a path served by the assets server.
 	// +optional
-	// +kubebuilder:validation:Pattern=`^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$`
+	// +kubebuilder:validation:MinLength=1
 	Initrd string `json:"initrd,omitempty"`
 }
 
@@ -57,13 +57,6 @@ type TartMachineStatus struct {
 	// hostRef references the assigned TartHost.
 	// +optional
 	HostRef *corev1.ObjectReference `json:"hostRef,omitempty"`
-
-	// bootstrapToken is an unguessable one-time token for serving bootstrap data.
-	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9]+$`
-	// +kubebuilder:validation:MinLength=64
-	// +kubebuilder:validation:MaxLength=64
-	// +optional
-	BootstrapToken string `json:"bootstrapToken,omitempty"`
 
 	// bootstrapSecretName is the Secret name that stores bootstrap data served once to the host.
 	// +optional

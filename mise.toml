@@ -191,6 +191,9 @@ run = '''
 IMG="${IMG:-controller:latest}"
 mise run manifests
 mise run generate
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
 mkdir -p dist
 (cd config/manager && kustomize edit set image controller="$IMG")
 kustomize build config/default > dist/install.yaml

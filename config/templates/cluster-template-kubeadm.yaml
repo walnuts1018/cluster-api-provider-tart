@@ -102,4 +102,3 @@ spec:
       - ip=dhcp
       - autoinstall
       - ds=nocloud-net;s=${BOOTSTRAP_METADATA_URL}
-      - ds=nocloud-net;s=${BOOTSTRAP_METADATA_URL}

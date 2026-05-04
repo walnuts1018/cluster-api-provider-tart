@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	oras "oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -147,10 +148,23 @@ func pushOCIArtifact(ctx context.Context, downloadDest string, tag string, repos
 		manifests = append(manifests, manifestDescriptor)
 	}
 
-	// Create and pack the manifest index
-	indexDescriptor, err := oras.PackManifestIndex(ctx, fs, oras.PackManifestIndexOptions{
+	// Create the manifest index
+	index := ocispec.Index{
+		Versioned: specs.Versioned{
+			SchemaVersion: 2,
+		},
+		MediaType: ocispec.MediaTypeImageIndex,
 		Manifests: manifests,
-	})
+	}
+
+	// Marshal the index to JSON
+	indexBytes, err := json.Marshal(index)
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest index: %w", err)
+	}
+
+	// Push the index to the file store
+	indexDescriptor, err := oras.PushBytes(ctx, fs, ocispec.MediaTypeImageIndex, indexBytes)
 	if err != nil {
 		return fmt.Errorf("failed to pack manifest index: %w", err)
 	}

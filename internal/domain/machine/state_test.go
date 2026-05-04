@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 )
 
 func TestBeginProvisioningStatus(t *testing.T) {
@@ -23,7 +24,7 @@ func TestBeginProvisioningStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default", UID: types.UID("host-a-uid")},
 	}
 
-	got, err := BeginProvisioningStatus(machine, host, "token-a", now, 10*time.Minute)
+	got, err := BeginProvisioningStatus(machine, host, onetimetoken.OneTimeToken("token-a"), now, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("BeginProvisioningStatus returned error: %v", err)
 	}
@@ -61,7 +62,7 @@ func TestRetryExpiredTokenStatus(t *testing.T) {
 		},
 	}
 
-	got, err := RetryExpiredTokenStatus(machine, "new-token", now, 10*time.Minute)
+	got, err := RetryExpiredTokenStatus(machine, onetimetoken.OneTimeToken("new-token"), now, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("RetryExpiredTokenStatus returned error: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestRetryExpiredTokenStatusRejectsReadyMachineWithToken(t *testing.T) {
 		},
 	}
 
-	if _, err := RetryExpiredTokenStatus(machine, "new-token", now, 10*time.Minute); !errors.Is(err, ErrIllegalMachineState) {
+	if _, err := RetryExpiredTokenStatus(machine, onetimetoken.OneTimeToken("new-token"), now, 10*time.Minute); !errors.Is(err, ErrIllegalMachineState) {
 		t.Fatalf("RetryExpiredTokenStatus error = %v, want %v", err, ErrIllegalMachineState)
 	}
 }

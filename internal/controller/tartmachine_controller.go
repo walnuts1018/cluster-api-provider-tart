@@ -68,6 +68,8 @@ const tartMachineHostCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmac
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
+
+//nolint:gocyclo
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 

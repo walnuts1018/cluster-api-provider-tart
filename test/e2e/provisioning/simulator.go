@@ -104,11 +104,11 @@ func (m *SimulatorManager) dispatch(ctx context.Context, packet []byte) {
 }
 
 type HostSimulator struct {
-	macAddress     string
+	macAddress      string
 	macAddressBytes []byte
-	bridge         string
-	qemuCmd        *exec.Cmd
-	mu             sync.Mutex
+	bridge          string
+	qemuCmd         *exec.Cmd
+	mu              sync.Mutex
 }
 
 func NewHostSimulator(macAddress, bridge string) (*HostSimulator, error) {
@@ -118,9 +118,9 @@ func NewHostSimulator(macAddress, bridge string) (*HostSimulator, error) {
 	}
 
 	return &HostSimulator{
-		macAddress:     macAddress,
+		macAddress:      macAddress,
 		macAddressBytes: mac,
-		bridge:         bridge,
+		bridge:          bridge,
 	}, nil
 }
 
@@ -215,8 +215,8 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 
 func (s *HostSimulator) findOVMF() string {
 	paths := []string{
-		"/usr/share/ovmf/OVMF.fd",      // Ubuntu/macOS Brew
-		"/usr/share/OVMF/OVMF.fd",      // Fedora/CentOS
+		"/usr/share/ovmf/OVMF.fd",         // Ubuntu/macOS Brew
+		"/usr/share/OVMF/OVMF.fd",         // Fedora/CentOS
 		"/usr/share/qemu/ovmf-x86_64.bin", // Arch Linux
 	}
 	for _, p := range paths {

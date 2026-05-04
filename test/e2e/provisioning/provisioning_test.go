@@ -135,7 +135,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		}, result)
 
 		By("Waiting for the workload cluster nodes to be ready")
-		workloadProxy := bootstrapClusterProxy.GetWorkloadClusterProxy(ctx, namespace.Name, clusterName)
+		workloadProxy := bootstrapClusterProxy.GetWorkloadCluster(ctx, namespace.Name, clusterName)
 		framework.WaitForNodesReady(ctx, framework.WaitForNodesReadyInput{
 			Lister:            workloadProxy.GetClient(),
 			Count:             2, // 1 CP + 1 Worker

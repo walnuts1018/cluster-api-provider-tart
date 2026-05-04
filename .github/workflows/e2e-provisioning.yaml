@@ -29,7 +29,7 @@ jobs:
 
       - name: Run E2E Provisioning Test
         run: |
-          mise run test-provisioning-e2e
+          mise run test-provisioning-e2e-k3s
 
       - name: Upload logs on failure
         if: failure()

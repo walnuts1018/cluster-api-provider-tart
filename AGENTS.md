@@ -90,6 +90,23 @@
 - TracerやMeterは、`telemetry.Tracer`などのグローバル変数から取得してください。TracerProviderやMeterProviderも、`otel.GetTracerProvider()`などを用いてグローバルに取得して下さい。
 - TracerやMeterの設定について、サンプリングレートやExport先のアドレスなどは、`OTEL_TRACES_SAMPLER`といった環境変数から動的に設定する機能が`go.opentelemetry.io/otel/`側に備わっています。私たちのコード側で勝手に固定値に設定したり、独自の環境変数パースロジックを実装したりすることは禁止です。
 
+## Cluster API
+
+- Cluster APIのCRDやControllerなどを作成する際は、[公式ドキュメント](https://cluster-api.sigs.k8s.io/) をよく読んで、これらの使用に準拠するようにして下さい。
+  - <https://cluster-api.sigs.k8s.io/developer/providers/overview>
+    - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/overview>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/overview>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/naming>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/implement-api-types>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/webhooks>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/controllers-and-reconciliation>
+    - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-cluster>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machine>
+      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machinepool>
+    - <https://cluster-api.sigs.k8s.io/developer/providers/best-practices>
+    - <https://cluster-api.sigs.k8s.io/developer/providers/security-guidelines>
+
 ## 　実装のフェーズ分け
 
 段階的な開発を推奨する。詳細は `architecture` および `tasks` スキルを参照してください。

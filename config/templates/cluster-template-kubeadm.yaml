@@ -16,11 +16,11 @@ spec:
     host: ${CONTROL_PLANE_ENDPOINT_HOST}
     port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
   controlPlaneRef:
-    apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+    apiGroup: controlplane.cluster.x-k8s.io
     kind: KubeadmControlPlane
     name: ${CLUSTER_NAME}-control-plane
   infrastructureRef:
-    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    apiGroup: infrastructure.cluster.x-k8s.io
     kind: TartCluster
     name: ${CLUSTER_NAME}
 ---

@@ -1,49 +1,49 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: controller-manager
-  namespace: {{ .Values.namespace | default .Release.Namespace }}
+  name: {{ include "cluster-api-provider-tart.fullname" . }}-controller-manager
   labels:
+    cluster.x-k8s.io/provider: infrastructure-tart
     control-plane: controller-manager
-    app.kubernetes.io/name: cluster-api-provider-tart
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- include "cluster-api-provider-tart.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.controllerManager.replicas }}
   selector:
     matchLabels:
-      control-plane: controller-manager
       app.kubernetes.io/name: cluster-api-provider-tart
+      cluster.x-k8s.io/provider: infrastructure-tart
+      control-plane: controller-manager
+    {{- include "cluster-api-provider-tart.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      labels:
+        app.kubernetes.io/name: cluster-api-provider-tart
+        cluster.x-k8s.io/provider: infrastructure-tart
+        control-plane: controller-manager
+      {{- include "cluster-api-provider-tart.selectorLabels" . | nindent 8 }}
       annotations:
         kubectl.kubernetes.io/default-container: manager
-      labels:
-        control-plane: controller-manager
-        app.kubernetes.io/name: cluster-api-provider-tart
     spec:
-      hostNetwork: true
-      dnsPolicy: Default
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      serviceAccountName: {{ .Values.serviceAccount.name | default "controller-manager" }}
-      terminationGracePeriodSeconds: 10
       containers:
-      - name: manager
+      - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
         command:
         - /manager
-        args:
-        - --leader-elect
-        - --health-probe-bind-address=:8081
-        - --bootstrap-advertise-address=$(POD_IP)
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
         env:
         - name: POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
+          | default .Chart.AppVersion }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
         ports:
         - containerPort: 67
           name: bootp
@@ -54,39 +54,29 @@ spec:
         - containerPort: 8082
           name: ipxe
           protocol: TCP
-        securityContext:
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-            - NET_BIND_SERVICE
-            drop:
-            - "ALL"
-        livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8081
-          initialDelaySeconds: 15
-          periodSeconds: 20
         readinessProbe:
           httpGet:
             path: /readyz
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        resources:
-          limits:
-            cpu: {{ .Values.resources.limits.cpu }}
-            memory: {{ .Values.resources.limits.memory }}
-          requests:
-            cpu: {{ .Values.resources.requests.cpu }}
-            memory: {{ .Values.resources.requests.memory }}
+        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
+          }}
+        securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
+          | nindent 10 }}
         volumeMounts:
-        - name: bootloader
-          mountPath: /var/lib/tftpboot
+        - mountPath: /var/lib/tftpboot
+          name: bootloader
           readOnly: true
+      dnsPolicy: Default
+      hostNetwork: true
+      nodeSelector: {{- toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
+      securityContext: {{- toYaml .Values.controllerManager.podSecurityContext | nindent
+        8 }}
+      serviceAccountName: {{ include "cluster-api-provider-tart.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
+      tolerations: {{- toYaml .Values.controllerManager.tolerations | nindent 8 }}
+      topologySpreadConstraints: {{- toYaml .Values.controllerManager.topologySpreadConstraints
+        | nindent 8 }}
       volumes:
       - name: bootloader
-        image:
-          reference: "{{ .Values.ipxe.image.repository }}:{{ .Values.ipxe.image.tag }}"
-          pullPolicy: {{ .Values.ipxe.image.pullPolicy }}

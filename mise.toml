@@ -416,17 +416,6 @@ else
 fi
 '''
 
-[tasks.sync-helm-chart]
-description = "config/crd/bases を charts/cluster-api-provider-tart/crd/bases に同期する"
-run = "bash hack/sync-helm-chart.sh"
-
-[tasks.sync-all]
-description = "generate と sync-helm-chart を実行する"
-run = '''
-mise run generate
-mise run sync-helm-chart
-'''
-
 [tasks.helmify]
 description = "config/default を helmify して charts/cluster-api-provider-tart に出力する"
 run = '''

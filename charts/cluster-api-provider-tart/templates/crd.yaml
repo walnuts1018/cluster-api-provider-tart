@@ -1,4 +1,0 @@
-{{- range $path, $content := .Files.Glob "crd/bases/*.yaml" }}
----
-{{ $.Files.Get $path }}
-{{- end }}

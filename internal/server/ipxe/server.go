@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	echootel "github.com/labstack/echo-opentelemetry"
@@ -36,8 +35,6 @@ type Server struct {
 	addr            string
 	assetsRoot      string
 	metadataLimiter *rate.Limiter
-	mux             sync.Mutex
-	machineLimiters map[string]*rate.Limiter
 }
 
 type HandlerConfig struct {
@@ -355,7 +352,6 @@ func NewServer(cl client.Client, addr, assetsRoot string) *Server {
 		addr:            addr,
 		assetsRoot:      assetsRoot,
 		metadataLimiter: rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
-		machineLimiters: make(map[string]*rate.Limiter),
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -41,8 +42,8 @@ func main() {
 	ctx := context.Background()
 
 	// Parse hostname from repository
-	var host string
-	fmt.Sscanf(repository, "%[^/]", &host)
+	parts := strings.SplitN(repository, "/", 2)
+	host := parts[0]
 
 	cred := RepositoryCredential{
 		HostName: host,
@@ -69,7 +70,11 @@ func pushOCIArtifact(ctx context.Context, downloadDest string, tag string, repos
 	if err != nil {
 		return fmt.Errorf("failed to create file store: %w", err)
 	}
-	defer fs.Close()
+	defer func() {
+		if err := fs.Close(); err != nil {
+			slog.Warn("failed to close file store", "error", err)
+		}
+	}()
 
 	files, err := os.ReadDir(downloadDest)
 	if err != nil {

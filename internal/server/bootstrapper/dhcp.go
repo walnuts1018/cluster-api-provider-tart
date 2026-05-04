@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -42,6 +43,7 @@ const (
 type DHCPBootstrapper struct {
 	tftpRoot string
 	addr     string
+	httpAddr string
 	server   *server4.Server
 	logger   logr.Logger
 	mu       sync.Mutex
@@ -50,12 +52,16 @@ type DHCPBootstrapper struct {
 
 // NewDHCPBootstrapper は新しい DHCPBootstrapper を作成します。
 // tftpRoot は TFTP サーバーのルートディレクトリ、addr は ProxyDHCP のバインドアドレスです。
-func NewDHCPBootstrapper(tftpRoot, addr string) (*DHCPBootstrapper, error) {
+// httpAddr は iPXE スクリプト配信用の HTTP サーバーアドレスです。
+func NewDHCPBootstrapper(tftpRoot, addr, httpAddr string) (*DHCPBootstrapper, error) {
 	if tftpRoot == "" {
 		return nil, fmt.Errorf("tftpRoot is required")
 	}
 	if addr == "" {
 		return nil, fmt.Errorf("addr is required")
+	}
+	if httpAddr == "" {
+		return nil, fmt.Errorf("httpAddr is required")
 	}
 
 	// TFTP ルートディレクトリが存在することを確認
@@ -66,6 +72,7 @@ func NewDHCPBootstrapper(tftpRoot, addr string) (*DHCPBootstrapper, error) {
 	return &DHCPBootstrapper{
 		tftpRoot: tftpRoot,
 		addr:     addr,
+		httpAddr: httpAddr,
 		done:     make(chan struct{}),
 		logger:   logr.Discard(),
 	}, nil
@@ -178,20 +185,51 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			}
 		}
 
-		bootFile := iPXEBootFileNameDefault
-		switch arch {
-		case ArchEFIx8664:
-			bootFile = iPXEBootFileNameAMD64
-		case ArchEFIARM64:
-			bootFile = iPXEBootFileNameARM64
-		default:
-			lg.Info("Unknown architecture, using default boot file", "arch", arch)
+		// User-Class (Option 77) を確認して iPXE かどうかを判定
+		isIPXE := false
+		for _, uc := range m.UserClass() {
+			if uc == "iPXE" {
+				isIPXE = true
+				break
+			}
+		}
+
+		var bootFile string
+		if isIPXE {
+			// iPXE からのリクエスト: HTTP URL を直接返す（二段階ブート）
+			host, _, err := net.SplitHostPort(b.httpAddr)
+			if err != nil {
+				host = b.httpAddr
+			}
+			serverIP := net.ParseIP(host)
+			if serverIP == nil {
+				lg.Info("Failed to parse HTTP server IP", "httpAddr", b.httpAddr)
+			}
+			macParam := url.QueryEscape(m.ClientHWAddr.String())
+			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", serverIP, macParam)
+			bootFile = httpURL
+			lg.Info("iPXE client detected, providing HTTP URL", "client_mac", m.ClientHWAddr.String(), "url", httpURL)
+		} else {
+			// 通常の PXE クライアント: TFTP で取得する iPXE ローダを返す
+			switch arch {
+			case ArchEFIx8664:
+				bootFile = iPXEBootFileNameAMD64
+			case ArchEFIARM64:
+				bootFile = iPXEBootFileNameARM64
+			default:
+				lg.Info("Unknown architecture, using default boot file", "arch", arch)
+				bootFile = iPXEBootFileNameDefault
+			}
 		}
 
 		// 新しいDHCPv4レスポンスを作成
+		serverIP := net.ParseIP(b.addr)
+		if serverIP == nil {
+			serverIP = net.ParseIP("0.0.0.0")
+		}
 		resp, err := dhcpv4.NewReplyFromRequest(m,
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
-			dhcpv4.WithOption(dhcpv4.OptBootFileName(bootFile)),
+			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(serverIP)),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
@@ -200,6 +238,8 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			lg.Error(err, "Failed to create DHCP response")
 			return
 		}
+		resp.BootFileName = bootFile
+		resp.ServerHostName = ""
 
 		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
 			span.RecordError(err)

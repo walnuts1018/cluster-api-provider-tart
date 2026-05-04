@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -22,7 +23,10 @@ func TestBeginProvisioningStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default", UID: types.UID("host-a-uid")},
 	}
 
-	got := BeginProvisioningStatus(machine, host, "token-a", now, 10*time.Minute)
+	got, err := BeginProvisioningStatus(machine, host, "token-a", now, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("BeginProvisioningStatus returned error: %v", err)
+	}
 	if got.Ready {
 		t.Fatal("ready = true, want false")
 	}
@@ -51,12 +55,16 @@ func TestRetryExpiredTokenStatus(t *testing.T) {
 	machine := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 8},
 		Status: infrastructurev1alpha1.TartMachineStatus{
-			Ready:          true,
+			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
 			BootstrapToken: "old-token",
+			TokenExpiresAt: &metav1.Time{Time: now.Add(-time.Second)},
 		},
 	}
 
-	got := RetryExpiredTokenStatus(machine, "new-token", now, 10*time.Minute)
+	got, err := RetryExpiredTokenStatus(machine, "new-token", now, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("RetryExpiredTokenStatus returned error: %v", err)
+	}
 	if got.Ready {
 		t.Fatal("ready = true, want false")
 	}
@@ -72,6 +80,25 @@ func TestRetryExpiredTokenStatus(t *testing.T) {
 	}
 }
 
+func TestRetryExpiredTokenStatusRejectsReadyMachineWithToken(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
+	machine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 8},
+		Status: infrastructurev1alpha1.TartMachineStatus{
+			Ready:          true,
+			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
+			BootstrapToken: "old-token",
+			TokenExpiresAt: &metav1.Time{Time: now.Add(-time.Second)},
+		},
+	}
+
+	if _, err := RetryExpiredTokenStatus(machine, "new-token", now, 10*time.Minute); !errors.Is(err, ErrIllegalMachineState) {
+		t.Fatalf("RetryExpiredTokenStatus error = %v, want %v", err, ErrIllegalMachineState)
+	}
+}
+
 func TestReadyStatusConsumesProvisioningFields(t *testing.T) {
 	t.Parallel()
 
@@ -79,27 +106,39 @@ func TestReadyStatusConsumesProvisioningFields(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 9},
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			HostRef:               &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
-			BootstrapToken:        "token-a",
 			ProvisioningStartTime: &metav1.Time{Time: time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)},
-			TokenExpiresAt:        &metav1.Time{Time: time.Date(2026, 5, 4, 10, 10, 0, 0, time.UTC)},
 		},
 	}
 
-	got := ReadyStatus(machine)
+	got, err := ReadyStatus(machine)
+	if err != nil {
+		t.Fatalf("ReadyStatus returned error: %v", err)
+	}
 	if !got.Ready {
 		t.Fatal("ready = false, want true")
-	}
-	if got.BootstrapToken != "" {
-		t.Fatalf("bootstrapToken = %q, want empty", got.BootstrapToken)
-	}
-	if got.TokenExpiresAt != nil {
-		t.Fatalf("tokenExpiresAt = %#v, want nil", got.TokenExpiresAt)
 	}
 	if got.ProvisioningStartTime != nil {
 		t.Fatalf("provisioningStartTime = %#v, want nil", got.ProvisioningStartTime)
 	}
 	if got.HostRef == nil || got.HostRef.Name != "host-a" {
 		t.Fatalf("hostRef = %#v, want preserved host ref", got.HostRef)
+	}
+}
+
+func TestReadyStatusRejectsMachineWithToken(t *testing.T) {
+	t.Parallel()
+
+	machine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 9},
+		Status: infrastructurev1alpha1.TartMachineStatus{
+			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
+			BootstrapToken: "token-a",
+			TokenExpiresAt: &metav1.Time{Time: time.Date(2026, 5, 4, 10, 10, 0, 0, time.UTC)},
+		},
+	}
+
+	if _, err := ReadyStatus(machine); !errors.Is(err, ErrIllegalMachineState) {
+		t.Fatalf("ReadyStatus error = %v, want %v", err, ErrIllegalMachineState)
 	}
 }
 
@@ -119,7 +158,10 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 		},
 	}
 
-	got := BootstrapTokenConsumedStatus(machine)
+	got, err := BootstrapTokenConsumedStatus(machine)
+	if err != nil {
+		t.Fatalf("BootstrapTokenConsumedStatus returned error: %v", err)
+	}
 	if got.Ready {
 		t.Fatal("ready = true, want false")
 	}

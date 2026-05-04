@@ -330,7 +330,11 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 
 func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
 	original := machine.DeepCopy()
-	machine.Status = machinedomain.BootstrapTokenConsumedStatus(machine)
+	status, err := machinedomain.BootstrapTokenConsumedStatus(machine)
+	if err != nil {
+		return err
+	}
+	machine.Status = status
 	return cl.Status().Patch(ctx, machine, client.MergeFrom(original))
 }
 

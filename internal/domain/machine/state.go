@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,7 +12,13 @@ import (
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
-func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, token string, now time.Time, ttl time.Duration) infrastructurev1alpha1.TartMachineStatus {
+var ErrIllegalMachineState = errors.New("illegal TartMachine state")
+
+func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *infrastructurev1alpha1.TartHost, token string, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
+	if err := validateUnassignedMachineStatus(machine.Status); err != nil {
+		return infrastructurev1alpha1.TartMachineStatus{}, err
+	}
+
 	status := machine.Status.DeepCopy()
 	startedAt := metav1.NewTime(now)
 	expiresAt := metav1.NewTime(now.Add(ttl))
@@ -28,10 +35,17 @@ func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *
 		Message:            fmt.Sprintf("Reserved TartHost %s/%s and sent Wake-on-LAN", host.Namespace, host.Name),
 		ObservedGeneration: machine.Generation,
 	})
-	return *status
+	return *status, nil
 }
 
-func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token string, now time.Time, ttl time.Duration) infrastructurev1alpha1.TartMachineStatus {
+func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token string, now time.Time, ttl time.Duration) (infrastructurev1alpha1.TartMachineStatus, error) {
+	if err := validateProvisioningMachineStatus(machine.Status); err != nil {
+		return infrastructurev1alpha1.TartMachineStatus{}, err
+	}
+	if !TokenExpired(machine, now) {
+		return infrastructurev1alpha1.TartMachineStatus{}, ErrIllegalMachineState
+	}
+
 	status := machine.Status.DeepCopy()
 	startedAt := metav1.NewTime(now)
 	expiresAt := metav1.NewTime(now.Add(ttl))
@@ -47,27 +61,54 @@ func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token 
 		Message:            "Bootstrap token expired, regenerating and retrying",
 		ObservedGeneration: machine.Generation,
 	})
-	return *status
+	return *status, nil
 }
 
-func ReadyStatus(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineStatus {
+func ReadyStatus(machine *infrastructurev1alpha1.TartMachine) (infrastructurev1alpha1.TartMachineStatus, error) {
+	if err := validateTokenConsumedMachineStatus(machine.Status); err != nil {
+		return infrastructurev1alpha1.TartMachineStatus{}, err
+	}
+
 	status := machine.Status.DeepCopy()
 	status.Ready = true
-	status.BootstrapToken = ""
 	status.ProvisioningStartTime = nil
-	status.TokenExpiresAt = nil
 	status.ObservedGeneration = machine.Generation
-	return *status
+	return *status, nil
 }
 
-func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineStatus {
+func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine) (infrastructurev1alpha1.TartMachineStatus, error) {
+	if err := validateProvisioningMachineStatus(machine.Status); err != nil {
+		return infrastructurev1alpha1.TartMachineStatus{}, err
+	}
+
 	status := machine.Status.DeepCopy()
 	status.BootstrapToken = ""
 	status.TokenExpiresAt = nil
 	status.ObservedGeneration = machine.Generation
-	return *status
+	return *status, nil
 }
 
 func TokenExpired(machine *infrastructurev1alpha1.TartMachine, now time.Time) bool {
 	return machine.Status.TokenExpiresAt != nil && now.After(machine.Status.TokenExpiresAt.Time)
+}
+
+func validateUnassignedMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
+	if status.Ready || status.HostRef != nil || status.BootstrapToken != "" || status.ProvisioningStartTime != nil || status.TokenExpiresAt != nil {
+		return ErrIllegalMachineState
+	}
+	return nil
+}
+
+func validateProvisioningMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
+	if status.Ready || status.HostRef == nil || status.BootstrapToken == "" || status.TokenExpiresAt == nil {
+		return ErrIllegalMachineState
+	}
+	return nil
+}
+
+func validateTokenConsumedMachineStatus(status infrastructurev1alpha1.TartMachineStatus) error {
+	if status.Ready || status.HostRef == nil || status.BootstrapToken != "" || status.TokenExpiresAt != nil {
+		return ErrIllegalMachineState
+	}
+	return nil
 }

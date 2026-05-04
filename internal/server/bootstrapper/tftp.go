@@ -141,7 +141,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	// TFTP サーバーを作成
 	readHandler := func(filename string, rf io.ReaderFrom) error {
-		_, span := telemetry.Tracer.Start(context.Background(), "TFTP.ReadFile")
+		_, span := telemetry.Tracer.Start(ctx, "TFTP.ReadFile")
 		defer span.End()
 
 		span.SetAttributes(

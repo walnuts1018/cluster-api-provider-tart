@@ -14,6 +14,7 @@ import (
 
 const (
 	defaultOTELServiceName = "cluster-api-provider-tart"
+	defaultTraceSampleRate = 0.1
 )
 
 var Tracer = otel.Tracer("github.com/walnuts1018/cluster-api-provider-tart")
@@ -24,22 +25,14 @@ type TracerProviderConfig struct {
 }
 
 func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace.TracerProvider, error) {
+	cfg = normalizeTracerProviderConfig(cfg)
+
 	exporter, err := otlptracegrpc.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(cfg.ServiceVersion),
-			semconv.TelemetrySDKName("otel"),
-			semconv.TelemetrySDKLanguageGo,
-		),
-		resource.WithFromEnv(),
-		resource.WithProcess(),
-		resource.WithHost(),
-	)
+	res, err := newTelemetryResource(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
@@ -47,7 +40,6 @@ func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 
 	otel.SetTracerProvider(tp)
@@ -57,4 +49,25 @@ func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace
 	))
 
 	return tp, nil
+}
+
+func normalizeTracerProviderConfig(cfg TracerProviderConfig) TracerProviderConfig {
+	if cfg.ServiceName == "" {
+		cfg.ServiceName = defaultOTELServiceName
+	}
+	return cfg
+}
+
+func newTelemetryResource(ctx context.Context, cfg TracerProviderConfig) (*resource.Resource, error) {
+	cfg = normalizeTracerProviderConfig(cfg)
+	return resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
+		),
+		resource.WithTelemetrySDK(),
+		resource.WithFromEnv(),
+		resource.WithProcess(),
+		resource.WithHost(),
+	)
 }

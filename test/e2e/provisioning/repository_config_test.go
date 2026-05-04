@@ -28,10 +28,10 @@ func TestCreateClusterctlConfigReturnsExistingConfigPath(t *testing.T) {
 				Type: "CoreProvider",
 				Versions: []clusterctl.ProviderVersionSource{
 					{
-						Name:     "v1.9.4",
+						Name:     "v1.13.1",
 						Type:     clusterctl.URLSource,
 						Value:    "file://" + componentsPath,
-						Contract: "v1beta1",
+						Contract: "v1beta2",
 					},
 				},
 			},
@@ -72,17 +72,17 @@ func TestCreateClusterctlConfigReturnsExistingConfigPath(t *testing.T) {
 		t.Fatalf("expected version-pinned provider URL, got %s", clusterctlConfigText)
 	}
 
-	if !strings.Contains(clusterctlConfigText, filepath.Join("cluster-api", "v1.9.4", "components.yaml")) {
-		t.Fatalf("expected cluster-api provider URL to pin v1.9.4, got %s", clusterctlConfigText)
+	if !strings.Contains(clusterctlConfigText, filepath.Join("cluster-api", "v1.13.1", "components.yaml")) {
+		t.Fatalf("expected cluster-api provider URL to pin v1.13.1, got %s", clusterctlConfigText)
 	}
 
-	metadataPath := filepath.Join(tempDir, "repository", "cluster-api", "v1.9.4", "metadata.yaml")
+	metadataPath := filepath.Join(tempDir, "repository", "cluster-api", "v1.13.1", "metadata.yaml")
 	metadata, err := os.ReadFile(metadataPath)
 	if err != nil {
 		t.Fatalf("expected metadata at %s: %v", metadataPath, err)
 	}
 
-	if !strings.Contains(string(metadata), "contract: v1beta1") {
+	if !strings.Contains(string(metadata), "contract: v1beta2") {
 		t.Fatalf("expected metadata to contain contract, got %s", string(metadata))
 	}
 }

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
@@ -48,6 +49,7 @@ type TartMachineReconciler struct {
 	client.Client
 	Scheme       *runtime.Scheme
 	HostService  applicationhost.Service
+	TokenService applicationbootstraptoken.Service
 	Provisioning applicationprovisioning.Service
 }
 
@@ -61,7 +63,7 @@ const tartMachineHostCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmac
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -107,8 +109,11 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			if err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token for retry: %w", err)
 			}
+			if err := r.tokenService().Ensure(ctx, &machine, newToken); err != nil {
+				return ctrl.Result{}, err
+			}
 			original := machine.DeepCopy()
-			status, err := machinedomain.RetryExpiredTokenStatus(&machine, newToken, now, bootstrapTokenTTL)
+			status, err := machinedomain.RetryExpiredTokenStatus(&machine, now, bootstrapTokenTTL)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -126,9 +131,13 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 
-		// BootstrapToken が消費された（メタデータ配信が完了した）場合、
+		// Bootstrap token Secret が消費された（メタデータ配信が完了した）場合、
 		// TartMachine を Ready に遷移させ、TartHost を Provisioned にします。
-		if machine.Status.BootstrapToken == "" {
+		_, exists, err := r.tokenService().Get(ctx, &machine)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !exists && machine.Status.TokenExpiresAt == nil {
 			original := machine.DeepCopy()
 			status, err := machinedomain.ReadyStatus(&machine)
 			if err != nil {
@@ -179,7 +188,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// ホスト予約直後に machine.Status.HostRef を書き込み、以降の手順で失敗しても
 	// 再 reconcile 時に同じホストを使用できるようにします。
 	original := machine.DeepCopy()
-	status, err := machinedomain.BeginProvisioningStatus(&machine, host, token, time.Now(), bootstrapTokenTTL)
+	if err := r.tokenService().Ensure(ctx, &machine, token); err != nil {
+		return ctrl.Result{}, err
+	}
+	status, err := machinedomain.BeginProvisioningStatus(&machine, host, time.Now(), bootstrapTokenTTL)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -232,6 +244,13 @@ func (r *TartMachineReconciler) provisioningService() applicationprovisioning.Se
 		return r.Provisioning
 	}
 	panic("Provisioning service is not configured")
+}
+
+func (r *TartMachineReconciler) tokenService() applicationbootstraptoken.Service {
+	if r.TokenService != nil {
+		return r.TokenService
+	}
+	panic("TokenService is not configured")
 }
 
 // SetupWithManager sets up the controller with the Manager.

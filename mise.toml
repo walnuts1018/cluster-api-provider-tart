@@ -217,6 +217,20 @@ mkdir -p dist
 kustomize build config/default > dist/install.yaml
 '''
 
+[tasks.build-installer-external-bootstrap]
+description = "外部 DHCP/TFTP 前提の install-external-bootstrap.yaml を生成する"
+run = '''
+IMG="${IMG:-controller:latest}"
+mise run manifests
+mise run generate
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+mkdir -p dist
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
+'''
+
 [tasks.build-installer-e2e]
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
 run = '''

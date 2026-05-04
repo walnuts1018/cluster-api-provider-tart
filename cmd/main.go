@@ -69,6 +69,7 @@ func main() {
 	var enableLeaderElection bool
 	var ipxeBindAddress string
 	var bootstrapBindAddress string
+	var bootstrapAdvertiseAddress string
 	var tftpBindAddress string
 	var assetsRoot string
 	var tftpRoot string
@@ -83,6 +84,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":67", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
+	flag.StringVar(&bootstrapAdvertiseAddress, "bootstrap-advertise-address", "", "The reachable IP address advertised to PXE/iPXE clients. Leave empty to auto-detect.")
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", ":69", "The address the TFTP server binds to.")
 	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
@@ -259,7 +261,7 @@ func main() {
 		}
 	}
 	if bootstrapBindAddress != "0" {
-		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, ipxeBindAddress)
+		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, ipxeBindAddress, bootstrapAdvertiseAddress)
 		if err != nil {
 			setupLog.Error(err, "Failed to create bootstrap server")
 			os.Exit(1)

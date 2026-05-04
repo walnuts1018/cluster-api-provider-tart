@@ -10,7 +10,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 )
 
 func TestBeginProvisioningStatus(t *testing.T) {
@@ -24,7 +23,7 @@ func TestBeginProvisioningStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "host-a", Namespace: "default", UID: types.UID("host-a-uid")},
 	}
 
-	got, err := BeginProvisioningStatus(machine, host, onetimetoken.OneTimeToken("token-a"), now, 10*time.Minute)
+	got, err := BeginProvisioningStatus(machine, host, now, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("BeginProvisioningStatus returned error: %v", err)
 	}
@@ -33,9 +32,6 @@ func TestBeginProvisioningStatus(t *testing.T) {
 	}
 	if got.HostRef == nil || got.HostRef.Name != host.Name || got.HostRef.UID != host.UID {
 		t.Fatalf("hostRef = %#v, want reference to host", got.HostRef)
-	}
-	if got.BootstrapToken != "token-a" {
-		t.Fatalf("bootstrapToken = %q, want token-a", got.BootstrapToken)
 	}
 	if got.ProvisioningStartTime == nil || !got.ProvisioningStartTime.Time.Equal(now) {
 		t.Fatalf("provisioningStartTime = %#v, want %s", got.ProvisioningStartTime, now)
@@ -57,20 +53,16 @@ func TestRetryExpiredTokenStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 8},
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
-			BootstrapToken: "old-token",
 			TokenExpiresAt: &metav1.Time{Time: now.Add(-time.Second)},
 		},
 	}
 
-	got, err := RetryExpiredTokenStatus(machine, onetimetoken.OneTimeToken("new-token"), now, 10*time.Minute)
+	got, err := RetryExpiredTokenStatus(machine, now, 10*time.Minute)
 	if err != nil {
 		t.Fatalf("RetryExpiredTokenStatus returned error: %v", err)
 	}
 	if got.Ready {
 		t.Fatal("ready = true, want false")
-	}
-	if got.BootstrapToken != "new-token" {
-		t.Fatalf("bootstrapToken = %q, want new-token", got.BootstrapToken)
 	}
 	if got.TokenExpiresAt == nil || !got.TokenExpiresAt.Time.Equal(now.Add(10*time.Minute)) {
 		t.Fatalf("tokenExpiresAt = %#v, want %s", got.TokenExpiresAt, now.Add(10*time.Minute))
@@ -90,12 +82,11 @@ func TestRetryExpiredTokenStatusRejectsReadyMachineWithToken(t *testing.T) {
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			Ready:          true,
 			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
-			BootstrapToken: "old-token",
 			TokenExpiresAt: &metav1.Time{Time: now.Add(-time.Second)},
 		},
 	}
 
-	if _, err := RetryExpiredTokenStatus(machine, onetimetoken.OneTimeToken("new-token"), now, 10*time.Minute); !errors.Is(err, ErrIllegalMachineState) {
+	if _, err := RetryExpiredTokenStatus(machine, now, 10*time.Minute); !errors.Is(err, ErrIllegalMachineState) {
 		t.Fatalf("RetryExpiredTokenStatus error = %v, want %v", err, ErrIllegalMachineState)
 	}
 }
@@ -133,7 +124,6 @@ func TestReadyStatusRejectsMachineWithToken(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 9},
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
-			BootstrapToken: "token-a",
 			TokenExpiresAt: &metav1.Time{Time: time.Date(2026, 5, 4, 10, 10, 0, 0, time.UTC)},
 		},
 	}
@@ -153,7 +143,6 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 		Status: infrastructurev1alpha1.TartMachineStatus{
 			Ready:                 false,
 			HostRef:               &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
-			BootstrapToken:        "token-a",
 			ProvisioningStartTime: &startedAt,
 			TokenExpiresAt:        &expiresAt,
 		},
@@ -165,9 +154,6 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 	}
 	if got.Ready {
 		t.Fatal("ready = true, want false")
-	}
-	if got.BootstrapToken != "" {
-		t.Fatalf("bootstrapToken = %q, want empty", got.BootstrapToken)
 	}
 	if got.TokenExpiresAt != nil {
 		t.Fatalf("tokenExpiresAt = %#v, want nil", got.TokenExpiresAt)

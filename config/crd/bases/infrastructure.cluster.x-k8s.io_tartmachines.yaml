@@ -55,17 +55,17 @@ spec:
                 description: image is the boot OS image URL or a path served by the
                   assets server.
                 minLength: 1
-                pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
                 type: string
               initrd:
                 description: initrd is the boot initrd image URL or a path served
                   by the assets server.
-                pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
+                minLength: 1
                 type: string
               kernelParams:
                 description: kernelParams are passed from iPXE to the OS kernel.
                 items:
-                  pattern: ^[a-zA-Z0-9._-]+=[a-zA-Z0-9._-]+$
+                  maxLength: 2048
+                  minLength: 1
                   type: string
                 maxItems: 100
                 type: array
@@ -82,13 +82,6 @@ spec:
               bootstrapSecretName:
                 description: bootstrapSecretName is the Secret name that stores bootstrap
                   data served once to the host.
-                type: string
-              bootstrapToken:
-                description: bootstrapToken is an unguessable one-time token for serving
-                  bootstrap data.
-                maxLength: 64
-                minLength: 64
-                pattern: ^[A-Za-z0-9]+$
                 type: string
               conditions:
                 description: |-

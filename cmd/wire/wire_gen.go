@@ -7,7 +7,9 @@
 package wire
 
 import (
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	bootstraptoken2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	host2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
@@ -23,9 +25,10 @@ import (
 func InitializeReconcilers(k8sClient client.Client, scheme2 *runtime.Scheme) (Reconcilers, error) {
 	service := host.NewService(k8sClient)
 	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme2, service)
+	service2 := bootstraptoken.NewService(k8sClient)
 	wakeOnLANSender := provideWakeOnLANSender()
 	provisioningService := provisioning.NewService(service, service, wakeOnLANSender)
-	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme2, service, provisioningService)
+	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme2, service, service2, provisioningService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler)
 	return reconcilers, nil
 }
@@ -52,12 +55,14 @@ func provideTartHostReconciler(k8sClient client.Client, scheme2 *runtime.Scheme,
 func provideTartMachineReconciler(
 	k8sClient client.Client, scheme2 *runtime.Scheme,
 	hostService host2.Service,
+	tokenService bootstraptoken2.Service,
 	provisioningService provisioning.Service,
 ) *controller.TartMachineReconciler {
 	return &controller.TartMachineReconciler{
 		Client:       k8sClient,
 		Scheme:       scheme2,
 		HostService:  hostService,
+		TokenService: tokenService,
 		Provisioning: provisioningService,
 	}
 }

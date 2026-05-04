@@ -41,19 +41,21 @@ const (
 // DHCPBootstrapper は組み込み DHCP サーバーを用いた DHCP/TFTP ブートストラップサーバーの実装です。
 // ProxyDHCP モードで動作し、既存のネットワークに影響を与えずに iPXE ローダを配信します。
 type DHCPBootstrapper struct {
-	tftpRoot string
-	addr     string
-	httpAddr string
-	server   *server4.Server
-	logger   logr.Logger
-	mu       sync.Mutex
-	done     chan struct{}
+	tftpRoot    string
+	addr        string
+	httpAddr    string
+	advertiseIP net.IP
+	server      *server4.Server
+	logger      logr.Logger
+	mu          sync.Mutex
+	done        chan struct{}
 }
 
 // NewDHCPBootstrapper は新しい DHCPBootstrapper を作成します。
 // tftpRoot は TFTP サーバーのルートディレクトリ、addr は ProxyDHCP のバインドアドレスです。
 // httpAddr は iPXE スクリプト配信用の HTTP サーバーアドレスです。
-func NewDHCPBootstrapper(tftpRoot, addr, httpAddr string) (*DHCPBootstrapper, error) {
+// advertiseAddr はクライアントに広告する到達可能なサーバー IP です。空の場合は自動検出します。
+func NewDHCPBootstrapper(tftpRoot, addr, httpAddr, advertiseAddr string) (*DHCPBootstrapper, error) {
 	if tftpRoot == "" {
 		return nil, fmt.Errorf("tftpRoot is required")
 	}
@@ -69,12 +71,18 @@ func NewDHCPBootstrapper(tftpRoot, addr, httpAddr string) (*DHCPBootstrapper, er
 		return nil, fmt.Errorf("failed to create tftp root directory: %w", err)
 	}
 
+	advertiseIP, err := resolveAdvertiseIP(addr, httpAddr, advertiseAddr)
+	if err != nil {
+		return nil, err
+	}
+
 	return &DHCPBootstrapper{
-		tftpRoot: tftpRoot,
-		addr:     addr,
-		httpAddr: httpAddr,
-		done:     make(chan struct{}),
-		logger:   logr.Discard(),
+		tftpRoot:    tftpRoot,
+		addr:        addr,
+		httpAddr:    httpAddr,
+		advertiseIP: advertiseIP,
+		done:        make(chan struct{}),
+		logger:      logr.Discard(),
 	}, nil
 }
 
@@ -197,16 +205,8 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		var bootFile string
 		if isIPXE {
 			// iPXE からのリクエスト: HTTP URL を直接返す（二段階ブート）
-			host, _, err := net.SplitHostPort(b.httpAddr)
-			if err != nil {
-				host = b.httpAddr
-			}
-			serverIP := net.ParseIP(host)
-			if serverIP == nil {
-				lg.Info("Failed to parse HTTP server IP", "httpAddr", b.httpAddr)
-			}
 			macParam := url.QueryEscape(m.ClientHWAddr.String())
-			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", serverIP, macParam)
+			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", b.advertiseIP.String(), macParam)
 			bootFile = httpURL
 			lg.Info("iPXE client detected, providing HTTP URL", "client_mac", m.ClientHWAddr.String(), "url", httpURL)
 		} else {
@@ -223,13 +223,9 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 
 		// 新しいDHCPv4レスポンスを作成
-		serverIP := net.ParseIP(b.addr)
-		if serverIP == nil {
-			serverIP = net.ParseIP("0.0.0.0")
-		}
 		resp, err := dhcpv4.NewReplyFromRequest(m,
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
-			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(serverIP)),
+			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
@@ -287,4 +283,51 @@ func (b *DHCPBootstrapper) Stop() error {
 
 	lg.Info("DHCP server stopped")
 	return nil
+}
+
+func resolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
+	if ip := net.ParseIP(advertiseAddr); ip != nil && !ip.IsUnspecified() {
+		return ip, nil
+	}
+
+	for _, addr := range []string{bindAddr, httpAddr} {
+		if ip := parseHostIP(addr); ip != nil && !ip.IsUnspecified() {
+			return ip, nil
+		}
+	}
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect advertise address: %w", err)
+	}
+	var loopback net.IP
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil {
+			continue
+		}
+		ip := ipNet.IP.To4()
+		if ip == nil || ip.IsUnspecified() {
+			continue
+		}
+		if ip.IsLoopback() {
+			if loopback == nil {
+				loopback = ip
+			}
+			continue
+		}
+		return ip, nil
+	}
+	if loopback != nil {
+		return loopback, nil
+	}
+	return nil, fmt.Errorf("failed to detect advertise address")
+}
+
+func parseHostIP(addr string) net.IP {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	return net.ParseIP(host)
 }

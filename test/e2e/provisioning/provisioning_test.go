@@ -1,6 +1,22 @@
 //go:build e2e
 // +build e2e
 
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package provisioning
 
 import (
@@ -32,6 +48,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		result      *clusterctl.ApplyClusterTemplateAndWaitResult
 		clusterName string
 
+		manager    *SimulatorManager
 		simulators []*HostSimulator
 	)
 
@@ -49,6 +66,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		})
 
 		By("Creating TartHosts and starting simulators")
+		manager = NewSimulatorManager()
 		macs := []string{"52:54:00:12:34:56", "52:54:00:12:34:57"}
 		for i, mac := range macs {
 			host := &infrastructurev1alpha1.TartHost{}
@@ -59,10 +77,15 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 
 			Expect(bootstrapClusterProxy.GetClient().Create(ctx, host)).To(Succeed())
 
-			sim := NewHostSimulator(mac, "br0")
+			sim, err := NewHostSimulator(mac, "br0")
+			Expect(err).NotTo(HaveOccurred())
 			simulators = append(simulators, sim)
-			go sim.Start(ctx)
+			manager.Register(sim)
 		}
+		go func() {
+			defer GinkgoRecover()
+			Expect(manager.Start(ctx)).To(Succeed())
+		}()
 	})
 
 	AfterEach(func() {
@@ -83,11 +106,11 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		cniPath := filepath.Join(artifactsFolder, "cni.yaml")
 		resp, err := http.Get(cniURL)
 		Expect(err).NotTo(HaveOccurred(), "Failed to download CNI manifest")
-		defer resp.Body.Close()
 
 		cniFile, err := os.Create(cniPath)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create CNI manifest file")
 		_, err = io.Copy(cniFile, resp.Body)
+		resp.Body.Close()
 		Expect(err).NotTo(HaveOccurred(), "Failed to write CNI manifest file")
 		cniFile.Close()
 
@@ -110,5 +133,13 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			WaitForControlPlaneIntervals: e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-control-plane"),
 			WaitForMachineDeployments:    e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-worker-nodes"),
 		}, result)
+
+		By("Waiting for the workload cluster nodes to be ready")
+		workloadProxy := bootstrapClusterProxy.GetWorkloadClusterProxy(ctx, namespace.Name, clusterName)
+		framework.WaitForNodesReady(ctx, framework.WaitForNodesReadyInput{
+			Lister:            workloadProxy.GetClient(),
+			Count:             2, // 1 CP + 1 Worker
+			WaitForNodesReady: e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-worker-nodes"),
+		})
 	})
 })

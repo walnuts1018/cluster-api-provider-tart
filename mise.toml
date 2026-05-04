@@ -70,8 +70,8 @@ else
 fi
 '''
 
-[tasks.test-provisioning-e2e]
-description = "CAPI Test Framework を使用して Provisioning E2E テストを実行する"
+[tasks.test-provisioning-e2e-kind]
+description = "CAPI Test Framework と Kind を使用して Provisioning E2E テストを実行する"
 run = '''
 mise run build-installer
 IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
@@ -257,7 +257,6 @@ else
 fi
 mkdir -p ~/.kube
 sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-sudo sed -i 's/https:\/\/127.0.0.1:6443/https:\/\/127.0.0.1:6443/g' ~/.kube/config || true
 sudo chown $(id -u):$(id -g) ~/.kube/config
 chmod 600 ~/.kube/config
 
@@ -273,6 +272,9 @@ if ! ip link show br0 &> /dev/null; then
   sudo iptables -t nat -A POSTROUTING -o "$MAIN_IF" -j MASQUERADE || true
   sudo iptables -A FORWARD -i br0 -j ACCEPT || true
   sudo iptables -A FORWARD -o br0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
+  # Ensure QEMU bridge helper can use br0
+  sudo mkdir -p /etc/qemu
+  echo "allow br0" | sudo tee -a /etc/qemu/bridge.conf
 else
   echo "Bridge br0 already exists."
 fi
@@ -307,8 +309,8 @@ else
 fi
 '''
 
-[tasks.test-provisioning-e2e]
-description = "CAPI Test Framework を使用して Provisioning E2E テストを実行する"
+[tasks.test-provisioning-e2e-k3s]
+description = "CAPI Test Framework と k3s を使用して Provisioning E2E テストを実行する"
 run = '''
 mise run setup-test-provisioning-k3s
 mise run build-installer-e2e
@@ -323,7 +325,12 @@ fi
 ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
 mkdir -p "$ARTIFACTS"
 export KUBECONFIG=~/.kube/config
-go test -tags=e2e ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="${PWD}/test/e2e/config/tart.yaml" -e2e.use-existing-cluster=true
+# Clusterctl does not expand ${PWD} in config file, so we do it here
+CONFIG_TEMP=$(mktemp)
+trap 'rm -f "$CONFIG_TEMP"' EXIT
+export PWD="${PWD}"
+envsubst < "${PWD}/test/e2e/config/tart.yaml" > "$CONFIG_TEMP"
+go test -tags=e2e ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="$CONFIG_TEMP" -e2e.use-existing-cluster=true
 '''
 
 [tasks.install]

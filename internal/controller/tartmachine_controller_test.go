@@ -942,7 +942,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: clusterv1.MachineSpec{
 					ClusterName: clusterName,
 					Bootstrap: clusterv1.Bootstrap{
-						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+						DataSecretName: new("test-bootstrap"),
 					},
 					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 						APIGroup: "infrastructure.cluster.x-k8s.io",
@@ -1054,7 +1054,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: clusterv1.MachineSpec{
 					ClusterName: clusterName,
 					Bootstrap: clusterv1.Bootstrap{
-						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+						DataSecretName: new("test-bootstrap"),
 					},
 					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 						APIGroup: "infrastructure.cluster.x-k8s.io",
@@ -1163,7 +1163,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: clusterv1.MachineSpec{
 					ClusterName: clusterName,
 					Bootstrap: clusterv1.Bootstrap{
-						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+						DataSecretName: new("test-bootstrap"),
 					},
 					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 						APIGroup: "infrastructure.cluster.x-k8s.io",

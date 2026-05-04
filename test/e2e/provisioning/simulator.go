@@ -48,7 +48,7 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		conn.Close()
+		_ = conn.Close()
 		s.Stop()
 	}()
 
@@ -57,7 +57,7 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ctx.Err() != nil {
-				return nil
+				return err
 			}
 			logger.Error(err, "Failed to read UDP packet")
 			continue
@@ -83,15 +83,15 @@ func (s *HostSimulator) isWoLPacketForMAC(packet []byte, targetMAC string) bool 
 	}
 
 	// Check for magic sequence: 6 bytes of 0xFF followed by 16 repetitions of MAC
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		if packet[i] != 0xFF {
 			return false
 		}
 	}
 
 	offset := 6
-	for i := 0; i < 16; i++ {
-		for j := 0; j < 6; j++ {
+	for i := range 16 {
+		for j := range 6 {
 			if packet[offset+i*6+j] != mac[j] {
 				return false
 			}
@@ -127,10 +127,10 @@ func (s *HostSimulator) startQEMU(ctx context.Context) error {
 	}
 
 	cmd := exec.Command("sudo", append([]string{"qemu-system-x86_64"}, args...)...)
-	
+
 	// Create qemu log file and ensure we can write to it
 	if f, err := os.Create(logFile); err == nil {
-		f.Close()
+		_ = f.Close()
 	}
 
 	cmd.Stdout = os.Stdout
@@ -165,14 +165,14 @@ func (s *HostSimulator) Stop() {
 	if s.qemuCmd != nil && s.qemuCmd.Process != nil {
 		// Try graceful shutdown via monitor or just kill.
 		// Since it's sudo, we need to sudo kill.
-		exec.Command("sudo", "kill", fmt.Sprintf("%d", s.qemuCmd.Process.Pid)).Run()
-		
+		_ = exec.Command("sudo", "kill", fmt.Sprintf("%d", s.qemuCmd.Process.Pid)).Run()
+
 		// Force kill if it doesn't die
 		go func(pid int) {
 			time.Sleep(5 * time.Second)
-			exec.Command("sudo", "kill", "-9", fmt.Sprintf("%d", pid)).Run()
+			_ = exec.Command("sudo", "kill", "-9", fmt.Sprintf("%d", pid)).Run()
 		}(s.qemuCmd.Process.Pid)
-		
+
 		s.qemuCmd = nil
 	}
 }

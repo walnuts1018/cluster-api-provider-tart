@@ -23,7 +23,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 )
 
-var _ = Describe("Provisioning E2E tests", func() {
+var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 	var (
 		namespace   *corev1.Namespace
 		ctx         context.Context
@@ -92,13 +92,13 @@ var _ = Describe("Provisioning E2E tests", func() {
 		cniFile.Close()
 
 		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
-			ClusterProxy: bootstrapClusterProxy,
+			ClusterProxy:    bootstrapClusterProxy,
 			CNIManifestPath: cniPath,
 			ConfigCluster: clusterctl.ConfigClusterInput{
 				LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
 				ClusterctlConfigPath:     clusterctlConfig,
 				KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
-				InfrastructureProvider:   clusterctl.DefaultInfrastructureProvider,
+				InfrastructureProvider:   e2eConfig.InfrastructureProviders()[0],
 				Flavor:                   clusterctl.DefaultFlavor,
 				Namespace:                namespace.Name,
 				ClusterName:              clusterName,

@@ -21,22 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	applicationbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
@@ -44,6 +28,21 @@ import (
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	onetimetoken "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/onetime_token"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // TartMachineReconciler reconciles a TartMachine object
@@ -98,6 +97,20 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	if err := r.ensureFinalizer(ctx, &machine); err != nil {
 		return ctrl.Result{}, err
+	}
+
+	coreMachine, fetchErr := r.fetchCoreMachine(ctx, &machine)
+	if fetchErr == nil && coreMachine != nil {
+		clusterName, ok := coreMachine.Labels[clusterv1.ClusterNameLabel]
+		if ok {
+			var capiCluster clusterv1.Cluster
+			if err := r.Get(ctx, types.NamespacedName{Namespace: machine.Namespace, Name: clusterName}, &capiCluster); err == nil {
+				if isClusterPaused(&capiCluster) {
+					log.V(4).Info("Cluster is paused, skipping reconciliation", "machine", client.ObjectKeyFromObject(&machine).String(), "cluster", clusterName)
+					return ctrl.Result{}, nil
+				}
+			}
+		}
 	}
 
 	// HostRef が設定済みの場合はホストの Provisioning 状態を確認し、

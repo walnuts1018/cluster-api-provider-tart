@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -899,6 +900,250 @@ var _ = Describe("TartMachine Controller", func() {
 			expectedPacket, err := wol.MagicPacket("00:11:22:33:44:88")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf[:n]).To(Equal(expectedPacket))
+		})
+	})
+
+	Context("When the associated Cluster has spec.paused=true", func() {
+		const machineName = "test-paused-mac-resource"
+		const hostName = "test-paused-host"
+		const clusterName = "test-paused-cluster"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      machineName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			capiCluster := &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+				},
+				Spec: clusterv1.ClusterSpec{
+					Paused: new(true),
+				},
+			}
+			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
+
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:aa",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+
+			capiCluster := &clusterv1.Cluster{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, capiCluster); err == nil {
+				Expect(k8sClient.Delete(ctx, capiCluster)).To(Succeed())
+			}
+		})
+
+		It("should skip reconciliation when cluster is paused", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.HostRef).To(BeNil())
+			Expect(wolSender.sentMACAddresses).To(BeEmpty())
+		})
+	})
+
+	Context("When the associated Cluster has the paused annotation", func() {
+		const machineName = "test-paused-anno-mac-resource"
+		const hostName = "test-paused-anno-host"
+		const clusterName = "test-paused-anno-cluster"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      machineName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			capiCluster := &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+					Annotations: map[string]string{
+						clusterv1.PausedAnnotation: "",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
+
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:bb",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+
+			capiCluster := &clusterv1.Cluster{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, capiCluster); err == nil {
+				Expect(k8sClient.Delete(ctx, capiCluster)).To(Succeed())
+			}
+		})
+
+		It("should skip reconciliation when cluster has paused annotation", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.HostRef).To(BeNil())
+			Expect(wolSender.sentMACAddresses).To(BeEmpty())
+		})
+	})
+
+	Context("When the associated Cluster is not paused", func() {
+		const machineName = "test-active-mac-resource"
+		const hostName = "test-active-host"
+		const clusterName = "test-active-cluster"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      machineName,
+			Namespace: "default",
+		}
+
+		BeforeEach(func() {
+			capiCluster := &clusterv1.Cluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      clusterName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
+
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:cc",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+
+			capiCluster := &clusterv1.Cluster{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, capiCluster); err == nil {
+				Expect(k8sClient.Delete(ctx, capiCluster)).To(Succeed())
+			}
+		})
+
+		It("should proceed with reconciliation when cluster is not paused", func() {
+			wolSender := &fakeWakeOnLANSender{}
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), wolSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.HostRef).NotTo(BeNil())
+			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:cc"))
 		})
 	})
 })

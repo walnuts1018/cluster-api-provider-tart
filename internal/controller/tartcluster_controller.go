@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"reflect"
 
+	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,17 +30,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
-
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 // TartClusterReconciler reconciles a TartCluster object
@@ -110,6 +108,11 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 		return nil
 	}
 
+	if isClusterPaused(&capiCluster) {
+		log.V(4).Info("Cluster is paused, skipping reconciliation", "cluster", clusterName)
+		return nil
+	}
+
 	original := cluster.DeepCopy()
 
 	// Update status based on cluster state
@@ -120,8 +123,8 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 	cluster.Status.Initialization.Provisioned = true
 
 	// Check if control plane is ready
-	cluster.Status.Initialization.ControlPlaneReady = capiCluster.Status.ControlPlaneReady
-	cluster.Status.Ready = capiCluster.Status.ControlPlaneReady
+	cluster.Status.Initialization.ControlPlaneReady = apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
+	cluster.Status.Ready = apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
 
 	// Set conditions
 	apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
@@ -227,4 +230,15 @@ func (r *TartClusterReconciler) clusterToTartCluster(ctx context.Context, obj cl
 		})
 	}
 	return requests
+}
+
+// isClusterPaused checks if a CAPI Cluster is paused via spec.paused or the paused annotation.
+func isClusterPaused(cluster *clusterv1.Cluster) bool {
+	if cluster.Spec.Paused != nil && *cluster.Spec.Paused {
+		return true
+	}
+	if _, ok := cluster.Annotations[clusterv1.PausedAnnotation]; ok {
+		return true
+	}
+	return false
 }

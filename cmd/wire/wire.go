@@ -18,9 +18,9 @@ import (
 )
 
 type Reconcilers struct {
-	TartHost      *controller.TartHostReconciler
-	TartMachine   *controller.TartMachineReconciler
-	TartCluster   *controller.TartClusterReconciler
+	TartHost            *controller.TartHostReconciler
+	TartMachine         *controller.TartMachineReconciler
+	TartCluster         *controller.TartClusterReconciler
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 }
 
@@ -73,9 +73,9 @@ func provideReconcilers(
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 ) Reconcilers {
 	return Reconcilers{
-		TartHost:      tartHost,
-		TartMachine:   tartMachine,
-		TartCluster:   tartCluster,
+		TartHost:            tartHost,
+		TartMachine:         tartMachine,
+		TartCluster:         tartCluster,
 		TartMachineTemplate: tartMachineTemplate,
 	}
 }

@@ -287,8 +287,8 @@ if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
   echo "Downloading iPXE binaries..."
   curl -L -o /tmp/ipxeboot.tar.gz "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz"
   tar xzf /tmp/ipxeboot.tar.gz -C /tmp
-  mv /tmp/ipxe/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
-  rm -rf /tmp/ipxe /tmp/ipxeboot.tar.gz
+  mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
+  rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
 fi
 
 # 4. Start dnsmasq

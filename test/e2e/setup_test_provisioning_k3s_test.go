@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -9,7 +10,12 @@ import (
 func TestSetupTestProvisioningK3sUsesSingleProxyDHCPRange(t *testing.T) {
 	t.Parallel()
 
-	miseToml, err := os.ReadFile("./mise.toml")
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current working directory: %v", err)
+	}
+
+	miseToml, err := os.ReadFile(filepath.Join(dir, "../../mise.toml"))
 	if err != nil {
 		t.Fatalf("failed to read mise.toml: %v", err)
 	}

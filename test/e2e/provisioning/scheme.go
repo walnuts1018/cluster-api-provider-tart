@@ -1,10 +1,9 @@
 package provisioning
 
 import (
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/apimachinery/pkg/runtime"
-
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 )
 
 func newScheme() *runtime.Scheme {

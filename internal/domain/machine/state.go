@@ -69,6 +69,7 @@ func ReadyStatus(machine *infrastructurev1alpha1.TartMachine) (infrastructurev1a
 
 	status := machine.Status.DeepCopy()
 	status.Ready = true
+	status.Initialization.Provisioned = true
 	status.ProvisioningStartTime = nil
 	status.ObservedGeneration = machine.Generation
 	return *status, nil

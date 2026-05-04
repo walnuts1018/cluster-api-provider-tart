@@ -106,11 +106,11 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		cniPath := filepath.Join(artifactsFolder, "cni.yaml")
 		resp, err := http.Get(cniURL)
 		Expect(err).NotTo(HaveOccurred(), "Failed to download CNI manifest")
+		defer resp.Body.Close()
 
 		cniFile, err := os.Create(cniPath)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create CNI manifest file")
 		_, err = io.Copy(cniFile, resp.Body)
-		resp.Body.Close()
 		Expect(err).NotTo(HaveOccurred(), "Failed to write CNI manifest file")
 		cniFile.Close()
 

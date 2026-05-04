@@ -19,24 +19,24 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"slices"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
-	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 )
 
 const tartMachineHostCleanupFinalizerName = "infrastructure.cluster.x-k8s.io/tartmachine-host-cleanup"
@@ -778,6 +778,118 @@ var _ = Describe("TartMachine Controller", func() {
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateReserved))
+		})
+	})
+
+	Context("When reconciling with real WoL sender (Integration Test)", func() {
+		const resourceName = "test-real-wol-resource"
+		const hostName = "test-real-wol-host"
+
+		ctx := context.Background()
+
+		typeNamespacedName := types.NamespacedName{
+			Name:      resourceName,
+			Namespace: "default",
+		}
+
+		var udpListener net.PacketConn
+
+		BeforeEach(func() {
+			var err error
+			udpListener, err = net.ListenPacket("udp", "127.0.0.1:0")
+			Expect(err).NotTo(HaveOccurred())
+
+			machine := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "https://assets.example.invalid/images/talos.raw",
+				},
+			}
+			Expect(k8sClient.Create(ctx, machine)).To(Succeed())
+
+			host := &infrastructurev1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      hostName,
+					Namespace: "default",
+				},
+				Spec: infrastructurev1alpha1.TartHostSpec{
+					MACAddress: "00:11:22:33:44:66",
+				},
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
+			host.Status.State = infrastructurev1alpha1.TartHostStateAvailable
+			Expect(k8sClient.Status().Update(ctx, host)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			if udpListener != nil {
+				udpListener.Close()
+			}
+			cleanupTartMachine(ctx, typeNamespacedName)
+
+			host := &infrastructurev1alpha1.TartHost{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
+				Expect(k8sClient.Delete(ctx, host)).To(Succeed())
+			}
+		})
+
+		It("should send a real WoL magic packet over the network", func() {
+			senderAddr := udpListener.LocalAddr().String()
+			realSender := wol.NewSender(senderAddr)
+
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), realSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Status.HostRef).NotTo(BeNil())
+			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
+
+			updatedHost := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
+			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
+
+			buf := make([]byte, 102)
+			udpListener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, err := udpListener.ReadFrom(buf)
+			Expect(err).NotTo(HaveOccurred())
+
+			expectedPacket, err := wol.MagicPacket("00:11:22:33:44:66")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(buf[:n]).To(Equal(expectedPacket))
+		})
+
+		It("should send WoL to boot MAC address when specified", func() {
+			host := &infrastructurev1alpha1.TartHost{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host)).To(Succeed())
+			host.Spec.BootMACAddress = "00:11:22:33:44:88"
+			Expect(k8sClient.Update(ctx, host)).To(Succeed())
+
+			senderAddr := udpListener.LocalAddr().String()
+			realSender := wol.NewSender(senderAddr)
+
+			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), realSender)
+
+			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: typeNamespacedName,
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			buf := make([]byte, 102)
+			udpListener.SetReadDeadline(time.Now().Add(3 * time.Second))
+			n, _, err := udpListener.ReadFrom(buf)
+			Expect(err).NotTo(HaveOccurred())
+
+			expectedPacket, err := wol.MagicPacket("00:11:22:33:44:88")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(buf[:n]).To(Equal(expectedPacket))
 		})
 	})
 })

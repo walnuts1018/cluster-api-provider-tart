@@ -1,6 +1,7 @@
 package bootstrapper
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/pin/tftp/v3"
 )
 
 func TestNewTFTPBootstrapper(t *testing.T) {
@@ -115,8 +117,7 @@ func TestTFTPBootstrapper_Start(t *testing.T) {
 func TestTFTPBootstrapper_Start_InvalidAddress(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(tmpDir, "invalid")
 	if err != nil {
@@ -272,4 +273,138 @@ func TestOpenTFTPFile(t *testing.T) {
 			t.Fatal("expected directory to be rejected")
 		}
 	})
+}
+
+func TestTFTPBootstrapper_RealFileDownload(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	testFilename := "ipxe-x86_64.efi"
+	testContent := []byte("fake iPXE bootloader binary content for testing")
+	testFilePath := filepath.Join(tmpDir, testFilename)
+	if err := os.WriteFile(testFilePath, testContent, 0644); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create TFTP bootstrapper: %v", err)
+	}
+
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start TFTP server: %v", err)
+	}
+	defer bs.Stop()
+
+	addr := bs.Addr()
+	if addr == "" || addr == ":0" {
+		t.Fatalf("expected non-empty dynamic address, got %q", addr)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	client, err := tftp.NewClient(addr)
+	if err != nil {
+		t.Fatalf("failed to create TFTP client: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	file, err := client.Receive(testFilename, "octet")
+	if err != nil {
+		t.Fatalf("failed to receive file: %v", err)
+	}
+
+	if _, err := file.WriteTo(buf); err != nil {
+		t.Fatalf("failed to write file content: %v", err)
+	}
+
+	if !bytes.Equal(buf.Bytes(), testContent) {
+		t.Fatalf("downloaded content = %q, want %q", buf.Bytes(), testContent)
+	}
+}
+
+func TestTFTPBootstrapper_FileNotFound(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create TFTP bootstrapper: %v", err)
+	}
+
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start TFTP server: %v", err)
+	}
+	defer bs.Stop()
+
+	addr := bs.Addr()
+	time.Sleep(200 * time.Millisecond)
+
+	client, err := tftp.NewClient(addr)
+	if err != nil {
+		t.Fatalf("failed to create TFTP client: %v", err)
+	}
+
+	buf := new(bytes.Buffer)
+	_, err = client.Receive("nonexistent-file.efi", "octet")
+	if err == nil {
+		t.Fatal("expected error for nonexistent file")
+	}
+
+	if buf.Len() > 0 {
+		t.Fatal("expected empty buffer for nonexistent file")
+	}
+}
+
+func TestTFTPBootstrapper_PathTraversalRejected(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secretFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte("secret content"), 0644); err != nil {
+		t.Fatalf("failed to create secret file: %v", err)
+	}
+
+	secretDir := filepath.Join(outside, "sensitive")
+	if err := os.MkdirAll(secretDir, 0755); err != nil {
+		t.Fatalf("failed to create sensitive dir: %v", err)
+	}
+	secretFile2 := filepath.Join(secretDir, "secret.txt")
+	if err := os.WriteFile(secretFile2, []byte("secret content"), 0644); err != nil {
+		t.Fatalf("failed to create secret file 2: %v", err)
+	}
+
+	linkPath := filepath.Join(root, "link")
+	if err := os.Symlink(secretDir, linkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	bs, err := NewTFTPBootstrapper(root, "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to create TFTP bootstrapper: %v", err)
+	}
+
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start TFTP server: %v", err)
+	}
+	defer bs.Stop()
+
+	addr := bs.Addr()
+	time.Sleep(200 * time.Millisecond)
+
+	client, err := tftp.NewClient(addr)
+	if err != nil {
+		t.Fatalf("failed to create TFTP client: %v", err)
+	}
+
+	_, err = client.Receive("link/secret.txt", "octet")
+	if err == nil {
+		t.Fatal("expected path traversal to be rejected")
+	}
 }

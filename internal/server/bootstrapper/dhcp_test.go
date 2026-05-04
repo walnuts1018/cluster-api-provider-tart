@@ -96,8 +96,7 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1:8080")
 	if err != nil {
@@ -309,6 +308,219 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 
 		if !strings.Contains(bootFile, "12%3A34%3A56%3A78%3A9a%3Abc") {
 			t.Errorf("expected URL-encoded MAC address in boot file, got %s", bootFile)
+		}
+	})
+}
+
+func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
+	if err := os.WriteFile(iPXEPath, []byte("fake ipxe binary"), 0644); err != nil {
+		t.Fatalf("failed to create fake iPXE file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testPort := 6801
+	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start DHCP server: %v", err)
+	}
+	defer bs.Stop()
+
+	localAddr, err := net.ResolveUDPAddr("udp4", ":0")
+	if err != nil {
+		t.Fatalf("failed to resolve local address: %v", err)
+	}
+	remoteAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", testPort))
+	if err != nil {
+		t.Fatalf("failed to resolve remote address: %v", err)
+	}
+	conn, err := net.DialUDP("udp4", localAddr, remoteAddr)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	mac, err := net.ParseMAC("12:34:56:78:9a:bc")
+	if err != nil {
+		t.Fatalf("failed to parse MAC: %v", err)
+	}
+
+	t.Run("should not respond when Server Identifier option is set", func(t *testing.T) {
+		xid := dhcpv4.TransactionID{0x00, 0x00, 0x17, 0x3f}
+		pkt, err := dhcpv4.New(
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
+			dhcpv4.WithHwAddr(mac),
+			dhcpv4.WithTransactionID(xid),
+			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(net.ParseIP("192.168.1.1"))),
+			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			dhcpv4.WithOption(dhcpv4.OptClientArch(iana.Arch(uint16(ArchEFIx8664)))),
+		)
+		if err != nil {
+			t.Fatalf("failed to create packet: %v", err)
+		}
+
+		if _, err := conn.Write(pkt.ToBytes()); err != nil {
+			t.Fatalf("failed to send packet: %v", err)
+		}
+
+		resp := make([]byte, 1500)
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		_, _, err2 := conn.ReadFrom(resp)
+		if err2 == nil {
+			t.Fatal("expected no response when Server Identifier is already set")
+		}
+	})
+
+	t.Run("should respond when Server Identifier option is not set", func(t *testing.T) {
+		xid := dhcpv4.TransactionID{0x00, 0x00, 0x17, 0x40}
+		pkt, err := dhcpv4.New(
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithHwAddr(mac),
+			dhcpv4.WithTransactionID(xid),
+			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			dhcpv4.WithOption(dhcpv4.OptClientArch(iana.Arch(uint16(ArchEFIx8664)))),
+		)
+		if err != nil {
+			t.Fatalf("failed to create packet: %v", err)
+		}
+
+		if _, err := conn.Write(pkt.ToBytes()); err != nil {
+			t.Fatalf("failed to send packet: %v", err)
+		}
+
+		resp := make([]byte, 1500)
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := conn.ReadFrom(resp)
+		if err != nil {
+			t.Fatalf("failed to receive response: %v", err)
+		}
+
+		reply, err := dhcpv4.FromBytes(resp[:n])
+		if err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if reply.MessageType() != dhcpv4.MessageTypeOffer {
+			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
+		}
+	})
+}
+
+func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
+	if err := os.WriteFile(iPXEPath, []byte("fake ipxe binary"), 0644); err != nil {
+		t.Fatalf("failed to create fake iPXE file: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	testPort := 6802
+	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1:8080")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if err := bs.StartWithContext(ctx); err != nil {
+		t.Fatalf("failed to start DHCP server: %v", err)
+	}
+	defer bs.Stop()
+
+	localAddr, err := net.ResolveUDPAddr("udp4", ":0")
+	if err != nil {
+		t.Fatalf("failed to resolve local address: %v", err)
+	}
+	remoteAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", testPort))
+	if err != nil {
+		t.Fatalf("failed to resolve remote address: %v", err)
+	}
+	conn, err := net.DialUDP("udp4", localAddr, remoteAddr)
+	if err != nil {
+		t.Fatalf("failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	mac, err := net.ParseMAC("aa:bb:cc:dd:ee:ff")
+	if err != nil {
+		t.Fatalf("failed to parse MAC: %v", err)
+	}
+
+	t.Run("arm64 EFI client receives arm64 boot file", func(t *testing.T) {
+		xid := dhcpv4.TransactionID{0x00, 0x00, 0x18, 0x01}
+		pkt, err := dhcpv4.New(
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithHwAddr(mac),
+			dhcpv4.WithTransactionID(xid),
+			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			dhcpv4.WithOption(dhcpv4.OptClientArch(iana.Arch(uint16(ArchEFIARM64)))),
+		)
+		if err != nil {
+			t.Fatalf("failed to create packet: %v", err)
+		}
+
+		if _, err := conn.Write(pkt.ToBytes()); err != nil {
+			t.Fatalf("failed to send packet: %v", err)
+		}
+
+		resp := make([]byte, 1500)
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := conn.ReadFrom(resp)
+		if err != nil {
+			t.Fatalf("failed to receive response: %v", err)
+		}
+
+		reply, err := dhcpv4.FromBytes(resp[:n])
+		if err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		bootFile := reply.BootFileName
+		if bootFile != iPXEBootFileNameARM64 {
+			t.Errorf("expected boot file %s for arm64, got %s", iPXEBootFileNameARM64, bootFile)
+		}
+	})
+
+	t.Run("unknown architecture receives default boot file", func(t *testing.T) {
+		xid := dhcpv4.TransactionID{0x00, 0x00, 0x18, 0x02}
+		pkt, err := dhcpv4.New(
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithHwAddr(mac),
+			dhcpv4.WithTransactionID(xid),
+			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+		)
+		if err != nil {
+			t.Fatalf("failed to create packet: %v", err)
+		}
+
+		if _, err := conn.Write(pkt.ToBytes()); err != nil {
+			t.Fatalf("failed to send packet: %v", err)
+		}
+
+		resp := make([]byte, 1500)
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := conn.ReadFrom(resp)
+		if err != nil {
+			t.Fatalf("failed to receive response: %v", err)
+		}
+
+		reply, err := dhcpv4.FromBytes(resp[:n])
+		if err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		bootFile := reply.BootFileName
+		if bootFile != iPXEBootFileNameAMD64 {
+			t.Errorf("expected default boot file %s (ArchEFIx8664 default), got %s", iPXEBootFileNameAMD64, bootFile)
 		}
 	})
 }

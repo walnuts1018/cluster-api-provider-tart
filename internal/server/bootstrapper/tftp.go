@@ -97,12 +97,13 @@ func openTFTPFile(root, filename string, logger logr.Logger) (*os.File, error) {
 // TFTPBootstrapper は組み込み TFTP サーバーの実装です。
 // iPXE ブートローダなどのファイルを配信します。
 type TFTPBootstrapper struct {
-	root   string
-	addr   string
-	server *tftp.Server
-	logger logr.Logger
-	mu     sync.Mutex
-	done   chan struct{}
+	root       string
+	addr       string
+	actualAddr string
+	server     *tftp.Server
+	logger     logr.Logger
+	mu         sync.Mutex
+	done       chan struct{}
 }
 
 // NewTFTPBootstrapper は新しい TFTPBootstrapper を作成します。
@@ -208,6 +209,10 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 			return
 		}
 
+		b.mu.Lock()
+		b.actualAddr = conn.LocalAddr().String()
+		b.mu.Unlock()
+
 		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
 		if err := server.Serve(conn); err != nil && !errors.Is(err, context.Canceled) {
 			lg.Error(err, "TFTP server exited with error")
@@ -241,7 +246,13 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 }
 
 // Addr はサーバーのアドレスを返します。
+// サーバー起動後は実際のリスニングアドレスを返します。
 func (b *TFTPBootstrapper) Addr() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.actualAddr != "" {
+		return b.actualAddr
+	}
 	return b.addr
 }
 

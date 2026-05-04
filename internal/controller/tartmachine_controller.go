@@ -23,6 +23,8 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -144,6 +146,24 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, err
 			}
 			machine.Status = status
+
+			coreMachine, fetchErr := r.fetchCoreMachine(ctx, &machine)
+			if fetchErr == nil && coreMachine != nil {
+				if coreMachine.Spec.FailureDomain != nil {
+					machine.Spec.FailureDomain = *coreMachine.Spec.FailureDomain
+				}
+				if coreMachine.Status.Addresses != nil {
+					status.Addresses = make([]infrastructurev1alpha1.TartMachineAddress, 0, len(coreMachine.Status.Addresses))
+					for _, addr := range coreMachine.Status.Addresses {
+						status.Addresses = append(status.Addresses, infrastructurev1alpha1.TartMachineAddress{
+							Address: addr.Address,
+							Type:    corev1.NodeAddressType(addr.Type),
+						})
+					}
+				}
+			}
+
+			machine.Status = status
 			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
 				return ctrl.Result{}, err
 			}
@@ -253,6 +273,14 @@ func (r *TartMachineReconciler) tokenService() applicationbootstraptoken.Service
 	panic("TokenService is not configured")
 }
 
+func (r *TartMachineReconciler) fetchCoreMachine(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*clusterv1.Machine, error) {
+	var coreMachine clusterv1.Machine
+	if err := r.Get(ctx, types.NamespacedName{Name: machine.Name, Namespace: machine.Namespace}, &coreMachine); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+	return &coreMachine, nil
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -262,6 +290,12 @@ func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(
 			&infrastructurev1alpha1.TartHost{},
 			handler.EnqueueRequestsFromMapFunc(r.tartHostToUnassignedTartMachines),
+		).
+		// Core Machine リソースの変更（failureDomain の変更など）を感知して
+		// 対応する TartMachine を再 reconcile します。
+		Watches(
+			&clusterv1.Machine{},
+			handler.EnqueueRequestsFromMapFunc(r.machineToTartMachine),
 		).
 		Named("tartmachine").
 		Complete(r)
@@ -296,4 +330,27 @@ func (r *TartMachineReconciler) tartHostToUnassignedTartMachines(ctx context.Con
 		}
 	}
 	return requests
+}
+
+// machineToTartMachine は Core Machine の変更を受け取り、
+// 対応する TartMachine を reconcile キューに積みます。
+func (r *TartMachineReconciler) machineToTartMachine(ctx context.Context, obj client.Object) []reconcile.Request {
+	machine, ok := obj.(*clusterv1.Machine)
+	if !ok {
+		return nil
+	}
+
+	infrastructureRef := machine.Spec.InfrastructureRef
+	if infrastructureRef.Name == "" || infrastructureRef.Kind != "TartMachine" {
+		return nil
+	}
+
+	return []reconcile.Request{
+		{
+			NamespacedName: types.NamespacedName{
+				Namespace: infrastructureRef.Namespace,
+				Name:      infrastructureRef.Name,
+			},
+		},
+	}
 }

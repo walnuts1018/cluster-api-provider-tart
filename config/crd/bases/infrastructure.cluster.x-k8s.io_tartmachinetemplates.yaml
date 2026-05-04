@@ -52,6 +52,11 @@ spec:
                   spec:
                     description: spec defines the desired state of the generated TartMachine.
                     properties:
+                      failureDomain:
+                        description: |-
+                          failureDomain specifies the failure domain for the machine.
+                          Must comply with the failure domain specified in the core Machine object.
+                        type: string
                       image:
                         description: image is the boot OS image URL or a path served
                           by the assets server.

@@ -30,6 +30,11 @@ type TartMachineSpec struct {
 	// +optional
 	ProviderID string `json:"providerID,omitempty"`
 
+	// failureDomain specifies the failure domain for the machine.
+	// Must comply with the failure domain specified in the core Machine object.
+	// +optional
+	FailureDomain string `json:"failureDomain,omitempty"`
+
 	// image is the boot OS image URL or a path served by the assets server.
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -54,6 +59,10 @@ type TartMachineStatus struct {
 	// +optional
 	Ready bool `json:"ready,omitempty"`
 
+	// initialization holds the initialization state of the TartMachine.
+	// +optional
+	Initialization TartMachineInitialization `json:"initialization,omitempty"`
+
 	// hostRef references the assigned TartHost.
 	// +optional
 	HostRef *corev1.ObjectReference `json:"hostRef,omitempty"`
@@ -69,6 +78,10 @@ type TartMachineStatus struct {
 	// tokenExpiresAt is the deadline for serving bootstrap data.
 	// +optional
 	TokenExpiresAt *metav1.Time `json:"tokenExpiresAt,omitempty"`
+
+	// addresses holds the IP addresses of the provisioned machine.
+	// +optional
+	Addresses []TartMachineAddress `json:"addresses,omitempty"`
 
 	// observedGeneration is the last spec generation reconciled into status.
 	// +optional
@@ -87,6 +100,24 @@ type TartMachineStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// TartMachineInitialization defines the initialization state of TartMachine.
+type TartMachineInitialization struct {
+	// provisioned indicates that the infrastructure is provisioned and ready.
+	// +optional
+	Provisioned bool `json:"provisioned,omitempty"`
+}
+
+// TartMachineAddress defines the IP address of the machine.
+type TartMachineAddress struct {
+	// address is the IP address of the machine.
+	// +optional
+	Address string `json:"address,omitempty"`
+
+	// type is the type of the address.
+	// +optional
+	Type corev1.NodeAddressType `json:"type"`
 }
 
 // +kubebuilder:object:root=true

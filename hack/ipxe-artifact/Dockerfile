@@ -14,12 +14,12 @@
 
 FROM alpine:latest AS downloader
 RUN apk add --no-cache curl tar
-RUN mkdir -p /output/ipxe && \
+RUN mkdir -p /output/ipxeboot && \
     curl -fsSL "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz && \
     tar xzf /tmp/ipxeboot.tar.gz -C /output && \
     rm /tmp/ipxeboot.tar.gz
 
 # Final Stage: Collect both
 FROM scratch
-COPY --from=downloader /output/ipxe/x86_64/ipxe.efi /ipxe-x86_64.efi
-COPY --from=downloader /output/ipxe/arm64/ipxe.efi /ipxe-arm64.efi
+COPY --from=downloader /output/ipxeboot/x86_64/ipxe.efi /ipxe-x86_64.efi
+COPY --from=downloader /output/ipxeboot/arm64/ipxe.efi /ipxe-arm64.efi

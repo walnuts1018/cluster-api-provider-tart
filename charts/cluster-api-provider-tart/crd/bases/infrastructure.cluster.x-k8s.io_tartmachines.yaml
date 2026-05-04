@@ -4,6 +4,8 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.20.1
+  labels:
+    cluster.x-k8s.io/provider: infrastructure-tart
   name: tartmachines.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
@@ -51,6 +53,11 @@ spec:
           spec:
             description: spec defines the desired state of TartMachine
             properties:
+              failureDomain:
+                description: |-
+                  failureDomain specifies the failure domain for the machine.
+                  Must comply with the failure domain specified in the core Machine object.
+                type: string
               image:
                 description: image is the boot OS image URL or a path served by the
                   assets server.
@@ -79,6 +86,19 @@ spec:
           status:
             description: status defines the observed state of TartMachine
             properties:
+              addresses:
+                description: addresses holds the IP addresses of the provisioned machine.
+                items:
+                  description: TartMachineAddress defines the IP address of the machine.
+                  properties:
+                    address:
+                      description: address is the IP address of the machine.
+                      type: string
+                    type:
+                      description: type is the type of the address.
+                      type: string
+                  type: object
+                type: array
               bootstrapSecretName:
                 description: bootstrapSecretName is the Secret name that stores bootstrap
                   data served once to the host.
@@ -195,6 +215,15 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              initialization:
+                description: initialization holds the initialization state of the
+                  TartMachine.
+                properties:
+                  provisioned:
+                    description: provisioned indicates that the infrastructure is
+                      provisioned and ready.
+                    type: boolean
+                type: object
               observedGeneration:
                 description: observedGeneration is the last spec generation reconciled
                   into status.

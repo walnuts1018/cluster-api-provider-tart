@@ -6,37 +6,38 @@ metadata:
     controller-gen.kubebuilder.io/version: v0.20.1
   labels:
     cluster.x-k8s.io/provider: infrastructure-tart
-  name: tarthosts.infrastructure.cluster.x-k8s.io
+  name: tartclusters.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
-    kind: TartHost
-    listKind: TartHostList
-    plural: tarthosts
-    singular: tarthost
+    categories:
+    - cluster-api
+    kind: TartCluster
+    listKind: TartClusterList
+    plural: tartclusters
+    singular: tartcluster
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - description: Host allocation state
-      jsonPath: .status.state
-      name: State
+    - description: Cluster to which this TartCluster belongs
+      jsonPath: .metadata.labels.cluster\.x-k8s\.io/cluster-name
+      name: Cluster
       type: string
-    - description: NIC MAC address
-      jsonPath: .spec.macAddress
-      name: MAC Address
+    - description: Ready status
+      jsonPath: .status.ready
+      name: Ready
       type: string
-    - description: PXE boot NIC MAC address
-      jsonPath: .spec.bootMacAddress
-      name: Boot MAC Address
+    - description: Infrastructure provisioned
+      jsonPath: .status.initialization.provisioned
+      name: Provisioned
       type: string
-    - description: Assigned TartMachine
-      jsonPath: .status.machineRef.name
-      name: Machine
-      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartHost is the Schema for the tarthosts API
+        description: TartCluster is the Schema for the tartclusters API.
         properties:
           apiVersion:
             description: |-
@@ -56,35 +57,32 @@ spec:
           metadata:
             type: object
           spec:
-            description: spec defines the desired state of TartHost
+            description: spec defines the desired state of TartCluster.
             properties:
-              bootMacAddress:
-                description: bootMACAddress is the PXE boot NIC MAC address when it
-                  differs from macAddress.
-                pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
-                type: string
-              macAddress:
-                description: macAddress is the managed NIC MAC address that identifies
-                  the physical host.
-                pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
-                type: string
-            required:
-            - macAddress
+              controlPlaneEndpoint:
+                description: controlPlaneEndpoint represents the endpoint for the
+                  control plane for this cluster.
+                properties:
+                  host:
+                    description: host is the hostname or IP address of the control
+                      plane endpoint.
+                    type: string
+                  port:
+                    description: port is the port of the control plane endpoint.
+                    format: int32
+                    maximum: 65535
+                    minimum: 0
+                    type: integer
+                required:
+                - host
+                type: object
             type: object
           status:
-            description: status defines the observed state of TartHost
+            description: status defines the observed state of TartCluster.
             properties:
               conditions:
-                description: |-
-                  conditions represent the current state of the TartHost resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
-                  The status of each condition is one of True, False, or Unknown.
+                description: conditions represent the current state of the TartCluster
+                  resource.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -143,63 +141,33 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              machineRef:
-                description: machineRef references the TartMachine currently reserving
-                  this host.
+              initialization:
+                description: initialization tracks the provisioning state of the infrastructure.
                 properties:
-                  apiVersion:
-                    description: API version of the referent.
-                    type: string
-                  fieldPath:
+                  bound:
                     description: |-
-                      If referring to a piece of an object instead of an entire object, this string
-                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                      For example, if the object reference is to a container within a pod, this would take on a value like:
-                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                      the event) or if no container name is specified "spec.containers[2]" (container with
-                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                      referencing a part of an object.
-                    type: string
-                  kind:
-                    description: |-
-                      Kind of the referent.
-                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-                    type: string
-                  name:
-                    description: |-
-                      Name of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                    type: string
-                  namespace:
-                    description: |-
-                      Namespace of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                    type: string
-                  resourceVersion:
-                    description: |-
-                      Specific resourceVersion to which this reference is made, if any.
-                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                    type: string
-                  uid:
-                    description: |-
-                      UID of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
-                    type: string
+                      bound indicates whether the Cluster has been assigned its infrastructure yet.
+                      In that case during the provisioning process the infrastructure is being provisioned.
+                      Once provisioned the control plane nodes will be able to communicate using the control plane endpoint.
+                    type: boolean
+                  controlPlaneReady:
+                    description: controlPlaneReady indicates whether the control plane
+                      is available enough to start scheduling workloads.
+                    type: boolean
+                  provisioned:
+                    description: provisioned indicates whether the infrastructure
+                      is fully provisioned.
+                    type: boolean
                 type: object
-                x-kubernetes-map-type: atomic
               observedGeneration:
                 description: observedGeneration is the last spec generation reconciled
                   into status.
                 format: int64
                 type: integer
-              state:
-                description: state is the host allocation state.
-                enum:
-                - Available
-                - Reserved
-                - Provisioning
-                - Provisioned
-                type: string
+              ready:
+                description: ready indicates whether the infrastructure resource is
+                  ready.
+                type: boolean
             type: object
         required:
         - spec

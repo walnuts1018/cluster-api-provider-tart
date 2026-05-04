@@ -2,12 +2,14 @@ package ipxe
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	echootel "github.com/labstack/echo-opentelemetry"
@@ -16,6 +18,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
+	"golang.org/x/time/rate"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -29,13 +32,17 @@ import (
 )
 
 type Server struct {
-	client     client.Client
-	addr       string
-	assetsRoot string
+	client      client.Client
+	addr        string
+	assetsRoot  string
+	metadataLimiter *rate.Limiter
+	mux       sync.Mutex
+	machineLimiters map[string]*rate.Limiter
 }
 
 type HandlerConfig struct {
-	AssetsRoot string
+	AssetsRoot      string
+	MetadataLimiter *rate.Limiter
 }
 
 func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
@@ -56,7 +63,16 @@ func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
 		return c.NoContent(http.StatusOK)
 	})
 	e.GET("/ipxe", func(c *echo.Context) error { return handleIPXE(c, cl) })
-	e.GET("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl) })
+	if config.MetadataLimiter != nil {
+		e.GET("/metadata/:namespace/:name", func(c *echo.Context) error {
+			if !config.MetadataLimiter.Allow() {
+				return c.String(http.StatusTooManyRequests, "rate limit exceeded")
+			}
+			return handleMetadata(c, cl)
+		})
+	} else {
+		e.GET("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl) })
+	}
 	if config.AssetsRoot != "" {
 		e.Static("/assets", config.AssetsRoot)
 	}
@@ -209,7 +225,7 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
 	}
 
-	if providedToken != machine.Status.BootstrapToken {
+	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(machine.Status.BootstrapToken)) != 1 {
 		span.SetStatus(codes.Error, "invalid token")
 		return c.String(http.StatusUnauthorized, "invalid or missing token")
 	}
@@ -264,12 +280,7 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
-	if machine.Status.BootstrapToken == "" {
-		span.SetStatus(codes.Error, "token consumed")
-		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
-
-	if machine.Status.BootstrapToken != providedToken {
+	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(machine.Status.BootstrapToken)) != 1 {
 		span.SetStatus(codes.Error, "token consumed")
 		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 	}
@@ -340,9 +351,11 @@ func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infra
 
 func NewServer(cl client.Client, addr, assetsRoot string) *Server {
 	return &Server{
-		client:     cl,
-		addr:       addr,
-		assetsRoot: assetsRoot,
+		client:          cl,
+		addr:            addr,
+		assetsRoot:      assetsRoot,
+		metadataLimiter: rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
+		machineLimiters: make(map[string]*rate.Limiter),
 	}
 }
 
@@ -355,7 +368,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot}),
+		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot, MetadataLimiter: s.metadataLimiter}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

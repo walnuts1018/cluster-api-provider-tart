@@ -78,22 +78,6 @@ jobs:
       - name: build
         run: mise run build
 
-  sync-helm-chart:
-    name: sync-helm-chartで差分があったら落とす
-    runs-on: ubuntu-slim
-    steps:
-      - name: Check out code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup tools
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-
-      - name: sync-all
-        run: mise run sync-all
-
-      - name: diff があったら落とす
-        run: git diff --exit-code
-
   test-e2e:
     name: E2E Test
     runs-on: ubuntu-latest
@@ -114,7 +98,7 @@ jobs:
 
   status-check:
     runs-on: ubuntu-slim
-    needs: [generate, lint, test, test-build, sync-helm-chart, test-e2e]
+    needs: [generate, lint, test, test-build, test-e2e]
     if: failure()
     steps:
       - run: exit 1

@@ -58,19 +58,19 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err := utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to create namespace")
 
-		By("labeling the namespace to enforce the restricted security policy")
+		By("labeling the namespace to allow host networking for the manager")
 		cmd = exec.Command("kubectl", "label", "--overwrite", "ns", namespace,
-			"pod-security.kubernetes.io/enforce=restricted")
+			"pod-security.kubernetes.io/enforce=privileged")
 		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace with restricted policy")
+		Expect(err).NotTo(HaveOccurred(), "Failed to label namespace for privileged policy")
 
 		By("installing CRDs")
-		cmd = exec.Command("make", "install")
+		cmd = exec.Command("mise", "run", "install")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
 		By("deploying the controller-manager")
-		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
+		cmd = exec.Command("kubectl", "apply", "-k", "config/e2e")
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
 	})
@@ -85,19 +85,20 @@ var _ = Describe("Manager", Ordered, func() {
 		}
 
 		By("undeploying the controller-manager")
-		cmd = exec.Command("make", "undeploy")
+		cmd = exec.Command("kubectl", "delete", "--ignore-not-found=true", "-k", "config/e2e")
 		if _, err := utils.Run(cmd); err != nil {
 			utils.WarnError(err)
 		}
 
 		By("uninstalling CRDs")
-		cmd = exec.Command("make", "uninstall")
+		cmd = exec.Command("mise", "run", "uninstall")
+		cmd.Env = append(os.Environ(), "IGNORE_NOT_FOUND=true")
 		if _, err := utils.Run(cmd); err != nil {
 			utils.WarnError(err)
 		}
 
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace)
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
 		if _, err := utils.Run(cmd); err != nil {
 			utils.WarnError(err)
 		}

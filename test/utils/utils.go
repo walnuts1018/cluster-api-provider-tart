@@ -53,7 +53,11 @@ func Run(cmd *exec.Cmd) (string, error) {
 		}
 	}
 
-	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	env := cmd.Env
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+	cmd.Env = append(env, "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
 	if _, err := fmt.Fprintf(GinkgoWriter, "running: %q\n", command); err != nil {
 		log.Printf("failed to write command to GinkgoWriter: %v", err)

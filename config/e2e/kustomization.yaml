@@ -4,6 +4,11 @@ kind: Kustomization
 resources:
 - ../default
 
+images:
+- name: controller
+  newName: example.com/cluster-api-provider-tart
+  newTag: v0.0.1
+
 patches:
 - target:
     kind: Deployment
@@ -16,3 +21,14 @@ patches:
     - op: add
       path: /spec/template/spec/dnsPolicy
       value: ClusterFirstWithHostNet
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --bootstrap-bind-address=0
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --tftp-bind-address=0
+    - op: replace
+      path: /spec/template/spec/volumes/0
+      value:
+        name: bootloader
+        emptyDir: {}

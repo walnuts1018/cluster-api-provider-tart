@@ -85,6 +85,11 @@
 - このアプリケーションでは、ネットワーク越しの通信や、別ホストで実行する処理などが存在し、それらの処理の失敗やタイムアウトについて考慮する必要があります。
   - リトライを行う場合は、`github.com/avast/retry-go/v4`などを利用して、指数バックオフやリトライ回数・時間の制限を設けるようにしてください。
 
+## OpenTelemetry
+
+- TracerやMeterは、`telemetry.Tracer`などのグローバル変数から取得してください。TracerProviderやMeterProviderも、`otel.GetTracerProvider()`などを用いてグローバルに取得して下さい。
+- TracerやMeterの設定について、サンプリングレートやExport先のアドレスなどは、`OTEL_TRACES_SAMPLER`といった環境変数から動的に設定する機能が`go.opentelemetry.io/otel/`側に備わっています。私たちのコード側で勝手に固定値に設定したり、独自の環境変数パースロジックを実装したりすることは禁止です。
+
 ## 　実装のフェーズ分け
 
 段階的な開発を推奨する。詳細は `architecture` および `tasks` スキルを参照してください。

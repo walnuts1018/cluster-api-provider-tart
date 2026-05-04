@@ -4,6 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
+    cluster.x-k8s.io/provider: infrastructure-tart
   name: leader-election-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io

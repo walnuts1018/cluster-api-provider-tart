@@ -81,11 +81,7 @@ var _ = BeforeSuite(func() {
 	})
 
 	By(fmt.Sprintf("Creating a clusterctl local repository into %q", artifactsFolder))
-	clusterctlConfigPath := filepath.Join(artifactsFolder, "clusterctl.yaml")
-	clusterctl.CreateRepository(ctx, clusterctl.CreateRepositoryInput{
-		E2EConfig:        e2eConfig,
-		RepositoryFolder: filepath.Join(artifactsFolder, "repository"),
-	})
+	clusterctlConfigPath := createClusterctlConfig(ctx, e2eConfig, artifactsFolder)
 	clusterctlConfig = clusterctlConfigPath
 
 	By("Setting up the bootstrap cluster")

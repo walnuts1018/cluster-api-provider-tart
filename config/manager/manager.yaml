@@ -99,10 +99,13 @@ spec:
             cpu: 10m
             memory: 64Mi
         volumeMounts:
-        - name: tftp-root
+        - name: bootloader
           mountPath: /var/lib/tftpboot
+          readOnly: true
       volumes:
-      - name: tftp-root
-        emptyDir: {}
+      - name: bootloader
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
+          pullPolicy: IfNotPresent
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

@@ -254,6 +254,14 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachine")
 		os.Exit(1)
 	}
+	if err := reconcilers.TartCluster.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartCluster")
+		os.Exit(1)
+	}
+	if err := reconcilers.TartMachineTemplate.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineTemplate")
+		os.Exit(1)
+	}
 	if ipxeBindAddress != "0" {
 		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), ipxeBindAddress, assetsRoot)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")

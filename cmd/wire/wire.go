@@ -18,8 +18,10 @@ import (
 )
 
 type Reconcilers struct {
-	TartHost    *controller.TartHostReconciler
-	TartMachine *controller.TartMachineReconciler
+	TartHost      *controller.TartHostReconciler
+	TartMachine   *controller.TartMachineReconciler
+	TartCluster   *controller.TartClusterReconciler
+	TartMachineTemplate *controller.TartMachineTemplateReconciler
 }
 
 func provideWakeOnLANSender() applicationprovisioning.WakeOnLANSender {
@@ -50,13 +52,31 @@ func provideTartMachineReconciler(
 	}
 }
 
+func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
+	return &controller.TartClusterReconciler{
+		Client: k8sClient,
+		Scheme: scheme,
+	}
+}
+
+func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartMachineTemplateReconciler {
+	return &controller.TartMachineTemplateReconciler{
+		Client: k8sClient,
+		Scheme: scheme,
+	}
+}
+
 func provideReconcilers(
 	tartHost *controller.TartHostReconciler,
 	tartMachine *controller.TartMachineReconciler,
+	tartCluster *controller.TartClusterReconciler,
+	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 ) Reconcilers {
 	return Reconcilers{
-		TartHost:    tartHost,
-		TartMachine: tartMachine,
+		TartHost:      tartHost,
+		TartMachine:   tartMachine,
+		TartCluster:   tartCluster,
+		TartMachineTemplate: tartMachineTemplate,
 	}
 }
 
@@ -72,6 +92,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		applicationprovisioning.NewService,
 		provideTartHostReconciler,
 		provideTartMachineReconciler,
+		provideTartClusterReconciler,
+		provideTartMachineTemplateReconciler,
 		provideReconcilers,
 	)
 	return Reconcilers{}, nil

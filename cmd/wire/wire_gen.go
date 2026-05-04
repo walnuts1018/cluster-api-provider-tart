@@ -16,63 +16,84 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 
 // Injectors from wire.go:
 
-func InitializeReconcilers(k8sClient client.Client, scheme2 *runtime.Scheme) (Reconcilers, error) {
+func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Reconcilers, error) {
 	service := host.NewService(k8sClient)
-	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme2, service)
-	service2 := bootstraptoken.NewService(k8sClient)
+	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme, service)
+	bootstraptokenService := bootstraptoken.NewService(k8sClient)
 	wakeOnLANSender := provideWakeOnLANSender()
 	provisioningService := provisioning.NewService(service, service, wakeOnLANSender)
-	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme2, service, service2, provisioningService)
-	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler)
+	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme, service, bootstraptokenService, provisioningService)
+	tartClusterReconciler := provideTartClusterReconciler(k8sClient, scheme)
+	tartMachineTemplateReconciler := provideTartMachineTemplateReconciler(k8sClient, scheme)
+	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler)
 	return reconcilers, nil
 }
 
 // wire.go:
 
 type Reconcilers struct {
-	TartHost    *controller.TartHostReconciler
-	TartMachine *controller.TartMachineReconciler
+	TartHost            *controller.TartHostReconciler
+	TartMachine         *controller.TartMachineReconciler
+	TartCluster         *controller.TartClusterReconciler
+	TartMachineTemplate *controller.TartMachineTemplateReconciler
 }
 
 func provideWakeOnLANSender() provisioning.WakeOnLANSender {
 	return wol.DefaultSender()
 }
 
-func provideTartHostReconciler(k8sClient client.Client, scheme2 *runtime.Scheme, hostService host2.Service) *controller.TartHostReconciler {
+func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, hostService host2.Service) *controller.TartHostReconciler {
 	return &controller.TartHostReconciler{
 		Client:      k8sClient,
-		Scheme:      scheme2,
+		Scheme:      scheme,
 		HostService: hostService,
 	}
 }
 
 func provideTartMachineReconciler(
-	k8sClient client.Client, scheme2 *runtime.Scheme,
+	k8sClient client.Client,
+	scheme *runtime.Scheme,
 	hostService host2.Service,
 	tokenService bootstraptoken2.Service,
 	provisioningService provisioning.Service,
 ) *controller.TartMachineReconciler {
 	return &controller.TartMachineReconciler{
 		Client:       k8sClient,
-		Scheme:       scheme2,
+		Scheme:       scheme,
 		HostService:  hostService,
 		TokenService: tokenService,
 		Provisioning: provisioningService,
 	}
 }
 
+func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
+	return &controller.TartClusterReconciler{
+		Client: k8sClient,
+		Scheme: scheme,
+	}
+}
+
+func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartMachineTemplateReconciler {
+	return &controller.TartMachineTemplateReconciler{
+		Client: k8sClient,
+		Scheme: scheme,
+	}
+}
+
 func provideReconcilers(
 	tartHost *controller.TartHostReconciler,
 	tartMachine *controller.TartMachineReconciler,
+	tartCluster *controller.TartClusterReconciler,
+	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 ) Reconcilers {
 	return Reconcilers{
-		TartHost:    tartHost,
-		TartMachine: tartMachine,
+		TartHost:            tartHost,
+		TartMachine:         tartMachine,
+		TartCluster:         tartCluster,
+		TartMachineTemplate: tartMachineTemplate,
 	}
 }

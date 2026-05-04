@@ -19,6 +19,7 @@ rules:
 - apiGroups:
   - cluster.x-k8s.io
   resources:
+  - clusters
   - machines
   verbs:
   - get
@@ -27,8 +28,10 @@ rules:
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - tartclusters
   - tarthosts
   - tartmachines
+  - tartmachinetemplates
   verbs:
   - create
   - delete
@@ -40,15 +43,19 @@ rules:
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - tartclusters/finalizers
   - tarthosts/finalizers
   - tartmachines/finalizers
+  - tartmachinetemplates/finalizers
   verbs:
   - update
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
+  - tartclusters/status
   - tarthosts/status
   - tartmachines/status
+  - tartmachinetemplates/status
   verbs:
   - get
   - patch

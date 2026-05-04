@@ -36,6 +36,7 @@ func TestKubeadmClusterTemplateContainsRequiredKinds(t *testing.T) {
 		"KubeadmControlPlane",
 		"KubeadmConfigTemplate",
 		"MachineDeployment",
+		"TartCluster",
 		"TartMachineTemplate",
 	}
 	for _, kind := range requiredKinds {

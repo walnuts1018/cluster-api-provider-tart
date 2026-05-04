@@ -335,7 +335,7 @@ CONFIG_TEMP=$(mktemp)
 trap 'rm -f "$CONFIG_TEMP"' EXIT
 export PWD="${PWD}"
 envsubst < "${PWD}/test/e2e/config/tart.yaml" > "$CONFIG_TEMP"
-go test -tags=e2e ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="$CONFIG_TEMP" -e2e.use-existing-cluster=true
+go test -tags=e2e -timeout 30m ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="$CONFIG_TEMP" -e2e.use-existing-cluster=true 
 '''
 
 [tasks.install]

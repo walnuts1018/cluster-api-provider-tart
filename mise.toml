@@ -9,6 +9,7 @@ kubectl = "latest"
 tilt = "latest"
 golangci-lint = "latest"
 go = "latest"
+k9s = "latest"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"

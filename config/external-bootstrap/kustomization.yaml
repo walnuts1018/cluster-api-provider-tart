@@ -2,12 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- ../external-bootstrap
-
-images:
-- name: controller
-  newName: example.com/cluster-api-provider-tart
-  newTag: v0.0.1
+- ../default
 
 patches:
 - target:
@@ -15,20 +10,13 @@ patches:
     name: controller-manager
     namespace: system
   patch: |-
-    - op: add
+    - op: remove
       path: /spec/template/spec/hostNetwork
-      value: true
-    - op: add
+    - op: remove
       path: /spec/template/spec/dnsPolicy
-      value: ClusterFirstWithHostNet
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --bootstrap-bind-address=0
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --tftp-bind-address=0
-    - op: replace
-      path: /spec/template/spec/volumes/0
-      value:
-        name: bootloader
-        emptyDir: {}

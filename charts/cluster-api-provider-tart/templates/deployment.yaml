@@ -22,6 +22,7 @@ spec:
         app.kubernetes.io/name: cluster-api-provider-tart
     spec:
       hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       securityContext:
         runAsNonRoot: true
         seccompProfile:
@@ -35,9 +36,21 @@ spec:
         args:
         - --leader-elect
         - --health-probe-bind-address=:8081
+        - --bootstrap-advertise-address=$(POD_IP)
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         ports:
+        - containerPort: 67
+          name: bootp
+          protocol: UDP
+        - containerPort: 69
+          name: tftp
+          protocol: UDP
         - containerPort: 8082
           name: ipxe
           protocol: TCP
@@ -45,6 +58,8 @@ spec:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
           capabilities:
+            add:
+            - NET_BIND_SERVICE
             drop:
             - "ALL"
         livenessProbe:

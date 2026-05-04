@@ -187,27 +187,27 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 
 		// User-Class (Option 77) を確認して iPXE かどうかを判定
 		isIPXE := false
-		if userClass := m.GetOneOption(dhcpv4.OptionUserClassInformation); userClass != nil {
-			classStr := string(userClass)
-			if classStr == "iPXE" {
+		for _, uc := range m.UserClass() {
+			if uc == "iPXE" {
 				isIPXE = true
+				break
 			}
 		}
 
 		var bootFile string
 		if isIPXE {
 			// iPXE からのリクエスト: HTTP URL を直接返す（二段階ブート）
-			host, _, err := net.SplitHostPort(b.addr)
+			host, _, err := net.SplitHostPort(b.httpAddr)
 			if err != nil {
-				host = b.addr
+				host = b.httpAddr
 			}
 			serverIP := net.ParseIP(host)
 			if serverIP == nil {
-				lg.Info("Failed to parse server IP, falling back to TFTP", "addr", b.addr)
+				lg.Info("Failed to parse HTTP server IP", "httpAddr", b.httpAddr)
 			}
-			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", serverIP, m.ClientHWAddr)
-			encodedURL := url.QueryEscape(httpURL)
-			bootFile = encodedURL
+			macParam := url.QueryEscape(m.ClientHWAddr.String())
+			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", serverIP, macParam)
+			bootFile = httpURL
 			lg.Info("iPXE client detected, providing HTTP URL", "client_mac", m.ClientHWAddr.String(), "url", httpURL)
 		} else {
 			// 通常の PXE クライアント: TFTP で取得する iPXE ローダを返す

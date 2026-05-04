@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -41,10 +42,8 @@ func main() {
 	ctx := context.Background()
 
 	// Parse hostname from repository
-	var host string
-	if _, err := fmt.Sscanf(repository, "%[^/]", &host); err != nil {
-		slog.Warn("failed to parse repository hostname", "error", err)
-	}
+	parts := strings.SplitN(repository, "/", 2)
+	host := parts[0]
 
 	cred := RepositoryCredential{
 		HostName: host,

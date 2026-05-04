@@ -303,12 +303,8 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 		bootFile := reply.BootFileName
 		t.Logf("Boot file (iPXE): %s", bootFile)
 
-		if !strings.Contains(bootFile, "http%3A%2F%2F") {
-			t.Errorf("expected URL-encoded HTTP URL in boot file, got %s", bootFile)
-		}
-
-		if !strings.Contains(bootFile, "ipxe%3Fmac%3D") {
-			t.Errorf("expected URL-encoded 'ipxe?mac=' in boot file, got %s", bootFile)
+		if !strings.Contains(bootFile, "http://127.0.0.1/ipxe?mac=") {
+			t.Errorf("expected HTTP URL in boot file, got %s", bootFile)
 		}
 
 		if !strings.Contains(bootFile, "12%3A34%3A56%3A78%3A9a%3Abc") {

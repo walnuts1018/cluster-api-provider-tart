@@ -218,6 +218,14 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, r.Status().Patch(ctx, &machine, client.MergeFrom(original))
 	}
 
+	if machine.Spec.ProviderID == "" {
+		original := machine.DeepCopy()
+		machine.Spec.ProviderID = fmt.Sprintf("tart://%s", host.Name)
+		if err := r.Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
 	// ホスト予約直後に machine.Status.HostRef を書き込み、以降の手順で失敗しても
 	// 再 reconcile 時に同じホストを使用できるようにします。
 	original := machine.DeepCopy()

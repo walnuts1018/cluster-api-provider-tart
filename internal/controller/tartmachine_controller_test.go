@@ -112,6 +112,7 @@ var _ = Describe("TartMachine Controller", func() {
 
 			updated := &infrastructurev1alpha1.TartMachine{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(updated.Spec.ProviderID).To(Equal(fmt.Sprintf("tart://%s", hostName)))
 			Expect(updated.Status.HostRef).NotTo(BeNil())
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
 			Expect(updated.Status.TokenExpiresAt).NotTo(BeNil())
@@ -930,6 +931,17 @@ var _ = Describe("TartMachine Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
+			coreMachine := &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, coreMachine)).To(Succeed())
+
 			machine := &infrastructurev1alpha1.TartMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      machineName,
@@ -1009,6 +1021,9 @@ var _ = Describe("TartMachine Controller", func() {
 						clusterv1.PausedAnnotation: "",
 					},
 				},
+				Spec: clusterv1.ClusterSpec{
+					Paused: new(bool),
+				},
 			}
 			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
@@ -1087,6 +1102,9 @@ var _ = Describe("TartMachine Controller", func() {
 					Labels: map[string]string{
 						clusterv1.ClusterNameLabel: clusterName,
 					},
+				},
+				Spec: clusterv1.ClusterSpec{
+					Paused: new(bool),
 				},
 			}
 			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())

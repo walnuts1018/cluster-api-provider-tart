@@ -107,6 +107,8 @@ controllerManager:
     labelSelector:
       matchLabels:
         control-plane: controller-manager
+  affinity: {}
+  podAntiAffinity: {}
 
   # -- Priority class name for the controller pod
   priorityClassName: ""

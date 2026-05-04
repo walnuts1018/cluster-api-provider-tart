@@ -98,7 +98,11 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts: []
-      volumes: []
+        volumeMounts:
+        - name: tftp-root
+          mountPath: /var/lib/tftpboot
+      volumes:
+      - name: tftp-root
+        emptyDir: {}
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

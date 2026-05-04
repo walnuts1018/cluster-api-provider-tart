@@ -4,6 +4,7 @@
 resources:
 - bases/infrastructure.cluster.x-k8s.io_tarthosts.yaml
 - bases/infrastructure.cluster.x-k8s.io_tartmachines.yaml
+- bases/infrastructure.cluster.x-k8s.io_tartmachinetemplates.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

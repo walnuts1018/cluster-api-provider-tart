@@ -1,0 +1,110 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - ${POD_CIDR:=192.168.0.0/16}
+    services:
+      cidrBlocks:
+      - ${SERVICE_CIDR:=10.128.0.0/12}
+  controlPlaneEndpoint:
+    host: ${CONTROL_PLANE_ENDPOINT_HOST}
+    port: ${CONTROL_PLANE_ENDPOINT_PORT:=6443}
+  controlPlaneRef:
+    apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+    kind: KubeadmControlPlane
+    name: ${CLUSTER_NAME}-control-plane
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+spec:
+  replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
+  version: ${KUBERNETES_VERSION}
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TartMachineTemplate
+        name: ${CLUSTER_NAME}-control-plane
+  kubeadmConfigSpec:
+    initConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+        - name: cloud-provider
+          value: external
+    joinConfiguration:
+      nodeRegistration:
+        kubeletExtraArgs:
+        - name: cloud-provider
+          value: external
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+spec:
+  template:
+    spec:
+      image: ${UBUNTU_KERNEL_URL}
+      initrd: ${UBUNTU_INITRD_URL}
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - autoinstall
+      - ds=nocloud-net;s=${BOOTSTRAP_METADATA_URL}
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+spec:
+  clusterName: ${CLUSTER_NAME}
+  replicas: ${WORKER_MACHINE_COUNT:=1}
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      clusterName: ${CLUSTER_NAME}
+      version: ${KUBERNETES_VERSION}
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: ${CLUSTER_NAME}-md-0
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TartMachineTemplate
+        name: ${CLUSTER_NAME}-md-0
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+          - name: cloud-provider
+            value: external
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+spec:
+  template:
+    spec:
+      image: ${UBUNTU_KERNEL_URL}
+      initrd: ${UBUNTU_INITRD_URL}
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - autoinstall
+      - ds=nocloud-net;s=${BOOTSTRAP_METADATA_URL}

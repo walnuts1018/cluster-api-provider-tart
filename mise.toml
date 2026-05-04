@@ -285,7 +285,7 @@ fi
 mkdir -p /tmp/tftpboot
 if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
   echo "Downloading iPXE binaries..."
-  curl -L -o /tmp/tftpboot/ipxe-x86_64.efi "https://github.com/ipxe/ipxe/releases/download/rel-1.21.1/ipxe-x86_64-efi"
+  curl -L -o /tmp/tftpboot/ipxe-x86_64.efi "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxe-x86_64-efi"
 fi
 
 # 4. Start dnsmasq

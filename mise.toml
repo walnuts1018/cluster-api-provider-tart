@@ -262,6 +262,10 @@ sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
 sudo chown $(id -u):$(id -g) ~/.kube/config
 chmod 600 ~/.kube/config
 
+# Provisioning E2E のホストシミュレータは実機 WoL と同じ UDP 9 番を待ち受ける。
+# GitHub Actions の非 root テストプロセスでも低番ポートを bind できるようにする。
+sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+
 # 2. Setup Linux Bridge
 if ! ip link show br0 &> /dev/null; then
   echo "Creating Linux bridge br0..."

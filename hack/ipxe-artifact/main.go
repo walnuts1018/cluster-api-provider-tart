@@ -18,13 +18,52 @@ import (
 	"oras.land/oras-go/v2/registry/remote/retry"
 )
 
+func main() {
+	var downloadDest string
+	var tag string
+	var repository string
+	var username string
+	var password string
+
+	flag.StringVar(&downloadDest, "dir", "", "Directory containing files to push")
+	flag.StringVar(&tag, "tag", "latest", "Tag for the artifact")
+	flag.StringVar(&repository, "repo", "", "Repository to push to (e.g. ghcr.io/user/repo)")
+	flag.StringVar(&username, "username", os.Getenv("GITHUB_ACTOR"), "Username for registry")
+	flag.StringVar(&password, "password", os.Getenv("GITHUB_TOKEN"), "Password/Token for registry")
+	flag.Parse()
+
+	if downloadDest == "" || repository == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+
+	// Parse hostname from repository
+	var host string
+	fmt.Sscanf(repository, "%[^/]", &host)
+
+	cred := RepositoryCredential{
+		HostName: host,
+		Username: username,
+		Password: password,
+	}
+
+	if err := pushOCIArtifact(ctx, downloadDest, tag, repository, cred); err != nil {
+		slog.Error("failed to push OCI artifact", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("successfully pushed OCI artifact", "repository", repository, "tag", tag)
+}
+
 type RepositoryCredential struct {
 	HostName string
 	Username string
 	Password string
 }
 
-func PushOCIArtifact(ctx context.Context, downloadDest string, tag string, repository string, cred ...RepositoryCredential) error {
+func pushOCIArtifact(ctx context.Context, downloadDest string, tag string, repository string, cred ...RepositoryCredential) error {
 	fs, err := file.New(downloadDest)
 	if err != nil {
 		return fmt.Errorf("failed to create file store: %w", err)
@@ -70,77 +109,59 @@ func PushOCIArtifact(ctx context.Context, downloadDest string, tag string, repos
 		Credential: credential,
 	}
 
-	configData, err := json.Marshal(struct {
-		Architecture string `json:"architecture"`
-		OS           string `json:"os"`
-	}{
-		Architecture: "amd64", // Standard for multi-arch artifacts that just contain files
-		OS:           "linux",
+	// Create manifests for each architecture
+	architectures := []string{"amd64", "arm64"}
+	manifests := make([]ocispec.Descriptor, 0, len(architectures))
+
+	for _, arch := range architectures {
+		configData, err := json.Marshal(struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		}{
+			Architecture: arch,
+			OS:           "linux",
+		})
+		if err != nil {
+			return fmt.Errorf("failed to marshal config for %s: %w", arch, err)
+		}
+
+		config := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configData)
+		if err := repo.Push(ctx, config, bytes.NewReader(configData)); err != nil {
+			return fmt.Errorf("failed to push config for %s: %w", arch, err)
+		}
+
+		opts := oras.PackManifestOptions{
+			Layers:           fileDescriptors,
+			ConfigDescriptor: &config,
+		}
+		manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, ocispec.MediaTypeImageManifest, opts)
+		if err != nil {
+			return fmt.Errorf("failed to pack manifest for %s: %w", arch, err)
+		}
+
+		// Add platform information to the manifest descriptor for the index
+		manifestDescriptor.Platform = &ocispec.Platform{
+			Architecture: arch,
+			OS:           "linux",
+		}
+		manifests = append(manifests, manifestDescriptor)
+	}
+
+	// Create and pack the manifest index
+	indexDescriptor, err := oras.PackManifestIndex(ctx, fs, oras.PackManifestIndexOptions{
+		Manifests: manifests,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal config to JSON: %w", err)
+		return fmt.Errorf("failed to pack manifest index: %w", err)
 	}
 
-	config := content.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, configData)
-	if err := repo.Push(ctx, config, bytes.NewReader(configData)); err != nil {
-		return err
-	}
-
-	opts := oras.PackManifestOptions{
-		Layers:           fileDescriptors,
-		ConfigDescriptor: &config,
-	}
-	manifestDescriptor, err := oras.PackManifest(ctx, fs, oras.PackManifestVersion1_1, ocispec.MediaTypeImageManifest, opts)
-	if err != nil {
-		return fmt.Errorf("failed to pack manifest: %w", err)
-	}
-
-	if err = fs.Tag(ctx, manifestDescriptor, tag); err != nil {
-		return fmt.Errorf("failed to tag manifest: %w", err)
+	if err = fs.Tag(ctx, indexDescriptor, tag); err != nil {
+		return fmt.Errorf("failed to tag manifest index: %w", err)
 	}
 
 	if _, err = oras.Copy(ctx, fs, tag, repo, tag, oras.DefaultCopyOptions); err != nil {
-		return fmt.Errorf("failed to push OCI artifact: %w", err)
+		return fmt.Errorf("failed to push OCI artifact index: %w", err)
 	}
 
 	return nil
-}
-
-func main() {
-	var downloadDest string
-	var tag string
-	var repository string
-	var username string
-	var password string
-
-	flag.StringVar(&downloadDest, "dir", "", "Directory containing files to push")
-	flag.StringVar(&tag, "tag", "latest", "Tag for the artifact")
-	flag.StringVar(&repository, "repo", "", "Repository to push to (e.g. ghcr.io/user/repo)")
-	flag.StringVar(&username, "username", os.Getenv("GITHUB_ACTOR"), "Username for registry")
-	flag.StringVar(&password, "password", os.Getenv("GITHUB_TOKEN"), "Password/Token for registry")
-	flag.Parse()
-
-	if downloadDest == "" || repository == "" {
-		flag.Usage()
-		os.Exit(1)
-	}
-
-	ctx := context.Background()
-
-	// Parse hostname from repository
-	var host string
-	fmt.Sscanf(repository, "%[^/]", &host)
-
-	cred := RepositoryCredential{
-		HostName: host,
-		Username: username,
-		Password: password,
-	}
-
-	if err := PushOCIArtifact(ctx, downloadDest, tag, repository, cred); err != nil {
-		slog.Error("failed to push OCI artifact", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("successfully pushed OCI artifact", "repository", repository, "tag", tag)
 }

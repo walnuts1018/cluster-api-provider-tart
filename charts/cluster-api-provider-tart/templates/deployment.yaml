@@ -35,8 +35,7 @@ spec:
               fieldPath: status.podIP
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
-        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag
-          | default .Chart.AppVersion }}
+        image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -80,3 +79,6 @@ spec:
         | nindent 8 }}
       volumes:
       - name: bootloader
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
+          pullPolicy: IfNotPresent

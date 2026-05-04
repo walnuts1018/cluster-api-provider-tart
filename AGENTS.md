@@ -92,20 +92,7 @@
 
 ## Cluster API
 
-- Cluster APIのCRDやControllerなどを作成する際は、[公式ドキュメント](https://cluster-api.sigs.k8s.io/) をよく読んで、これらの使用に準拠するようにして下さい。
-  - <https://cluster-api.sigs.k8s.io/developer/providers/overview>
-    - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/overview>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/overview>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/naming>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/implement-api-types>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/webhooks>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/getting-started/controllers-and-reconciliation>
-    - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/overview>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-cluster>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machine>
-      - <https://cluster-api.sigs.k8s.io/developer/providers/contracts/infra-machinepool>
-    - <https://cluster-api.sigs.k8s.io/developer/providers/best-practices>
-    - <https://cluster-api.sigs.k8s.io/developer/providers/security-guidelines>
+- 詳細なCluster APIの実装ルールについては、`cluster-api` スキルを参照してください。
 
 ## 　実装のフェーズ分け
 

@@ -1,0 +1,32 @@
+image:
+  repository: ghcr.io/walnuts1018/cluster-api-provider-tart
+  tag: latest
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+namespace: cluster-api-provider-tart-system
+
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: controller-manager
+
+clusterRole:
+  name: manager-role
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+ipxe:
+  image:
+    repository: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe
+    tag: latest
+    pullPolicy: IfNotPresent

@@ -1,0 +1,90 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: tartmachinetemplates.infrastructure.cluster.x-k8s.io
+spec:
+  group: infrastructure.cluster.x-k8s.io
+  names:
+    categories:
+    - cluster-api
+    kind: TartMachineTemplate
+    listKind: TartMachineTemplateList
+    plural: tartmachinetemplates
+    singular: tartmachinetemplate
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TartMachineTemplate is the Schema for the tartmachinetemplates
+          API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of TartMachineTemplate.
+            properties:
+              template:
+                description: template is the TartMachine object template used by Cluster
+                  API controllers.
+                properties:
+                  metadata:
+                    description: metadata is applied to the generated TartMachine.
+                    type: object
+                  spec:
+                    description: spec defines the desired state of the generated TartMachine.
+                    properties:
+                      image:
+                        description: image is the boot OS image URL or a path served
+                          by the assets server.
+                        minLength: 1
+                        pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
+                        type: string
+                      initrd:
+                        description: initrd is the boot initrd image URL or a path
+                          served by the assets server.
+                        pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
+                        type: string
+                      kernelParams:
+                        description: kernelParams are passed from iPXE to the OS kernel.
+                        items:
+                          pattern: ^[a-zA-Z0-9._-]+=[a-zA-Z0-9._-]+$
+                          type: string
+                        maxItems: 100
+                        type: array
+                      providerID:
+                        description: providerID is the infrastructure provider ID
+                          reported back to the CAPI Machine.
+                        type: string
+                    required:
+                    - image
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true

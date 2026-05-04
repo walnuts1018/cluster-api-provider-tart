@@ -22,6 +22,7 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,19 +80,27 @@ var _ = Describe("Manager", Ordered, func() {
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
 		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
-		_, _ = utils.Run(cmd)
+		if _, err := utils.Run(cmd); err != nil {
+			utils.WarnError(err)
+		}
 
 		By("undeploying the controller-manager")
 		cmd = exec.Command("make", "undeploy")
-		_, _ = utils.Run(cmd)
+		if _, err := utils.Run(cmd); err != nil {
+			utils.WarnError(err)
+		}
 
 		By("uninstalling CRDs")
 		cmd = exec.Command("make", "uninstall")
-		_, _ = utils.Run(cmd)
+		if _, err := utils.Run(cmd); err != nil {
+			utils.WarnError(err)
+		}
 
 		By("removing manager namespace")
 		cmd = exec.Command("kubectl", "delete", "ns", namespace)
-		_, _ = utils.Run(cmd)
+		if _, err := utils.Run(cmd); err != nil {
+			utils.WarnError(err)
+		}
 	})
 
 	// After each test, check for failures and collect logs, events,
@@ -103,27 +112,39 @@ var _ = Describe("Manager", Ordered, func() {
 			cmd := exec.Command("kubectl", "logs", controllerPodName, "-n", namespace)
 			controllerLogs, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Controller logs:\n %s", controllerLogs); writeErr != nil {
+					log.Printf("failed to write controller logs to GinkgoWriter: %v", writeErr)
+				}
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s", err)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Failed to get Controller logs: %s", err); writeErr != nil {
+					log.Printf("failed to write controller log error to GinkgoWriter: %v", writeErr)
+				}
 			}
 
 			By("Fetching Kubernetes events")
 			cmd = exec.Command("kubectl", "get", "events", "-n", namespace, "--sort-by=.lastTimestamp")
 			eventsOutput, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Kubernetes events:\n%s", eventsOutput); writeErr != nil {
+					log.Printf("failed to write Kubernetes events to GinkgoWriter: %v", writeErr)
+				}
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Failed to get Kubernetes events: %s", err); writeErr != nil {
+					log.Printf("failed to write Kubernetes event error to GinkgoWriter: %v", writeErr)
+				}
 			}
 
 			By("Fetching curl-metrics logs")
 			cmd = exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 			metricsOutput, err := utils.Run(cmd)
 			if err == nil {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Metrics logs:\n %s", metricsOutput)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Metrics logs:\n %s", metricsOutput); writeErr != nil {
+					log.Printf("failed to write metrics logs to GinkgoWriter: %v", writeErr)
+				}
 			} else {
-				_, _ = fmt.Fprintf(GinkgoWriter, "Failed to get curl-metrics logs: %s", err)
+				if _, writeErr := fmt.Fprintf(GinkgoWriter, "Failed to get curl-metrics logs: %s", err); writeErr != nil {
+					log.Printf("failed to write metrics log error to GinkgoWriter: %v", writeErr)
+				}
 			}
 
 			By("Fetching controller manager pod description")

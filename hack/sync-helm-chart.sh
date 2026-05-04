@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync CRD bases from config/crd/bases to charts/cluster-api-provider-tart/crd/bases
-CHART_CRD_DIR="charts/cluster-api-provider-tart/crd/bases"
-CONFIG_CRD_DIR="config/crd/bases"
+# Sync CRDs with labels from config/crd to charts/cluster-api-provider-tart/crd/crd.yaml
+CHART_CRD_DIR="charts/cluster-api-provider-tart/crd"
+CRD_FILE="${CHART_CRD_DIR}/crd.yaml"
+KUSTOMIZE_DIR="config/crd"
 
-mkdir -p "$CHART_CRD_DIR"
+# Remove old CRD bases directory if it exists
+if [ -d "${CHART_CRD_DIR}/bases" ]; then
+  rm -rf "${CHART_CRD_DIR}/bases"
+fi
 
-# Remove any CRDs in chart that no longer exist in config
-for f in "$CHART_CRD_DIR"/*; do
-  [ -f "$f" ] || continue
-  basename_f=$(basename "$f")
-  if [ ! -f "${CONFIG_CRD_DIR}/${basename_f}" ]; then
-    rm "$f"
-  fi
-done
+# Remove old templates/crd.yaml if it exists
+if [ -f "${CHART_CRD_DIR}/templates/crd.yaml" ]; then
+  rm -rf "${CHART_CRD_DIR}/templates"
+fi
 
-# Copy or update CRDs from config to chart
-for f in "$CONFIG_CRD_DIR"/*; do
-  [ -f "$f" ] || continue
-  cp -f "$f" "$CHART_CRD_DIR/"
-done
+# Run kustomize build and output to the Helm chart CRD directory
+kustomize build "$KUSTOMIZE_DIR" > "$CRD_FILE"
 
-echo "Synced CRDs from ${CONFIG_CRD_DIR} to ${CHART_CRD_DIR}"
+echo "Generated CRD with labels at ${CRD_FILE}"

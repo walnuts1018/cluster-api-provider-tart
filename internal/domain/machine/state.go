@@ -51,7 +51,7 @@ func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, token 
 	startedAt := metav1.NewTime(now)
 	expiresAt := metav1.NewTime(now.Add(ttl))
 	status.Ready = false
-	status.BootstrapToken = string(token)
+	status.BootstrapToken = token.String()
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
 	status.ObservedGeneration = machine.Generation

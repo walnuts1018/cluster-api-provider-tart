@@ -14,7 +14,6 @@ import (
 
 const (
 	defaultOTELServiceName = "cluster-api-provider-tart"
-	defaultTraceSampleRate = 0.1
 )
 
 var Tracer = otel.Tracer("github.com/walnuts1018/cluster-api-provider-tart")
@@ -59,7 +58,6 @@ func normalizeTracerProviderConfig(cfg TracerProviderConfig) TracerProviderConfi
 }
 
 func newTelemetryResource(ctx context.Context, cfg TracerProviderConfig) (*resource.Resource, error) {
-	cfg = normalizeTracerProviderConfig(cfg)
 	return resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),

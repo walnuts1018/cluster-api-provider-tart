@@ -45,15 +45,6 @@ spec:
         apiGroup: infrastructure.cluster.x-k8s.io
         kind: TartMachineTemplate
         name: ${CLUSTER_NAME}-control-plane
-  kubeadmConfigSpec:
-    initConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          cloud-provider: ""
-    joinConfiguration:
-      nodeRegistration:
-        kubeletExtraArgs:
-          cloud-provider: ""
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
@@ -97,13 +88,6 @@ apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
   name: ${CLUSTER_NAME}-md-0
-spec:
-  template:
-    spec:
-      joinConfiguration:
-        nodeRegistration:
-          kubeletExtraArgs:
-            cloud-provider: ""
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate

@@ -57,11 +57,23 @@ func normalizeTracerProviderConfig(cfg TracerProviderConfig) TracerProviderConfi
 	return cfg
 }
 
+type telemetryResourceConfig interface {
+	getServiceName() string
+	getServiceVersion() string
+}
+
+func (c TracerProviderConfig) getServiceName() string    { return c.ServiceName }
+func (c TracerProviderConfig) getServiceVersion() string { return c.ServiceVersion }
+
 func newTelemetryResource(ctx context.Context, cfg TracerProviderConfig) (*resource.Resource, error) {
+	return NewTelemetryResource(ctx, cfg)
+}
+
+func NewTelemetryResource(ctx context.Context, cfg telemetryResourceConfig) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(cfg.ServiceName),
-			semconv.ServiceVersion(cfg.ServiceVersion),
+			semconv.ServiceName(cfg.getServiceName()),
+			semconv.ServiceVersion(cfg.getServiceVersion()),
 		),
 		resource.WithTelemetrySDK(),
 		resource.WithFromEnv(),

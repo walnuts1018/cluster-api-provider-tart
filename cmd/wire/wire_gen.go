@@ -4,7 +4,7 @@
 //go:build !wireinject
 // +build !wireinject
 
-package main
+package wire
 
 import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
@@ -14,9 +14,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
 
-import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 )
 

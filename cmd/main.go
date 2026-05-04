@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
@@ -237,7 +238,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	reconcilers, err := InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
+	reconcilers, err := wire.InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize reconcilers")
 		os.Exit(1)

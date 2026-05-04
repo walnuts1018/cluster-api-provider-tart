@@ -21,7 +21,12 @@
       },
       "extensions": [
         "ms-kubernetes-tools.vscode-kubernetes-tools",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "golang.go",
+        "kennylong.kubernetes-yaml-formatter",
+        "github.vscode-github-actions",
+        "ms-vscode.makefile-tools",
+        "tim-koehler.helm-intellisense"
       ]
     }
   },
@@ -32,4 +37,3 @@
 
   "onCreateCommand": "bash .devcontainer/post-install.sh"
 }
-

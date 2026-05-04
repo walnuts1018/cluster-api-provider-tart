@@ -34,14 +34,10 @@ spec:
   kubeadmConfigSpec:
     initConfiguration:
       nodeRegistration:
-        kubeletExtraArgs:
-        - name: cloud-provider
-          value: external
+        kubeletExtraArgs: []
     joinConfiguration:
       nodeRegistration:
-        kubeletExtraArgs:
-        - name: cloud-provider
-          value: external
+        kubeletExtraArgs: []
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
@@ -90,9 +86,7 @@ spec:
     spec:
       joinConfiguration:
         nodeRegistration:
-          kubeletExtraArgs:
-          - name: cloud-provider
-            value: external
+          kubeletExtraArgs: []
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate

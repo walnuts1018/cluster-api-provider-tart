@@ -258,7 +258,7 @@ func main() {
 		}
 	}
 	if bootstrapBindAddress != "0" {
-		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress)
+		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, ipxeBindAddress)
 		if err != nil {
 			setupLog.Error(err, "Failed to create bootstrap server")
 			os.Exit(1)

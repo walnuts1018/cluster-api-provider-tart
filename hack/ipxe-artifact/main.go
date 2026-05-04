@@ -42,7 +42,9 @@ func main() {
 
 	// Parse hostname from repository
 	var host string
-	fmt.Sscanf(repository, "%[^/]", &host)
+	if _, err := fmt.Sscanf(repository, "%[^/]", &host); err != nil {
+		slog.Warn("failed to parse repository hostname", "error", err)
+	}
 
 	cred := RepositoryCredential{
 		HostName: host,
@@ -69,7 +71,11 @@ func pushOCIArtifact(ctx context.Context, downloadDest string, tag string, repos
 	if err != nil {
 		return fmt.Errorf("failed to create file store: %w", err)
 	}
-	defer fs.Close()
+	defer func() {
+		if err := fs.Close(); err != nil {
+			slog.Warn("failed to close file store", "error", err)
+		}
+	}()
 
 	files, err := os.ReadDir(downloadDest)
 	if err != nil {

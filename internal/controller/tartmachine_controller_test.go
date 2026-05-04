@@ -939,6 +939,17 @@ var _ = Describe("TartMachine Controller", func() {
 						clusterv1.ClusterNameLabel: clusterName,
 					},
 				},
+				Spec: clusterv1.MachineSpec{
+					ClusterName: clusterName,
+					Bootstrap: clusterv1.Bootstrap{
+						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+					},
+					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+						APIGroup: "infrastructure.cluster.x-k8s.io",
+						Kind:     "TartMachine",
+						Name:     machineName,
+					},
+				},
 			}
 			Expect(k8sClient.Create(ctx, coreMachine)).To(Succeed())
 
@@ -969,6 +980,11 @@ var _ = Describe("TartMachine Controller", func() {
 
 		AfterEach(func() {
 			cleanupTartMachine(ctx, typeNamespacedName)
+
+			coreMachine := &clusterv1.Machine{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: machineName, Namespace: "default"}, coreMachine); err == nil {
+				Expect(k8sClient.Delete(ctx, coreMachine)).To(Succeed())
+			}
 
 			host := &infrastructurev1alpha1.TartHost{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
@@ -1027,6 +1043,28 @@ var _ = Describe("TartMachine Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
+			coreMachine := &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+				},
+				Spec: clusterv1.MachineSpec{
+					ClusterName: clusterName,
+					Bootstrap: clusterv1.Bootstrap{
+						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+					},
+					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+						APIGroup: "infrastructure.cluster.x-k8s.io",
+						Kind:     "TartMachine",
+						Name:     machineName,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, coreMachine)).To(Succeed())
+
 			machine := &infrastructurev1alpha1.TartMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      machineName,
@@ -1054,6 +1092,11 @@ var _ = Describe("TartMachine Controller", func() {
 
 		AfterEach(func() {
 			cleanupTartMachine(ctx, typeNamespacedName)
+
+			coreMachine := &clusterv1.Machine{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: machineName, Namespace: "default"}, coreMachine); err == nil {
+				Expect(k8sClient.Delete(ctx, coreMachine)).To(Succeed())
+			}
 
 			host := &infrastructurev1alpha1.TartHost{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {
@@ -1109,6 +1152,28 @@ var _ = Describe("TartMachine Controller", func() {
 			}
 			Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
+			coreMachine := &clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      machineName,
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: clusterName,
+					},
+				},
+				Spec: clusterv1.MachineSpec{
+					ClusterName: clusterName,
+					Bootstrap: clusterv1.Bootstrap{
+						DataSecretName: func() *string { s := "test-bootstrap"; return &s }(),
+					},
+					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+						APIGroup: "infrastructure.cluster.x-k8s.io",
+						Kind:     "TartMachine",
+						Name:     machineName,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, coreMachine)).To(Succeed())
+
 			machine := &infrastructurev1alpha1.TartMachine{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      machineName,
@@ -1136,6 +1201,11 @@ var _ = Describe("TartMachine Controller", func() {
 
 		AfterEach(func() {
 			cleanupTartMachine(ctx, typeNamespacedName)
+
+			coreMachine := &clusterv1.Machine{}
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: machineName, Namespace: "default"}, coreMachine); err == nil {
+				Expect(k8sClient.Delete(ctx, coreMachine)).To(Succeed())
+			}
 
 			host := &infrastructurev1alpha1.TartHost{}
 			if err := k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host); err == nil {

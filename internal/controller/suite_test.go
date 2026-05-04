@@ -18,6 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,12 +44,20 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
+const (
+	capiVersion    = "v1.13.1"
+	capiCRDURLBase = "https://raw.githubusercontent.com/kubernetes-sigs/cluster-api/refs/tags/%s/config/crd/bases/%s"
+	capiClusterCRD = "cluster.x-k8s.io_clusters.yaml"
+	capiMachineCRD = "cluster.x-k8s.io_machines.yaml"
+)
+
 var (
-	ctx       context.Context
-	cancel    context.CancelFunc
-	testEnv   *envtest.Environment
-	cfg       *rest.Config
-	k8sClient client.Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	testEnv    *envtest.Environment
+	cfg        *rest.Config
+	k8sClient  client.Client
+	capiCRDDir string
 )
 
 func TestControllers(t *testing.T) {
@@ -70,8 +81,18 @@ var _ = BeforeSuite(func() {
 	// +kubebuilder:scaffold:scheme
 
 	By("bootstrapping test environment")
+
+	crdPaths := []string{filepath.Join("..", "..", "config", "crd", "bases")}
+
+	// Download CAPI core CRDs dynamically for tests
+	capiCRDDir, err = downloadCAPI_CRDs()
+	Expect(err).NotTo(HaveOccurred())
+	if capiCRDDir != "" {
+		crdPaths = append(crdPaths, capiCRDDir)
+	}
+
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     crdPaths,
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -93,6 +114,9 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	cancel()
+	if capiCRDDir != "" {
+		os.RemoveAll(capiCRDDir)
+	}
 	Eventually(func() error {
 		return testEnv.Stop()
 	}, time.Minute, time.Second).Should(Succeed())
@@ -119,4 +143,52 @@ func getFirstFoundEnvTestBinaryDir() string {
 		}
 	}
 	return ""
+}
+
+// downloadCAPI_CRDs downloads CAPI core CRDs from GitHub and stores them in a temporary directory.
+// It returns the path to the temporary directory, or an empty string if the download fails.
+func downloadCAPI_CRDs() (string, error) {
+	tmpDir, err := os.MkdirTemp("", "capi-crd-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	crds := []string{capiClusterCRD, capiMachineCRD}
+	for _, crd := range crds {
+		url := fmt.Sprintf(capiCRDURLBase, capiVersion, crd)
+		dst := filepath.Join(tmpDir, crd)
+
+		if err := downloadFile(url, dst); err != nil {
+			os.RemoveAll(tmpDir)
+			return "", fmt.Errorf("failed to download %s: %w", crd, err)
+		}
+	}
+
+	return tmpDir, nil
+}
+
+// downloadFile downloads a file from the given URL and saves it to the given destination path.
+func downloadFile(url, dst string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
 }

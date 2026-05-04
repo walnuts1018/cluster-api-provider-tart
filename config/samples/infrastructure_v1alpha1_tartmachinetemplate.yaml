@@ -8,8 +8,8 @@ metadata:
 spec:
   template:
     spec:
-      image: https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz
-      initrd: https://assets.hoge.test.walnuts.dev/ubuntu/initrd
+      image: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-vmlinuz-generic
+      initrd: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-initrd-generic
       kernelParams:
       - console=ttyS0
       - ip=dhcp

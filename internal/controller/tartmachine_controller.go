@@ -23,7 +23,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -149,8 +149,8 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 			coreMachine, fetchErr := r.fetchCoreMachine(ctx, &machine)
 			if fetchErr == nil && coreMachine != nil {
-				if coreMachine.Spec.FailureDomain != nil {
-					machine.Spec.FailureDomain = *coreMachine.Spec.FailureDomain
+				if coreMachine.Spec.FailureDomain != "" {
+					machine.Spec.FailureDomain = coreMachine.Spec.FailureDomain
 				}
 				if coreMachine.Status.Addresses != nil {
 					status.Addresses = make([]infrastructurev1alpha1.TartMachineAddress, 0, len(coreMachine.Status.Addresses))
@@ -348,7 +348,7 @@ func (r *TartMachineReconciler) machineToTartMachine(ctx context.Context, obj cl
 	return []reconcile.Request{
 		{
 			NamespacedName: types.NamespacedName{
-				Namespace: infrastructureRef.Namespace,
+				Namespace: machine.Namespace,
 				Name:      infrastructureRef.Name,
 			},
 		},

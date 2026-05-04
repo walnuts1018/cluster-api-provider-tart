@@ -11,6 +11,7 @@ golangci-lint = "latest"
 go = "latest"
 k9s = "latest"
 "aqua:arttor/helmify" = "latest"
+helm = "latest"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"

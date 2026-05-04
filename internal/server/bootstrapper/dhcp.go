@@ -20,7 +20,7 @@ import (
 
 const (
 	// iPXEBootFileName は iPXE ローダのファイル名です。
-	iPXEBootFileName = "undionly.kpxe"
+	iPXEBootFileName = "ipxe.efi"
 )
 
 // DHCPBootstrapper は組み込み DHCP サーバーを用いた DHCP/TFTP ブートストラップサーバーの実装です。

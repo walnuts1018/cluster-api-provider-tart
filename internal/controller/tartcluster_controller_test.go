@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -299,10 +298,3 @@ var _ = Describe("isClusterPaused", func() {
 		})
 	})
 })
-
-func newTartClusterReconciler(k8sClient client.Client) *TartClusterReconciler {
-	return &TartClusterReconciler{
-		Client: k8sClient,
-		Scheme: k8sClient.Scheme(),
-	}
-}

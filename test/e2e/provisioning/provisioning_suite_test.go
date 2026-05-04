@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/test/utils"
 )
 
 var (
@@ -88,6 +90,20 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
+	clusterLogDir := filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName())
+	if bootstrapClusterProxy != nil {
+		By("Collecting debug information from the management cluster")
+		if err := utils.DumpClusterState(clusterLogDir); err != nil {
+			fmt.Printf("Warning: failed to dump cluster state: %v\n", err)
+		}
+		if err := utils.DumpControllerLogs(clusterLogDir); err != nil {
+			fmt.Printf("Warning: failed to dump controller logs: %v\n", err)
+		}
+		if err := utils.DumpDnsmasqState(clusterLogDir); err != nil {
+			fmt.Printf("Warning: failed to dump dnsmasq state: %v\n", err)
+		}
+	}
+
 	By("Tearing down the management cluster")
 	if !skipCleanup {
 		tearDown(bootstrapClusterProvider, bootstrapClusterProxy)

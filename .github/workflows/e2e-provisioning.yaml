@@ -31,6 +31,66 @@ jobs:
         run: |
           mise run test-provisioning-e2e
 
+      - name: Collect debug information on failure
+        if: failure()
+        run: |
+          set -e
+          ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
+          CLUSTER_LOG_DIR="${ARTIFACTS}/clusters/tart-e2e"
+          mkdir -p "$CLUSTER_LOG_DIR"
+
+          echo "=== Collecting debug information ==="
+
+          echo "--- Getting all resources ---"
+          kubectl get all --all-namespaces -o wide > "$CLUSTER_LOG_DIR/all-resources.txt" 2>&1 || true
+
+          echo "--- Getting CRDs ---"
+          kubectl get crds > "$CLUSTER_LOG_DIR/crds.txt" 2>&1 || true
+
+          echo "--- Getting controller deployment ---"
+          kubectl get deployments -n cluster-api-provider-tart-system -o yaml > "$CLUSTER_LOG_DIR/controller-deployments.yaml" 2>&1 || true
+
+          echo "--- Getting pods ---"
+          kubectl get pods --all-namespaces -o wide > "$CLUSTER_LOG_DIR/pods.txt" 2>&1 || true
+
+          echo "--- Getting events ---"
+          kubectl get events --all-namespaces --sort-by=.lastTimestamp -o yaml > "$CLUSTER_LOG_DIR/events.yaml" 2>&1 || true
+
+          echo "--- Getting Cluster API resources ---"
+          kubectl get clusters,clustersets,machines,machineclasses,machinedeployments,machinepools,machinehealthchecksets,machinehealthchecks,kubeadmcontrolplanes,kubeadmconfigconfigs,kubeadmconfigtemplates,tartclusters,tartmachines,tartmachinetemplates --all-namespaces -o yaml > "$CLUSTER_LOG_DIR/cluster-api-resources.yaml" 2>&1 || true
+
+          echo "--- Getting services ---"
+          kubectl get services --all-namespaces -o wide > "$CLUSTER_LOG_DIR/services.txt" 2>&1 || true
+
+          echo "--- Getting network policies ---"
+          kubectl get networkpolicies --all-namespaces -o wide > "$CLUSTER_LOG_DIR/networkpolicies.txt" 2>&1 || true
+
+          echo "--- Getting IP address claims and pools ---"
+          kubectl get ipaddressclaims --all-namespaces -o wide > "$CLUSTER_LOG_DIR/ipaddressclaims.txt" 2>&1 || true
+          kubectl get ipaddresspools --all-namespaces -o wide > "$CLUSTER_LOG_DIR/ipaddresspools.txt" 2>&1 || true
+
+          echo "--- Getting controller pod logs ---"
+          for pod in $(kubectl get pods -l control-plane=controller-manager -o jsonpath='{.items[*].metadata.name}' -n cluster-api-provider-tart-system 2>/dev/null || echo ""); do
+            echo "Collecting logs for pod: $pod"
+            kubectl logs "$pod" -n cluster-api-provider-tart-system --tail=1000 > "$CLUSTER_LOG_DIR/controller-logs-${pod}.log" 2>&1 || true
+            kubectl logs "$pod" -n cluster-api-provider-tart-system --previous --tail=1000 > "$CLUSTER_LOG_DIR/controller-logs-${pod}-previous.log" 2>&1 || true
+            kubectl describe pod "$pod" -n cluster-api-provider-tart-system > "$CLUSTER_LOG_DIR/pod-description-${pod}.txt" 2>&1 || true
+            kubectl get events --field-selector "involvedObject.name=${pod}" -n cluster-api-provider-tart-system --sort-by=.lastTimestamp > "$CLUSTER_LOG_DIR/pod-events-${pod}.txt" 2>&1 || true
+          done
+
+          echo "--- Getting dnsmasq state ---"
+          pgrep -af "dnsmasq" > "$CLUSTER_LOG_DIR/dnsmasq-process.txt" 2>&1 || true
+          cat /tmp/dnsmasq.leases > "$CLUSTER_LOG_DIR/dnsmasq-leases.txt" 2>&1 || true
+          ip link show br0 > "$CLUSTER_LOG_DIR/bridge-info.txt" 2>&1 || true
+          ip addr show br0 > "$CLUSTER_LOG_DIR/bridge-addresses.txt" 2>&1 || true
+          ip route > "$CLUSTER_LOG_DIR/route-table.txt" 2>&1 || true
+          sudo iptables -t nat -L -n -v > "$CLUSTER_LOG_DIR/iptables-nat.txt" 2>&1 || true
+          sudo iptables -L -n -v > "$CLUSTER_LOG_DIR/iptables-filter.txt" 2>&1 || true
+          pgrep -af "qemu" > "$CLUSTER_LOG_DIR/qemu-status.txt" 2>&1 || true
+          ip addr > "$CLUSTER_LOG_DIR/network-interfaces.txt" 2>&1 || true
+
+          echo "=== Debug information collected ==="
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v7

@@ -61,17 +61,15 @@ jobs:
       - name: Check out
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Login to GHCR
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm gcc
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          version: latest
+          go-version: "1.26"
 
       - name: Resolve image tag
         id: tag
@@ -84,13 +82,17 @@ jobs:
           echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push iPXE artifact
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: ./hack/ipxe-artifact
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }}:${{ steps.tag.outputs.ImageTag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMG="${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }}"
+          cd hack/ipxe-artifact
+          go build -o /tmp/build-ipxe ./cmd/build-ipxe/
+          /tmp/build-ipxe \
+            --repository "${IMG}" \
+            --tag "${{ steps.tag.outputs.ImageTag }}" \
+            --tag latest \
+            --download-destination /tmp/ipxe-build
 
   build:
     name: Build ${{ matrix.key }}

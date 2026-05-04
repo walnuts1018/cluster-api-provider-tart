@@ -277,18 +277,25 @@ else
 fi
 '''
 
-[tasks.docker-build-ipxe]
-description = "iPXE OCI artifact をビルドする"
+[tasks.build-ipxe]
+description = "iPXE OCI artifact をビルドして push する (ORAS-go 使用)"
 run = '''
-IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-"$CONTAINER_TOOL" build -t "$IMG" ./hack/ipxe-artifact
-'''
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
+TAG="${TAG:-latest}"
+GHCR_TOKEN="${GHCR_TOKEN:-${GITHUB_TOKEN:-}}"
+BUILD_DEST="${BUILD_DEST:-/tmp/ipxe-build}"
 
-[tasks.docker-push-ipxe]
-description = "iPXE OCI artifact を push する"
-run = '''
-IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-"$CONTAINER_TOOL" push "$IMG"
+if [ -z "$GHCR_TOKEN" ]; then
+  echo "Error: GHCR_TOKEN or GITHUB_TOKEN is required"
+  exit 1
+fi
+
+cd hack/ipxe-artifact
+go build -o /tmp/build-ipxe ./cmd/build-ipxe/
+/tmp/build-ipxe \
+  --repository "$IMG:$TAG" \
+  --tag "$TAG" \
+  --tag latest \
+  --download-destination "$BUILD_DEST" \
+  --ghcr-token "$GHCR_TOKEN"
 '''

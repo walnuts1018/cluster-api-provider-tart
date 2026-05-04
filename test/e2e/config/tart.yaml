@@ -39,7 +39,7 @@ providers:
 
 variables:
   KUBERNETES_VERSION: "v1.35.4"
-  CNI: "https://raw.githubusercontent.com/projectcalico/calico/v3.29.2/manifests/calico.yaml"
+  CNI: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml"
   UBUNTU_KERNEL_URL: "https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic"
   UBUNTU_INITRD_URL: "https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic"
   CONTROL_PLANE_ENDPOINT_HOST: "192.168.100.100"

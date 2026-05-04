@@ -3,10 +3,6 @@ package telemetry
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -65,20 +61,4 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("shutdown errors: %v", errs)
 	}
 	return nil
-}
-
-func SetupSignalHandler(ctx context.Context, shutdownFn func(context.Context) error) {
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigCh
-		fmt.Fprintf(os.Stderr, "Received signal %s, shutting down...\n", sig)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := shutdownFn(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to shutdown: %v\n", err)
-		}
-		os.Exit(0)
-	}()
 }

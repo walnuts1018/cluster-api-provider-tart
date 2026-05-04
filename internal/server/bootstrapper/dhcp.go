@@ -82,7 +82,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 
 	// ProxyDHCP は既存の DHCP サーバーより低い優先度で動作するため、
 	// IPアドレスは割り当てず、ブートファイル名のみを提供します。
-	handler := b.createDHCPHandler()
+	handler := b.createDHCPHandler(ctx)
 
 	server, err := server4.NewServer("", udpAddr, handler)
 	if err != nil {
@@ -127,7 +127,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 }
 
 // createDHCPHandler は DHCP パケットハンドラーを作成します。
-func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
+func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handler {
 	return func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
 		lg := b.logger.WithName("dhcp-handler")
 
@@ -136,7 +136,7 @@ func (b *DHCPBootstrapper) createDHCPHandler() server4.Handler {
 			return
 		}
 
-		_, span := telemetry.Tracer.Start(context.Background(), "DHCP.BootRequest")
+		_, span := telemetry.Tracer.Start(ctx, "DHCP.BootRequest")
 		defer span.End()
 
 		span.SetAttributes(

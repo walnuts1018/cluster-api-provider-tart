@@ -22,6 +22,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -109,9 +110,6 @@ func main() {
 		setupLog.Error(err, "Failed to create OpenTelemetry provider")
 		os.Exit(1)
 	}
-	telemetry.SetupSignalHandler(ctx, func(shutdownCtx context.Context) error {
-		return otelProvider.Shutdown(shutdownCtx)
-	})
 
 	logger := applogger.Create(logLevelStr, logTypeStr)
 	logrLogger := logr.FromSlogHandler(logger.Handler())
@@ -282,8 +280,16 @@ func main() {
 	}
 
 	setupLog.Info("Starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "Failed to run manager")
+	startErr := mgr.Start(ctrl.SetupSignalHandler())
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	if err := otelProvider.Shutdown(shutdownCtx); err != nil {
+		setupLog.Error(err, "Failed to shutdown OpenTelemetry provider")
+	}
+	cancel()
+
+	if startErr != nil {
+		setupLog.Error(startErr, "Failed to run manager")
 		os.Exit(1)
 	}
 }

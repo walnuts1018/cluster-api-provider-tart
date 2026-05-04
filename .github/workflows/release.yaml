@@ -42,15 +42,16 @@ jobs:
       - name: Build release manifest
         run: |
           IMG="${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" mise run build-installer
-          cp dist/install.yaml dist/components.yaml
+          cp dist/install.yaml dist/infrastructure-components.yaml
+          cp metadata.yaml dist/metadata.yaml
 
       - name: Upload release manifests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: install.yaml
           path: |
-            dist/install.yaml
-            dist/components.yaml
+            dist/infrastructure-components.yaml
+            dist/metadata.yaml
           if-no-files-found: error
 
   build:
@@ -198,8 +199,10 @@ jobs:
           name: install.yaml
           path: dist
 
-      - name: Upload components.yaml to release
+      - name: Upload provider assets to release
         uses: softprops/action-gh-release@de2c0eb89ae2a0938768861c17b2c637469c8863 # v1.0.7
         with:
-          files: dist/components.yaml
+          files: |
+            dist/infrastructure-components.yaml
+            dist/metadata.yaml
           tag_name: ${{ github.ref_name }}

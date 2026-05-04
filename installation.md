@@ -122,6 +122,8 @@ kubectl get pods -n cluster-api-operator-system
 
 `InfrastructureProvider` リソースを作成することで、cluster-api-provider-tart が自動的にインストールされます。
 
+cluster-api-operator は、リリースから `infrastructure-components.yaml` と `metadata.yaml` を自動的に取得します。
+
 ```yaml
 apiVersion: operator.cluster.x-k8s.io/v1alpha2
 kind: InfrastructureProvider

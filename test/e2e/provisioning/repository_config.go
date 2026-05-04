@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/blang/semver/v4"
-	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	clusterctlv1 "sigs.k8s.io/cluster-api/cmd/clusterctl/api/v1alpha3"
+	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/yaml"
 )
 

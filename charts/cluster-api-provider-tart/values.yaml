@@ -1,10 +1,38 @@
+# Default values for cluster-api-provider-tart.
+# This is a **very** opinionated Helm chart with lots of defaults.
+
 controllerManager:
+  replicas: 1
+
+  # -- Number of seconds to allow the pod to terminate gracefully (default: 10)
+  terminationGracePeriodSeconds: 10
+
+  # -- Override the manager container name
+  managerName: manager
+
+  # -- Additional environment variables for the manager container
+  env: []
+  # - name: SOME_VAR
+  #   value: "some_value"
+
+  # -- Additional arguments for the manager container
   manager:
     args:
     - --metrics-bind-address=:8443
     - --leader-elect
     - --health-probe-bind-address=:8081
     - --bootstrap-advertise-address=$(POD_IP)
+    image:
+      repository: ghcr.io/walnuts1018/cluster-api-provider-tart-controller
+      tag: "" # defaults to .Chart.AppVersion
+      pullPolicy: IfNotPresent
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
     containerSecurityContext:
       allowPrivilegeEscalation: false
       capabilities:
@@ -13,41 +41,137 @@ controllerManager:
         drop:
         - ALL
       readOnlyRootFilesystem: true
-    image:
-      repository: controller
-      tag: latest
-    resources:
-      limits:
-        cpu: 500m
-        memory: 128Mi
-      requests:
-        cpu: 10m
-        memory: 64Mi
-  nodeSelector: {}
+    livenessProbe:
+      httpGet:
+        path: /healthz
+        port: 8081
+      initialDelaySeconds: 15
+      periodSeconds: 20
+    readinessProbe:
+      httpGet:
+        path: /readyz
+        port: 8081
+      initialDelaySeconds: 5
+      periodSeconds: 10
+
+  # -- Pod-level security context
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
-  replicas: 1
+
+  # -- Network configuration
+  network:
+    # -- Enable hostNetwork. The controller needs hostNetwork for ProxyDHCP/WoL functionality.
+    hostNetwork: true
+    # -- DNS policy when hostNetwork is enabled. "Default" uses the node's DNS, "ClusterFirst" uses cluster DNS.
+    dnsPolicy: Default
+    # -- Custom DNS config (e.g., custom nameservers) when dnsPolicy is "None" or "ClusterFirstWithHostNet"
+    dnsConfig: {}
+    # -- Additional container ports for PXE boot services
+    # These ports are required for DHCP (67/UDP), TFTP (69/UDP), and iPXE HTTP (8082/TCP)
+    containerPorts:
+    - containerPort: 67
+      name: bootp
+      protocol: UDP
+    - containerPort: 69
+      name: tftp
+      protocol: UDP
+    - containerPort: 8082
+      name: ipxe
+      protocol: TCP
+
+  # -- Volume mounts for the manager container
+  volumeMounts:
+  - mountPath: /var/lib/tftpboot
+    name: bootloader
+    readOnly: true
+
+  # -- Volumes for the pod
+  volumes:
+    # -- Bootloader volume using an image volume (iPXE binaries)
+    bootloader:
+      image:
+        repository: "ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe"
+        tag: ""
+        pullPolicy: IfNotPresent
+
+  # -- Scheduling constraints
+  nodeSelector: {}
   tolerations: []
-  topologySpreadConstraints: []
+  # -- Topology spread constraints for better distribution across nodes
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: DoNotSchedule
+    labelSelector:
+      matchLabels:
+        control-plane: controller-manager
+
+  # -- Priority class name for the controller pod
+  priorityClassName: ""
+
+  # -- Pod annotations
+  podAnnotations: {}
+
+  # -- Additional pod labels
+  podLabels: {}
+
+# -- iPXE Service configuration
 ipxe:
+  # -- Enable the iPXE Service. Set to false if using hostNetwork and not needing a separate Service.
+  enabled: true
+  type: ClusterIP
   ports:
   - name: ipxe
     port: 8082
     protocol: TCP
     targetPort: ipxe
-  type: ClusterIP
-kubernetesClusterDomain: cluster.local
+
+# -- Metrics Service configuration
 metricsService:
+  # -- Enable the Metrics Service
+  enabled: true
+  type: ClusterIP
   ports:
   - name: https
     port: 8443
     protocol: TCP
     targetPort: 8443
-  type: ClusterIP
+
+# -- ServiceAccount configuration
 serviceAccount:
-  annotations: {}
-  automount: true
   create: true
+  # -- Override the service account name (defaults to <release-name>-cluster-api-provider-tart)
   name: ""
+  annotations: {}
+  # -- Whether to automatically mount the service account token
+  automount: true
+
+# -- Whether to create RBAC resources
+rbac:
+  # -- Enable manager role and rolebinding
+  managerRole: true
+  # -- Enable leader election role and rolebinding
+  leaderElectionRole: true
+  # -- Enable metrics auth role and rolebinding
+  metricsAuthRole: true
+  # -- Enable metrics reader ClusterRole
+  metricsReader: true
+  # -- Enable CRD viewer roles (TartHost, TartMachine)
+  viewerRoles: true
+  # -- Enable CRD editor roles (TartHost, TartMachine)
+  editorRoles: true
+  # -- Enable CRD admin roles (TartHost, TartMachine)
+  adminRoles: true
+
+# -- PodDisruptionBudget configuration
+podDisruptionBudget:
+  # -- Enable PodDisruptionBudget
+  enabled: false
+  # -- Use minAvailable or maxUnavailable
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# -- Cluster domain
+kubernetesClusterDomain: cluster.local

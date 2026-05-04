@@ -21,11 +21,25 @@ spec:
         cluster.x-k8s.io/provider: infrastructure-tart
         control-plane: controller-manager
       {{- include "cluster-api-provider-tart.selectorLabels" . | nindent 8 }}
+      {{- with .Values.controllerManager.podLabels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       annotations:
-        kubectl.kubernetes.io/default-container: manager
+        kubectl.kubernetes.io/default-container: {{ .Values.controllerManager.managerName }}
+      {{- with .Values.controllerManager.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
+      {{- with .Values.controllerManager.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.controllerManager.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
-      - args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+      - name: {{ .Values.controllerManager.managerName }}
+        args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
         command:
         - /manager
         env:
@@ -35,50 +49,49 @@ spec:
               fieldPath: status.podIP
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
+        {{- with .Values.controllerManager.env }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: {{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.controllerManager.manager.image.pullPolicy }}
+        {{- with .Values.controllerManager.manager.livenessProbe }}
         livenessProbe:
-          httpGet:
-            path: /healthz
-            port: 8081
-          initialDelaySeconds: 15
-          periodSeconds: 20
-        name: manager
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
         ports:
-        - containerPort: 67
-          name: bootp
-          protocol: UDP
-        - containerPort: 69
-          name: tftp
-          protocol: UDP
-        - containerPort: 8082
-          name: ipxe
-          protocol: TCP
+        {{- .Values.controllerManager.network.containerPorts | toYaml | nindent 8 }}
+        {{- with .Values.controllerManager.manager.readinessProbe }}
         readinessProbe:
-          httpGet:
-            path: /readyz
-            port: 8081
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
-          }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 8 }}
         securityContext: {{- toYaml .Values.controllerManager.manager.containerSecurityContext
-          | nindent 10 }}
+          | nindent 8 }}
         volumeMounts:
-        - mountPath: /var/lib/tftpboot
-          name: bootloader
-          readOnly: true
-      dnsPolicy: Default
+        {{- toYaml .Values.controllerManager.volumeMounts | nindent 8 }}
+      {{- with .Values.controllerManager.network.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      dnsPolicy: {{ .Values.controllerManager.network.dnsPolicy }}
+      {{- if .Values.controllerManager.network.hostNetwork }}
       hostNetwork: true
-      nodeSelector: {{- toYaml .Values.controllerManager.nodeSelector | nindent 8 }}
-      securityContext: {{- toYaml .Values.controllerManager.podSecurityContext | nindent
-        8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext: {{- toYaml .Values.controllerManager.podSecurityContext | nindent 6
+        }}
       serviceAccountName: {{ include "cluster-api-provider-tart.serviceAccountName" . }}
-      terminationGracePeriodSeconds: 10
-      tolerations: {{- toYaml .Values.controllerManager.tolerations | nindent 8 }}
-      topologySpreadConstraints: {{- toYaml .Values.controllerManager.topologySpreadConstraints
-        | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.controllerManager.terminationGracePeriodSeconds
+        }}
+      {{- with .Values.controllerManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
       volumes:
       - name: bootloader
         image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}
-          pullPolicy: IfNotPresent
+          reference: {{ .Values.controllerManager.volumes.bootloader.image.repository }}:{{ .Values.controllerManager.volumes.bootloader.image.tag | default .Chart.AppVersion }}
+          pullPolicy: {{ .Values.controllerManager.volumes.bootloader.image.pullPolicy }}

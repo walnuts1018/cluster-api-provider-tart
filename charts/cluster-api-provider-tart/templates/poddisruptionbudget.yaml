@@ -1,0 +1,22 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cluster-api-provider-tart.fullname" . }}-controller-manager
+  labels:
+    cluster.x-k8s.io/provider: infrastructure-tart
+    control-plane: controller-manager
+  {{- include "cluster-api-provider-tart.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cluster-api-provider-tart
+      cluster.x-k8s.io/provider: infrastructure-tart
+      control-plane: controller-manager
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- end }}
+{{- end }}

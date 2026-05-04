@@ -200,7 +200,7 @@ jobs:
           path: dist
 
       - name: Upload provider assets to release
-        uses: softprops/action-gh-release@de2c0eb89ae2a0938768861c17b2c637469c8863 # v1.0.7
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/infrastructure-components.yaml

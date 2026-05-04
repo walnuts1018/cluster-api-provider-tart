@@ -9,7 +9,7 @@ import (
 func TestSetupTestProvisioningK3sUsesSingleProxyDHCPRange(t *testing.T) {
 	t.Parallel()
 
-	miseToml, err := os.ReadFile("../../mise.toml")
+	miseToml, err := os.ReadFile("./mise.toml")
 	if err != nil {
 		t.Fatalf("failed to read mise.toml: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 func TestProvisioningConfigUsesURLSourceForInfrastructureProvider(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join("config", "tart.yaml")
+	configPath := filepath.Join("test", "e2e", "config", "tart.yaml")
 	configBytes, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("failed to read %s: %v", configPath, err)

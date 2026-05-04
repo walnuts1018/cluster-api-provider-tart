@@ -25,25 +25,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2
-          sudo systemctl stop libvirtd
-          sudo systemctl disable libvirtd
 
-      - name: Setup kind (Management Cluster)
-        uses: helm/kind-action@v1.13.0
-        with:
-          cluster_name: management-cluster
-
-      - name: Build and Load Controller Image to kind
+      - name: Download iPXE binaries for TFTP
         run: |
-          docker build -t localhost/cluster-api-provider-tart:e2e .
-          kind load docker-image localhost/cluster-api-provider-tart:e2e --name management-cluster
+          mkdir -p /var/lib/tftpboot
+          sudo curl -L -o /var/lib/tftpboot/ipxe-x86_64.efi "https://github.com/ipxe/ipxe/releases/download/rel-1.21.1/ipxe-x86_64-efi"
+          sudo curl -L -o /var/lib/tftpboot/ipxe-arm64.efi "https://github.com/ipxe/ipxe/releases/download/rel-1.21.1/ipxe-arm64-efi"
 
-      - name: Deploy Provider to kind
+      - name: Install k3s
         run: |
-          kubectl apply -f config/crd/bases/
-          kubectl apply -f config/rbac/
-          kubectl apply -f config/manager/
-          kubectl wait --for=condition=Ready pod -l control-plane=controller-manager -n cluster-api-provider-tart-system --timeout=120s
+          curl -fsSL https://get.k3s.io | sh -
+          sudo chmod a+r /etc/rancher/k3s/k3s.yaml
+          sleep 10
 
       - name: Create Linux Bridge
         run: |
@@ -55,7 +48,7 @@ jobs:
           sudo iptables -A FORWARD -i br0 -j ACCEPT
           sudo iptables -A FORWARD -o br0 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-      - name: Start dnsmasq for IP assignment
+      - name: Start dnsmasq for DHCP & ProxyDHCP & TFTP
         run: |
           sudo dnsmasq \
             --interface=br0 \
@@ -63,6 +56,11 @@ jobs:
             --dhcp-range=192.168.100.10,192.168.100.50,120s \
             --dhcp-option=option:router,192.168.100.1 \
             --dhcp-option=option:dns-server,8.8.8.8 \
+            --dhcp-range=192.168.100.10,192.168.100.50,proxy \
+            --enable-tftp \
+            --tftp-root=/var/lib/tftpboot \
+            --dhcp-boot=tag:!ipxe,ipxe-x86_64.efi \
+            --dhcp-boot=tag:ipxe,http://192.168.100.1:8082/ipxe \
             --dhcp-leasefile=/tmp/dnsmasq.leases \
             --log-dhcp \
             --keep-in-foreground &
@@ -113,6 +111,28 @@ jobs:
             exit 1
           }
 
+      - name: Build Controller Binary
+        run: |
+          mise run build
+
+      - name: Configure k3s kubeconfig
+        run: |
+          sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+          sudo sed -i 's/https:\/\/127.0.0.1:6443/https:\/\/127.0.0.1:6443/g' ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Run Controller
+        run: |
+          sudo KUBECONFIG=/etc/rancher/k3s/k3s.yaml \
+            bin/manager \
+            --leader-elect=false \
+            --ipxe-bind-address=:8082 \
+            --bootstrap-bind-address=0 \
+            --tftp-bind-address=0 \
+            --assets-root=/var/lib/tart/assets \
+            --tftp-root=/var/lib/tftpboot &
+          sleep 5
+
       - name: Start QEMU VM (PXE Boot)
         run: |
           sudo qemu-system-x86_64 \
@@ -147,8 +167,12 @@ jobs:
       - name: Print Manager Logs
         if: always()
         run: |
-          echo "=== Manager Logs ==="
-          kubectl logs -l control-plane=controller-manager -n cluster-api-provider-tart-system --tail=200
+          echo "=== Manager Process Status ==="
+          pgrep -af "manager" || echo "Manager process not found"
+          echo "=== Network Configuration ==="
+          ip addr show br0 2>/dev/null || echo "br0 not found"
+          echo "=== dnsmasq Status ==="
+          pgrep -af "dnsmasq" || echo "dnsmasq process not found"
 
       - name: Print Kubernetes Resources
         if: always()

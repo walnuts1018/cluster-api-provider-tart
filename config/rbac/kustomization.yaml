@@ -29,3 +29,7 @@ resources:
 - tarthost_editor_role.yaml
 - tarthost_viewer_role.yaml
 
+labels:
+- includeSelectors: true
+  pairs:
+    cluster.x-k8s.io/provider: infrastructure-tart

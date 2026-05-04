@@ -664,6 +664,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Client:       k8sClient,
 				Scheme:       k8sClient.Scheme(),
 				HostService:  k8shost.NewService(k8sClient),
+				TokenService: k8sbootstraptoken.NewService(k8sClient),
 				Provisioning: failingProvisioning,
 			}
 
@@ -773,6 +774,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Client:       k8sClient,
 				Scheme:       k8sClient.Scheme(),
 				HostService:  k8shost.NewService(k8sClient),
+				TokenService: k8sbootstraptoken.NewService(k8sClient),
 				Provisioning: failingProvisioning,
 			}
 

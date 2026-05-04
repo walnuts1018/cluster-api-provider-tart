@@ -18,12 +18,14 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -51,6 +53,9 @@ var _ = Describe("TartCluster Controller", func() {
 					clusterv1.ClusterNameLabel: clusterName,
 				},
 			},
+			Spec: clusterv1.ClusterSpec{
+				Paused: new(bool),
+			},
 		}
 		Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
@@ -69,12 +74,20 @@ var _ = Describe("TartCluster Controller", func() {
 	AfterEach(func() {
 		tartCluster := &infrastructurev1alpha1.TartCluster{}
 		if err := k8sClient.Get(ctx, typeNamespacedName, tartCluster); err == nil {
+			controllerutil.RemoveFinalizer(tartCluster, tartClusterFinalizer)
+			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, tartCluster)).To(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, typeNamespacedName, tartCluster)
+			}, 5*time.Second, time.Millisecond*100).ShouldNot(Succeed())
 		}
 
 		capiCluster := &clusterv1.Cluster{}
 		if err := k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, capiCluster); err == nil {
 			Expect(k8sClient.Delete(ctx, capiCluster)).To(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, capiCluster)
+			}, 5*time.Second, time.Millisecond*100).ShouldNot(Succeed())
 		}
 	})
 

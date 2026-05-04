@@ -70,6 +70,19 @@ else
 fi
 '''
 
+[tasks.test-provisioning-e2e]
+description = "CAPI Test Framework を使用して Provisioning E2E テストを実行する"
+run = '''
+mise run build-installer
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" build -t "$IMG" .
+ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
+mkdir -p "$ARTIFACTS"
+go test -tags=e2e ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="${PWD}/test/e2e/config/tart.yaml"
+'''
+
+
 [tasks.test-e2e]
 description = "Kind を使って e2e テストを実行する"
 run = '''

@@ -1,0 +1,57 @@
+managementClusterName: "tart-e2e"
+
+images:
+  - name: ghcr.io/walnuts1018/cluster-api-provider-tart:latest
+    loadBehavior: mustLoad
+
+providers:
+  - name: cluster-api
+    type: CoreProvider
+    versions:
+      - name: v1.9.4
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.4/core-components.yaml"
+        type: "url"
+        contract: v1beta1
+  - name: kubeadm
+    type: BootstrapProvider
+    versions:
+      - name: v1.9.4
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.4/bootstrap-components.yaml"
+        type: "url"
+        contract: v1beta1
+  - name: kubeadm
+    type: ControlPlaneProvider
+    versions:
+      - name: v1.9.4
+        value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/v1.9.4/control-plane-components.yaml"
+        type: "url"
+        contract: v1beta1
+  - name: tart
+    type: InfrastructureProvider
+    versions:
+      - name: v0.0.0
+        value: "${PWD}/dist/install.yaml"
+        contract: v1beta1
+        files:
+          - sourcePath: "${PWD}/config/templates/cluster-template-kubeadm.yaml"
+            targetName: "cluster-template.yaml"
+
+variables:
+  KUBERNETES_VERSION: "v1.32.2"
+  CNI: "${PWD}/test/e2e/data/cni/calico/calico.yaml"
+  UBUNTU_KERNEL_URL: "https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic"
+  UBUNTU_INITRD_URL: "https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic"
+  CONTROL_PLANE_ENDPOINT_HOST: "192.168.100.100"
+  BOOTSTRAP_METADATA_URL: "http://192.168.100.1:8082/meta-data"
+  CLUSTER_NAME: "tart-test"
+  CONTROL_PLANE_MACHINE_COUNT: "1"
+  WORKER_MACHINE_COUNT: "1"
+
+intervals:
+  default/wait-controllers: ["3m", "10s"]
+  default/wait-cluster: ["5m", "10s"]
+  default/wait-control-plane: ["10m", "10s"]
+  default/wait-worker-nodes: ["10m", "10s"]
+  default/wait-delete-cluster: ["5m", "10s"]
+  default/wait-machine-upgrade: ["15m", "10s"]
+  default/wait-machine-status: ["5m", "10s"]

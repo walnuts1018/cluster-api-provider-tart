@@ -297,6 +297,7 @@ if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then
   sudo dnsmasq \
     --interface=br0 \
     --bind-interfaces \
+    --port=0 \
     --dhcp-range=192.168.100.0,proxy \
     --dhcp-no-override \
     --enable-tftp \

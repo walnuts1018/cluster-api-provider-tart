@@ -23,9 +23,7 @@ spec:
       jsonPath: .status.hostRef.name
       name: Host
       type: string
-    - description: CreationTimestamp is a timestamp representing the server time when
-        this object was created.
-      jsonPath: .metadata.creationTimestamp
+    - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
     name: v1alpha1
@@ -57,15 +55,19 @@ spec:
                 description: image is the boot OS image URL or a path served by the
                   assets server.
                 minLength: 1
+                pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
                 type: string
               initrd:
                 description: initrd is the boot initrd image URL or a path served
                   by the assets server.
+                pattern: ^https?://[a-zA-Z0-9._-]+(?::\d+)?(/[a-zA-Z0-9._-]+)*$|^/([a-zA-Z0-9._-]+)+$
                 type: string
               kernelParams:
                 description: kernelParams are passed from iPXE to the OS kernel.
                 items:
+                  pattern: ^[a-zA-Z0-9._-]+=[a-zA-Z0-9._-]+$
                   type: string
+                maxItems: 100
                 type: array
               providerID:
                 description: providerID is the infrastructure provider ID reported

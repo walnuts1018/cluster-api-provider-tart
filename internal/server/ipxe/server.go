@@ -18,10 +18,10 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
-	"golang.org/x/time/rate"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,11 +32,11 @@ import (
 )
 
 type Server struct {
-	client      client.Client
-	addr        string
-	assetsRoot  string
+	client          client.Client
+	addr            string
+	assetsRoot      string
 	metadataLimiter *rate.Limiter
-	mux       sync.Mutex
+	mux             sync.Mutex
 	machineLimiters map[string]*rate.Limiter
 }
 

@@ -415,4 +415,3 @@ func (c *failingListClient) List(ctx context.Context, list client.ObjectList, op
 func (c *failingListClient) WithScheme(scheme *runtime.Scheme) {
 	// no-op for test
 }
-

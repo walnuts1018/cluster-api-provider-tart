@@ -841,4 +841,3 @@ func (s *failingProvisioningService) Begin(ctx context.Context, host *infrastruc
 func (s *failingProvisioningService) Ensure(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {
 	return nil
 }
-

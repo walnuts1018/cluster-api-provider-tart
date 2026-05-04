@@ -6,6 +6,9 @@ package provisioning
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"path/filepath"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -73,8 +76,24 @@ var _ = Describe("Provisioning E2E tests", func() {
 	})
 
 	It("Should provision a workload cluster", func() {
+		cniURL := e2eConfig.Variables["CNI"]
+		Expect(cniURL).NotTo(BeEmpty(), "CNI variable should be set in e2e config")
+
+		By(fmt.Sprintf("Downloading CNI manifest from %s", cniURL))
+		cniPath := filepath.Join(artifactsFolder, "cni.yaml")
+		resp, err := http.Get(cniURL)
+		Expect(err).NotTo(HaveOccurred(), "Failed to download CNI manifest")
+		defer resp.Body.Close()
+
+		cniFile, err := os.Create(cniPath)
+		Expect(err).NotTo(HaveOccurred(), "Failed to create CNI manifest file")
+		_, err = io.Copy(cniFile, resp.Body)
+		Expect(err).NotTo(HaveOccurred(), "Failed to write CNI manifest file")
+		cniFile.Close()
+
 		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
 			ClusterProxy: bootstrapClusterProxy,
+			CNIManifestPath: cniPath,
 			ConfigCluster: clusterctl.ConfigClusterInput{
 				LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
 				ClusterctlConfigPath:     clusterctlConfig,

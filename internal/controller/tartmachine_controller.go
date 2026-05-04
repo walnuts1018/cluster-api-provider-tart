@@ -108,7 +108,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 				return ctrl.Result{}, fmt.Errorf("failed to generate bootstrap token for retry: %w", err)
 			}
 			original := machine.DeepCopy()
-			status, err := machinedomain.RetryExpiredTokenStatus(&machine, newToken.String(), now, bootstrapTokenTTL)
+			status, err := machinedomain.RetryExpiredTokenStatus(&machine, newToken, now, bootstrapTokenTTL)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -179,7 +179,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// ホスト予約直後に machine.Status.HostRef を書き込み、以降の手順で失敗しても
 	// 再 reconcile 時に同じホストを使用できるようにします。
 	original := machine.DeepCopy()
-	status, err := machinedomain.BeginProvisioningStatus(&machine, host, token.String(), time.Now(), bootstrapTokenTTL)
+	status, err := machinedomain.BeginProvisioningStatus(&machine, host, token, time.Now(), bootstrapTokenTTL)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

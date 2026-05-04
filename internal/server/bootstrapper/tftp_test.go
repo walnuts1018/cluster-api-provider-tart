@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
 func TestNewTFTPBootstrapper(t *testing.T) {
@@ -242,9 +244,11 @@ func TestOpenTFTPFile(t *testing.T) {
 			t.Fatalf("failed to close file: %v", err)
 		}
 
-		opened, err := openTFTPFile(root, "large.img")
+		opened, err := openTFTPFile(root, "large.img", logr.Discard())
 		if opened != nil {
-			_ = opened.Close()
+			if closeErr := opened.Close(); closeErr != nil {
+				t.Logf("failed to close opened file: %v", closeErr)
+			}
 		}
 		if err == nil {
 			t.Fatal("expected oversized file to be rejected")
@@ -258,9 +262,11 @@ func TestOpenTFTPFile(t *testing.T) {
 			t.Fatalf("failed to create subdir: %v", err)
 		}
 
-		opened, err := openTFTPFile(root, "subdir")
+		opened, err := openTFTPFile(root, "subdir", logr.Discard())
 		if opened != nil {
-			_ = opened.Close()
+			if closeErr := opened.Close(); closeErr != nil {
+				t.Logf("failed to close opened file: %v", closeErr)
+			}
 		}
 		if err == nil {
 			t.Fatal("expected directory to be rejected")

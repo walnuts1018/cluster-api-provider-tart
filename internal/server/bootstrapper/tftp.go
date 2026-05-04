@@ -62,7 +62,7 @@ func resolveTFTPFilePath(root, filename string) (string, error) {
 
 // openTFTPFile は、解決済みパスのファイルを開きます。
 // 通常ファイル以外（ディレクトリやデバイスファイルなど）は拒否されます。
-func openTFTPFile(root, filename string) (*os.File, error) {
+func openTFTPFile(root, filename string, logger logr.Logger) (*os.File, error) {
 	resolved, err := resolveTFTPFilePath(root, filename)
 	if err != nil {
 		return nil, err
@@ -74,15 +74,21 @@ func openTFTPFile(root, filename string) (*os.File, error) {
 	}
 	info, err := file.Stat()
 	if err != nil {
-		_ = file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Error(closeErr, "Failed to close TFTP file after stat error", "filename", filename)
+		}
 		return nil, fmt.Errorf("failed to stat TFTP file: %w", err)
 	}
 	if info.Size() > maxTFTPFileSize {
-		_ = file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Error(closeErr, "Failed to close oversized TFTP file", "filename", filename)
+		}
 		return nil, fmt.Errorf("access denied: file exceeds TFTP size limit")
 	}
 	if !info.Mode().IsRegular() {
-		_ = file.Close()
+		if closeErr := file.Close(); closeErr != nil {
+			logger.Error(closeErr, "Failed to close non-regular TFTP file", "filename", filename)
+		}
 		return nil, fmt.Errorf("access denied: not a regular file")
 	}
 	return file, nil
@@ -149,7 +155,7 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 		)
 
 		lg.Info("TFTP read request", "filename", filename)
-		file, err := openTFTPFile(b.root, filename)
+		file, err := openTFTPFile(b.root, filename, lg)
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
@@ -206,7 +212,9 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 		if err := server.Serve(conn); err != nil && !errors.Is(err, context.Canceled) {
 			lg.Error(err, "TFTP server exited with error")
 		}
-		_ = conn.Close()
+		if err := conn.Close(); err != nil {
+			lg.Error(err, "Failed to close TFTP UDP connection", "address", b.addr)
+		}
 		close(b.done)
 	}()
 
@@ -223,7 +231,9 @@ func (b *TFTPBootstrapper) StartWithContext(ctx context.Context) error {
 	// コンテキストがキャンセルされた場合はサーバーも停止する
 	go func() {
 		<-ctx.Done()
-		_ = b.Stop()
+		if err := b.Stop(); err != nil {
+			lg.Error(err, "Failed to stop TFTP server after context cancellation")
+		}
 	}()
 
 	lg.Info("TFTP server started")

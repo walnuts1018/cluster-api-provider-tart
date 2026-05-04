@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -35,8 +36,10 @@ const (
 	defaultKindCluster = "kind"
 )
 
-func warnError(err error) {
-	_, _ = fmt.Fprintf(GinkgoWriter, "warning: %v\n", err)
+func WarnError(err error) {
+	if _, writeErr := fmt.Fprintf(GinkgoWriter, "warning: %v\n", err); writeErr != nil {
+		log.Printf("failed to write warning to GinkgoWriter: %v", writeErr)
+	}
 }
 
 // Run executes the provided command within this context
@@ -45,12 +48,16 @@ func Run(cmd *exec.Cmd) (string, error) {
 	cmd.Dir = dir
 
 	if err := os.Chdir(cmd.Dir); err != nil {
-		_, _ = fmt.Fprintf(GinkgoWriter, "chdir dir: %q\n", err)
+		if _, writeErr := fmt.Fprintf(GinkgoWriter, "chdir dir: %q\n", err); writeErr != nil {
+			log.Printf("failed to write chdir error to GinkgoWriter: %v", writeErr)
+		}
 	}
 
 	cmd.Env = append(os.Environ(), "GO111MODULE=on")
 	command := strings.Join(cmd.Args, " ")
-	_, _ = fmt.Fprintf(GinkgoWriter, "running: %q\n", command)
+	if _, err := fmt.Fprintf(GinkgoWriter, "running: %q\n", command); err != nil {
+		log.Printf("failed to write command to GinkgoWriter: %v", err)
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(output), fmt.Errorf("%q failed with error %q: %w", command, string(output), err)
@@ -64,7 +71,7 @@ func UninstallCertManager() {
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
 	cmd := exec.Command("kubectl", "delete", "-f", url)
 	if _, err := Run(cmd); err != nil {
-		warnError(err)
+		WarnError(err)
 	}
 
 	// Delete leftover leases in kube-system (not cleaned by default)
@@ -76,7 +83,7 @@ func UninstallCertManager() {
 		cmd = exec.Command("kubectl", "delete", "lease", lease,
 			"-n", "kube-system", "--ignore-not-found", "--force", "--grace-period=0")
 		if _, err := Run(cmd); err != nil {
-			warnError(err)
+			WarnError(err)
 		}
 	}
 }

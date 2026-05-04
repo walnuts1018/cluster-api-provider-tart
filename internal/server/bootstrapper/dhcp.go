@@ -119,7 +119,9 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 	// コンテキストがキャンセルされた場合はサーバーも停止する
 	go func() {
 		<-ctx.Done()
-		_ = b.Stop()
+		if err := b.Stop(); err != nil {
+			lg.Error(err, "Failed to stop DHCP server after context cancellation")
+		}
 	}()
 
 	lg.Info("DHCP server started")

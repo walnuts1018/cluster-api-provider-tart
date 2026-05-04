@@ -27,6 +27,9 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --tftp-bind-address=0
+    - op: add
+      path: /spec/template/spec/containers/0/imagePullPolicy
+      value: IfNotPresent
     - op: replace
       path: /spec/template/spec/volumes/0
       value:

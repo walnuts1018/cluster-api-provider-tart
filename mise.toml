@@ -186,20 +186,21 @@ rm Dockerfile.cross
 '''
 
 [tasks.docker-build-ipxe]
-description = "iPXE artifact のコンテナイメージをビルドする"
+description = "iPXE binaries をビルドし local に取り出す"
 run = '''
-IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
+mkdir -p dist/ipxe
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-"$CONTAINER_TOOL" build -t "$IPXE_IMG" -f hack/ipxe-artifact/Dockerfile .
+"$CONTAINER_TOOL" buildx build --platform linux/amd64,linux/arm64 -f hack/ipxe-artifact/Dockerfile --output type=local,dest=dist/ipxe .
 '''
 
 [tasks.docker-push-ipxe]
-description = "iPXE artifact のコンテナイメージを push する"
+description = "iPXE artifact を ORAS を使って push する"
 run = '''
-IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-"$CONTAINER_TOOL" push "$IPXE_IMG"
+IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
+IPXE_TAG="${IPXE_TAG:-latest}"
+go run hack/ipxe-artifact/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
 '''
+
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"

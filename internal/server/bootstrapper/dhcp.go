@@ -19,8 +19,22 @@ import (
 )
 
 const (
-	// iPXEBootFileName は iPXE ローダのファイル名です。
-	iPXEBootFileName = "ipxe.efi"
+	// iPXEBootFileNameAMD64 は amd64 用の iPXE ローダのファイル名です。
+	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
+	// iPXEBootFileNameARM64 は arm64 用の iPXE ローダのファイル名です。
+	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
+	// iPXEBootFileNameDefault はデフォルトの iPXE ローダのファイル名です。
+	iPXEBootFileNameDefault = "ipxe.efi"
+)
+
+// Arch 型はクライアントのアーキテクチャを表します。
+type Arch uint16
+
+const (
+	ArchIntelx86PC Arch = 0
+	ArchEFIx8664   Arch = 7
+	ArchEFIBC      Arch = 9
+	ArchEFIARM64   Arch = 11
 )
 
 // DHCPBootstrapper は組み込み DHCP サーバーを用いた DHCP/TFTP ブートストラップサーバーの実装です。
@@ -28,7 +42,6 @@ const (
 type DHCPBootstrapper struct {
 	tftpRoot string
 	addr     string
-	iPXEPath string
 	server   *server4.Server
 	logger   logr.Logger
 	mu       sync.Mutex
@@ -53,7 +66,6 @@ func NewDHCPBootstrapper(tftpRoot, addr string) (*DHCPBootstrapper, error) {
 	return &DHCPBootstrapper{
 		tftpRoot: tftpRoot,
 		addr:     addr,
-		iPXEPath: filepath.Join(tftpRoot, iPXEBootFileName),
 		done:     make(chan struct{}),
 		logger:   logr.Discard(),
 	}, nil
@@ -66,13 +78,13 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 	b.logger = lg
 	b.mu.Unlock()
 
-	// iPXE ローダは外部ConfigMapやホストボリュームで後から配置される場合があるため、
-	// 起動時には警告に留め、実際の配信可否はTFTPサーバー側でリクエスト時に判定します。
-	if _, err := os.Stat(b.iPXEPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			lg.Info("iPXE bootloader is not found yet", "path", b.iPXEPath)
-		} else {
-			return fmt.Errorf("failed to check iPXE bootloader: %w", err)
+	// iPXE ローダの存在確認（オプション）
+	for _, f := range []string{iPXEBootFileNameAMD64, iPXEBootFileNameARM64} {
+		path := filepath.Join(b.tftpRoot, f)
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				lg.Info("iPXE bootloader is not found yet", "path", path)
+			}
 		}
 	}
 
@@ -158,10 +170,28 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			return
 		}
 
+		// クライアントのアーキテクチャを取得 (Option 93)
+		arch := ArchEFIx8664 // Default
+		if opt := m.GetOneOption(dhcpv4.OptionClientSystemArchitectureType); opt != nil {
+			if len(opt) >= 2 {
+				arch = Arch(uint16(opt[0])<<8 | uint16(opt[1]))
+			}
+		}
+
+		bootFile := iPXEBootFileNameDefault
+		switch arch {
+		case ArchEFIx8664:
+			bootFile = iPXEBootFileNameAMD64
+		case ArchEFIARM64:
+			bootFile = iPXEBootFileNameARM64
+		default:
+			lg.Info("Unknown architecture, using default boot file", "arch", arch)
+		}
+
 		// 新しいDHCPv4レスポンスを作成
 		resp, err := dhcpv4.NewReplyFromRequest(m,
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
-			dhcpv4.WithOption(dhcpv4.OptBootFileName(iPXEBootFileName)),
+			dhcpv4.WithOption(dhcpv4.OptBootFileName(bootFile)),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		)
 		if err != nil {
@@ -179,8 +209,11 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 
 		span.SetStatus(codes.Ok, "")
-		span.SetAttributes(attribute.String("dhcp.boot_file", iPXEBootFileName))
-		lg.Info("Sent DHCP Offer", "client_mac", m.ClientHWAddr.String(), "boot_file", iPXEBootFileName)
+		span.SetAttributes(
+			attribute.String("dhcp.boot_file", bootFile),
+			attribute.Int("dhcp.arch", int(arch)),
+		)
+		lg.Info("Sent DHCP Offer", "client_mac", m.ClientHWAddr.String(), "boot_file", bootFile, "arch", arch)
 	}
 }
 

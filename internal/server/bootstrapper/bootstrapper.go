@@ -107,7 +107,7 @@ func (c *combinedBootstrapperImpl) NeedLeaderElection() bool {
 
 // DHCPBootFileName は iPXE ブートローダのファイル名を返します。
 func (c *combinedBootstrapperImpl) DHCPBootFileName() string {
-	return iPXEBootFileName
+	return iPXEBootFileNameDefault
 }
 
 // TFTPRoot は TFTP サーバーのルートディレクトリを返します。

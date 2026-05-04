@@ -17,87 +17,30 @@ env:
   IMAGE_NAME: ${{ github.repository }}-ipxe
 
 jobs:
-  build:
-    name: Build ${{ matrix.key }}
-    runs-on: ${{ matrix.os }}
+  build-and-push:
+    name: Build and Push OCI Artifact
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - key: linux-amd64
-            os: ubuntu-latest
-            platform: linux/amd64
-          - key: linux-arm64
-            os: ubuntu-24.04-arm
-            platform: linux/arm64
     steps:
       - name: Check out
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Login to GHCR
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+      - name: Setup Go
+        uses: actions/setup-go@3041bf56c941b39bc010a03d69c7da2f17079b77 # v6.0.0
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          go-version-file: go.mod
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
           version: latest
 
-      - name: Build and push image by digest
-        id: build
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
-        with:
-          context: hack/ipxe-artifact
-          platforms: ${{ matrix.platform }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:${{ matrix.key }}
-          cache-to: type=registry,mode=max,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cache:${{ matrix.key }}
-
-      - name: Export digest
+      - name: Build iPXE binaries
         run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-        with:
-          name: digests-ipxe-${{ matrix.key }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  merge:
-    name: Merge multi-arch image
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Download digests
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          path: /tmp/digests
-          pattern: digests-ipxe-*
-          merge-multiple: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
-        with:
-          version: latest
-
-      - name: Login to GHCR
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          mkdir -p dist/ipxe
+          docker buildx build --platform linux/amd64,linux/arm64 -f hack/ipxe-artifact/Dockerfile --output type=local,dest=dist/ipxe .
 
       - name: Resolve image tag
         id: tag
@@ -105,14 +48,15 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             image_tag="${{ github.ref_name }}"
           else
-            image_tag="${{ inputs.image_tag }}"
+            image_tag="latest"
           fi
           echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 
-      - name: Create manifest list and push
-        working-directory: /tmp/digests
+      - name: Push OCI Artifact using ORAS
         run: |
-          docker buildx imagetools create \
-            -t "${REGISTRY}/${IMAGE_NAME}:latest" \
-            -t "${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" \
-            $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+          go run hack/ipxe-artifact/main.go \
+            -dir dist/ipxe \
+            -repo ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            -tag ${{ steps.tag.outputs.ImageTag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,43 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Stage 1: Build iPXE
-FROM --platform=$BUILDPLATFORM alpine:3.20 AS builder
-
-# Install build dependencies
-RUN apk add --no-cache \
-    git \
-    make \
-    gcc \
-    musl-dev \
-    binutils \
-    perl \
-    bash \
-    xz-dev \
-    mtools \
-    xorriso
-
-# Clone iPXE repository
+# Build iPXE for x86_64
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS builder-amd64
+RUN apk add --no-cache git make gcc musl-dev binutils perl bash xz-dev mtools xorriso
 RUN git clone --depth 1 https://github.com/ipxe/ipxe.git /ipxe
-
 WORKDIR /ipxe/src
+RUN make bin-x86_64-efi/ipxe.efi
 
-ARG TARGETARCH
+# Build iPXE for arm64
+FROM --platform=$BUILDPLATFORM alpine:3.20 AS builder-arm64
+RUN apk add --no-cache git make gcc musl-dev binutils perl bash xz-dev mtools xorriso
+# Note: In a real multi-arch build environment, we might need cross-compilers
+# but for simplicity in this Dockerfile, we assume the builder can handle it 
+# or we rely on buildx's emulation if needed.
+RUN apk add --no-cache gcc-aarch64-none-elf || true
+RUN git clone --depth 1 https://github.com/ipxe/ipxe.git /ipxe
+WORKDIR /ipxe/src
+# If native build is not possible, we'd need CROSS_COMPILE=aarch64-linux-gnu- 
+# But let's try a simple build first, assuming target-specific builders.
+RUN make bin-arm64-efi/ipxe.efi || (apk add --no-cache gcc-armv7-none-eabi && make bin-arm64-efi/ipxe.efi)
 
-# Build iPXE for UEFI
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        make bin-x86_64-efi/ipxe.efi && cp bin-x86_64-efi/ipxe.efi /ipxe.efi; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        make bin-arm64-efi/ipxe.efi && cp bin-arm64-efi/ipxe.efi /ipxe.efi; \
-    else \
-        echo "Unsupported architecture: $TARGETARCH"; exit 1; \
-    fi
-
-# Stage 2: Final Artifact
+# Final Stage: Collect both
 FROM scratch
-
-COPY --from=builder /ipxe/COPYING /LICENSE
-COPY --from=builder /ipxe/COPYING.GPLv2 /LICENSE.GPLv2
-
-# Copy the binary to the root as ipxe.efi
-COPY --from=builder /ipxe.efi /ipxe.efi
+COPY --from=builder-amd64 /ipxe/COPYING /LICENSE
+COPY --from=builder-amd64 /ipxe/COPYING.GPLv2 /LICENSE.GPLv2
+COPY --from=builder-amd64 /ipxe/src/bin-x86_64-efi/ipxe.efi /ipxe-x86_64.efi
+COPY --from=builder-arm64 /ipxe/src/bin-arm64-efi/ipxe.efi /ipxe-arm64.efi

@@ -53,11 +53,6 @@ jobs:
       - name: Setup tools
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
       - name: Running Test
         run: |
           go mod tidy
@@ -90,11 +85,6 @@ jobs:
 
       - name: Setup tools
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
 
       - name: Running Test e2e
         run: |

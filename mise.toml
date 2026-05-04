@@ -229,6 +229,103 @@ mkdir -p dist
 kustomize build config/default > dist/install.yaml
 '''
 
+[tasks.build-installer-e2e]
+description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
+run = '''
+IMG="${IMG:-controller:latest}"
+mise run manifests
+mise run generate
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+mkdir -p dist
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/e2e > dist/install-e2e.yaml
+'''
+
+[tasks.setup-test-provisioning-k3s]
+description = "E2E Provisioning テスト用の k3s マネジメントクラスタとネットワークをセットアップする"
+run = '''
+set -e
+# 1. Install k3s if not present
+if ! command -v k3s &> /dev/null; then
+  echo "Installing k3s..."
+  curl -fsSL https://get.k3s.io | sh -
+  sleep 10
+else
+  echo "k3s is already installed."
+fi
+mkdir -p ~/.kube
+sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+sudo sed -i 's/https:\/\/127.0.0.1:6443/https:\/\/127.0.0.1:6443/g' ~/.kube/config || true
+sudo chown $(id -u):$(id -g) ~/.kube/config
+chmod 600 ~/.kube/config
+
+# 2. Setup Linux Bridge
+if ! ip link show br0 &> /dev/null; then
+  echo "Creating Linux bridge br0..."
+  sudo ip link add br0 type bridge
+  sudo ip addr add 192.168.100.1/24 dev br0
+  sudo ip link set br0 up
+  sudo sysctl -w net.ipv4.ip_forward=1
+  # MASQUERADE might fail if eth0 is not the main interface, but we try standard
+  MAIN_IF=$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
+  sudo iptables -t nat -A POSTROUTING -o "$MAIN_IF" -j MASQUERADE || true
+  sudo iptables -A FORWARD -i br0 -j ACCEPT || true
+  sudo iptables -A FORWARD -o br0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
+else
+  echo "Bridge br0 already exists."
+fi
+
+# 3. Download iPXE binaries
+mkdir -p /tmp/tftpboot
+if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
+  echo "Downloading iPXE binaries..."
+  curl -L -o /tmp/tftpboot/ipxe-x86_64.efi "https://github.com/ipxe/ipxe/releases/download/rel-1.21.1/ipxe-x86_64-efi"
+fi
+
+# 4. Start dnsmasq
+if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then
+  echo "Starting dnsmasq on br0..."
+  sudo dnsmasq \
+    --interface=br0 \
+    --bind-interfaces \
+    --dhcp-range=192.168.100.10,192.168.100.50,120s \
+    --dhcp-option=option:router,192.168.100.1 \
+    --dhcp-option=option:dns-server,8.8.8.8 \
+    --dhcp-range=192.168.100.10,192.168.100.50,proxy \
+    --enable-tftp \
+    --tftp-root=/tmp/tftpboot \
+    --dhcp-boot=tag:!ipxe,ipxe-x86_64.efi \
+    --dhcp-boot=tag:ipxe,http://192.168.100.1:8082/ipxe \
+    --dhcp-leasefile=/tmp/dnsmasq.leases \
+    --log-dhcp \
+    --keep-in-foreground &
+  sleep 2
+else
+  echo "dnsmasq is already running on br0."
+fi
+'''
+
+[tasks.test-provisioning-e2e]
+description = "CAPI Test Framework を使用して Provisioning E2E テストを実行する"
+run = '''
+mise run setup-test-provisioning-k3s
+mise run build-installer-e2e
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" build -t "$IMG" .
+# Load image into k3s to ensure it's available locally
+if command -v k3s &> /dev/null; then
+  "$CONTAINER_TOOL" save "$IMG" | sudo k3s ctr images import -
+fi
+
+ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
+mkdir -p "$ARTIFACTS"
+export KUBECONFIG=~/.kube/config
+go test -tags=e2e ./test/e2e/provisioning/... -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="${PWD}/test/e2e/config/tart.yaml" -e2e.use-existing-cluster=true
+'''
+
 [tasks.install]
 description = "現在の kubeconfig のクラスタへ CRD を install する"
 run = '''

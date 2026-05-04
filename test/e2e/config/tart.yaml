@@ -30,7 +30,7 @@ providers:
     type: InfrastructureProvider
     versions:
       - name: v0.0.0
-        value: "${PWD}/dist/install.yaml"
+        value: "${PWD}/dist/install-e2e.yaml"
         contract: v1beta1
         files:
           - sourcePath: "${PWD}/config/templates/cluster-template-kubeadm.yaml"

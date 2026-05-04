@@ -11,7 +11,7 @@ require (
 	github.com/google/wire v0.7.0
 	github.com/insomniacslk/dhcp v0.0.0-20260407060928-11b94ed970f2
 	github.com/labstack/echo-opentelemetry v0.0.2
-	github.com/labstack/echo/v5 v5.1.0
+	github.com/labstack/echo/v5 v5.1.1
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/opencontainers/image-spec v1.1.1
@@ -26,7 +26,7 @@ require (
 	k8s.io/apimachinery v0.35.4
 	k8s.io/client-go v0.35.4
 	k8s.io/klog/v2 v2.130.1
-	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
+	k8s.io/utils v0.0.0-20260319190234-28399d86e0b5
 	oras.land/oras-go/v2 v2.6.0
 	sigs.k8s.io/cluster-api v1.13.1
 	sigs.k8s.io/cluster-api/test v1.13.1

@@ -22,7 +22,7 @@
    * 単一のPod (`hostNetwork: true`) で稼働し、以下のサブシステムをGoroutineとして並行起動する。
    * **K8s Reconciler**: CRDの監視、PCの割り当て、WoL(Wake-on-LAN)による電源投入、ワンタイムトークンの発行を担う。
    * **Embedded DHCP Server**: `github.com/insomniacslk/dhcp` を利用。PXEブート要求を捕捉し、IPアドレスとiPXEブートローダのパスを応答する。
-   * **Embedded TFTP Server**: `github.com/pin/tftp` を利用. iPXEバイナリ (`ipxe.efi`) を配信する。
+   * **Embedded TFTP Server**: `github.com/pin/tftp` を利用. `ipxe.efi` を配信する。バイナリはOCI ArtifactとしてImage Volume Mountを用いて供給される。
    * **Embedded HTTP Server**: カーネル/initrd、動的iPXEスクリプト、および機密データ (Bootstrap Secret) をセキュアに配信する。
 
 

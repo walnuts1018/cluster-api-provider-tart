@@ -185,6 +185,22 @@ sed -e '1 s/\(^FROM\)/FROM --platform=\${BUILDPLATFORM}/; t' -e ' 1,// s//FROM -
 rm Dockerfile.cross
 '''
 
+[tasks.docker-build-ipxe]
+description = "iPXE artifact のコンテナイメージをビルドする"
+run = '''
+IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" build -t "$IPXE_IMG" -f hack/ipxe-artifact/Dockerfile .
+'''
+
+[tasks.docker-push-ipxe]
+description = "iPXE artifact のコンテナイメージを push する"
+run = '''
+IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest}"
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+"$CONTAINER_TOOL" push "$IPXE_IMG"
+'''
+
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"
 run = '''

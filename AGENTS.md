@@ -13,6 +13,7 @@
 - 定期的に実行するコマンドはmiseのtaskとして定義してください。
 - Kubernetesコントローラの実装、Custom ResourceやWebHookの追加には必ずcontroller-genやkubebuilderを用いてください。
 - テスト用のドメインが必要な場合は、`hoge.test.walnuts.dev`や`hoge.sample.walnuts.dev`を利用して下さい。
+- `mise run test-e2e`や`mise run test-provisioning-e2e`は手元では実行せずに、GitHub Action上でのみ実行してください。
 
 ### 開発再開
 

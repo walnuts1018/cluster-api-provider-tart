@@ -1,0 +1,45 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: tart-talos
+spec:
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: TartCluster
+    name: tart-talos
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartCluster
+metadata:
+  name: tart-talos
+spec: {}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-talos-control-plane
+spec:
+  template:
+    spec:
+      image: https://factory.talos.dev/image/installer/latest/kernel-amd64
+      initrd: https://factory.talos.dev/image/installer/latest/initramfs-amd64.xz
+      bootstrap:
+        format: Talos
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-talos-md-0
+spec:
+  template:
+    spec:
+      image: https://factory.talos.dev/image/installer/latest/kernel-amd64
+      initrd: https://factory.talos.dev/image/installer/latest/initramfs-amd64.xz
+      bootstrap:
+        format: Talos
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp

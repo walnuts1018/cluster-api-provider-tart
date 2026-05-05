@@ -51,6 +51,23 @@ spec:
           spec:
             description: spec defines the desired state of TartMachine
             properties:
+              bootstrap:
+                default: {}
+                description: bootstrap configures how bootstrap data is passed to
+                  the booted OS or installer.
+                properties:
+                  format:
+                    default: NoCloud
+                    description: |-
+                      format selects how bootstrap data is exposed to the booted OS or installer.
+                      Defaults to NoCloud for the default Ubuntu kubeadm bootstrap flow when omitted.
+                    enum:
+                    - Talos
+                    - NoCloud
+                    - Preseed
+                    - Raw
+                    type: string
+                type: object
               failureDomain:
                 description: |-
                   failureDomain specifies the failure domain for the machine.
@@ -170,6 +187,10 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              consumedBootstrapTokenHash:
+                description: consumedBootstrapTokenHash stores the SHA-256 hash of
+                  the consumed bootstrap token for non-secret NoCloud metadata validation.
+                type: string
               hostRef:
                 description: hostRef references the assigned TartHost.
                 properties:

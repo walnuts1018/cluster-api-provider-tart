@@ -1,6 +1,8 @@
 package machine
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -39,6 +41,9 @@ func TestBeginProvisioningStatus(t *testing.T) {
 	if got.TokenExpiresAt == nil || !got.TokenExpiresAt.Time.Equal(now.Add(10*time.Minute)) {
 		t.Fatalf("tokenExpiresAt = %#v, want %s", got.TokenExpiresAt, now.Add(10*time.Minute))
 	}
+	if got.ConsumedBootstrapTokenHash != "" {
+		t.Fatalf("consumedBootstrapTokenHash = %q, want empty", got.ConsumedBootstrapTokenHash)
+	}
 	condition := findCondition(got.Conditions, "HostReserved")
 	if condition == nil || condition.Status != metav1.ConditionTrue || condition.Reason != "ProvisioningStarted" {
 		t.Fatalf("host reserved condition = %#v, want true ProvisioningStarted", condition)
@@ -66,6 +71,9 @@ func TestRetryExpiredTokenStatus(t *testing.T) {
 	}
 	if got.TokenExpiresAt == nil || !got.TokenExpiresAt.Time.Equal(now.Add(10*time.Minute)) {
 		t.Fatalf("tokenExpiresAt = %#v, want %s", got.TokenExpiresAt, now.Add(10*time.Minute))
+	}
+	if got.ConsumedBootstrapTokenHash != "" {
+		t.Fatalf("consumedBootstrapTokenHash = %q, want empty", got.ConsumedBootstrapTokenHash)
 	}
 	condition := findCondition(got.Conditions, "Provisioning")
 	if condition == nil || condition.Status != metav1.ConditionFalse || condition.Reason != "TokenExpired" {
@@ -138,6 +146,8 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 
 	startedAt := metav1.Time{Time: time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)}
 	expiresAt := metav1.Time{Time: time.Date(2026, 5, 4, 10, 10, 0, 0, time.UTC)}
+	consumedToken := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
+	hash := sha256.Sum256([]byte(consumedToken))
 	machine := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 10},
 		Status: infrastructurev1alpha1.TartMachineStatus{
@@ -148,7 +158,7 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 		},
 	}
 
-	got, err := BootstrapTokenConsumedStatus(machine)
+	got, err := BootstrapTokenConsumedStatus(machine, hex.EncodeToString(hash[:]))
 	if err != nil {
 		t.Fatalf("BootstrapTokenConsumedStatus returned error: %v", err)
 	}
@@ -158,11 +168,34 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 	if got.TokenExpiresAt != nil {
 		t.Fatalf("tokenExpiresAt = %#v, want nil", got.TokenExpiresAt)
 	}
+	if got.ConsumedBootstrapTokenHash != hex.EncodeToString(hash[:]) {
+		t.Fatalf("consumedBootstrapTokenHash = %q, want %q", got.ConsumedBootstrapTokenHash, hex.EncodeToString(hash[:]))
+	}
 	if got.ProvisioningStartTime == nil || !got.ProvisioningStartTime.Time.Equal(startedAt.Time) {
 		t.Fatalf("provisioningStartTime = %#v, want preserved start time", got.ProvisioningStartTime)
 	}
 	if got.HostRef == nil || got.HostRef.Name != "host-a" {
 		t.Fatalf("hostRef = %#v, want preserved host ref", got.HostRef)
+	}
+}
+
+func TestBootstrapTokenConsumedStatusPreservesEmptyHash(t *testing.T) {
+	t.Parallel()
+
+	machine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{Name: "machine-a", Namespace: "default", Generation: 10},
+		Status: infrastructurev1alpha1.TartMachineStatus{
+			HostRef:        &corev1.ObjectReference{Name: "host-a", Namespace: "default"},
+			TokenExpiresAt: &metav1.Time{Time: time.Date(2026, 5, 4, 10, 10, 0, 0, time.UTC)},
+		},
+	}
+
+	got, err := BootstrapTokenConsumedStatus(machine, "")
+	if err != nil {
+		t.Fatalf("BootstrapTokenConsumedStatus returned error: %v", err)
+	}
+	if got.ConsumedBootstrapTokenHash != "" {
+		t.Fatalf("consumedBootstrapTokenHash = %q, want empty", got.ConsumedBootstrapTokenHash)
 	}
 }
 

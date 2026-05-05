@@ -24,6 +24,30 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
+// TartMachineBootstrapFormat selects how bootstrap data is exposed to the booted OS or installer.
+type TartMachineBootstrapFormat string
+
+const (
+	// TartMachineBootstrapFormatTalos serves bootstrap data as a single Talos machine config.
+	TartMachineBootstrapFormatTalos TartMachineBootstrapFormat = "Talos"
+	// TartMachineBootstrapFormatNoCloud serves bootstrap data through cloud-init NoCloud files.
+	TartMachineBootstrapFormatNoCloud TartMachineBootstrapFormat = "NoCloud"
+	// TartMachineBootstrapFormatPreseed serves bootstrap data as a Debian Installer preseed file.
+	TartMachineBootstrapFormatPreseed TartMachineBootstrapFormat = "Preseed"
+	// TartMachineBootstrapFormatRaw leaves bootstrap kernel parameters fully user-managed.
+	TartMachineBootstrapFormatRaw TartMachineBootstrapFormat = "Raw"
+)
+
+// TartMachineBootstrapSpec defines how bootstrap data is served to the machine.
+type TartMachineBootstrapSpec struct {
+	// format selects how bootstrap data is exposed to the booted OS or installer.
+	// Defaults to NoCloud for the default Ubuntu kubeadm bootstrap flow when omitted.
+	// +optional
+	// +kubebuilder:validation:Enum=Talos;NoCloud;Preseed;Raw
+	// +kubebuilder:default=NoCloud
+	Format TartMachineBootstrapFormat `json:"format,omitempty"`
+}
+
 // TartMachineSpec defines the desired state of TartMachine
 type TartMachineSpec struct {
 	// providerID is the infrastructure provider ID reported back to the CAPI Machine.
@@ -51,6 +75,11 @@ type TartMachineSpec struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Initrd string `json:"initrd,omitempty"`
+
+	// bootstrap configures how bootstrap data is passed to the booted OS or installer.
+	// +optional
+	// +kubebuilder:default={}
+	Bootstrap TartMachineBootstrapSpec `json:"bootstrap,omitempty"`
 }
 
 // TartMachineStatus defines the observed state of TartMachine.
@@ -100,6 +129,10 @@ type TartMachineStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// consumedBootstrapTokenHash stores the SHA-256 hash of the consumed bootstrap token for non-secret NoCloud metadata validation.
+	// +optional
+	ConsumedBootstrapTokenHash string `json:"consumedBootstrapTokenHash,omitempty"`
 }
 
 // TartMachineInitialization defines the initialization state of TartMachine.

@@ -26,6 +26,7 @@ func BeginProvisioningStatus(machine *infrastructurev1alpha1.TartMachine, host *
 	status.HostRef = hostdomain.RefForHost(host)
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
+	status.ConsumedBootstrapTokenHash = ""
 	status.ObservedGeneration = machine.Generation
 	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:               "HostReserved",
@@ -51,6 +52,7 @@ func RetryExpiredTokenStatus(machine *infrastructurev1alpha1.TartMachine, now ti
 	status.Ready = false
 	status.ProvisioningStartTime = &startedAt
 	status.TokenExpiresAt = &expiresAt
+	status.ConsumedBootstrapTokenHash = ""
 	status.ObservedGeneration = machine.Generation
 	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:               "Provisioning",
@@ -75,13 +77,14 @@ func ReadyStatus(machine *infrastructurev1alpha1.TartMachine) (infrastructurev1a
 	return *status, nil
 }
 
-func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine) (infrastructurev1alpha1.TartMachineStatus, error) {
+func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine, consumedTokenHash string) (infrastructurev1alpha1.TartMachineStatus, error) {
 	if err := validateProvisioningMachineStatus(machine.Status); err != nil {
 		return infrastructurev1alpha1.TartMachineStatus{}, err
 	}
 
 	status := machine.Status.DeepCopy()
 	status.TokenExpiresAt = nil
+	status.ConsumedBootstrapTokenHash = consumedTokenHash
 	status.ObservedGeneration = machine.Generation
 	return *status, nil
 }

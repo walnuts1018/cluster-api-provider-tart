@@ -1,61 +1,60 @@
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: Cluster
 metadata:
-  name: tart-kubeadm-sample
+  name: tart-kubeadm-ubuntu
   labels:
-    cluster.x-k8s.io/cluster-name: tart-kubeadm-sample
+    cluster.x-k8s.io/cluster-name: tart-kubeadm-ubuntu
 spec:
   clusterNetwork:
     pods:
       cidrBlocks:
-       - 10.0.0.0/16
+      - 10.0.0.0/16
     services:
       cidrBlocks:
       - 10.96.0.0/12
-  # kube-vipなどを利用している場合は、controlPlaneEndpointを指定します。
-  # controlPlaneEndpoint:
-  #   host: 192.0.2.10
-  #   port: 6443
+  controlPlaneEndpoint:
+    host: 192.168.100.100
+    port: 6443
   controlPlaneRef:
     apiGroup: controlplane.cluster.x-k8s.io
     kind: KubeadmControlPlane
-    name: tart-kubeadm-sample-control-plane
+    name: tart-kubeadm-ubuntu-control-plane
   infrastructureRef:
     apiGroup: infrastructure.cluster.x-k8s.io
     kind: TartCluster
-    name: tart-kubeadm-sample
+    name: tart-kubeadm-ubuntu
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartCluster
 metadata:
-  name: tart-kubeadm-sample
+  name: tart-kubeadm-ubuntu
   labels:
-    cluster.x-k8s.io/cluster-name: tart-kubeadm-sample
+    cluster.x-k8s.io/cluster-name: tart-kubeadm-ubuntu
 spec: {}
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
 metadata:
-  name: tart-kubeadm-sample-control-plane
+  name: tart-kubeadm-ubuntu-control-plane
 spec:
   replicas: 1
-  version: v1.36.0
+  version: v1.35.4
   machineTemplate:
     spec:
       infrastructureRef:
         apiGroup: infrastructure.cluster.x-k8s.io
         kind: TartMachineTemplate
-        name: tart-kubeadm-sample-control-plane
+        name: tart-kubeadm-ubuntu-control-plane
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
 metadata:
-  name: tart-kubeadm-sample-control-plane
+  name: tart-kubeadm-ubuntu-control-plane
 spec:
   template:
     spec:
-      image: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-initrd-generic
+      image: https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
+      initrd: https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
       bootstrap:
         format: NoCloud
       kernelParams:
@@ -66,40 +65,40 @@ spec:
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
 metadata:
-  name: tart-kubeadm-sample-md-0
+  name: tart-kubeadm-ubuntu-md-0
 spec:
-  clusterName: tart-kubeadm-sample
+  clusterName: tart-kubeadm-ubuntu
   replicas: 1
   selector:
     matchLabels: null
   template:
     spec:
-      clusterName: tart-kubeadm-sample
-      version: v1.36.0
+      clusterName: tart-kubeadm-ubuntu
+      version: v1.35.4
       bootstrap:
         configRef:
           apiGroup: bootstrap.cluster.x-k8s.io
           kind: KubeadmConfigTemplate
-          name: tart-kubeadm-sample-md-0
+          name: tart-kubeadm-ubuntu-md-0
       infrastructureRef:
         apiGroup: infrastructure.cluster.x-k8s.io
         kind: TartMachineTemplate
-        name: tart-kubeadm-sample-md-0
+        name: tart-kubeadm-ubuntu-md-0
 ---
 apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
-  name: tart-kubeadm-sample-md-0
+  name: tart-kubeadm-ubuntu-md-0
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
 metadata:
-  name: tart-kubeadm-sample-md-0
+  name: tart-kubeadm-ubuntu-md-0
 spec:
   template:
     spec:
-      image: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-initrd-generic
+      image: https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
+      initrd: https://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
       bootstrap:
         format: NoCloud
       kernelParams:
@@ -110,10 +109,10 @@ spec:
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineHealthCheck
 metadata:
-  name: tart-kubeadm-sample-md-0-health-check
+  name: tart-kubeadm-ubuntu-md-0-health-check
   namespace: default
 spec:
-  clusterName: tart-kubeadm-sample
+  clusterName: tart-kubeadm-ubuntu
   selector:
     matchLabels:
-      cluster.x-k8s.io/cluster-name: tart-kubeadm-sample
+      cluster.x-k8s.io/cluster-name: tart-kubeadm-ubuntu

@@ -1,0 +1,47 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: tart-k3s-debian
+spec:
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: TartCluster
+    name: tart-k3s-debian
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartCluster
+metadata:
+  name: tart-k3s-debian
+spec: {}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-k3s-debian-control-plane
+spec:
+  template:
+    spec:
+      image: https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux
+      initrd: https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz
+      bootstrap:
+        format: Preseed
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - interface=auto
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-k3s-debian-md-0
+spec:
+  template:
+    spec:
+      image: https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/debian-installer/amd64/linux
+      initrd: https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/debian-installer/amd64/initrd.gz
+      bootstrap:
+        format: Preseed
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - interface=auto

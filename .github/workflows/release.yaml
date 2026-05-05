@@ -156,6 +156,7 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
+          # shellcheck disable=SC2046
           docker buildx imagetools create \
             -t "${REGISTRY}/${IMAGE_NAME}:latest" \
             -t "${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" \

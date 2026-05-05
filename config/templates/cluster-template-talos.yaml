@@ -1,0 +1,45 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: ${CLUSTER_NAME}
+spec:
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: TartCluster
+    name: ${CLUSTER_NAME}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartCluster
+metadata:
+  name: ${CLUSTER_NAME}
+spec: {}
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-control-plane
+spec:
+  template:
+    spec:
+      image: ${TALOS_KERNEL_URL}
+      initrd: ${TALOS_INITRD_URL}
+      bootstrap:
+        format: Talos
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: ${CLUSTER_NAME}-md-0
+spec:
+  template:
+    spec:
+      image: ${TALOS_KERNEL_URL}
+      initrd: ${TALOS_INITRD_URL}
+      bootstrap:
+        format: Talos
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp

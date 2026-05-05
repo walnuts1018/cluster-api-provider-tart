@@ -165,6 +165,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			MACAddress: mac,
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-1",
 				Namespace: "default",
@@ -196,6 +197,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			BootMACAddress: bootMAC,
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-2",
 				Namespace: "default",
@@ -223,6 +225,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			MACAddress: "00:00:5e:00:53:21",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-nocloud",
 				Namespace: "default",
@@ -250,6 +253,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			MACAddress: "00:00:5e:00:53:22",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-preseed",
 				Namespace: "default",
@@ -277,6 +281,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			MACAddress: "00:00:5e:00:53:23",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-raw",
 				Namespace: "default",
@@ -307,6 +312,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			MACAddress: "00:00:5e:00:53:24",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
 				Name:      "test-machine-talos",
 				Namespace: "default",
@@ -380,7 +386,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		},
 	}
 
-	cl = setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
+	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
 	svc := setupBootstrapTokenService(t, cl)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
@@ -504,8 +510,122 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:13", nil)
 		rec := httptest.NewRecorder()
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+		body := rec.Body.String()
+		if body != "#!ipxe\npoweroff\n" {
+			t.Errorf("body = %q, want %q", body, "#!ipxe\npoweroff\n")
+		}
+	})
+
+	t.Run("ProvisionedState_ReturnsExit", func(t *testing.T) {
+		provisionedHost := &infrastructurev1alpha1.TartHost{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-host-provisioned",
+				Namespace: "default",
+			},
+			Spec: infrastructurev1alpha1.TartHostSpec{
+				MACAddress: "00:00:5e:00:53:30",
+			},
+			Status: infrastructurev1alpha1.TartHostStatus{
+				State: infrastructurev1alpha1.TartHostStateProvisioned,
+				MachineRef: &corev1.ObjectReference{
+					Name:      "test-machine-provisioned",
+					Namespace: "default",
+				},
+			},
+		}
+		provisionedMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-provisioned",
+				Namespace: "default",
+			},
+		}
+		cl2 := setupFakeClient(t, scheme, provisionedHost, provisionedMachine)
+		svc2 := setupBootstrapTokenService(t, cl2)
+
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:30", nil)
+		req.Host = testBootstrapHost
+		rec := httptest.NewRecorder()
+		ipxe.NewHandler(cl2, ipxe.HandlerConfig{BootstrapTokenSvc: svc2}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if body != "#!ipxe\nexit\n" {
+			t.Errorf("body = %q, want %q", body, "#!ipxe\nexit\n")
+		}
+	})
+
+	t.Run("AvailableState_ReturnsPoweroff", func(t *testing.T) {
+		availableHost := &infrastructurev1alpha1.TartHost{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-host-available",
+				Namespace: "default",
+			},
+			Spec: infrastructurev1alpha1.TartHostSpec{
+				MACAddress: "00:00:5e:00:53:31",
+			},
+			Status: infrastructurev1alpha1.TartHostStatus{
+				State: infrastructurev1alpha1.TartHostStateAvailable,
+			},
+		}
+		cl3 := setupFakeClient(t, scheme, availableHost)
+		svc3 := setupBootstrapTokenService(t, cl3)
+
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:31", nil)
+		req.Host = testBootstrapHost
+		rec := httptest.NewRecorder()
+		ipxe.NewHandler(cl3, ipxe.HandlerConfig{BootstrapTokenSvc: svc3}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if body != "#!ipxe\npoweroff\n" {
+			t.Errorf("body = %q, want %q", body, "#!ipxe\npoweroff\n")
+		}
+	})
+
+	t.Run("ReservedState_ReturnsSleepAndPoweroff", func(t *testing.T) {
+		reservedHost := &infrastructurev1alpha1.TartHost{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-host-reserved",
+				Namespace: "default",
+			},
+			Spec: infrastructurev1alpha1.TartHostSpec{
+				MACAddress: "00:00:5e:00:53:32",
+			},
+			Status: infrastructurev1alpha1.TartHostStatus{
+				State: infrastructurev1alpha1.TartHostStateReserved,
+				MachineRef: &corev1.ObjectReference{
+					Name:      "test-machine-reserved",
+					Namespace: "default",
+				},
+			},
+		}
+		reservedMachine := &infrastructurev1alpha1.TartMachine{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-machine-reserved",
+				Namespace: "default",
+			},
+		}
+		cl4 := setupFakeClient(t, scheme, reservedHost, reservedMachine)
+		svc4 := setupBootstrapTokenService(t, cl4)
+
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:32", nil)
+		req.Host = testBootstrapHost
+		rec := httptest.NewRecorder()
+		ipxe.NewHandler(cl4, ipxe.HandlerConfig{BootstrapTokenSvc: svc4}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if body != "#!ipxe\nsleep 60\npoweroff\n" {
+			t.Errorf("body = %q, want %q", body, "#!ipxe\nsleep 60\npoweroff\n")
 		}
 	})
 }

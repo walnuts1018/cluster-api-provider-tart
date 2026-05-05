@@ -34,17 +34,17 @@ import (
 )
 
 type Server struct {
-	client             client.Client
-	bootstrapTokenSvc  applicationbootstraptoken.Service
-	addr               string
-	assetsRoot         string
-	metadataLimiter    *rate.Limiter
+	client            client.Client
+	bootstrapTokenSvc applicationbootstraptoken.Service
+	addr              string
+	assetsRoot        string
+	metadataLimiter   *rate.Limiter
 }
 
 type HandlerConfig struct {
-	AssetsRoot         string
-	MetadataLimiter    *rate.Limiter
-	BootstrapTokenSvc  applicationbootstraptoken.Service
+	AssetsRoot        string
+	MetadataLimiter   *rate.Limiter
+	BootstrapTokenSvc applicationbootstraptoken.Service
 }
 
 func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
@@ -128,35 +128,46 @@ func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken
 	}
 	if targetHost == nil {
 		span.SetStatus(codes.Error, "host not found")
-		return c.String(http.StatusNotFound, fmt.Sprintf("no TartHost found for MAC %s", normalizedMAC))
-	}
-	if targetHost.Status.MachineRef == nil {
-		span.SetStatus(codes.Error, "host not assigned")
-		return c.String(http.StatusPreconditionFailed, "host is not assigned to any machine")
+		script := "#!ipxe\npoweroff\n"
+		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	}
 
-	var machine infrastructurev1alpha1.TartMachine
-	if err := cl.Get(ctx, client.ObjectKey{
-		Namespace: targetHost.Status.MachineRef.Namespace,
-		Name:      targetHost.Status.MachineRef.Name,
-	}, &machine); err != nil {
-		if apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "machine not found")
-			return c.String(http.StatusNotFound, "assigned TartMachine not found")
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
-
-	script, err := generateIPXEScript(c, cl, &machine, svc)
+	script, err := generateIPXEScriptByHostState(c, cl, targetHost, svc)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to resolve bootstrap token")
+		return c.String(http.StatusInternalServerError, "failed to generate iPXE script")
 	}
 	span.SetStatus(codes.Ok, "IPXE script generated")
 	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
+}
+
+func generateIPXEScriptByHostState(c *echo.Context, cl client.Client, host *infrastructurev1alpha1.TartHost, svc applicationbootstraptoken.Service) (string, error) {
+	switch host.Status.State {
+	case infrastructurev1alpha1.TartHostStateProvisioning:
+		if host.Status.MachineRef == nil {
+			return "", fmt.Errorf("host is in provisioning state but has no machine ref")
+		}
+		var machine infrastructurev1alpha1.TartMachine
+		if err := cl.Get(c.Request().Context(), client.ObjectKey{
+			Namespace: host.Status.MachineRef.Namespace,
+			Name:      host.Status.MachineRef.Name,
+		}, &machine); err != nil {
+			if apierrors.IsNotFound(err) {
+				return "", fmt.Errorf("assigned TartMachine not found")
+			}
+			return "", fmt.Errorf("failed to get TartMachine: %w", err)
+		}
+		return generateIPXEScript(c, cl, &machine, svc)
+	case infrastructurev1alpha1.TartHostStateProvisioned:
+		return "#!ipxe\nexit\n", nil
+	case infrastructurev1alpha1.TartHostStateAvailable:
+		return "#!ipxe\npoweroff\n", nil
+	case infrastructurev1alpha1.TartHostStateReserved:
+		return "#!ipxe\nsleep 60\npoweroff\n", nil
+	default:
+		return "#!ipxe\nsleep 60\npoweroff\n", nil
+	}
 }
 
 func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) (*infrastructurev1alpha1.TartHost, error) {
@@ -212,7 +223,7 @@ func bootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructure
 	return machine.Spec.Bootstrap.Format
 }
 
-func buildBootstrapKernelParams(ctx context.Context, cl client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service) ([]string, error) {
+func buildBootstrapKernelParams(ctx context.Context, _ client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service) ([]string, error) {
 	token, exists, err := svc.Get(ctx, machine)
 	if err != nil {
 		return nil, err
@@ -549,11 +560,11 @@ func bootstrapTokenHash(token string) string {
 
 func NewServer(cl client.Client, svc applicationbootstraptoken.Service, addr, assetsRoot string) *Server {
 	return &Server{
-		client:             cl,
-		bootstrapTokenSvc:  svc,
-		addr:               addr,
-		assetsRoot:         assetsRoot,
-		metadataLimiter:    rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
+		client:            cl,
+		bootstrapTokenSvc: svc,
+		addr:              addr,
+		assetsRoot:        assetsRoot,
+		metadataLimiter:   rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
 	}
 }
 

@@ -20,7 +20,9 @@ import (
 	"context"
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"time"
 
@@ -70,6 +72,7 @@ func main() {
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
 	var ipxeBindAddress string
+	var ipxeDomain string
 	var bootstrapBindAddress string
 	var bootstrapAdvertiseAddress string
 	var tftpBindAddress string
@@ -85,6 +88,7 @@ func main() {
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
+	flag.StringVar(&ipxeDomain, "ipxe-domain", "", "The domain to use for iPXE and metadata URLs (e.g. tart.example.com). If empty, the auto-detected IP address will be used.")
 	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":67", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
 	flag.StringVar(&bootstrapAdvertiseAddress, "bootstrap-advertise-address", "", "The reachable IP address advertised to PXE/iPXE clients. Leave empty to auto-detect.")
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", ":69", "The address the TFTP server binds to.")
@@ -264,14 +268,32 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineTemplate")
 		os.Exit(1)
 	}
+
+	advertiseIP, err := bootstrapper.ResolveAdvertiseIP(bootstrapBindAddress, ipxeBindAddress, bootstrapAdvertiseAddress)
+	if err != nil {
+		setupLog.Error(err, "Failed to resolve advertise IP")
+		os.Exit(1)
+	}
+
+	var baseURL string
+	if ipxeDomain != "" {
+		baseURL = "http://" + ipxeDomain
+	} else {
+		_, port, err := net.SplitHostPort(ipxeBindAddress)
+		if err != nil {
+			port = "8082" // fallback
+		}
+		baseURL = fmt.Sprintf("http://%s:%s", advertiseIP.String(), port)
+	}
+
 	if ipxeBindAddress != "0" {
-		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot)); err != nil {
+		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot, baseURL)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
 			os.Exit(1)
 		}
 	}
 	if bootstrapBindAddress != "0" {
-		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, ipxeBindAddress, bootstrapAdvertiseAddress)
+		bs, err := bootstrapper.NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, advertiseIP.String(), baseURL)
 		if err != nil {
 			setupLog.Error(err, "Failed to create bootstrap server")
 			os.Exit(1)

@@ -43,7 +43,7 @@ const (
 type DHCPBootstrapper struct {
 	tftpRoot    string
 	addr        string
-	httpAddr    string
+	baseURL     string
 	advertiseIP net.IP
 	server      *server4.Server
 	logger      logr.Logger
@@ -53,17 +53,22 @@ type DHCPBootstrapper struct {
 
 // NewDHCPBootstrapper は新しい DHCPBootstrapper を作成します。
 // tftpRoot は TFTP サーバーのルートディレクトリ、addr は ProxyDHCP のバインドアドレスです。
-// httpAddr は iPXE スクリプト配信用の HTTP サーバーアドレスです。
-// advertiseAddr はクライアントに広告する到達可能なサーバー IP です。空の場合は自動検出します。
-func NewDHCPBootstrapper(tftpRoot, addr, httpAddr, advertiseAddr string) (*DHCPBootstrapper, error) {
+// advertiseAddr はクライアントに広告する到達可能なサーバー IP です。
+// baseURL は iPXE スクリプト配信用の HTTP サーバーのベース URL です。
+func NewDHCPBootstrapper(tftpRoot, addr, advertiseAddr, baseURL string) (*DHCPBootstrapper, error) {
 	if tftpRoot == "" {
 		return nil, fmt.Errorf("tftpRoot is required")
 	}
 	if addr == "" {
 		return nil, fmt.Errorf("addr is required")
 	}
-	if httpAddr == "" {
-		return nil, fmt.Errorf("httpAddr is required")
+	if baseURL == "" {
+		return nil, fmt.Errorf("baseURL is required")
+	}
+
+	advertiseIP := net.ParseIP(advertiseAddr)
+	if advertiseIP == nil {
+		return nil, fmt.Errorf("invalid advertise address: %s", advertiseAddr)
 	}
 
 	// TFTP ルートディレクトリが存在することを確認
@@ -71,15 +76,10 @@ func NewDHCPBootstrapper(tftpRoot, addr, httpAddr, advertiseAddr string) (*DHCPB
 		return nil, fmt.Errorf("failed to create tftp root directory: %w", err)
 	}
 
-	advertiseIP, err := resolveAdvertiseIP(addr, httpAddr, advertiseAddr)
-	if err != nil {
-		return nil, err
-	}
-
 	return &DHCPBootstrapper{
 		tftpRoot:    tftpRoot,
 		addr:        addr,
-		httpAddr:    httpAddr,
+		baseURL:     baseURL,
 		advertiseIP: advertiseIP,
 		done:        make(chan struct{}),
 		logger:      logr.Discard(),
@@ -206,7 +206,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		if isIPXE {
 			// iPXE からのリクエスト: HTTP URL を直接返す（二段階ブート）
 			macParam := url.QueryEscape(m.ClientHWAddr.String())
-			httpURL := fmt.Sprintf("http://%s/ipxe?mac=%s", b.advertiseIP.String(), macParam)
+			httpURL := fmt.Sprintf("%s/ipxe?mac=%s", b.baseURL, macParam)
 			bootFile = httpURL
 			lg.Info("iPXE client detected, providing HTTP URL", "client_mac", m.ClientHWAddr.String(), "url", httpURL)
 		} else {
@@ -285,13 +285,13 @@ func (b *DHCPBootstrapper) Stop() error {
 	return nil
 }
 
-func resolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
+func ResolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
 	if ip := net.ParseIP(advertiseAddr); ip != nil && !ip.IsUnspecified() {
 		return ip, nil
 	}
 
 	for _, addr := range []string{bindAddr, httpAddr} {
-		if ip := parseHostIP(addr); ip != nil && !ip.IsUnspecified() {
+		if ip := ParseHostIP(addr); ip != nil && !ip.IsUnspecified() {
 			return ip, nil
 		}
 	}
@@ -324,7 +324,7 @@ func resolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error
 	return nil, fmt.Errorf("failed to detect advertise address")
 }
 
-func parseHostIP(addr string) net.IP {
+func ParseHostIP(addr string) net.IP {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr

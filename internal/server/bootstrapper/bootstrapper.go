@@ -37,7 +37,7 @@ type combinedBootstrapperImpl struct {
 }
 
 // NewCombinedBootstrapper は新しい CombinedBootstrapper を作成します。
-func NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, httpBindAddress, advertiseAddress string) (CombinedBootstrapper, error) {
+func NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, advertiseAddress, baseURL string) (CombinedBootstrapper, error) {
 	if tftpRoot == "" {
 		return nil, fmt.Errorf("tftpRoot is required")
 	}
@@ -47,11 +47,8 @@ func NewCombinedBootstrapper(tftpRoot, bootstrapBindAddress, tftpBindAddress, ht
 	if tftpBindAddress == "" {
 		return nil, fmt.Errorf("tftpBindAddress is required")
 	}
-	if httpBindAddress == "" {
-		return nil, fmt.Errorf("httpBindAddress is required")
-	}
 
-	dhcp, err := NewDHCPBootstrapper(tftpRoot, bootstrapBindAddress, httpBindAddress, advertiseAddress)
+	dhcp, err := NewDHCPBootstrapper(tftpRoot, bootstrapBindAddress, advertiseAddress, baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DHCP bootstrapper: %w", err)
 	}

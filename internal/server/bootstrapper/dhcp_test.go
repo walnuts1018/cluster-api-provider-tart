@@ -17,7 +17,7 @@ import (
 func TestNewDHCPBootstrapper(t *testing.T) {
 	t.Run("valid parameters", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1:8080", "")
+		bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1", "http://127.0.0.1:8080")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -27,13 +27,13 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 		if bs.addr != ":67" {
 			t.Errorf("expected addr :67, got %s", bs.addr)
 		}
-		if bs.httpAddr != "127.0.0.1:8080" {
-			t.Errorf("expected httpAddr 127.0.0.1:8080, got %s", bs.httpAddr)
+		if bs.baseURL != "http://127.0.0.1:8080" {
+			t.Errorf("expected baseURL http://127.0.0.1:8080, got %s", bs.baseURL)
 		}
 	})
 
 	t.Run("empty tftpRoot", func(t *testing.T) {
-		_, err := NewDHCPBootstrapper("", ":67", "127.0.0.1:8080", "")
+		_, err := NewDHCPBootstrapper("", ":67", "127.0.0.1", "http://127.0.0.1:8080")
 		if err == nil {
 			t.Fatal("expected error for empty tftpRoot")
 		}
@@ -44,7 +44,7 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 
 	t.Run("empty addr", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		_, err := NewDHCPBootstrapper(tmpDir, "", "127.0.0.1:8080", "")
+		_, err := NewDHCPBootstrapper(tmpDir, "", "127.0.0.1", "http://127.0.0.1:8080")
 		if err == nil {
 			t.Fatal("expected error for empty addr")
 		}
@@ -53,13 +53,13 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 		}
 	})
 
-	t.Run("empty httpAddr", func(t *testing.T) {
+	t.Run("empty baseURL", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		_, err := NewDHCPBootstrapper(tmpDir, ":67", "", "")
+		_, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1", "")
 		if err == nil {
-			t.Fatal("expected error for empty httpAddr")
+			t.Fatal("expected error for empty baseURL")
 		}
-		if want := "httpAddr is required"; err.Error() != want {
+		if want := "baseURL is required"; err.Error() != want {
 			t.Errorf("expected error %q, got %q", want, err.Error())
 		}
 	})
@@ -67,7 +67,7 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 
 func TestDHCPBootstrapper_Addr(t *testing.T) {
 	tmpDir := t.TempDir()
-	bs, err := NewDHCPBootstrapper(tmpDir, ":68", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, ":68", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestDHCPBootstrapper_Addr(t *testing.T) {
 
 func TestDHCPBootstrapper_NeedLeaderElection(t *testing.T) {
 	tmpDir := t.TempDir()
-	bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,9 +89,9 @@ func TestDHCPBootstrapper_NeedLeaderElection(t *testing.T) {
 
 func TestResolveAdvertiseIP(t *testing.T) {
 	t.Run("uses explicit advertise address for unspecified binds", func(t *testing.T) {
-		got, err := resolveAdvertiseIP(":67", ":8082", "127.0.0.1")
+		got, err := ResolveAdvertiseIP(":67", ":8082", "127.0.0.1")
 		if err != nil {
-			t.Fatalf("resolveAdvertiseIP returned error: %v", err)
+			t.Fatalf("ResolveAdvertiseIP returned error: %v", err)
 		}
 		if got.String() != "127.0.0.1" {
 			t.Fatalf("advertiseIP = %q, want %q", got.String(), "127.0.0.1")
@@ -99,9 +99,9 @@ func TestResolveAdvertiseIP(t *testing.T) {
 	})
 
 	t.Run("prefers explicit bind IP when available", func(t *testing.T) {
-		got, err := resolveAdvertiseIP("192.0.2.10:67", ":8082", "")
+		got, err := ResolveAdvertiseIP("192.0.2.10:67", ":8082", "")
 		if err != nil {
-			t.Fatalf("resolveAdvertiseIP returned error: %v", err)
+			t.Fatalf("ResolveAdvertiseIP returned error: %v", err)
 		}
 		if got.String() != "192.0.2.10" {
 			t.Fatalf("advertiseIP = %q, want %q", got.String(), "192.0.2.10")
@@ -120,7 +120,7 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 
 	ctx := t.Context()
 
-	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDHCPBootstrapper_Start_WithoutIPXE(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestDHCPBootstrapper_Start_InvalidAddress(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	bs, err := NewDHCPBootstrapper(tmpDir, "invalid", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, "invalid", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDHCPBootstrapper_Start_InvalidAddress(t *testing.T) {
 
 func TestDHCPBootstrapper_Stop_NilServer(t *testing.T) {
 	tmpDir := t.TempDir()
-	bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, ":67", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 	defer cancel()
 
 	testPort := 6800
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -324,7 +324,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 		bootFile := reply.BootFileName
 		t.Logf("Boot file (iPXE): %s", bootFile)
 
-		if !strings.Contains(bootFile, "http://127.0.0.1/ipxe?mac=") {
+		if !strings.Contains(bootFile, "http://127.0.0.1:8080/ipxe?mac=") {
 			t.Errorf("expected HTTP URL in boot file, got %s", bootFile)
 		}
 
@@ -346,7 +346,7 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
 	defer cancel()
 
 	testPort := 6801
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 	defer cancel()
 
 	testPort := 6802
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1:8080", "")
+	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -394,7 +394,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -419,7 +419,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -438,7 +438,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -454,7 +454,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -470,7 +470,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -486,7 +486,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -500,7 +500,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	t.Run("MissingMAC", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
@@ -509,7 +509,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	t.Run("HostNotFound", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:13", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
@@ -548,7 +548,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:30", nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl2, ipxe.HandlerConfig{BootstrapTokenSvc: svc2}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl2, ipxe.HandlerConfig{BootstrapTokenSvc: svc2, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -578,7 +578,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:31", nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl3, ipxe.HandlerConfig{BootstrapTokenSvc: svc3}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl3, ipxe.HandlerConfig{BootstrapTokenSvc: svc3, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -618,7 +618,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:32", nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl4, ipxe.HandlerConfig{BootstrapTokenSvc: svc4}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl4, ipxe.HandlerConfig{BootstrapTokenSvc: svc4, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -643,7 +643,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != testBootstrapData {
@@ -681,7 +681,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
@@ -702,7 +702,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != testBootstrapData {
@@ -731,7 +731,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -753,7 +753,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(userDataRec, userDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(userDataRec, userDataReq)
 
 		if userDataRec.Code != http.StatusOK {
 			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
@@ -768,7 +768,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(metaDataRec, metaDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(metaDataRec, metaDataReq)
 
 		if metaDataRec.Code != http.StatusOK {
 			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusOK, metaDataRec.Body.String())
@@ -779,7 +779,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		vendorDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
 		vendorDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(vendorDataRec, vendorDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(vendorDataRec, vendorDataReq)
 
 		if vendorDataRec.Code != http.StatusOK {
 			t.Fatalf("vendor-data status = %d, want %d\nbody=%s", vendorDataRec.Code, http.StatusOK, vendorDataRec.Body.String())
@@ -796,7 +796,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(userDataRec, userDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(userDataRec, userDataReq)
 
 		if userDataRec.Code != http.StatusOK {
 			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
@@ -805,7 +805,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		otherToken := "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210abcdefghijklmnopqrstuvwxyz"
 		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+otherToken+"/meta-data", nil)
 		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(metaDataRec, metaDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(metaDataRec, metaDataReq)
 
 		if metaDataRec.Code != http.StatusForbidden {
 			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusForbidden, metaDataRec.Body.String())
@@ -820,7 +820,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/preseed.cfg?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -898,7 +898,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -968,7 +968,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=invalidtoken", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -1038,7 +1038,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -1090,7 +1090,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=anything", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusPreconditionFailed {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusPreconditionFailed)
@@ -1115,7 +1115,7 @@ func TestHandlerServesAssets(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/assets/images/kernel", nil)
 	rec := httptest.NewRecorder()
 
-	ipxe.NewHandler(cl, ipxe.HandlerConfig{AssetsRoot: assetsRoot, BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{AssetsRoot: assetsRoot, BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -1132,7 +1132,7 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
@@ -1143,7 +1143,7 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 func TestNewServerDisablesLeaderElection(t *testing.T) {
 	cl := setupFakeClient(t, setupScheme(t))
 	svc := setupBootstrapTokenService(t, cl)
-	server := ipxe.NewServer(cl, svc, ":8082", "")
+	server := ipxe.NewServer(cl, svc, ":8082", "", "http://192.168.1.100")
 
 	if server.Addr() != ":8082" {
 		t.Fatalf("Addr = %q, want %q", server.Addr(), ":8082")

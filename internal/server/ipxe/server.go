@@ -38,11 +38,13 @@ type Server struct {
 	bootstrapTokenSvc applicationbootstraptoken.Service
 	addr              string
 	assetsRoot        string
+	baseURL           string
 	metadataLimiter   *rate.Limiter
 }
 
 type HandlerConfig struct {
 	AssetsRoot        string
+	BaseURL           string
 	MetadataLimiter   *rate.Limiter
 	BootstrapTokenSvc applicationbootstraptoken.Service
 }
@@ -64,7 +66,7 @@ func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
 	e.GET("/readyz", func(c *echo.Context) error {
 		return c.NoContent(http.StatusOK)
 	})
-	e.GET("/ipxe", func(c *echo.Context) error { return handleIPXE(c, cl, config.BootstrapTokenSvc) })
+	e.GET("/ipxe", func(c *echo.Context) error { return handleIPXE(c, cl, config.BootstrapTokenSvc, config.BaseURL) })
 	registerMetadataRoutes(e, cl, config.MetadataLimiter, config.BootstrapTokenSvc)
 	if config.AssetsRoot != "" {
 		e.Static("/assets", config.AssetsRoot)
@@ -105,7 +107,7 @@ func NormalizeMAC(mac string) (string, error) {
 	return hw.String(), nil
 }
 
-func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
+func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service, baseURL string) error {
 	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "IPXE.Get")
 	defer span.End()
 
@@ -132,7 +134,7 @@ func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	}
 
-	script, err := generateIPXEScriptByHostState(c, cl, targetHost, svc)
+	script, err := generateIPXEScriptByHostState(c, cl, targetHost, svc, baseURL)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -142,7 +144,7 @@ func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken
 	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 }
 
-func generateIPXEScriptByHostState(c *echo.Context, cl client.Client, host *infrastructurev1alpha1.TartHost, svc applicationbootstraptoken.Service) (string, error) {
+func generateIPXEScriptByHostState(c *echo.Context, cl client.Client, host *infrastructurev1alpha1.TartHost, svc applicationbootstraptoken.Service, baseURL string) (string, error) {
 	switch host.Status.State {
 	case infrastructurev1alpha1.TartHostStateProvisioning:
 		if host.Status.MachineRef == nil {
@@ -158,7 +160,7 @@ func generateIPXEScriptByHostState(c *echo.Context, cl client.Client, host *infr
 			}
 			return "", fmt.Errorf("failed to get TartMachine: %w", err)
 		}
-		return generateIPXEScript(c, cl, &machine, svc)
+		return generateIPXEScript(c, cl, &machine, svc, baseURL)
 	case infrastructurev1alpha1.TartHostStateProvisioned:
 		return "#!ipxe\nexit\n", nil
 	case infrastructurev1alpha1.TartHostStateAvailable:
@@ -189,8 +191,8 @@ func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) 
 	return nil, nil
 }
 
-func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service) (string, error) {
-	serverURL := fmt.Sprintf("http://%s", c.Request().Host)
+func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service, baseURL string) (string, error) {
+	serverURL := baseURL
 
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
@@ -558,12 +560,13 @@ func bootstrapTokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func NewServer(cl client.Client, svc applicationbootstraptoken.Service, addr, assetsRoot string) *Server {
+func NewServer(cl client.Client, svc applicationbootstraptoken.Service, addr, assetsRoot, baseURL string) *Server {
 	return &Server{
 		client:            cl,
 		bootstrapTokenSvc: svc,
 		addr:              addr,
 		assetsRoot:        assetsRoot,
+		baseURL:           baseURL,
 		metadataLimiter:   rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
 	}
 }

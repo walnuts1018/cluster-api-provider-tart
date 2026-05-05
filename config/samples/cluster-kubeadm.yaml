@@ -54,9 +54,8 @@ metadata:
 spec:
   template:
     spec:
-      # TODO(user): 自分の PXE/HTTP 配信環境に合わせて kernel/initrd URL を変更する
-      image: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/vmlinuz
-      initrd: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/initrd
+      image: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-vmlinuz-generic
+      initrd: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-initrd-generic
       kernelParams:
       - console=ttyS0
       - ip=dhcp
@@ -98,9 +97,8 @@ metadata:
 spec:
   template:
     spec:
-      # TODO(user): Control Plane と同じく、自分の環境の URL へ変更する
-      image: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/vmlinuz
-      initrd: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/initrd
+      image: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-vmlinuz-generic
+      initrd: https://cloud-images.ubuntu.com/releases/resolute/release/unpacked/ubuntu-26.04-server-cloudimg-amd64-initrd-generic
       kernelParams:
       - console=ttyS0
       - ip=dhcp

@@ -142,16 +142,16 @@ cp ./config/samples/cluster-kubeadm.yaml cluster.yaml
 - `spec.version`
   - Control Plane と Worker の Kubernetes バージョンです。
 - `image` と `initrd`
-  - PXE 起動時に配信する kernel/initrd の URL です。Tart Controller から到達できる HTTP URL にしてください。
+  - 起動に使う kernel/initrd の URL です。sample では Ubuntu 26.04 の公開イメージを指定しています。別の OS イメージを使う場合だけ書き換えてください。
 - `ds=nocloud-net;s=...`
-  - bootstrap metadata を配信する URL です。通常は Tart Controller の HTTP エンドポイントを指定します。
+  - bootstrap metadata を配信する URL です。この sample では `http://bootstrap.sample.walnuts.dev:8082/metadata` を使っています。
 
 sample の初期値は、以下のような読み替えを想定しています。
 
 - `192.0.2.10`:
   管理用ロードバランサや仮想 IP など、Control Plane Endpoint に使う実アドレスへ変更します。
 - `bootstrap.sample.walnuts.dev:8082`:
-  kernel/initrd と metadata を配信する自分の Tart Controller のホスト名または IP へ変更します。
+  `ds=nocloud-net;s=...` で使う bootstrap metadata 配信先です。自分の環境のホスト名または IP へ変更します。
 
 必要に応じて、次の値も調整してください。
 
@@ -202,7 +202,7 @@ kubectl logs -n cluster-api-provider-tart-system -l control-plane=controller-man
 - provider が `Ready` にならない場合: Operator ログを確認し、values の `fetchConfig.url` や version を見直す
 - `TartHost` が使われない場合: `macAddr` が対象ホストの NIC と一致しているか確認する
 - `TartMachine` が進まない場合: PXE 対象ホストから UDP `67`/`69` と TCP `8082` へ到達できるか確認する
-- kubeadm bootstrap が失敗する場合: `cluster.yaml` の `image`、`initrd`、`ds=nocloud-net;s=...` が実際の配信先と一致しているか確認する
+- kubeadm bootstrap が失敗する場合: `cluster.yaml` の `image`、`initrd`、`ds=nocloud-net;s=...` の値を見直す
 
 ## クリーンアップ
 

@@ -32,7 +32,7 @@ jobs:
               - casper/vmlinuz
               - casper/initrd
           - key: ubuntu-24.04-amd64
-            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/24.04/ubuntu-24.04-live-server-amd64.iso
+            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/24.04/ubuntu-24.04.4-live-server-amd64.iso
             files:
               - casper/vmlinuz
               - casper/initrd

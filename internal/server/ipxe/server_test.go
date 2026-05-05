@@ -152,7 +152,6 @@ func bootstrapTokenHash(token string) string {
 
 func TestHandlerDynamicScript(t *testing.T) {
 	scheme := setupScheme(t)
-	cl := setupFakeClient(t, scheme)
 	mac := "00:00:5e:00:53:02"
 	bootMAC := "00:00:5e:00:53:11"
 	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"

@@ -263,6 +263,11 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		var resp *dhcpv4.DHCPv4
 		var err error
 
+		// Option 43: Vendor Specific Information (PXE sub-options)
+		// Sub-option 6: PXE Discovery Control = 8 (don't broadcast)
+		// 0xff: End of options marker
+		pxeVendorOptions := []byte{0x06, 0x01, 0x08, 0xff}
+
 		if port == dhcpPort {
 			// Port 67: ProxyDHCP Offer
 			// 自分自身がProxyDHCPであることを名乗る (Option 60: PXEClient)
@@ -270,6 +275,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 				dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
 				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
 				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+				dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions)),
 			)
 		} else {
 			// Port 4011: PXE Request response
@@ -277,6 +283,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			options := []dhcpv4.Modifier{
 				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
 				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+				dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions)),
 			}
 			if m.MessageType() == dhcpv4.MessageTypeRequest {
 				options = append(options, dhcpv4.WithMessageType(dhcpv4.MessageTypeAck))

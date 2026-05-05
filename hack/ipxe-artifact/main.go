@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	oras "oras.land/oras-go/v2"
@@ -76,10 +77,11 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 		return fmt.Errorf("failed to read dir: %w", err)
 	}
 
-	var layerDescs []ocispecv1.Descriptor
+	layerDescs := make([]ocispecv1.Descriptor, 0, len(entries))
+	diffIDs := make([]digest.Digest, 0, len(entries))
 
 	for _, entry := range entries {
-		tarGzBytes, err := buildTarGzForEntry(dir, entry.Name())
+		tarGzBytes, diffID, err := buildTarGzForEntry(dir, entry.Name())
 		if err != nil {
 			return fmt.Errorf("failed to build tar.gz for %s: %w", entry.Name(), err)
 		}
@@ -89,19 +91,25 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 			return fmt.Errorf("failed to push layer for %s: %w", entry.Name(), err)
 		}
 		layerDescs = append(layerDescs, desc)
+		diffIDs = append(diffIDs, diffID)
 	}
 
 	arches := []string{"amd64", "arm64"}
 	var manifestDescs []ocispecv1.Descriptor
 
 	for _, arch := range arches {
-		configData, err := json.Marshal(struct {
-			Architecture string `json:"architecture"`
-			OS           string `json:"os"`
-		}{
-			Architecture: arch,
-			OS:           "linux",
-		})
+		configObj := ocispecv1.Image{
+			Platform: ocispecv1.Platform{
+				Architecture: arch,
+				OS:           "linux",
+			},
+			RootFS: ocispecv1.RootFS{
+				Type:    "layers",
+				DiffIDs: diffIDs,
+			},
+		}
+
+		configData, err := json.Marshal(configObj)
 		if err != nil {
 			return fmt.Errorf("failed to marshal config: %w", err)
 		}
@@ -171,10 +179,14 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 	return nil
 }
 
-func buildTarGzForEntry(baseDir, entryName string) ([]byte, error) {
+func buildTarGzForEntry(baseDir, entryName string) ([]byte, digest.Digest, error) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gw)
+
+	digester := digest.SHA256.Digester()
+
+	mw := io.MultiWriter(gw, digester.Hash())
+	tw := tar.NewWriter(mw)
 
 	targetPath := filepath.Join(baseDir, entryName)
 
@@ -213,14 +225,15 @@ func buildTarGzForEntry(baseDir, entryName string) ([]byte, error) {
 	})
 
 	if err != nil {
-		return nil, err
-	}
-	if err := tw.Close(); err != nil {
-		return nil, err
-	}
-	if err := gw.Close(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	return buf.Bytes(), nil
+	if err := tw.Close(); err != nil {
+		return nil, "", err
+	}
+	if err := gw.Close(); err != nil {
+		return nil, "", err
+	}
+
+	return buf.Bytes(), digester.Digest(), nil
 }

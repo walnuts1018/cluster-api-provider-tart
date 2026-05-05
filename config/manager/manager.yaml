@@ -26,6 +26,8 @@ spec:
       control-plane: controller-manager
       app.kubernetes.io/name: cluster-api-provider-tart
   replicas: 1
+  strategy:
+    type: Recreate
   template:
     metadata:
       annotations:

@@ -334,7 +334,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 	})
 }
 
-func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
+func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
@@ -375,7 +375,7 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
 
-	t.Run("should not respond when Server Identifier option is set", func(t *testing.T) {
+	t.Run("should respond even when Server Identifier option is set", func(t *testing.T) {
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x17, 0x3f}
 		pkt, err := dhcpv4.New(
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
@@ -394,10 +394,19 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
 		}
 
 		resp := make([]byte, 1500)
-		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		_, _, err2 := conn.ReadFrom(resp)
-		if err2 == nil {
-			t.Fatal("expected no response when Server Identifier is already set")
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := conn.ReadFrom(resp)
+		if err != nil {
+			t.Fatalf("failed to receive response: %v", err)
+		}
+
+		reply, err := dhcpv4.FromBytes(resp[:n])
+		if err != nil {
+			t.Fatalf("failed to parse response: %v", err)
+		}
+
+		if reply.MessageType() != dhcpv4.MessageTypeOffer {
+			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
 		}
 	})
 

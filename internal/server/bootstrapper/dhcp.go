@@ -24,6 +24,8 @@ const (
 	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
 	// iPXEBootFileNameARM64 は arm64 用の iPXE ローダのファイル名です。
 	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
+	// iPXEBootFileNameLegacy は Legacy x86 用の iPXE ローダのファイル名です。
+	iPXEBootFileNameLegacy = "undionly.kpxe"
 	// iPXEBootFileNameDefault はデフォルトの iPXE ローダのファイル名です。
 	iPXEBootFileNameDefault = "ipxe.efi"
 )
@@ -176,15 +178,6 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			attribute.String("dhcp.transaction_id", fmt.Sprintf("%#x", m.TransactionID)),
 		)
 
-		// ProxyDHCP では、既存のDHCPサーバーが応答した後にのみ応答する
-		// つまり、Option 54 (Server Identifier) が設定されていないパケットにのみ応答する
-		serverID := m.GetOneOption(dhcpv4.OptionServerIdentifier)
-		if serverID != nil {
-			lg.Info("Skipping ProxyDHCP response, existing DHCP server already responded")
-			span.SetAttributes(attribute.Bool("dhcp.proxy_skip", true))
-			return
-		}
-
 		// クライアントのアーキテクチャを取得 (Option 93)
 		arch := ArchEFIx8664 // Default
 		if opt := m.GetOneOption(dhcpv4.OptionClientSystemArchitectureType); opt != nil {
@@ -212,6 +205,8 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		} else {
 			// 通常の PXE クライアント: TFTP で取得する iPXE ローダを返す
 			switch arch {
+			case ArchIntelx86PC:
+				bootFile = iPXEBootFileNameLegacy
 			case ArchEFIx8664:
 				bootFile = iPXEBootFileNameAMD64
 			case ArchEFIARM64:
@@ -236,6 +231,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 		resp.BootFileName = bootFile
 		resp.ServerHostName = ""
+		resp.ServerIPAddr = b.advertiseIP
 
 		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
 			span.RecordError(err)

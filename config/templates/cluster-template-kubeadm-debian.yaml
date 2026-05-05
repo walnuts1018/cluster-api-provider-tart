@@ -53,6 +53,7 @@ metadata:
 spec:
   template:
     spec:
+      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
       image: ${DEBIAN_INSTALLER_KERNEL_URL}
       initrd: ${DEBIAN_INSTALLER_INITRD_URL}
       bootstrap:
@@ -97,6 +98,7 @@ metadata:
 spec:
   template:
     spec:
+      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
       image: ${DEBIAN_INSTALLER_KERNEL_URL}
       initrd: ${DEBIAN_INSTALLER_INITRD_URL}
       bootstrap:

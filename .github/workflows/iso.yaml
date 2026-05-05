@@ -63,9 +63,9 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            image_tag=${{ github.event.inputs.image_tag }}"
+            image_tag="${{ github.event.inputs.image_tag }}"
           else
-            image_tag=v0.0.${{ github.run_number }}"
+            image_tag="v0.0.${{ github.run_number }}"
           fi
           echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 

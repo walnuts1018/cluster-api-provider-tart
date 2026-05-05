@@ -99,7 +99,7 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&ipxeDomain, "ipxe-domain", "", "The domain to use for iPXE and metadata URLs (e.g. tart.example.com). If empty, the auto-detected IP address will be used.")
-	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", ":4011", "The address the bootstrap (ProxyDHCP) server binds to. Use 0 to disable.")
+	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", "0.0.0.0", "The IP address the bootstrap (ProxyDHCP) server binds to. It will listen on both ports 67 and 4011. Use 0 to disable.")
 	flag.StringVar(&bootstrapAdvertiseAddress, "bootstrap-advertise-address", "", "The reachable IP address advertised to PXE/iPXE clients. Leave empty to auto-detect.")
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", ":69", "The address the TFTP server binds to.")
 	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")

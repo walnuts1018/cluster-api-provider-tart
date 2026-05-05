@@ -165,8 +165,11 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 	return func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
 		lg := b.logger.WithName("dhcp-handler")
 
+		lg.Info("Received DHCP packet", "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr)
+
 		// BootRequestのみを処理
 		if m.OpCode != dhcpv4.OpcodeBootRequest {
+			lg.Info("Ignoring non-BootRequest packet", "opCode", m.OpCode)
 			return
 		}
 

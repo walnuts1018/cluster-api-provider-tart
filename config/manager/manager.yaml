@@ -88,6 +88,9 @@ spec:
         - containerPort: 8082
           name: ipxe
           protocol: TCP
+        - containerPort: 9443
+          name: extension-webhook-server
+          protocol: TCP
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false

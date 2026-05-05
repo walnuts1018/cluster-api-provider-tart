@@ -33,6 +33,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
@@ -280,6 +281,23 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	// Start Runtime Extension webhook server for in-place update hooks.
+	extCatalog, err := extension.NewCatalog()
+	if err != nil {
+		setupLog.Error(err, "Failed to create Runtime Extension catalog")
+		os.Exit(1)
+	}
+	extManager, err := extension.NewManager(extCatalog)
+	if err != nil {
+		setupLog.Error(err, "Failed to create Runtime Extension manager")
+		os.Exit(1)
+	}
+	if err := mgr.Add(extManager); err != nil {
+		setupLog.Error(err, "Failed to add Runtime Extension manager")
+		os.Exit(1)
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

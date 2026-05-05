@@ -60,7 +60,7 @@ spec:
       - console=ttyS0
       - ip=dhcp
       - autoinstall
-      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev:8082/metadata
+      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev/metadata
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -103,4 +103,4 @@ spec:
       - console=ttyS0
       - ip=dhcp
       - autoinstall
-      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev:8082/metadata
+      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev/metadata

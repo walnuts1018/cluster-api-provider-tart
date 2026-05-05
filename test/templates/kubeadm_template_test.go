@@ -111,19 +111,6 @@ func TestSamplesSetBootstrapFormat(t *testing.T) {
 	})
 }
 
-func TestKubeadmSampleDoesNotHardCodeNoCloudSeedURL(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join("..", "..", "config", "samples", "cluster-kubeadm.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("failed to read sample %s: %v", path, err)
-	}
-	if bytes.Contains(data, []byte("ds=nocloud-net;s=")) {
-		t.Fatalf("sample %s hard-codes NoCloud seed URL", path)
-	}
-}
-
 func readTemplateKinds(t *testing.T, path string) map[string]bool {
 	t.Helper()
 	data, err := os.ReadFile(path)

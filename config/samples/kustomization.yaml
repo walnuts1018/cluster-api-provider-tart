@@ -1,7 +1,6 @@
 ## Append samples of your project ##
 resources:
 - bootstrap-httproute.yaml
-- cluster-kubeadm.yaml
 - cluster-kubeadm-debian.yaml
 - cluster-kubeadm-ubuntu.yaml
 - cluster-k3s-debian.yaml

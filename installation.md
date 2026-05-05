@@ -52,9 +52,8 @@ kubectl get pods -n capi-operator-system
 
 ## Step 2. Provider 一式をインストールする
 
-次に、Cluster API 本体と kubeadm/Tart provider をまとめてインストールします。以下の values は、Argo CD で Cluster API Operator を管理する場合も含めた完全なサンプルです。
+次に、Cluster API 本体と kubeadm/Tart provider をまとめてインストールします。
 
-通常の手動運用では `enableHelmHook: false` は不要です。Argo CD で同期する場合だけ追加してください。
 
 ```yaml
 core:
@@ -70,7 +69,6 @@ infrastructure:
       url: https://github.com/walnuts1018/cluster-api-provider-tart/releases/v0.0.2/infrastructure-components.yaml
 resources:
   manager: {}
-
 
 # enableHelmHook: false # これをつけないと、毎回Syncする時にnamespaceごと消える
 ```

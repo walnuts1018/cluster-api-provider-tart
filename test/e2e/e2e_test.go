@@ -23,17 +23,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/test/utils"
 )
@@ -348,15 +344,12 @@ var _ = Describe("Manager", Ordered, func() {
 
 			for _, tt := range tests {
 				By("applying " + tt.name)
-				manifest, err := tartMachineTemplateManifest(tt.file, tt.resource)
-				Expect(err).NotTo(HaveOccurred(), "Failed to read "+tt.resource+" from "+tt.file)
 				cmd := exec.Command("kubectl", "apply",
 					"-n", namespace,
-					"-f", "-",
+					"-f", tt.file,
 				)
-				cmd.Stdin = bytes.NewReader(manifest)
-				_, err = utils.Run(cmd)
-				Expect(err).NotTo(HaveOccurred(), "Failed to apply "+tt.resource+" from "+tt.file)
+				_, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred(), "Failed to apply "+tt.name+" from "+tt.file)
 
 				By("validating bootstrap format for " + tt.name)
 				cmd = exec.Command("kubectl", "get", "tartmachinetemplate", tt.resource,
@@ -370,39 +363,6 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 	})
 })
-
-func tartMachineTemplateManifest(path, name string) ([]byte, error) {
-	projectDir, err := utils.GetProjectDir()
-	if err != nil {
-		return nil, fmt.Errorf("get project directory: %w", err)
-	}
-	data, err := os.ReadFile(filepath.Join(projectDir, path))
-	if err != nil {
-		return nil, fmt.Errorf("read sample: %w", err)
-	}
-
-	dec := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(data), 4096)
-	for {
-		var obj unstructured.Unstructured
-		if err := dec.Decode(&obj); err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, fmt.Errorf("decode sample: %w", err)
-		}
-		if obj.Object == nil || obj.GetKind() != "TartMachineTemplate" || obj.GetName() != name {
-			continue
-		}
-
-		manifest, err := json.Marshal(obj.Object)
-		if err != nil {
-			return nil, fmt.Errorf("marshal TartMachineTemplate: %w", err)
-		}
-		return manifest, nil
-	}
-
-	return nil, fmt.Errorf("TartMachineTemplate %s not found in %s", name, path)
-}
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request

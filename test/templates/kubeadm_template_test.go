@@ -2,6 +2,7 @@ package templates
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -141,7 +142,10 @@ func readTemplateKinds(t *testing.T, path string) map[string]bool {
 		}
 		err := dec.Decode(&doc)
 		if err != nil {
-			break
+			if err == io.EOF {
+				break
+			}
+			t.Fatalf("failed to decode template %s: %v", path, err)
 		}
 		if doc.Kind != "" {
 			found[doc.Kind] = true

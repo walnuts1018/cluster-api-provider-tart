@@ -12,6 +12,8 @@ import (
 	"time"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
+	applicationbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -64,6 +66,11 @@ func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Obj
 		return nil
 	})
 	return builder.Build()
+}
+
+func setupBootstrapTokenService(t *testing.T, cl client.Client) applicationbootstraptoken.Service {
+	t.Helper()
+	return k8sbootstraptoken.NewService(cl)
 }
 
 func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, expected int) {
@@ -145,6 +152,7 @@ func bootstrapTokenHash(token string) string {
 
 func TestHandlerDynamicScript(t *testing.T) {
 	scheme := setupScheme(t)
+	cl := setupFakeClient(t, scheme)
 	mac := "00:00:5e:00:53:02"
 	bootMAC := "00:00:5e:00:53:11"
 	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
@@ -173,6 +181,9 @@ func TestHandlerDynamicScript(t *testing.T) {
 			Image:        "https://example.com/vmlinuz",
 			KernelParams: []string{"console=ttyS0"},
 			Initrd:       "https://example.com/initrd",
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+			},
 		},
 	}
 
@@ -199,6 +210,9 @@ func TestHandlerDynamicScript(t *testing.T) {
 		},
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image: "https://example.com/vmlinuz-boot",
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+			},
 		},
 	}
 	host3 := &infrastructurev1alpha1.TartHost{
@@ -367,14 +381,15 @@ func TestHandlerDynamicScript(t *testing.T) {
 		},
 	}
 
-	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
+	cl = setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
+	svc := setupBootstrapTokenService(t, cl)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -399,7 +414,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -418,7 +433,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -434,7 +449,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -450,7 +465,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -466,7 +481,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -480,7 +495,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	t.Run("MissingMAC", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusBadRequest {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
@@ -489,7 +504,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	t.Run("HostNotFound", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:13", nil)
 		rec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
 		}
@@ -504,11 +519,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("ValidToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != testBootstrapData {
@@ -541,11 +557,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("NoCloudMetaDataDoesNotConsumeToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
@@ -561,11 +578,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("NoCloudUserDataConsumesToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != testBootstrapData {
@@ -589,11 +607,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("NoCloudVendorDataDoesNotConsumeToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -611,10 +630,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("NoCloudUserDataThenMetaDataStillWorks", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(userDataRec, userDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(userDataRec, userDataReq)
 
 		if userDataRec.Code != http.StatusOK {
 			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
@@ -629,7 +649,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(metaDataRec, metaDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(metaDataRec, metaDataReq)
 
 		if metaDataRec.Code != http.StatusOK {
 			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusOK, metaDataRec.Body.String())
@@ -640,7 +660,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		vendorDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
 		vendorDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(vendorDataRec, vendorDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(vendorDataRec, vendorDataReq)
 
 		if vendorDataRec.Code != http.StatusOK {
 			t.Fatalf("vendor-data status = %d, want %d\nbody=%s", vendorDataRec.Code, http.StatusOK, vendorDataRec.Body.String())
@@ -653,10 +673,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("NoCloudUserDataThenMetaDataRejectsDifferentToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(userDataRec, userDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(userDataRec, userDataReq)
 
 		if userDataRec.Code != http.StatusOK {
 			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
@@ -665,7 +686,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		otherToken := "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210abcdefghijklmnopqrstuvwxyz"
 		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+otherToken+"/meta-data", nil)
 		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(metaDataRec, metaDataReq)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(metaDataRec, metaDataReq)
 
 		if metaDataRec.Code != http.StatusForbidden {
 			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusForbidden, metaDataRec.Body.String())
@@ -675,11 +696,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 	t.Run("PreseedConsumesToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/preseed.cfg?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -708,6 +730,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 					},
 				},
 			},
+			Spec: infrastructurev1alpha1.TartMachineSpec{
+				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+				},
+			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
 				TokenExpiresAt: &metav1.Time{Time: farFuture},
 			},
@@ -747,11 +774,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -772,6 +800,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 					},
 				},
 			},
+			Spec: infrastructurev1alpha1.TartMachineSpec{
+				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+				},
+			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
 				TokenExpiresAt: &metav1.Time{Time: farFuture},
 			},
@@ -811,11 +844,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=invalidtoken", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusUnauthorized {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
@@ -834,6 +868,11 @@ func TestHandlerServesMetadata(t *testing.T) {
 						Kind:       "Machine",
 						Name:       "capi-machine",
 					},
+				},
+			},
+			Spec: infrastructurev1alpha1.TartMachineSpec{
+				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
 				},
 			},
 			Status: infrastructurev1alpha1.TartMachineStatus{
@@ -875,11 +914,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -926,11 +966,12 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
+		svc := setupBootstrapTokenService(t, cl)
 
 		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=anything", nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusPreconditionFailed {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusPreconditionFailed)
@@ -941,6 +982,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 func TestHandlerServesAssets(t *testing.T) {
 	s := setupScheme(t)
 	cl := setupFakeClient(t, s)
+	svc := setupBootstrapTokenService(t, cl)
 
 	assetsRoot := t.TempDir()
 	assetPath := filepath.Join(assetsRoot, "images", "kernel")
@@ -954,7 +996,7 @@ func TestHandlerServesAssets(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/assets/images/kernel", nil)
 	rec := httptest.NewRecorder()
 
-	ipxe.NewHandler(cl, ipxe.HandlerConfig{AssetsRoot: assetsRoot}).ServeHTTP(rec, req)
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{AssetsRoot: assetsRoot, BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
@@ -966,11 +1008,12 @@ func TestHandlerServesAssets(t *testing.T) {
 
 func TestHandlerServesHealthEndpoints(t *testing.T) {
 	cl := setupFakeClient(t, setupScheme(t))
+	svc := setupBootstrapTokenService(t, cl)
 	for _, path := range []string{"/livez", "/readyz"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc}).ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s status = %d, want %d", path, rec.Code, http.StatusOK)
@@ -980,7 +1023,8 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 
 func TestNewServerDisablesLeaderElection(t *testing.T) {
 	cl := setupFakeClient(t, setupScheme(t))
-	server := ipxe.NewServer(cl, ":8082", "")
+	svc := setupBootstrapTokenService(t, cl)
+	server := ipxe.NewServer(cl, svc, ":8082", "")
 
 	if server.Addr() != ":8082" {
 		t.Fatalf("Addr = %q, want %q", server.Addr(), ":8082")

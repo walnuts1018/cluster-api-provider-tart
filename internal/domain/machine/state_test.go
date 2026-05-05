@@ -179,7 +179,7 @@ func TestBootstrapTokenConsumedStatus(t *testing.T) {
 	}
 }
 
-func TestBootstrapTokenConsumedStatusRejectsEmptyHash(t *testing.T) {
+func TestBootstrapTokenConsumedStatusPreservesEmptyHash(t *testing.T) {
 	t.Parallel()
 
 	machine := &infrastructurev1alpha1.TartMachine{

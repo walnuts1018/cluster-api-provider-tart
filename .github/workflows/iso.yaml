@@ -22,25 +22,17 @@ jobs:
       matrix:
         include:
           - key: ubuntu-26.04-amd64
-            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/26.04/ubuntu-26.04-live-server-amd64.iso
-            files:
-              - casper/vmlinuz
-              - casper/initrd
+            url: http://ftp.riken.go.jp/Linux/ubuntu-releases/26.04/ubuntu-26.04-live-server-amd64.iso
+            files: ["casper/vmlinuz", "casper/initrd"]
           - key: ubuntu-26.04-arm64
-            iso: https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04-live-server-arm64.iso
-            files:
-              - casper/vmlinuz
-              - casper/initrd
+            url: https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04-live-server-arm64.iso
+            files: ["casper/vmlinuz", "casper/initrd"]
           - key: ubuntu-24.04-amd64
-            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/24.04/ubuntu-24.04.4-live-server-amd64.iso
-            files:
-              - casper/vmlinuz
-              - casper/initrd
+            url: http://ftp.riken.go.jp/Linux/ubuntu-releases/24.04/ubuntu-24.04.4-live-server-amd64.iso
+            files: ["casper/vmlinuz", "casper/initrd"]
           - key: ubuntu-24.04-arm64
-            iso: https://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.4-live-server-arm64.iso
-            files:
-              - casper/vmlinuz
-              - casper/initrd
+            url: https://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.4-live-server-arm64.iso
+            files: ["casper/vmlinuz", "casper/initrd"]
     permissions:
       contents: read
       packages: write
@@ -56,13 +48,13 @@ jobs:
       - name: Download ISO files
         run: |
           mkdir -p dist/iso
-          curl -L -o dist/iso/image.iso ${{ matrix.iso }}
+          curl -L -o dist/iso/image.iso ${{ matrix.url }}
 
       - name: Get initrd and vmlinuz from ISO
         run: |
           mkdir -p /tmp/mnt
           sudo mount -o loop dist/iso/image.iso /tmp/mnt
-          for file in ${{ matrix.files }}; do
+          for file in ${{ join(matrix.files, ' ') }}; do
             sudo cp /tmp/mnt/$file dist/iso/${file//\//-}
           done
           sudo umount /tmp/mnt

@@ -16,6 +16,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   IPXE_IMAGE_NAME: ${{ github.repository }}-ipxe
+  IPXE_VERSION: v2.0.0
 
 jobs:
   ipxe:
@@ -33,10 +34,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: iPXE binaries cache
+        uses: actions/cache@v5.0.5
+        with:
+          path: dist/ipxe
+          key: ipxe-${{ env.IPXE_VERSION }}
+          restore-keys: |
+            ipxe-
+
       - name: Download iPXE binaries
         run: |
           mkdir -p dist/ipxe
-          curl -fsSL "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
+          curl -fsSL "https://github.com/ipxe/ipxe/releases/download/${{ env.IPXE_VERSION }}/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
           tar xzf /tmp/ipxeboot.tar.gz -C /tmp
           cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
           cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi

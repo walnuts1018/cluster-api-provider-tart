@@ -1,0 +1,15 @@
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
+kind: ExtensionConfig
+metadata:
+  name: cluster-api-provider-tart
+  namespace: system
+spec:
+  clientConfig:
+    service:
+      name: extension-webhook-service
+      namespace: system
+      port: 443
+  namespaceSelector:
+    matchExpressions:
+      - key: cluster.x-k8s.io/cluster-name
+        operator: Exists

@@ -81,7 +81,7 @@ mise run generate
 mise run fmt
 mise run vet
 KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
-KIND=kind KIND_CLUSTER="$KIND_CLUSTER" go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+KIND=kind KIND_CLUSTER="$KIND_CLUSTER" go test -tags=e2e ./test/e2e/ -timeout 30m -v -ginkgo.v
 mise run cleanup-test-e2e
 '''
 

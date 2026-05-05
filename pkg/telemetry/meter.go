@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -24,20 +25,24 @@ func NewMeterProvider(ctx context.Context, cfg MeterProviderConfig) (*sdkmetric.
 		cfg.ServiceName = defaultOTELServiceName
 	}
 
-	exporter, err := otlpmetricgrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
-	}
-
 	res, err := NewTelemetryResource(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	mp := sdkmetric.NewMeterProvider(
+	opts := []sdkmetric.Option{
 		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)),
-	)
+	}
+
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") != "" {
+		exporter, err := otlpmetricgrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OTLP metric exporter: %w", err)
+		}
+		opts = append(opts, sdkmetric.WithReader(sdkmetric.NewPeriodicReader(exporter)))
+	}
+
+	mp := sdkmetric.NewMeterProvider(opts...)
 
 	otel.SetMeterProvider(mp)
 

@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -26,20 +27,24 @@ type TracerProviderConfig struct {
 func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace.TracerProvider, error) {
 	cfg = normalizeTracerProviderConfig(cfg)
 
-	exporter, err := otlptracegrpc.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
-	}
-
 	res, err := newTelemetryResource(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	tp := sdktrace.NewTracerProvider(
+	opts := []sdktrace.TracerProviderOption{
 		sdktrace.WithResource(res),
-		sdktrace.WithBatcher(exporter),
-	)
+	}
+
+	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" {
+		exporter, err := otlptracegrpc.New(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
+		}
+		opts = append(opts, sdktrace.WithBatcher(exporter))
+	}
+
+	tp := sdktrace.NewTracerProvider(opts...)
 
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(

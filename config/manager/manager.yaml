@@ -27,7 +27,7 @@ spec:
       app.kubernetes.io/name: cluster-api-provider-tart
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate # hostNetwork: trueなので、同じPortを複数のPodが使用することを防ぐためにRecreateを指定
   template:
     metadata:
       annotations:

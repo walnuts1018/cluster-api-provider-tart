@@ -1,255 +1,219 @@
-# インストール方法
+# インストールと最初のクラスタ作成
 
-cluster-api-provider-tart のインストールには、以下の2つの方法があります。
+このガイドでは、すでに用意済みの management cluster に Cluster API Operator と cluster-api-provider-tart を導入し、最初の workload cluster を作成する流れを説明します。対象読者は Cluster API をこれから触る人を想定しています。
 
-- [Helm を利用したインストール](#helm を利用したインストール)
-- [cluster-api-operator を利用したインストール](#cluster-api-operator を利用したインストール)
+## このガイドでできること
 
-どちらの方法でも同じコントローラーが導入されますが、管理のしやすさや既存のインフラとの整合性に応じて選択してください。
+- Cluster API Operator を使って Cluster API と Tart Provider をまとめてインストールする
+- 物理ホストを `TartHost` として登録する
+- kubeadm 用テンプレートから workload cluster のマニフェストを生成する
+- 生成したマニフェストを適用し、作成後の状態を確認する
 
 ## 前提条件
 
-以下の環境が整っていることを確認してください。
+- Kubernetes v1.28 以降の management cluster がある
+- `kubectl` で management cluster に接続できる
+- `clusterctl` コマンドを利用できる
+- PXE ブート対象の物理マシンに到達できるネットワークがある
+- `cluster-api-provider-tart` のコントローラーが利用する UDP `67`, UDP `69`, TCP `8082` を開けられる
 
-- Kubernetes クラスター (v1.28 以降)
-- `kubectl` コマンドがクラスターに接続できる状態
-- Helm v3 以降 (Helm インストール場合のみ)
-- cluster-api-operator (cluster-api-operator インストール場合のみ)
+管理クラスタの作成方法は自由ですが、このガイドでは「management cluster はすでに存在している」前提で進めます。
 
-## クラスター API の事前インストール
+## kind で management cluster を作る場合
 
-cluster-api-provider-tart は Infrastructure Provider であり、Cluster API コアコンポーネントとは別にインストールする必要があります。
+<details>
+<summary>kind で最小の management cluster を作る例</summary>
 
-以下のコンポーネントが management cluster にインストールされていることを確認してください。
-
-- **Core Provider**: `cluster-api`
-- **Bootstrap Provider**: `kubeadm` または `talos`
-- **Control Plane Provider**: `kubeadm` または `talos`
-
-インストール済みの確認方法:
+ローカル検証だけ先に試したい場合は、次のように kind クラスタを作成できます。
 
 ```bash
-kubectl get clusters.cluster.x-k8s.io -A
+cat <<'EOF' > kind-management-cluster.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+EOF
+
+kind create cluster --name capi-tart --config kind-management-cluster.yaml
+kubectl cluster-info --context kind-capi-tart
 ```
 
-空の結果が返ってくるのは正常です（クラスターがまだ作成されていないため）。代わりに、以下のようしてプロバイダーが登録されているかを確認できます。
+</details>
 
-```bash
-kubectl get infrastructureproviders -A
-kubectl get bootstrapproviders -A
-kubectl get controlplaneproviders -A
-```
+## Step 1. Cluster API Operator をインストールする
 
-## Helm を利用したインストール
-
-Helm を利用して cluster-api-provider-tart をインストールします。
-
-### 1. Helm リポジトリの追加
-
-```bash
-helm repo add cluster-api-provider-tart https://walnuts1018.github.io/cluster-api-provider-tart/
-helm repo update
-```
-
-### 2. Helm Chart のインストール
-
-```bash
-helm install cluster-api-provider-tart cluster-api-provider-tart/cluster-api-provider-tart \
-  --namespace cluster-api-provider-tart-system \
-  --create-namespace \
-  --set controllerManager.manager.image.tag=v0.1.0
-```
-
-### 3. インストールの確認
-
-```bash
-kubectl get pods -n cluster-api-provider-tart-system
-```
-
-以下のような出力が得られるはずです。
-
-```
-NAME                                                              READY   STATUS    RESTARTS   AGE
-cluster-api-provider-tart-controller-manager-xxxxx-yyyy   1/1     Running   0          30s
-```
-
-### 4. 設定のカスタマイズ
-
-`values.yaml` の値を上書きすることで、インストールをカスタマイズできます。
-
-```bash
-helm install cluster-api-provider-tart cluster-api-provider-tart/cluster-api-provider-tart \
-  --namespace cluster-api-provider-tart-system \
-  --create-namespace \
-  --set controllerManager.manager.image.tag=v0.1.0 \
-  --set controllerManager.replicas=2 \
-  --set controllerManager.nodeSelector.kubernetes.io/os=linux
-```
-
-利用可能な設定値の詳細は、[values.yaml](./charts/cluster-api-provider-tart/values.yaml) を参照してください。
-
-### 5. アンインストール
-
-```bash
-helm uninstall cluster-api-provider-tart -n cluster-api-provider-tart-system
-```
-
-CRD を削除する場合は:
-
-```bash
-kubectl delete crd tartclusters.cluster.x-k8s.io tartclustertemplates.cluster.x-k8s.io tartmachines.cluster.x-k8s.io tartmachinetemplates.cluster.x-k8s.io tarthosts.cluster.x-k8s.io
-```
-
-## cluster-api-operator を利用したインストール
-
-cluster-api-operator を利用して、宣言的に cluster-api-provider-tart をインストールします。
-
-### cluster-api-operator のインストール
-
-まだ cluster-api-operator がインストールされていない場合は、以下のようにインストールしてください。
+まず Cluster API Operator を入れます。Operator を使うと、Cluster API の core/bootstrap/control plane/infrastructure provider をまとめて宣言的に管理できます。
 
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/cluster-api-operator/releases/latest/download/operator-components.yaml
+kubectl get pods -n capi-operator-system
 ```
 
-operator が起動するまで待機します。
+`capi-operator-system` Namespace の Pod が `Running` になれば次へ進めます。
 
-```bash
-kubectl get pods -n cluster-api-operator-system
-```
+## Step 2. Provider 一式をインストールする
 
-### 1. InfrastructureProvider リソースの作成
+次に、Cluster API 本体と kubeadm/Tart provider をまとめてインストールします。以下の values はこのガイドで前提にする完全なサンプルです。
 
-`InfrastructureProvider` リソースを作成することで、cluster-api-provider-tart が自動的にインストールされます。
-
-cluster-api-operator は、リリースから `infrastructure-components.yaml` と `metadata.yaml` を自動的に取得します。
+`enableHelmHook: false` は重要です。これを付けないと Operator の同期時に Helm hook が再実行され、Namespace ごと削除されることがあります。そのため、このガイドでは明示的に無効化します。
 
 ```yaml
-apiVersion: operator.cluster.x-k8s.io/v1alpha2
-kind: InfrastructureProvider
-metadata:
-  name: tart
-  namespace: cluster-api-provider-tart-system
-spec:
-  version: v0.1.0
-  fetchConfig:
-    url: https://github.com/walnuts1018/cluster-api-provider-tart/releases
+core:
+  cluster-api: {}
+bootstrap:
+  kubeadm: {}
+controlPlane:
+  kubeadm: {}
+infrastructure:
+  tart:
+    version: v0.0.2
+    fetchConfig:
+      url: https://github.com/walnuts1018/cluster-api-provider-tart/releases/v0.0.2/infrastructure-components.yaml
+resources:
+  manager: {}
+enableHelmHook: false # これをつけないと、毎回Syncする時にnamespaceごと消える
 ```
 
-これを適用します。
+たとえば `capi-operator-values.yaml` という名前で保存して、次を実行します。
 
 ```bash
-kubectl apply -f tart-provider.yaml
+helm upgrade --install capi-operator cluster-api-operator/cluster-api-operator \
+  --namespace capi-operator-system \
+  --reuse-values \
+  -f capi-operator-values.yaml
 ```
 
-### 2. インストールの確認
+すでに Operator 本体は動いているため、この手順では「どの provider を入れるか」を values で宣言しています。
+
+## Step 3. Provider の状態を確認する
+
+インストール直後は、Operator が複数の provider を順番に展開します。まずは登録状態を確認します。
 
 ```bash
-kubectl get infrastructureproviders tart -o yaml
-```
-
-`STATUS` が `Ready` になればインストール成功です。
-
-```yaml
-status:
-  conditions:
-  - lastTransitionTime: "2025-01-01T00:00:00Z"
-    message: Provider tart successfully installed
-    status: "True"
-    type: Ready
-  observedGeneration: 1
-  version: v0.1.0
-```
-
-また、コントローラーの Pod も確認できます。
-
-```bash
+kubectl get providers.clusterctl.cluster.x-k8s.io -A
+kubectl get pods -n capi-operator-system
+kubectl get pods -n cluster-api-system
+kubectl get pods -n cluster-api-kubeadm-bootstrap-system
+kubectl get pods -n cluster-api-kubeadm-control-plane-system
 kubectl get pods -n cluster-api-provider-tart-system
 ```
 
-### 3. 設定のカスタマイズ
+`Provider` の `STATUS` が `Installed` または `Ready` になり、各 Namespace の controller Pod が `Running` ならインストール完了です。
 
-インストール後に設定を変更する場合は、`InfrastructureProvider` リソースを編集します。
+## Step 4. TartHost を登録する
 
-```bash
-kubectl edit infrastructureprovider tart -n cluster-api-provider-tart-system
-```
-
-### 4. アップグレード
-
-バージョンを変更して適用することで、アップグレードできます。
+`TartHost` は、どの物理マシンを provider が利用できるかを表すインベントリです。まずは最小構成で 1 台登録します。
 
 ```yaml
-apiVersion: operator.cluster.x-k8s.io/v1alpha2
-kind: InfrastructureProvider
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartHost
 metadata:
-  name: tart
-  namespace: cluster-api-provider-tart-system
+  name: worker-01
 spec:
-  version: v0.2.0
-  fetchConfig:
-    url: https://github.com/walnuts1018/cluster-api-provider-tart/releases
+  macAddr: "52:54:00:12:34:56"
 ```
 
-### 5. アンインストール
-
-`InfrastructureProvider` リソースを削除します。
+適用例:
 
 ```bash
-kubectl delete infrastructureprovider tart -n cluster-api-provider-tart-system
+kubectl apply -f tarthost.yaml
+kubectl get tarthosts
 ```
 
-CRD を削除する場合は:
+この時点では、ホストが「Cluster API から割り当て可能な候補」として登録された状態です。
+
+## Step 5. kubeadm クラスタ用の変数を準備する
+
+workload cluster のマニフェストは、[config/templates/cluster-template-kubeadm.yaml](./config/templates/cluster-template-kubeadm.yaml) を `clusterctl generate cluster` で展開して作ります。`clusterctl generate cluster` を使う理由は、テンプレート内の変数をまとめて置換しつつ、Cluster API が扱いやすい完成済みマニフェストを一度に生成できるためです。
+
+このテンプレートでは、少なくとも次の環境変数が必要です。
 
 ```bash
-kubectl delete crd tartclusters.cluster.x-k8s.io tartclustertemplates.cluster.x-k8s.io tartmachines.cluster.x-k8s.io tartmachinetemplates.cluster.x-k8s.io tarthosts.cluster.x-k8s.io
+export CLUSTER_NAME=tart-quickstart
+export KUBERNETES_VERSION=v1.33.0
+export CONTROL_PLANE_ENDPOINT_HOST=192.0.2.10
+export UBUNTU_KERNEL_URL=http://198.51.100.20:8082/images/ubuntu/vmlinuz
+export UBUNTU_INITRD_URL=http://198.51.100.20:8082/images/ubuntu/initrd
+export BOOTSTRAP_METADATA_URL=http://198.51.100.20:8082/metadata
 ```
 
-## 両方のインストール方法の比較
+必要に応じて、テンプレートのデフォルト値を上書きするために次の変数も追加できます。
 
-| 項目 | Helm | cluster-api-operator |
-|------|------|---------------------|
-| 管理方式 | Imperative (命令型) | Declarative (宣言型) |
-| バージョン管理 | Chart バージョン | Provider バージョン |
-| アップグレード | `helm upgrade` | `InfrastructureProvider` を編集 |
-| ロールバック | `helm rollback` | `InfrastructureProvider` を編集 |
-| 依存関係の管理 | 手動 | 自動 (CoreProvider を自動検出) |
-| 適したユースケース | 単一クラスター、柔軟な設定 | 複数のクラスター、一貫した管理 |
+- `CONTROL_PLANE_ENDPOINT_PORT`
+- `CONTROL_PLANE_MACHINE_COUNT`
+- `WORKER_MACHINE_COUNT`
+- `POD_CIDR`
+- `SERVICE_CIDR`
 
-## ネットワーク要件
+`UBUNTU_KERNEL_URL` と `UBUNTU_INITRD_URL` は、Tart Controller から到達できる HTTP URL を指定してください。`BOOTSTRAP_METADATA_URL` はテンプレート中で `ds=nocloud-net;s=...` として利用されます。
 
-cluster-api-provider-tart は、PXE ブートのために以下のポートを使用します。インストール時には、これらのポートが開放されていることを確認してください。
+## Step 6. workload cluster のマニフェストを生成する
 
-| ポート | プロトコル | 用途 |
-|--------|-----------|------|
-| 67 | UDP | ProxyDHCP (iPXE ブートローダの配信) |
-| 69 | UDP | TFTP (iPXE バイナリの配信) |
-| 8082 | TCP | iPXE スクリプト・メタデータ配信 |
+環境変数を設定したら、テンプレートから実際に適用するマニフェストを生成します。生成結果を `cluster.yaml` に保存しておくと、内容確認や再適用がしやすくなります。
 
-コントローラーは `hostNetwork: true` で実行されるため、ホストのネットワークインターフェースを通じてこれらのポートが公開されます。
+```bash
+clusterctl generate cluster "${CLUSTER_NAME}" \
+  --from ./config/templates/cluster-template-kubeadm.yaml \
+  > cluster.yaml
+```
+
+生成後は、`cluster.yaml` に `Cluster`、`KubeadmControlPlane`、`MachineDeployment`、`TartMachineTemplate` が含まれていることを確認してください。
+
+## Step 7. workload cluster を作成する
+
+生成した `cluster.yaml` を management cluster に適用します。ここで初めて Cluster API が `TartMachine` や `Machine` を作成し、登録済みの `TartHost` を使ったプロビジョニングが始まります。
+
+```bash
+kubectl apply -f cluster.yaml
+```
+
+適用直後はすぐに `Ready` にならなくても問題ありません。Cluster API が順番にリソースを作成し、物理ホストの起動や bootstrap を進めます。
+
+## Step 8. 作成後の状態を確認する
+
+作成後は、Cluster API と Tart Provider の両方のリソースを見ます。
+
+```bash
+kubectl get clusters,machines,kubeadmcontrolplanes,tartmachines,tarthosts -A
+kubectl describe cluster "${CLUSTER_NAME}"
+```
+
+確認の見方:
+
+- `Cluster` に `ControlPlaneReady` や `InfrastructureReady` が付くか
+- `Machine` が `Provisioning` から `Running` 相当に進むか
+- `TartHost` が対象クラスタへ割り当てられているか
+- `TartMachine` が bootstrap 用の情報を取得しているか
 
 ## トラブルシューティング
 
-### コントローラーが起動しない
+初心者向けに、まず見るべき確認コマンドをまとめます。
 
 ```bash
+kubectl get providers.clusterctl.cluster.x-k8s.io -A
+kubectl get clusters,machines,kubeadmcontrolplanes,tartmachines,tarthosts -A
+kubectl logs -n capi-operator-system deploy/capi-operator-controller-manager
 kubectl logs -n cluster-api-provider-tart-system -l control-plane=controller-manager --tail=100
 ```
 
-### ポートが使用されている
+よくある確認ポイント:
 
-コントローラーがポート 67, 69, 8082 を使用できない場合、ログにエラーが出力されます。既存の DHCP サーバーや TFTP サーバーと競合していないか確認してください。
+- provider が `Ready` にならない場合: Operator ログを確認し、values の `fetchConfig.url` や version を見直す
+- `TartHost` が使われない場合: `macAddr` が対象ホストの NIC と一致しているか確認する
+- `TartMachine` が進まない場合: PXE 対象ホストから UDP `67`/`69` と TCP `8082` へ到達できるか確認する
+- kubeadm bootstrap が失敗する場合: `UBUNTU_KERNEL_URL`、`UBUNTU_INITRD_URL`、`BOOTSTRAP_METADATA_URL` がテンプレートと一致しているか確認する
 
-### CRD が見つからない
+## クリーンアップ
+
+検証をやり直す場合は、まず workload cluster のリソースを削除し、その後に `TartHost` を片付けます。
 
 ```bash
-kubectl get crd | grep tart
+kubectl delete -f cluster.yaml
+kubectl delete tarthost worker-01
 ```
 
-以下の CRD が存在することを確認してください。
+provider 一式も削除したい場合は、Operator に渡した values から `infrastructure.tart` などを外して再同期するか、検証用 management cluster 自体を削除してください。kind を使っているなら、最後は次でまとめて消せます。
 
-- `tartclusters.cluster.x-k8s.io`
-- `tartclustertemplates.cluster.x-k8s.io`
-- `tartmachines.cluster.x-k8s.io`
-- `tartmachinetemplates.cluster.x-k8s.io`
-- `tarthosts.cluster.x-k8s.io`
+```bash
+kind delete cluster --name capi-tart
+```

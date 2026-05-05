@@ -33,6 +33,9 @@ func TestTartMachineTemplateCarriesTartMachineSpec(t *testing.T) {
 					Image:        "https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz",
 					Initrd:       "https://assets.hoge.test.walnuts.dev/ubuntu/initrd",
 					KernelParams: []string{"console=ttyS0", "autoinstall"},
+					Bootstrap: TartMachineBootstrapSpec{
+						Format: TartMachineBootstrapFormatNoCloud,
+					},
 				},
 			},
 		},
@@ -46,5 +49,8 @@ func TestTartMachineTemplateCarriesTartMachineSpec(t *testing.T) {
 	}
 	if got, want := template.Spec.Template.Spec.KernelParams[1], "autoinstall"; got != want {
 		t.Fatalf("kernelParams[1] = %q, want %q", got, want)
+	}
+	if got, want := template.Spec.Template.Spec.Bootstrap.Format, TartMachineBootstrapFormatNoCloud; got != want {
+		t.Fatalf("bootstrap.format = %q, want %q", got, want)
 	}
 }

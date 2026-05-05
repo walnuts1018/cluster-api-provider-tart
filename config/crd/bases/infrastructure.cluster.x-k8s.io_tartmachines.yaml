@@ -51,6 +51,21 @@ spec:
           spec:
             description: spec defines the desired state of TartMachine
             properties:
+              bootstrap:
+                description: bootstrap configures how bootstrap data is passed to
+                  the booted OS or installer.
+                properties:
+                  format:
+                    description: |-
+                      format selects how bootstrap data is exposed to the booted OS or installer.
+                      Defaults to Talos when omitted.
+                    enum:
+                    - Talos
+                    - NoCloud
+                    - Preseed
+                    - Raw
+                    type: string
+                type: object
               failureDomain:
                 description: |-
                   failureDomain specifies the failure domain for the machine.

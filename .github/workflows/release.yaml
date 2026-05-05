@@ -50,7 +50,7 @@ jobs:
           curl -fsSL "https://github.com/ipxe/ipxe/releases/download/${{ env.IPXE_VERSION }}/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
           tar xzf /tmp/ipxeboot.tar.gz -C /tmp
           cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
-          cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxeboot/ipxe-arm64.efi
+          cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi
           cp /tmp/ipxeboot/x86_64/undionly.kpxe dist/ipxe/undionly.kpxe
           rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
 

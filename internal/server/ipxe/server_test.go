@@ -22,6 +22,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+const (
+	testBootstrapHost = "bootstrap.example.invalid"
+	testBootstrapData = "bootstrap-config"
+)
+
 func setupScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	s := runtime.NewScheme()
@@ -59,6 +64,13 @@ func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Obj
 		return nil
 	})
 	return builder.Build()
+}
+
+func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, expected int) {
+	t.Helper()
+	if rec.Code != expected {
+		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, expected, rec.Body.String())
+	}
 }
 
 func metadataObjects(token string) (
@@ -120,7 +132,7 @@ func metadataObjects(token string) (
 			Namespace: "default",
 		},
 		Data: map[string][]byte{
-			"value": []byte("bootstrap-config"),
+			"value": []byte(testBootstrapData),
 		},
 	}
 	return tartMachine, capiMachine, tokenSecret, bootstrapSecret
@@ -323,7 +335,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
-		req.Host = "bootstrap.example.invalid"
+		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -341,14 +353,14 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "initrd https://example.com/initrd") {
 			t.Errorf("body missing initrd: %s", body)
 		}
-		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-1?token="+token) {
+		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-1?token="+token) {
 			t.Errorf("body missing talos.config metadata URL: %s", body)
 		}
 	})
 
 	t.Run("ValidRequest_BootMACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+bootMAC, nil)
-		req.Host = "bootstrap.example.invalid"
+		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -360,14 +372,14 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
 			t.Errorf("body missing kernel image for boot mac: %s", body)
 		}
-		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-2?token="+token) {
+		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-2?token="+token) {
 			t.Errorf("body missing metadata URL for boot mac: %s", body)
 		}
 	})
 
 	t.Run("ValidRequest_NoCloudFormat", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:21", nil)
-		req.Host = "bootstrap.example.invalid"
+		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -376,14 +388,14 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "ds=nocloud-net;s=http://bootstrap.example.invalid/metadata/default/test-machine-nocloud/nocloud/"+token+"/") {
+		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-nocloud/nocloud/"+token+"/") {
 			t.Errorf("body missing NoCloud seed URL: %s", body)
 		}
 	})
 
 	t.Run("ValidRequest_PreseedFormat", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:22", nil)
-		req.Host = "bootstrap.example.invalid"
+		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -392,14 +404,14 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "auto=true priority=critical url=http://bootstrap.example.invalid/metadata/default/test-machine-preseed/preseed.cfg?token="+token) {
+		if !strings.Contains(body, "auto=true priority=critical url=http://"+testBootstrapHost+"/metadata/default/test-machine-preseed/preseed.cfg?token="+token) {
 			t.Errorf("body missing preseed URL: %s", body)
 		}
 	})
 
 	t.Run("ValidRequest_RawFormat", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:23", nil)
-		req.Host = "bootstrap.example.invalid"
+		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -432,6 +444,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	})
 }
 
+//nolint:gocyclo // multiple independent test scenarios, not business logic
 func TestHandlerServesMetadata(t *testing.T) {
 	s := setupScheme(t)
 	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
@@ -445,11 +458,9 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if body := rec.Body.String(); body != "bootstrap-config" {
-			t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+		assertStatus(t, rec, http.StatusOK)
+		if body := rec.Body.String(); body != testBootstrapData {
+			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}
 
 		updated := &infrastructurev1alpha1.TartMachine{}
@@ -484,9 +495,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-		}
+		assertStatus(t, rec, http.StatusOK)
 		if body := rec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
 			t.Fatalf("body = %q, want NoCloud meta-data", body)
 		}
@@ -506,11 +515,9 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if body := rec.Body.String(); body != "bootstrap-config" {
-			t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+		assertStatus(t, rec, http.StatusOK)
+		if body := rec.Body.String(); body != testBootstrapData {
+			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}
 
 		remainingSecret := &corev1.Secret{}
@@ -625,8 +632,8 @@ func TestHandlerServesMetadata(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
-		if body := rec.Body.String(); body != "bootstrap-config" {
-			t.Fatalf("body = %q, want %q", body, "bootstrap-config")
+		if body := rec.Body.String(); body != testBootstrapData {
+			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}
 
 		remainingSecret := &corev1.Secret{}
@@ -683,7 +690,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 			},
 			Data: map[string][]byte{
-				"value": []byte("bootstrap-config"),
+				"value": []byte(testBootstrapData),
 			},
 		}
 
@@ -747,7 +754,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 			},
 			Data: map[string][]byte{
-				"value": []byte("bootstrap-config"),
+				"value": []byte(testBootstrapData),
 			},
 		}
 
@@ -811,7 +818,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 			},
 			Data: map[string][]byte{
-				"value": []byte("bootstrap-config"),
+				"value": []byte(testBootstrapData),
 			},
 		}
 
@@ -862,7 +869,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 			},
 			Data: map[string][]byte{
-				"value": []byte("bootstrap-config"),
+				"value": []byte(testBootstrapData),
 			},
 		}
 

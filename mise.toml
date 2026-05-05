@@ -212,14 +212,21 @@ go run hack/ipxe-artifact/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_T
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"
 run = '''
-IMG="${IMG:-controller:latest}"
+IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
+IPXE_TAG="latest"
+image_without_digest="${IMG%%@*}"
+last_image_segment="${image_without_digest##*/}"
+if [ "$image_without_digest" = "$IMG" ] && [ "${last_image_segment#*:}" != "$last_image_segment" ]; then
+  IPXE_TAG="${last_image_segment##*:}"
+fi
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
 cp config/manager/kustomization.yaml "$manager_kustomization"
 trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
 mkdir -p dist
-(cd config/manager && kustomize edit set image controller="$IMG")
+(cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe=$IPXE_IMG:$IPXE_TAG")
 kustomize build config/default > dist/install.yaml
 '''
 

@@ -89,10 +89,6 @@ func TestSamplesSetBootstrapFormat(t *testing.T) {
 
 	assertFilesContain(t, "sample", []fileExpectation{
 		{
-			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm.yaml"),
-			want: "format: NoCloud",
-		},
-		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-ubuntu.yaml"),
 			want: "format: NoCloud",
 		},

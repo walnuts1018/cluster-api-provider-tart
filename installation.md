@@ -81,6 +81,9 @@ workload cluster の雛形は [config/samples/cluster-kubeadm-ubuntu.yaml](./con
 確認した `cluster.yaml` を management cluster に適用します。
 ここで初めて Tart Managerが物理マシンを起動・プロビジョニングし、kubeadm bootstrap を開始します。
 
+> [!IMPORTANT]
+> 既定の iPXE バイナリは HTTPS をサポートしていない場合があります。`cluster.yaml` 内の `image` や `initrd` の URL に `https://` を使用すると `3c092003` エラーが発生することがあります。その場合は `http://` を使用するか、HTTPS をサポートした iPXE バイナリを別途用意してください。
+
 ```bash
 kubectl apply -f cluster.yaml
 ```

@@ -21,6 +21,7 @@ metadata:
 spec:
   template:
     spec:
+      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
       image: ${TALOS_KERNEL_URL}
       initrd: ${TALOS_INITRD_URL}
       bootstrap:
@@ -36,6 +37,7 @@ metadata:
 spec:
   template:
     spec:
+      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
       image: ${TALOS_KERNEL_URL}
       initrd: ${TALOS_INITRD_URL}
       bootstrap:

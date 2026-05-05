@@ -274,10 +274,14 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		} else {
 			// Port 4011: PXE Request response
 			// 実際のブートファイル名とTFTPサーバーのIPアドレスを教える
-			resp, err = dhcpv4.NewReplyFromRequest(m,
+			options := []dhcpv4.Modifier{
 				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
 				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-			)
+			}
+			if m.MessageType() == dhcpv4.MessageTypeRequest {
+				options = append(options, dhcpv4.WithMessageType(dhcpv4.MessageTypeAck))
+			}
+			resp, err = dhcpv4.NewReplyFromRequest(m, options...)
 			if err == nil {
 				resp.BootFileName = bootFile
 				resp.ServerIPAddr = b.advertiseIP

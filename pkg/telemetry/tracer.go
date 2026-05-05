@@ -9,6 +9,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
+
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 )
@@ -24,27 +27,41 @@ type TracerProviderConfig struct {
 	ServiceVersion string
 }
 
-func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace.TracerProvider, error) {
+type TraceProvider struct {
+	trace.TracerProvider
+}
+
+func (t TraceProvider) Shutdown(ctx context.Context) error {
+	if tp, ok := t.TracerProvider.(*sdktrace.TracerProvider); ok {
+		return tp.Shutdown(ctx)
+	}
+	return nil
+}
+
+func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (TraceProvider, error) {
 	cfg = normalizeTracerProviderConfig(cfg)
 
 	res, err := newTelemetryResource(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
+		return TraceProvider{}, fmt.Errorf("failed to create resource: %w", err)
 	}
 
-	opts := []sdktrace.TracerProviderOption{
-		sdktrace.WithResource(res),
-	}
-
+	var tp trace.TracerProvider
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") != "" || os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") != "" {
 		exporter, err := otlptracegrpc.New(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
+			return TraceProvider{}, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
 		}
-		opts = append(opts, sdktrace.WithBatcher(exporter))
-	}
 
-	tp := sdktrace.NewTracerProvider(opts...)
+		opts := []sdktrace.TracerProviderOption{
+			sdktrace.WithResource(res),
+			sdktrace.WithBatcher(exporter),
+		}
+		tp = sdktrace.NewTracerProvider(opts...)
+	} else {
+		tp = noop.NewTracerProvider()
+		fmt.Fprintln(os.Stderr, "OTEL_EXPORTER_OTLP_ENDPOINT or OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is not set, using NoopTracerProvider")
+	}
 
 	otel.SetTracerProvider(tp)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
@@ -52,7 +69,7 @@ func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (*sdktrace
 		propagation.Baggage{},
 	))
 
-	return tp, nil
+	return TraceProvider{TracerProvider: tp}, nil
 }
 
 func normalizeTracerProviderConfig(cfg TracerProviderConfig) TracerProviderConfig {

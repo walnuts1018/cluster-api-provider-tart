@@ -3,14 +3,11 @@ package telemetry
 import (
 	"context"
 	"fmt"
-
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 type Provider struct {
-	TracerProvider *sdktrace.TracerProvider
-	MeterProvider  *sdkmetric.MeterProvider
+	TracerProvider TraceProvider
+	MeterProvider  MeterProvider
 	ServiceName    string
 	ServiceVersion string
 }
@@ -45,16 +42,12 @@ func NewProvider(ctx context.Context) (*Provider, error) {
 func (p *Provider) Shutdown(ctx context.Context) error {
 	var errs []error
 
-	if p.TracerProvider != nil {
-		if err := p.TracerProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to shutdown tracer provider: %w", err))
-		}
+	if err := p.TracerProvider.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to shutdown tracer provider: %w", err))
 	}
 
-	if p.MeterProvider != nil {
-		if err := p.MeterProvider.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
-		}
+	if err := p.MeterProvider.Shutdown(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to shutdown meter provider: %w", err))
 	}
 
 	if len(errs) > 0 {

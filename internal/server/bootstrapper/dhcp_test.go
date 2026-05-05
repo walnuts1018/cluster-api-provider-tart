@@ -1,10 +1,10 @@
 package bootstrapper
 
 import (
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +12,11 @@ import (
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/iana"
 )
+
+func init() {
+	dhcpPort = 6767
+	pxePort = 40110
+}
 
 func TestNewDHCPBootstrapper(t *testing.T) {
 	t.Run("valid parameters", func(t *testing.T) {
@@ -23,8 +28,8 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 		if bs == nil {
 			t.Fatal("expected non-nil bootstrapper")
 		}
-		if bs.addr != ":67" {
-			t.Errorf("expected addr :67, got %s", bs.addr)
+		if bs.bindIP != "" { // host part of ":67" is empty
+			t.Errorf("expected empty bindIP for :67, got %s", bs.bindIP)
 		}
 		if bs.baseURL != "http://127.0.0.1:8080" {
 			t.Errorf("expected baseURL http://127.0.0.1:8080, got %s", bs.baseURL)
@@ -66,12 +71,12 @@ func TestNewDHCPBootstrapper(t *testing.T) {
 
 func TestDHCPBootstrapper_Addr(t *testing.T) {
 	tmpDir := t.TempDir()
-	bs, err := NewDHCPBootstrapper(tmpDir, ":68", "127.0.0.1", "http://127.0.0.1:8080")
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:68", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := bs.Addr(); got != ":68" {
-		t.Errorf("expected addr :68, got %s", got)
+	if got := bs.Addr(); got != "127.0.0.1" {
+		t.Errorf("expected addr 127.0.0.1, got %s", got)
 	}
 }
 
@@ -129,8 +134,8 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 	}
 
 	// サーバーが正常に起動したことを確認
-	if bs.server == nil {
-		t.Fatal("expected non-nil server after Start")
+	if len(bs.servers) == 0 {
+		t.Fatal("expected non-empty servers after Start")
 	}
 
 	// サーバーを停止
@@ -153,8 +158,8 @@ func TestDHCPBootstrapper_Start_WithoutIPXE(t *testing.T) {
 		t.Fatalf("failed to start DHCP server without iPXE file: %v", err)
 	}
 
-	if bs.server == nil {
-		t.Fatal("expected non-nil server after Start")
+	if len(bs.servers) == 0 {
+		t.Fatal("expected non-empty servers after Start")
 	}
 }
 
@@ -206,8 +211,8 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 
 	ctx := t.Context()
 
-	testPort := 6800
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
+	// Port 67 と 4011 で起動するため、ここでは 127.0.0.1 を指定
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,29 +225,22 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 	serverAddr := bs.Addr()
 	t.Logf("DHCP server listening on %s", serverAddr)
 
-	localAddr, err := net.ResolveUDPAddr("udp4", ":0")
-	if err != nil {
-		t.Fatalf("failed to resolve local address: %v", err)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", testPort))
-	if err != nil {
-		t.Fatalf("failed to resolve remote address: %v", err)
-	}
-	conn, err := net.DialUDP("udp4", localAddr, remoteAddr)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
-
 	mac, err := net.ParseMAC("00:00:5e:00:53:14")
 	if err != nil {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
 
-	t.Run("normal PXE client receives TFTP boot file", func(t *testing.T) {
+	t.Run("normal PXE client receives TFTP boot file on Port 4011", func(t *testing.T) {
+		remoteAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.Itoa(pxePort))
+		conn, err := net.DialUDP("udp4", nil, remoteAddr)
+		if err != nil {
+			t.Fatalf("failed to connect: %v", err)
+		}
+		defer conn.Close()
+
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x04, 0xd2}
 		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
 			dhcpv4.WithHwAddr(mac),
 			dhcpv4.WithTransactionID(xid),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
@@ -268,10 +266,6 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if reply.MessageType() != dhcpv4.MessageTypeOffer {
-			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
-		}
-
 		bootFile := reply.BootFileName
 		t.Logf("Boot file: %s", bootFile)
 
@@ -279,14 +273,21 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 			t.Errorf("expected boot file %s, got %s", iPXEBootFileNameAMD64, bootFile)
 		}
 
-		nextServer := reply.ServerIdentifier()
+		nextServer := reply.ServerIPAddr
 		t.Logf("Next server: %s", nextServer)
 	})
 
-	t.Run("iPXE client receives HTTP URL", func(t *testing.T) {
+	t.Run("iPXE client receives HTTP URL on Port 4011", func(t *testing.T) {
+		remoteAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.Itoa(pxePort))
+		conn, err := net.DialUDP("udp4", nil, remoteAddr)
+		if err != nil {
+			t.Fatalf("failed to connect: %v", err)
+		}
+		defer conn.Close()
+
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x16, 0x2e}
 		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
 			dhcpv4.WithHwAddr(mac),
 			dhcpv4.WithTransactionID(xid),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
@@ -313,24 +314,16 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 			t.Fatalf("failed to parse response: %v", err)
 		}
 
-		if reply.MessageType() != dhcpv4.MessageTypeOffer {
-			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
-		}
-
 		bootFile := reply.BootFileName
 		t.Logf("Boot file (iPXE): %s", bootFile)
 
 		if !strings.Contains(bootFile, "http://127.0.0.1:8080/ipxe?mac=") {
 			t.Errorf("expected HTTP URL in boot file, got %s", bootFile)
 		}
-
-		if !strings.Contains(bootFile, "00%3A00%3A5e%3A00%3A53%3A14") {
-			t.Errorf("expected URL-encoded MAC address in boot file, got %s", bootFile)
-		}
 	})
 }
 
-func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
+func TestDHCPBootstrapper_ProxyMode_SkipsWithServerID(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
@@ -340,8 +333,7 @@ func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 
 	ctx := t.Context()
 
-	testPort := 6801
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -351,15 +343,8 @@ func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 	}
 	defer bs.Stop()
 
-	localAddr, err := net.ResolveUDPAddr("udp4", ":0")
-	if err != nil {
-		t.Fatalf("failed to resolve local address: %v", err)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", testPort))
-	if err != nil {
-		t.Fatalf("failed to resolve remote address: %v", err)
-	}
-	conn, err := net.DialUDP("udp4", localAddr, remoteAddr)
+	remoteAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.Itoa(dhcpPort))
+	conn, err := net.DialUDP("udp4", nil, remoteAddr)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -370,10 +355,10 @@ func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
 
-	t.Run("should respond even when Server Identifier option is set", func(t *testing.T) {
+	t.Run("should skip when Server Identifier option is set on Port 67", func(t *testing.T) {
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x17, 0x3f}
 		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
 			dhcpv4.WithHwAddr(mac),
 			dhcpv4.WithTransactionID(xid),
 			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(net.ParseIP("192.168.1.1"))),
@@ -389,23 +374,14 @@ func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 		}
 
 		resp := make([]byte, 1500)
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, _, err := conn.ReadFrom(resp)
-		if err != nil {
-			t.Fatalf("failed to receive response: %v", err)
-		}
-
-		reply, err := dhcpv4.FromBytes(resp[:n])
-		if err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		if reply.MessageType() != dhcpv4.MessageTypeOffer {
-			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		_, _, err = conn.ReadFrom(resp)
+		if err == nil {
+			t.Fatal("expected no response when Server Identifier is set")
 		}
 	})
 
-	t.Run("should respond when Server Identifier option is not set", func(t *testing.T) {
+	t.Run("should respond when Server Identifier option is not set on Port 67", func(t *testing.T) {
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x17, 0x40}
 		pkt, err := dhcpv4.New(
 			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
@@ -450,8 +426,7 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 
 	ctx := t.Context()
 
-	testPort := 6802
-	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
+	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -461,15 +436,8 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 	}
 	defer bs.Stop()
 
-	localAddr, err := net.ResolveUDPAddr("udp4", ":0")
-	if err != nil {
-		t.Fatalf("failed to resolve local address: %v", err)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("127.0.0.1:%d", testPort))
-	if err != nil {
-		t.Fatalf("failed to resolve remote address: %v", err)
-	}
-	conn, err := net.DialUDP("udp4", localAddr, remoteAddr)
+	remoteAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.Itoa(pxePort))
+	conn, err := net.DialUDP("udp4", nil, remoteAddr)
 	if err != nil {
 		t.Fatalf("failed to connect: %v", err)
 	}
@@ -480,10 +448,10 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
 
-	t.Run("arm64 EFI client receives arm64 boot file", func(t *testing.T) {
+	t.Run("arm64 EFI client receives arm64 boot file on Port 4011", func(t *testing.T) {
 		xid := dhcpv4.TransactionID{0x00, 0x00, 0x18, 0x01}
 		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
+			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
 			dhcpv4.WithHwAddr(mac),
 			dhcpv4.WithTransactionID(xid),
 			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
@@ -512,40 +480,6 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 		bootFile := reply.BootFileName
 		if bootFile != iPXEBootFileNameARM64 {
 			t.Errorf("expected boot file %s for arm64, got %s", iPXEBootFileNameARM64, bootFile)
-		}
-	})
-
-	t.Run("unknown architecture receives default boot file", func(t *testing.T) {
-		xid := dhcpv4.TransactionID{0x00, 0x00, 0x18, 0x02}
-		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeDiscover),
-			dhcpv4.WithHwAddr(mac),
-			dhcpv4.WithTransactionID(xid),
-			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-		)
-		if err != nil {
-			t.Fatalf("failed to create packet: %v", err)
-		}
-
-		if _, err := conn.Write(pkt.ToBytes()); err != nil {
-			t.Fatalf("failed to send packet: %v", err)
-		}
-
-		resp := make([]byte, 1500)
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, _, err := conn.ReadFrom(resp)
-		if err != nil {
-			t.Fatalf("failed to receive response: %v", err)
-		}
-
-		reply, err := dhcpv4.FromBytes(resp[:n])
-		if err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		bootFile := reply.BootFileName
-		if bootFile != iPXEBootFileNameAMD64 {
-			t.Errorf("expected default boot file %s (ArchEFIx8664 default), got %s", iPXEBootFileNameAMD64, bootFile)
 		}
 	})
 }

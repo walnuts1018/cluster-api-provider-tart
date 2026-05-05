@@ -20,7 +20,7 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 
 	handler := bs.createDHCPHandler(context.Background())
 
-	t.Run("Arch 0 (Legacy) should receive correct boot file", func(t *testing.T) {
+	t.Run("Arch 0 (Legacy) on Port 67 should not receive boot file", func(t *testing.T) {
 		m, _ := dhcpv4.NewDiscovery(net.HardwareAddr{0x18, 0x03, 0x73, 0xe4, 0xb9, 0xe7})
 		m.UpdateOption(dhcpv4.OptClientArch(iana.Arch(ArchIntelx86PC)))
 
@@ -31,7 +31,7 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 				response, err = dhcpv4.FromBytes(b)
 				return len(b), err
 			},
-			localAddr: &net.UDPAddr{Port: 67},
+			localAddr: &net.UDPAddr{Port: dhcpPort},
 		}
 
 		handler(fakeConn, &net.UDPAddr{IP: net.IPv4zero, Port: 68}, m)
@@ -40,12 +40,12 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 			t.Fatal("expected a response")
 		}
 
-		if response.BootFileName != iPXEBootFileNameLegacy {
-			t.Errorf("expected boot file %s, got %s", iPXEBootFileNameLegacy, response.BootFileName)
+		if response.BootFileName != "" {
+			t.Errorf("expected no boot file on port %d, got %s", dhcpPort, response.BootFileName)
 		}
 
-		if response.ServerIPAddr.String() == "0.0.0.0" {
-			t.Error("expected non-zero ServerIPAddr (siaddr)")
+		if response.YourIPAddr.String() != "0.0.0.0" {
+			t.Errorf("expected zero YourIPAddr (yiaddr), got %s", response.YourIPAddr)
 		}
 	})
 }

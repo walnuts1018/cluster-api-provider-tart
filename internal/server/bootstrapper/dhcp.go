@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -31,6 +32,13 @@ const (
 	iPXEBootFileNameDefault = "ipxe.efi"
 )
 
+var (
+	// dhcpPort は DHCP サーバーのポートです。
+	dhcpPort = 67
+	// pxePort は ProxyDHCP (PXE) サーバーのポートです。
+	pxePort = 4011
+)
+
 // Arch 型はクライアントのアーキテクチャを表します。
 type Arch uint16
 
@@ -45,10 +53,10 @@ const (
 // ProxyDHCP モードで動作し、既存のネットワークに影響を与えずに iPXE ローダを配信します。
 type DHCPBootstrapper struct {
 	tftpRoot    string
-	addr        string
+	bindIP      string
 	baseURL     string
 	advertiseIP net.IP
-	server      *server4.Server
+	servers     []*server4.Server
 	logger      logr.Logger
 	mu          sync.Mutex
 	done        chan struct{}
@@ -69,6 +77,11 @@ func NewDHCPBootstrapper(tftpRoot, addr, advertiseAddr, baseURL string) (*DHCPBo
 		return nil, fmt.Errorf("baseURL is required")
 	}
 
+	bindIP, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		bindIP = addr
+	}
+
 	advertiseIP := net.ParseIP(advertiseAddr)
 	if advertiseIP == nil {
 		return nil, fmt.Errorf("invalid advertise address: %s", advertiseAddr)
@@ -81,7 +94,7 @@ func NewDHCPBootstrapper(tftpRoot, addr, advertiseAddr, baseURL string) (*DHCPBo
 
 	return &DHCPBootstrapper{
 		tftpRoot:    tftpRoot,
-		addr:        addr,
+		bindIP:      bindIP,
 		baseURL:     baseURL,
 		advertiseIP: advertiseIP,
 		done:        make(chan struct{}),
@@ -106,37 +119,51 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 		}
 	}
 
-	// バインドアドレスからUDPアドレスを作成
-	udpAddr, err := net.ResolveUDPAddr("udp4", b.addr)
-	if err != nil {
-		return fmt.Errorf("invalid bind address %s: %w", b.addr, err)
-	}
-
 	// ProxyDHCP は既存の DHCP サーバーより低い優先度で動作するため、
 	// IPアドレスは割り当てず、ブートファイル名のみを提供します。
 	handler := b.createDHCPHandler(ctx)
 
-	server, err := server4.NewServer("", udpAddr, handler)
-	if err != nil {
-		return fmt.Errorf("failed to create DHCP server: %w", err)
+	// DHCPPort (67) と PXEPort (4011) の両方でサーバーを作成
+	ports := []int{dhcpPort, pxePort}
+	var servers []*server4.Server
+	for _, port := range ports {
+		addr := net.JoinHostPort(b.bindIP, strconv.Itoa(port))
+		udpAddr, err := net.ResolveUDPAddr("udp4", addr)
+		if err != nil {
+			return fmt.Errorf("invalid bind address %s: %w", addr, err)
+		}
+
+		server, err := server4.NewServer("", udpAddr, handler)
+		if err != nil {
+			return fmt.Errorf("failed to create DHCP server on port %d: %w", port, err)
+		}
+		servers = append(servers, server)
 	}
 
 	b.mu.Lock()
-	b.server = server
+	b.servers = servers
 	b.mu.Unlock()
 
-	lg.Info("Starting DHCP server", "address", b.addr)
+	lg.Info("Starting DHCP servers", "bindIP", b.bindIP, "ports", ports)
 
 	// サーバーの起動完了を待機するためのチャネル
 	serveStarted := make(chan struct{})
 	// サーバーを別ゴルーチンで起動
 	go func() {
 		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
-		if err := server.Serve(); err != nil {
-			if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
-				lg.Error(err, "DHCP server exited with error")
-			}
+		var wg sync.WaitGroup
+		for i, s := range b.servers {
+			wg.Add(1)
+			go func(srv *server4.Server, port int) {
+				defer wg.Done()
+				if err := srv.Serve(); err != nil {
+					if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+						lg.Error(err, "DHCP server exited with error", "port", port)
+					}
+				}
+			}(s, ports[i])
 		}
+		wg.Wait()
 		close(b.done)
 	}()
 
@@ -156,7 +183,7 @@ func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
 		}
 	}()
 
-	lg.Info("DHCP server started")
+	lg.Info("DHCP servers started")
 	return nil
 }
 
@@ -165,7 +192,13 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 	return func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
 		lg := b.logger.WithName("dhcp-handler")
 
-		lg.Info("Received DHCP packet", "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr)
+		localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+		if !ok {
+			return
+		}
+		port := localAddr.Port
+
+		lg.Info("Received DHCP packet", "port", port, "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr)
 
 		// BootRequestのみを処理
 		if m.OpCode != dhcpv4.OpcodeBootRequest {
@@ -177,10 +210,21 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		defer span.End()
 
 		span.SetAttributes(
+			attribute.Int("dhcp.port", port),
 			attribute.String("dhcp.client_mac", m.ClientHWAddr.String()),
 			attribute.String("dhcp.message_type", m.MessageType().String()),
 			attribute.String("dhcp.transaction_id", fmt.Sprintf("%#x", m.TransactionID)),
 		)
+
+		// Port 67 (DHCP) の場合、既存のDHCPサーバーが既に応答したパケット（Server Identifierが設定されているもの）は無視する
+		if port == dhcpPort {
+			serverID := m.GetOneOption(dhcpv4.OptionServerIdentifier)
+			if serverID != nil {
+				lg.Info("Skipping ProxyDHCP response, existing DHCP server already responded")
+				span.SetAttributes(attribute.Bool("dhcp.proxy_skip", true))
+				return
+			}
+		}
 
 		// クライアントのアーキテクチャを取得 (Option 93)
 		arch := ArchEFIx8664 // Default
@@ -216,20 +260,39 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 
 		// 新しいDHCPv4レスポンスを作成
-		resp, err := dhcpv4.NewReplyFromRequest(m,
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
-			dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
-			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-		)
+		var resp *dhcpv4.DHCPv4
+		var err error
+
+		if port == dhcpPort {
+			// Port 67: ProxyDHCP Offer
+			// 自分自身がProxyDHCPであることを名乗る (Option 60: PXEClient)
+			resp, err = dhcpv4.NewReplyFromRequest(m,
+				dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
+				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
+				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			)
+		} else {
+			// Port 4011: PXE Request response
+			// 実際のブートファイル名とTFTPサーバーのIPアドレスを教える
+			resp, err = dhcpv4.NewReplyFromRequest(m,
+				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
+				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			)
+			if err == nil {
+				resp.BootFileName = bootFile
+				resp.ServerIPAddr = b.advertiseIP
+			}
+		}
+
 		if err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			lg.Error(err, "Failed to create DHCP response")
 			return
 		}
-		resp.BootFileName = bootFile
-		resp.ServerHostName = ""
-		resp.ServerIPAddr = b.advertiseIP
+
+		// ProxyDHCP では yiaddr (Your IP Address) は常に 0.0.0.0 であるべき
+		resp.YourIPAddr = net.IPv4zero
 
 		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
 			span.RecordError(err)
@@ -243,13 +306,13 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			attribute.String("dhcp.boot_file", bootFile),
 			attribute.Int("dhcp.arch", int(arch)),
 		)
-		lg.Info("Sent DHCP Offer", "client_mac", m.ClientHWAddr.String(), "boot_file", bootFile, "arch", arch)
+		lg.Info("Sent DHCP response", "port", port, "client_mac", m.ClientHWAddr.String(), "boot_file", bootFile, "arch", arch)
 	}
 }
 
 // Addr はサーバーのアドレスを返します。
 func (b *DHCPBootstrapper) Addr() string {
-	return b.addr
+	return b.bindIP
 }
 
 // NeedLeaderElection はリーダー選挙が必要ないことを返します。
@@ -260,22 +323,23 @@ func (b *DHCPBootstrapper) NeedLeaderElection() bool {
 // Stop はDHCPサーバーを停止します。
 func (b *DHCPBootstrapper) Stop() error {
 	b.mu.Lock()
-	server := b.server
+	servers := b.servers
 	b.mu.Unlock()
 
-	if server == nil {
+	if len(servers) == 0 {
 		return nil
 	}
 
 	lg := b.logger.WithName("bootstrapper")
-	lg.Info("Stopping DHCP server")
+	lg.Info("Stopping DHCP servers")
 
-	if err := server.Close(); err != nil {
-		lg.Error(err, "Error occurred while stopping DHCP server")
-		return fmt.Errorf("failed to close DHCP server: %w", err)
+	for _, server := range servers {
+		if err := server.Close(); err != nil {
+			lg.Error(err, "Error occurred while stopping DHCP server")
+		}
 	}
 
-	lg.Info("DHCP server stopped")
+	lg.Info("DHCP servers stopped")
 	return nil
 }
 

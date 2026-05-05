@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -187,13 +188,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 
 		// User-Class (Option 77) を確認して iPXE かどうかを判定
-		isIPXE := false
-		for _, uc := range m.UserClass() {
-			if uc == "iPXE" {
-				isIPXE = true
-				break
-			}
-		}
+		isIPXE := slices.Contains(m.UserClass(), "iPXE")
 
 		var bootFile string
 		if isIPXE {

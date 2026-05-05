@@ -35,6 +35,9 @@ RUN --mount=type=cache,target=/go/pkg/mod/ \
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
 COPY --from=builder /workspace/manager .
+
+RUN setcap 'cap_net_bind_service=+ep' /manager
+
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

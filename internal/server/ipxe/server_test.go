@@ -117,6 +117,90 @@ func TestHandlerDynamicScript(t *testing.T) {
 			Image: "https://example.com/vmlinuz-boot",
 		},
 	}
+	host3 := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host-3",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:21",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine-nocloud",
+				Namespace: "default",
+			},
+		},
+	}
+	machineNoCloud := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-nocloud",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartMachineSpec{
+			Image: "https://example.com/vmlinuz-nocloud",
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+			},
+		},
+	}
+	host4 := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host-4",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:22",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine-preseed",
+				Namespace: "default",
+			},
+		},
+	}
+	machinePreseed := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-preseed",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartMachineSpec{
+			Image: "https://example.com/vmlinuz-preseed",
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatPreseed,
+			},
+		},
+	}
+	host5 := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host-5",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:23",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine-raw",
+				Namespace: "default",
+			},
+		},
+	}
+	machineRaw := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-raw",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartMachineSpec{
+			Image: "https://example.com/vmlinuz-raw",
+			KernelParams: []string{
+				"console=ttyS0",
+			},
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatRaw,
+			},
+		},
+	}
 	tokenSecret1 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-machine-1-bootstrap-token",
@@ -135,8 +219,35 @@ func TestHandlerDynamicScript(t *testing.T) {
 			"token": []byte(token),
 		},
 	}
+	tokenSecret3 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-nocloud-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
+	tokenSecret4 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-preseed-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
+	tokenSecret5 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-raw-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
 
-	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, tokenSecret1, tokenSecret2)
+	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
@@ -179,6 +290,54 @@ func TestHandlerDynamicScript(t *testing.T) {
 		}
 		if !strings.Contains(body, "talos.config=http://bootstrap.example.invalid/metadata/default/test-machine-2?token="+token) {
 			t.Errorf("body missing metadata URL for boot mac: %s", body)
+		}
+	})
+
+	t.Run("ValidRequest_NoCloudFormat", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:21", nil)
+		req.Host = "bootstrap.example.invalid"
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "ds=nocloud-net;s=http://bootstrap.example.invalid/metadata/default/test-machine-nocloud/nocloud/?token="+token) {
+			t.Errorf("body missing NoCloud seed URL: %s", body)
+		}
+	})
+
+	t.Run("ValidRequest_PreseedFormat", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:22", nil)
+		req.Host = "bootstrap.example.invalid"
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "auto=true priority=critical url=http://bootstrap.example.invalid/metadata/default/test-machine-preseed/preseed.cfg?token="+token) {
+			t.Errorf("body missing preseed URL: %s", body)
+		}
+	})
+
+	t.Run("ValidRequest_RawFormat", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:23", nil)
+		req.Host = "bootstrap.example.invalid"
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if strings.Contains(body, "talos.config=") || strings.Contains(body, "ds=nocloud-net") || strings.Contains(body, "preseed.cfg") {
+			t.Errorf("raw format unexpectedly added bootstrap params: %s", body)
 		}
 	})
 

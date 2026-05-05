@@ -164,17 +164,13 @@ func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructu
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
-	params := strings.Join(machine.Spec.KernelParams, " ")
-	metadataURL, err := buildMetadataURL(c.Request().Context(), cl, serverURL, machine)
+	bootstrapParams, err := buildBootstrapKernelParams(c.Request().Context(), cl, serverURL, machine)
 	if err != nil {
 		return "", err
 	}
-	if metadataURL != "" {
-		if params != "" {
-			params += " "
-		}
-		params += "talos.config=" + metadataURL
-	}
+	paramsList := append([]string{}, machine.Spec.KernelParams...)
+	paramsList = append(paramsList, bootstrapParams...)
+	params := strings.Join(paramsList, " ")
 
 	if params == "" {
 		fmt.Fprintf(&sb, "kernel %s\n", machine.Spec.Image)
@@ -189,16 +185,49 @@ func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructu
 	return sb.String(), nil
 }
 
-func buildMetadataURL(ctx context.Context, cl client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine) (string, error) {
+func bootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineBootstrapFormat {
+	if machine.Spec.Bootstrap.Format == "" {
+		return infrastructurev1alpha1.TartMachineBootstrapFormatTalos
+	}
+	return machine.Spec.Bootstrap.Format
+}
+
+func buildBootstrapKernelParams(ctx context.Context, cl client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine) ([]string, error) {
 	token, exists, err := k8sbootstraptoken.NewService(cl).Get(ctx, machine)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !exists {
-		return "", nil
+		return nil, nil
 	}
+
+	switch bootstrapFormat(machine) {
+	case infrastructurev1alpha1.TartMachineBootstrapFormatTalos:
+		return []string{"talos.config=" + buildMetadataURL(serverURL, machine, token.String())}, nil
+	case infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud:
+		return []string{"ds=nocloud-net;s=" + buildNoCloudSeedURL(serverURL, machine, token.String())}, nil
+	case infrastructurev1alpha1.TartMachineBootstrapFormatPreseed:
+		return []string{"auto=true", "priority=critical", "url=" + buildPreseedURL(serverURL, machine, token.String())}, nil
+	case infrastructurev1alpha1.TartMachineBootstrapFormatRaw:
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unsupported bootstrap format: %s", machine.Spec.Bootstrap.Format)
+	}
+}
+
+func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
 	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token.String())), nil
+	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+}
+
+func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
+	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
+	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+}
+
+func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
+	metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
+	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
 }
 
 func handleMetadata(c *echo.Context, cl client.Client) error {

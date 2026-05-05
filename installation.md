@@ -52,19 +52,7 @@ helm install capi-operator cluster-api-operator/cluster-api-operator \
   -f values.yaml
 ```
 
-## Step 2. HTTPRoute を追加する
-
-Tart Provider は、iPXE script と bootstrap metadata を HTTPで公開します。これらは、物理ホストがネットワークブートして起動する際に必要な情報を提供します。
-クラスタ外からでもこれらの情報にアクセスできるようにするために、HTTPRoute を作成する必要があります。
-
-sample は [config/samples/httproute.yaml](./config/samples/httproute.yaml)にあります。
-利用中の Gateway に合わせて `parentRefs` と `hostnames` を変更してください。
-
-```bash
-kubectl apply -f httproute.yaml
-```
-
-## Step 3. TartHost を登録する
+## Step 2. TartHost を登録する
 
 `TartHost` は、物理マシンと対応するリソースです。Cluster API が workload cluster を作成する際に、登録された `TartHost` を使ってプロビジョニングを行います。
 
@@ -83,7 +71,7 @@ spec:
 kubectl apply -f tart-host.yaml
 ```
 
-## Step 4. kubeadm クラスタ用の sample manifest を確認する
+## Step 3. kubeadm クラスタ用の sample manifest を確認する
 
 workload cluster の雛形は [config/samples/cluster-kubeadm-ubuntu.yaml](./config/samples/cluster-kubeadm-ubuntu.yaml) にあります。
 この sample は Ubuntu kubeadm 用の NoCloud bootstrap を既定としており、NoCloud seed URL は controller が iPXE script へ自動で追加します。

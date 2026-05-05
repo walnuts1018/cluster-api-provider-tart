@@ -26,7 +26,7 @@ spec:
       bootstrap:
         format: NoCloud
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp
       - autoinstall
 ---
@@ -42,6 +42,6 @@ spec:
       bootstrap:
         format: NoCloud
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp
       - autoinstall

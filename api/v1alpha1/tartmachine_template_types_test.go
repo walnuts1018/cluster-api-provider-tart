@@ -32,7 +32,7 @@ func TestTartMachineTemplateCarriesTartMachineSpec(t *testing.T) {
 				Spec: TartMachineSpec{
 					Image:        "https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz",
 					Initrd:       "https://assets.hoge.test.walnuts.dev/ubuntu/initrd",
-					KernelParams: []string{"console=ttyS0", "autoinstall"},
+					KernelParams: []string{"console=tty0", "autoinstall"},
 					Bootstrap: TartMachineBootstrapSpec{
 						Format: TartMachineBootstrapFormatNoCloud,
 					},

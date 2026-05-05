@@ -179,7 +179,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		},
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image:        "https://example.com/vmlinuz",
-			KernelParams: []string{"console=ttyS0"},
+			KernelParams: []string{"console=tty0"},
 			Initrd:       "https://example.com/initrd",
 			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
 				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
@@ -296,7 +296,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image: "https://example.com/vmlinuz-raw",
 			KernelParams: []string{
-				"console=ttyS0",
+				"console=tty0",
 			},
 			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
 				Format: infrastructurev1alpha1.TartMachineBootstrapFormatRaw,
@@ -403,7 +403,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "#!ipxe") {
 			t.Errorf("body missing iPXE header: %s", body)
 		}
-		if !strings.Contains(body, "kernel https://example.com/vmlinuz console=ttyS0") {
+		if !strings.Contains(body, "kernel https://example.com/vmlinuz console=tty0") {
 			t.Errorf("body missing kernel image and params: %s", body)
 		}
 		if !strings.Contains(body, "initrd https://example.com/initrd") {

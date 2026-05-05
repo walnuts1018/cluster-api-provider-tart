@@ -27,7 +27,7 @@ spec:
       bootstrap:
         format: Talos
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
@@ -43,5 +43,5 @@ spec:
       bootstrap:
         format: Talos
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp

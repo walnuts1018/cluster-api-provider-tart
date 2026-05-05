@@ -27,7 +27,7 @@ spec:
       bootstrap:
         format: Preseed
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp
       - interface=auto
 ---
@@ -44,6 +44,6 @@ spec:
       bootstrap:
         format: Preseed
       kernelParams:
-      - console=ttyS0
+      - console=tty0
       - ip=dhcp
       - interface=auto

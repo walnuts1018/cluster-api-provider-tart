@@ -1,7 +1,0 @@
-owner: walnuts1018
-git-repo: cluster-api-provider-tart
-release-name-template: "{{ .Name }}-chart-{{ .Version }}"
-# Helm Chartのリリースがlatestにならないようにしておく
-make-release-latest: false
-# リリースノートのファイルはGitHub Actionsで生成する
-release-notes-file: RELEASE.md

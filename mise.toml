@@ -10,8 +10,6 @@ tilt = "latest"
 golangci-lint = "latest"
 go = "latest"
 k9s = "latest"
-"aqua:arttor/helmify" = "latest"
-helm = "latest"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"
@@ -415,10 +413,4 @@ if [ -x bin/golangci-lint ]; then
 else
   golangci-lint version
 fi
-'''
-
-[tasks.helmify]
-description = "config/default を helmify して charts/cluster-api-provider-tart に出力する"
-run = '''
-kustomize build config/default | helmify -crd-dir charts/cluster-api-provider-tart
 '''

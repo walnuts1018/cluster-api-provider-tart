@@ -201,6 +201,10 @@ func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructu
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
+	if machine.Spec.Initrd != "" {
+		fmt.Fprintf(&sb, "initrd --name initrd %s\n", machine.Spec.Initrd)
+	}
+
 	bootstrapParams, err := buildBootstrapKernelParams(c.Request().Context(), cl, serverURL, machine, svc)
 	if err != nil {
 		return "", err
@@ -210,12 +214,9 @@ func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructu
 	params := strings.Join(paramsList, " ")
 
 	if params == "" {
-		fmt.Fprintf(&sb, "kernel %s\n", machine.Spec.Image)
+		fmt.Fprintf(&sb, "kernel %s initrd=initrd\n", machine.Spec.Image)
 	} else {
-		fmt.Fprintf(&sb, "kernel %s %s\n", machine.Spec.Image, params)
-	}
-	if machine.Spec.Initrd != "" {
-		fmt.Fprintf(&sb, "initrd %s\n", machine.Spec.Initrd)
+		fmt.Fprintf(&sb, "kernel %s initrd=initrd %s\n", machine.Spec.Image, params)
 	}
 	sb.WriteString("boot\n")
 

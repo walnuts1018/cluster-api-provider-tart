@@ -8,6 +8,7 @@ kubebuilder = "latest"
 kubectl = "latest"
 tilt = "latest"
 golangci-lint = "latest"
+actionlint = "latest"
 go = "latest"
 k9s = "latest"
 
@@ -111,6 +112,7 @@ if [ -x bin/golangci-lint ]; then
 else
   golangci-lint run
 fi
+mise run actionlint
 '''
 
 [tasks.lint-fix]
@@ -134,6 +136,10 @@ else
   golangci-lint config verify
 fi
 '''
+
+[tasks.actionlint]
+description = "GitHub Actions workflow を actionlint で検証する"
+run = "actionlint"
 
 [tasks.build]
 description = "manager バイナリをビルドする"

@@ -347,15 +347,21 @@ func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, c
 		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 	}
 
-	secretName, err := bootstrapDataSecretName(ctx, cl, machine)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "owner not found")
-			return c.String(http.StatusNotFound, "bootstrap secret owner Machine not found")
+	var secretName string
+	if machine.Status.BootstrapSecretName != "" {
+		secretName = machine.Status.BootstrapSecretName
+	} else {
+		var err error
+		secretName, err = bootstrapDataSecretName(ctx, cl, machine)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				span.SetStatus(codes.Error, "owner not found")
+				return c.String(http.StatusNotFound, fmt.Sprintf("bootstrap secret owner %v", err))
+			}
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			return c.String(http.StatusPreconditionFailed, err.Error())
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusPreconditionFailed, err.Error())
 	}
 
 	var secret corev1.Secret
@@ -518,13 +524,16 @@ func validateNoCloudMetadataRequest(c *echo.Context, cl client.Client, svc appli
 func bootstrapDataSecretName(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (string, error) {
 	gvk, name := ownerMachineReference(machine)
 	if name == "" {
-		gvk = schema.GroupVersionKind{Group: "cluster.x-k8s.io", Version: "v1beta1", Kind: "Machine"}
+		gvk = schema.GroupVersionKind{Group: "cluster.x-k8s.io", Version: "v1beta2", Kind: "Machine"}
 		name = machine.Name
 	}
 
 	var capiMachine unstructured.Unstructured
 	capiMachine.SetGroupVersionKind(gvk)
 	if err := cl.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: name}, &capiMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("Machine %s/%s not found: %w", machine.Namespace, name, err)
+		}
 		return "", err
 	}
 

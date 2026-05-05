@@ -94,7 +94,7 @@ func metadataObjects(token string) (
 			Generation: 3,
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: "cluster.x-k8s.io/v1beta1",
+					APIVersion: "cluster.x-k8s.io/v1beta2",
 					Kind:       "Machine",
 					Name:       "capi-machine",
 				},
@@ -111,7 +111,7 @@ func metadataObjects(token string) (
 	}
 	capiMachine := &unstructured.Unstructured{
 		Object: map[string]any{
-			"apiVersion": "cluster.x-k8s.io/v1beta1",
+			"apiVersion": "cluster.x-k8s.io/v1beta2",
 			"kind":       "Machine",
 			"metadata": map[string]any{
 				"name":      "capi-machine",
@@ -681,6 +681,24 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 	})
 
+	t.Run("ValidTokenWithStatusBootstrapSecretName", func(t *testing.T) {
+		tartMachine, _, tokenSecret, bootstrapSecret := metadataObjects(token)
+		// Set BootstrapSecretName in status and REMOVE capiMachine from the client to ensure it's not used
+		tartMachine.Status.BootstrapSecretName = "bootstrap-secret"
+		cl := setupFakeClient(t, s, tartMachine, bootstrapSecret, tokenSecret)
+		svc := setupBootstrapTokenService(t, cl)
+
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
+
+		assertStatus(t, rec, http.StatusOK)
+		if body := rec.Body.String(); body != testBootstrapData {
+			t.Fatalf("body = %q, want %q", body, testBootstrapData)
+		}
+	})
+
 	t.Run("NoCloudMetaDataDoesNotConsumeToken", func(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
@@ -851,7 +869,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{
 					{
-						APIVersion: "cluster.x-k8s.io/v1beta1",
+						APIVersion: "cluster.x-k8s.io/v1beta2",
 						Kind:       "Machine",
 						Name:       "capi-machine",
 					},
@@ -877,7 +895,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		capiMachine := &unstructured.Unstructured{
 			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"apiVersion": "cluster.x-k8s.io/v1beta2",
 				"kind":       "Machine",
 				"metadata": map[string]any{
 					"name":      "capi-machine",
@@ -921,7 +939,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{
 					{
-						APIVersion: "cluster.x-k8s.io/v1beta1",
+						APIVersion: "cluster.x-k8s.io/v1beta2",
 						Kind:       "Machine",
 						Name:       "capi-machine",
 					},
@@ -947,7 +965,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		capiMachine := &unstructured.Unstructured{
 			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"apiVersion": "cluster.x-k8s.io/v1beta2",
 				"kind":       "Machine",
 				"metadata": map[string]any{
 					"name":      "capi-machine",
@@ -991,7 +1009,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{
 					{
-						APIVersion: "cluster.x-k8s.io/v1beta1",
+						APIVersion: "cluster.x-k8s.io/v1beta2",
 						Kind:       "Machine",
 						Name:       "capi-machine",
 					},
@@ -1017,7 +1035,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		capiMachine := &unstructured.Unstructured{
 			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"apiVersion": "cluster.x-k8s.io/v1beta2",
 				"kind":       "Machine",
 				"metadata": map[string]any{
 					"name":      "capi-machine",
@@ -1060,7 +1078,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 				Namespace: "default",
 				OwnerReferences: []metav1.OwnerReference{
 					{
-						APIVersion: "cluster.x-k8s.io/v1beta1",
+						APIVersion: "cluster.x-k8s.io/v1beta2",
 						Kind:       "Machine",
 						Name:       "capi-machine",
 					},
@@ -1069,7 +1087,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		capiMachine := &unstructured.Unstructured{
 			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta1",
+				"apiVersion": "cluster.x-k8s.io/v1beta2",
 				"kind":       "Machine",
 				"metadata": map[string]any{
 					"name":      "capi-machine",

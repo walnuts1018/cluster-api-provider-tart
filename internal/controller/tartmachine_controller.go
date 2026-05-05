@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -103,6 +104,14 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	coreMachine, fetchErr := r.fetchCoreMachine(ctx, &machine)
 	if fetchErr == nil && coreMachine != nil {
+		if coreMachine.Spec.Bootstrap.DataSecretName != nil && machine.Status.BootstrapSecretName != *coreMachine.Spec.Bootstrap.DataSecretName {
+			original := machine.DeepCopy()
+			machine.Status.BootstrapSecretName = *coreMachine.Spec.Bootstrap.DataSecretName
+			if err := r.Status().Patch(ctx, &machine, client.MergeFrom(original)); err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to update TartMachine BootstrapSecretName: %w", err)
+			}
+		}
+
 		clusterName, ok := coreMachine.Labels[clusterv1.ClusterNameLabel]
 		if ok {
 			var capiCluster clusterv1.Cluster
@@ -297,11 +306,19 @@ func (r *TartMachineReconciler) tokenService() applicationbootstraptoken.Service
 }
 
 func (r *TartMachineReconciler) fetchCoreMachine(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) (*clusterv1.Machine, error) {
-	var coreMachine clusterv1.Machine
-	if err := r.Get(ctx, types.NamespacedName{Name: machine.Name, Namespace: machine.Namespace}, &coreMachine); err != nil {
+	coreMachine, err := util.GetOwnerMachine(ctx, r.Client, machine.ObjectMeta)
+	if err != nil {
+		return nil, err
+	}
+	if coreMachine != nil {
+		return coreMachine, nil
+	}
+
+	var m clusterv1.Machine
+	if err := r.Get(ctx, types.NamespacedName{Name: machine.Name, Namespace: machine.Namespace}, &m); err != nil {
 		return nil, client.IgnoreNotFound(err)
 	}
-	return &coreMachine, nil
+	return &m, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

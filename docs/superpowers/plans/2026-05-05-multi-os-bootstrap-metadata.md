@@ -94,6 +94,7 @@ Task 1 と Task 2 は仕様レビュー、コード品質レビューともに�
 ### Task 1: API に bootstrap format を追加
 
 **Files:**
+
 - Modify: `api/v1alpha1/tartmachine_types.go`
 - Modify: `api/v1alpha1/tartmachine_template_types_test.go`
 - Generated later: `api/v1alpha1/zz_generated.deepcopy.go`
@@ -106,18 +107,18 @@ Task 1 と Task 2 は仕様レビュー、コード品質レビューともに�
 
 ```go
 Spec: TartMachineSpec{
-	Image:        "https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz",
-	Initrd:       "https://assets.hoge.test.walnuts.dev/ubuntu/initrd",
-	KernelParams: []string{"console=ttyS0", "autoinstall"},
-	Bootstrap: TartMachineBootstrapSpec{
-		Format: TartMachineBootstrapFormatNoCloud,
-	},
+ Image:        "https://assets.hoge.test.walnuts.dev/ubuntu/vmlinuz",
+ Initrd:       "https://assets.hoge.test.walnuts.dev/ubuntu/initrd",
+ KernelParams: []string{"console=ttyS0", "autoinstall"},
+ Bootstrap: TartMachineBootstrapSpec{
+  Format: TartMachineBootstrapFormatNoCloud,
+ },
 },
 ```
 
 ```go
 if got, want := template.Spec.Template.Spec.Bootstrap.Format, TartMachineBootstrapFormatNoCloud; got != want {
-	t.Fatalf("bootstrap.format = %q, want %q", got, want)
+ t.Fatalf("bootstrap.format = %q, want %q", got, want)
 }
 ```
 
@@ -140,23 +141,23 @@ Expected: `undefined: TartMachineBootstrapSpec` または `undefined: TartMachin
 type TartMachineBootstrapFormat string
 
 const (
-	// TartMachineBootstrapFormatTalos serves bootstrap data as a single Talos machine config.
-	TartMachineBootstrapFormatTalos TartMachineBootstrapFormat = "Talos"
-	// TartMachineBootstrapFormatNoCloud serves bootstrap data through cloud-init NoCloud files.
-	TartMachineBootstrapFormatNoCloud TartMachineBootstrapFormat = "NoCloud"
-	// TartMachineBootstrapFormatPreseed serves bootstrap data as a Debian Installer preseed file.
-	TartMachineBootstrapFormatPreseed TartMachineBootstrapFormat = "Preseed"
-	// TartMachineBootstrapFormatRaw leaves bootstrap kernel parameters fully user-managed.
-	TartMachineBootstrapFormatRaw TartMachineBootstrapFormat = "Raw"
+ // TartMachineBootstrapFormatTalos serves bootstrap data as a single Talos machine config.
+ TartMachineBootstrapFormatTalos TartMachineBootstrapFormat = "Talos"
+ // TartMachineBootstrapFormatNoCloud serves bootstrap data through cloud-init NoCloud files.
+ TartMachineBootstrapFormatNoCloud TartMachineBootstrapFormat = "NoCloud"
+ // TartMachineBootstrapFormatPreseed serves bootstrap data as a Debian Installer preseed file.
+ TartMachineBootstrapFormatPreseed TartMachineBootstrapFormat = "Preseed"
+ // TartMachineBootstrapFormatRaw leaves bootstrap kernel parameters fully user-managed.
+ TartMachineBootstrapFormatRaw TartMachineBootstrapFormat = "Raw"
 )
 
 // TartMachineBootstrapSpec defines how bootstrap data is served to the machine.
 type TartMachineBootstrapSpec struct {
-	// format selects how bootstrap data is exposed to the booted OS or installer.
-	// Defaults to Talos when omitted.
-	// +optional
-	// +kubebuilder:validation:Enum=Talos;NoCloud;Preseed;Raw
-	Format TartMachineBootstrapFormat `json:"format,omitempty"`
+ // format selects how bootstrap data is exposed to the booted OS or installer.
+ // Defaults to Talos when omitted.
+ // +optional
+ // +kubebuilder:validation:Enum=Talos;NoCloud;Preseed;Raw
+ Format TartMachineBootstrapFormat `json:"format,omitempty"`
 }
 ```
 
@@ -214,6 +215,7 @@ git --no-pager commit --signoff -m "bootstrap metadata形式をTartMachine API�
 ### Task 2: iPXE script の format 別 kernel parameter を実装
 
 **Files:**
+
 - Modify: `internal/server/ipxe/server_test.go`
 - Modify: `internal/server/ipxe/server.go`
 
@@ -225,19 +227,19 @@ git --no-pager commit --signoff -m "bootstrap metadata形式をTartMachine API�
 
 ```go
 if !strings.Contains(body, "ds=nocloud-net;s=http://bootstrap.example.invalid/metadata/default/test-machine-nocloud/nocloud/"+token+"/") {
-	t.Errorf("body missing NoCloud seed URL: %s", body)
+ t.Errorf("body missing NoCloud seed URL: %s", body)
 }
 ```
 
 ```go
 if !strings.Contains(body, "auto=true priority=critical url=http://bootstrap.example.invalid/metadata/default/test-machine-preseed/preseed.cfg?token="+token) {
-	t.Errorf("body missing preseed URL: %s", body)
+ t.Errorf("body missing preseed URL: %s", body)
 }
 ```
 
 ```go
 if strings.Contains(body, "talos.config=") || strings.Contains(body, "ds=nocloud-net") || strings.Contains(body, "preseed.cfg") {
-	t.Errorf("raw format unexpectedly added bootstrap params: %s", body)
+ t.Errorf("raw format unexpectedly added bootstrap params: %s", body)
 }
 ```
 
@@ -257,25 +259,25 @@ Expected: NoCloud / Preseed / Raw の期待値が満たされず失敗する。
 
 ```go
 func bootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineBootstrapFormat {
-	if machine.Spec.Bootstrap.Format == "" {
-		return infrastructurev1alpha1.TartMachineBootstrapFormatTalos
-	}
-	return machine.Spec.Bootstrap.Format
+ if machine.Spec.Bootstrap.Format == "" {
+  return infrastructurev1alpha1.TartMachineBootstrapFormatTalos
+ }
+ return machine.Spec.Bootstrap.Format
 }
 
 func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+ metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
+ return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
 }
 
 func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/%s/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
-	return serverURL + metadataPath
+ metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/%s/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
+ return serverURL + metadataPath
 }
 
 func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+ metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
+ return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
 }
 ```
 
@@ -286,7 +288,7 @@ func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachi
 ```go
 bootstrapParams, err := buildBootstrapKernelParams(c.Request().Context(), cl, serverURL, machine)
 if err != nil {
-	return "", err
+ return "", err
 }
 paramsList := append([]string{}, machine.Spec.KernelParams...)
 paramsList = append(paramsList, bootstrapParams...)
@@ -297,26 +299,26 @@ params := strings.Join(paramsList, " ")
 
 ```go
 func buildBootstrapKernelParams(ctx context.Context, cl client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine) ([]string, error) {
-	token, exists, err := k8sbootstraptoken.NewService(cl).Get(ctx, machine)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, nil
-	}
+ token, exists, err := k8sbootstraptoken.NewService(cl).Get(ctx, machine)
+ if err != nil {
+  return nil, err
+ }
+ if !exists {
+  return nil, nil
+ }
 
-	switch bootstrapFormat(machine) {
-	case infrastructurev1alpha1.TartMachineBootstrapFormatTalos:
-		return []string{"talos.config=" + buildMetadataURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud:
-		return []string{"ds=nocloud-net;s=" + buildNoCloudSeedURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatPreseed:
-		return []string{"auto=true", "priority=critical", "url=" + buildPreseedURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatRaw:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("unsupported bootstrap format: %s", machine.Spec.Bootstrap.Format)
-	}
+ switch bootstrapFormat(machine) {
+ case infrastructurev1alpha1.TartMachineBootstrapFormatTalos:
+  return []string{"talos.config=" + buildMetadataURL(serverURL, machine, token.String())}, nil
+ case infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud:
+  return []string{"ds=nocloud-net;s=" + buildNoCloudSeedURL(serverURL, machine, token.String())}, nil
+ case infrastructurev1alpha1.TartMachineBootstrapFormatPreseed:
+  return []string{"auto=true", "priority=critical", "url=" + buildPreseedURL(serverURL, machine, token.String())}, nil
+ case infrastructurev1alpha1.TartMachineBootstrapFormatRaw:
+  return nil, nil
+ default:
+  return nil, fmt.Errorf("unsupported bootstrap format: %s", machine.Spec.Bootstrap.Format)
+ }
 }
 ```
 
@@ -345,6 +347,7 @@ git --no-pager commit --signoff -m "bootstrap形式別にiPXE kernel parameter�
 ### Task 3: NoCloud と Preseed の metadata endpoint を実装
 
 **Files:**
+
 - Modify: `internal/server/ipxe/server_test.go`
 - Modify: `internal/server/ipxe/server.go`
 
@@ -356,85 +359,85 @@ git --no-pager commit --signoff -m "bootstrap形式別にiPXE kernel parameter�
 
 ```go
 func metadataObjects(machineName, ownerName, secretName, token string, expiresAt time.Time) (*infrastructurev1alpha1.TartMachine, *unstructured.Unstructured, *corev1.Secret, *corev1.Secret) {
-	tartMachine := &infrastructurev1alpha1.TartMachine{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:       machineName,
-			Namespace:  "default",
-			Generation: 3,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion: "cluster.x-k8s.io/v1beta1",
-					Kind:       "Machine",
-					Name:       ownerName,
-				},
-			},
-		},
-		Status: infrastructurev1alpha1.TartMachineStatus{
-			HostRef: &corev1.ObjectReference{
-				Name:      "test-host",
-				Namespace: "default",
-			},
-			ProvisioningStartTime: &metav1.Time{Time: expiresAt.Add(-10 * time.Minute)},
-			TokenExpiresAt:        &metav1.Time{Time: expiresAt},
-		},
-	}
-	capiMachine := &unstructured.Unstructured{
-		Object: map[string]any{
-			"apiVersion": "cluster.x-k8s.io/v1beta1",
-			"kind":       "Machine",
-			"metadata": map[string]any{
-				"name":      ownerName,
-				"namespace": "default",
-			},
-			"spec": map[string]any{
-				"bootstrap": map[string]any{
-					"dataSecretName": secretName,
-				},
-			},
-		},
-	}
-	bootstrapSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"value": []byte("bootstrap-config"),
-		},
-	}
-	tokenSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      machineName + "-bootstrap-token",
-			Namespace: "default",
-		},
-		Data: map[string][]byte{
-			"token": []byte(token),
-		},
-	}
-	return tartMachine, capiMachine, bootstrapSecret, tokenSecret
+ tartMachine := &infrastructurev1alpha1.TartMachine{
+  ObjectMeta: metav1.ObjectMeta{
+   Name:       machineName,
+   Namespace:  "default",
+   Generation: 3,
+   OwnerReferences: []metav1.OwnerReference{
+    {
+     APIVersion: "cluster.x-k8s.io/v1beta1",
+     Kind:       "Machine",
+     Name:       ownerName,
+    },
+   },
+  },
+  Status: infrastructurev1alpha1.TartMachineStatus{
+   HostRef: &corev1.ObjectReference{
+    Name:      "test-host",
+    Namespace: "default",
+   },
+   ProvisioningStartTime: &metav1.Time{Time: expiresAt.Add(-10 * time.Minute)},
+   TokenExpiresAt:        &metav1.Time{Time: expiresAt},
+  },
+ }
+ capiMachine := &unstructured.Unstructured{
+  Object: map[string]any{
+   "apiVersion": "cluster.x-k8s.io/v1beta1",
+   "kind":       "Machine",
+   "metadata": map[string]any{
+    "name":      ownerName,
+    "namespace": "default",
+   },
+   "spec": map[string]any{
+    "bootstrap": map[string]any{
+     "dataSecretName": secretName,
+    },
+   },
+  },
+ }
+ bootstrapSecret := &corev1.Secret{
+  ObjectMeta: metav1.ObjectMeta{
+   Name:      secretName,
+   Namespace: "default",
+  },
+  Data: map[string][]byte{
+   "value": []byte("bootstrap-config"),
+  },
+ }
+ tokenSecret := &corev1.Secret{
+  ObjectMeta: metav1.ObjectMeta{
+   Name:      machineName + "-bootstrap-token",
+   Namespace: "default",
+  },
+  Data: map[string][]byte{
+   "token": []byte(token),
+  },
+ }
+ return tartMachine, capiMachine, bootstrapSecret, tokenSecret
 }
 ```
 
 ```go
 t.Run("NoCloudMetaDataDoesNotConsumeToken", func(t *testing.T) {
-	farFuture := metav1.Now().Add(1 * time.Hour)
-	tartMachine, capiMachine, bootstrapSecret, tokenSecret := metadataObjects("test-machine", "capi-machine", "bootstrap-secret", token, farFuture)
-	cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+ farFuture := metav1.Now().Add(1 * time.Hour)
+ tartMachine, capiMachine, bootstrapSecret, tokenSecret := metadataObjects("test-machine", "capi-machine", "bootstrap-secret", token, farFuture)
+ cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
-	req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
-	rec := httptest.NewRecorder()
-	ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+ req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
+ rec := httptest.NewRecorder()
+ ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	if body := rec.Body.String(); !strings.Contains(body, "instance-id: default-test-machine") || !strings.Contains(body, "local-hostname: test-machine") {
-		t.Fatalf("unexpected meta-data body: %q", body)
-	}
-	remainingSecret := &corev1.Secret{}
-	if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
-		t.Fatalf("bootstrap token secret was consumed: %v", err)
-	}
+ if rec.Code != http.StatusOK {
+  t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+ }
+ if body := rec.Body.String(); !strings.Contains(body, "instance-id: default-test-machine") || !strings.Contains(body, "local-hostname: test-machine") {
+  t.Fatalf("unexpected meta-data body: %q", body)
+ }
+ remainingSecret := &corev1.Secret{}
+ if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
+  t.Fatalf("bootstrap token secret was consumed: %v", err)
+ }
 })
 ```
 
@@ -483,29 +486,29 @@ registerMetadataRoutes(e, cl, config.MetadataLimiter)
 
 ```go
 func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limiter) {
-	withLimit := func(next func(c *echo.Context) error) func(c *echo.Context) error {
-		return func(c *echo.Context) error {
-			if limiter != nil && !limiter.Allow() {
-				return c.String(http.StatusTooManyRequests, "rate limit exceeded")
-			}
-			return next(c)
-		}
-	}
-	e.GET("/metadata/:namespace/:name", withLimit(func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "application/octet-stream", true)
-	}))
-	e.GET("/metadata/:namespace/:name/nocloud/:token/meta-data", withLimit(func(c *echo.Context) error {
-		return serveNoCloudMetaData(c, cl)
-	}))
-	e.GET("/metadata/:namespace/:name/nocloud/:token/user-data", withLimit(func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true)
-	}))
-	e.GET("/metadata/:namespace/:name/nocloud/:token/vendor-data", withLimit(func(c *echo.Context) error {
-		return serveNoCloudVendorData(c, cl)
-	}))
-	e.GET("/metadata/:namespace/:name/preseed.cfg", withLimit(func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true)
-	}))
+ withLimit := func(next func(c *echo.Context) error) func(c *echo.Context) error {
+  return func(c *echo.Context) error {
+   if limiter != nil && !limiter.Allow() {
+    return c.String(http.StatusTooManyRequests, "rate limit exceeded")
+   }
+   return next(c)
+  }
+ }
+ e.GET("/metadata/:namespace/:name", withLimit(func(c *echo.Context) error {
+  return serveBootstrapData(c, cl, "application/octet-stream", true)
+ }))
+ e.GET("/metadata/:namespace/:name/nocloud/:token/meta-data", withLimit(func(c *echo.Context) error {
+  return serveNoCloudMetaData(c, cl)
+ }))
+ e.GET("/metadata/:namespace/:name/nocloud/:token/user-data", withLimit(func(c *echo.Context) error {
+  return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true)
+ }))
+ e.GET("/metadata/:namespace/:name/nocloud/:token/vendor-data", withLimit(func(c *echo.Context) error {
+  return serveNoCloudVendorData(c, cl)
+ }))
+ e.GET("/metadata/:namespace/:name/preseed.cfg", withLimit(func(c *echo.Context) error {
+  return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true)
+ }))
 }
 ```
 
@@ -515,50 +518,50 @@ func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limite
 
 ```go
 func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, consumeToken bool) error {
-	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
-	defer span.End()
+ ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
+ defer span.End()
 
-	machine, tokenService, providedToken, err := validateMetadataRequest(c, cl)
-	if err != nil {
-		return err
-	}
+ machine, tokenService, providedToken, err := validateMetadataRequest(c, cl)
+ if err != nil {
+  return err
+ }
 
-	secretName, err := bootstrapDataSecretName(ctx, cl, machine)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "owner not found")
-			return c.String(http.StatusNotFound, "bootstrap secret owner Machine not found")
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusPreconditionFailed, err.Error())
-	}
+ secretName, err := bootstrapDataSecretName(ctx, cl, machine)
+ if err != nil {
+  if apierrors.IsNotFound(err) {
+   span.SetStatus(codes.Error, "owner not found")
+   return c.String(http.StatusNotFound, "bootstrap secret owner Machine not found")
+  }
+  span.RecordError(err)
+  span.SetStatus(codes.Error, err.Error())
+  return c.String(http.StatusPreconditionFailed, err.Error())
+ }
 
-	var secret corev1.Secret
-	if err := cl.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: secretName}, &secret); err != nil {
-		if apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "secret not found")
-			return c.String(http.StatusNotFound, "bootstrap secret not found")
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
-	}
+ var secret corev1.Secret
+ if err := cl.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: secretName}, &secret); err != nil {
+  if apierrors.IsNotFound(err) {
+   span.SetStatus(codes.Error, "secret not found")
+   return c.String(http.StatusNotFound, "bootstrap secret not found")
+  }
+  span.RecordError(err)
+  span.SetStatus(codes.Error, err.Error())
+  return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
+ }
 
-	data, ok := secret.Data["value"]
-	if !ok {
-		span.SetStatus(codes.Error, "secret missing value key")
-		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
-	}
+ data, ok := secret.Data["value"]
+ if !ok {
+  span.SetStatus(codes.Error, "secret missing value key")
+  return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
+ }
 
-	if consumeToken {
-		if err := consumeMetadataToken(c, cl, tokenService, providedToken, machine); err != nil {
-			return err
-		}
-	}
+ if consumeToken {
+  if err := consumeMetadataToken(c, cl, tokenService, providedToken, machine); err != nil {
+   return err
+  }
+ }
 
-	span.SetStatus(codes.Ok, "bootstrap data served")
-	return c.Blob(http.StatusOK, contentType, data)
+ span.SetStatus(codes.Ok, "bootstrap data served")
+ return c.Blob(http.StatusOK, contentType, data)
 }
 ```
 
@@ -566,7 +569,7 @@ func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, c
 
 ```go
 func handleMetadata(c *echo.Context, cl client.Client) error {
-	return serveBootstrapData(c, cl, "application/octet-stream", true)
+ return serveBootstrapData(c, cl, "application/octet-stream", true)
 }
 ```
 
@@ -574,19 +577,19 @@ func handleMetadata(c *echo.Context, cl client.Client) error {
 
 ```go
 func serveNoCloudMetaData(c *echo.Context, cl client.Client) error {
-	machine, _, _, err := validateMetadataRequest(c, cl)
-	if err != nil {
-		return err
-	}
-	body := fmt.Sprintf("instance-id: %s-%s\nlocal-hostname: %s\n", machine.Namespace, machine.Name, machine.Name)
-	return c.Blob(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
+ machine, _, _, err := validateMetadataRequest(c, cl)
+ if err != nil {
+  return err
+ }
+ body := fmt.Sprintf("instance-id: %s-%s\nlocal-hostname: %s\n", machine.Namespace, machine.Name, machine.Name)
+ return c.Blob(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
 }
 
 func serveNoCloudVendorData(c *echo.Context, cl client.Client) error {
-	if _, _, _, err := validateMetadataRequest(c, cl); err != nil {
-		return err
-	}
-	return c.Blob(http.StatusOK, "text/cloud-config; charset=utf-8", []byte("#cloud-config\n{}\n"))
+ if _, _, _, err := validateMetadataRequest(c, cl); err != nil {
+  return err
+ }
+ return c.Blob(http.StatusOK, "text/cloud-config; charset=utf-8", []byte("#cloud-config\n{}\n"))
 }
 ```
 
@@ -594,37 +597,37 @@ func serveNoCloudVendorData(c *echo.Context, cl client.Client) error {
 
 ```go
 func validateMetadataRequest(c *echo.Context, cl client.Client) (*infrastructurev1alpha1.TartMachine, *k8sbootstraptoken.Service, string, error) {
-	ctx := c.Request().Context()
-	providedToken := c.QueryParam("token")
-	if providedToken == "" {
-		return nil, nil, "", c.String(http.StatusUnauthorized, "token is required")
-	}
+ ctx := c.Request().Context()
+ providedToken := c.QueryParam("token")
+ if providedToken == "" {
+  return nil, nil, "", c.String(http.StatusUnauthorized, "token is required")
+ }
 
-	var machine infrastructurev1alpha1.TartMachine
-	if err := cl.Get(ctx, client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, &machine); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, nil, "", c.String(http.StatusNotFound, "TartMachine not found")
-		}
-		return nil, nil, "", c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
+ var machine infrastructurev1alpha1.TartMachine
+ if err := cl.Get(ctx, client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, &machine); err != nil {
+  if apierrors.IsNotFound(err) {
+   return nil, nil, "", c.String(http.StatusNotFound, "TartMachine not found")
+  }
+  return nil, nil, "", c.String(http.StatusInternalServerError, "failed to get TartMachine")
+ }
 
-	tokenService := k8sbootstraptoken.NewService(cl)
-	expectedToken, exists, err := tokenService.Get(ctx, &machine)
-	if err != nil {
-		return nil, nil, "", c.String(http.StatusInternalServerError, "failed to get bootstrap token")
-	}
-	if !exists {
-		return nil, nil, "", c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
-	}
-	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
-		return nil, nil, "", c.String(http.StatusUnauthorized, "invalid or missing token")
-	}
+ tokenService := k8sbootstraptoken.NewService(cl)
+ expectedToken, exists, err := tokenService.Get(ctx, &machine)
+ if err != nil {
+  return nil, nil, "", c.String(http.StatusInternalServerError, "failed to get bootstrap token")
+ }
+ if !exists {
+  return nil, nil, "", c.String(http.StatusPreconditionFailed, "bootstrap token is not set")
+ }
+ if subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
+  return nil, nil, "", c.String(http.StatusUnauthorized, "invalid or missing token")
+ }
 
-	now := metav1.NewTime(time.Now())
-	if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&now) {
-		return nil, nil, "", c.String(http.StatusNotFound, "token has expired")
-	}
-	return &machine, tokenService, providedToken, nil
+ now := metav1.NewTime(time.Now())
+ if machine.Status.TokenExpiresAt != nil && machine.Status.TokenExpiresAt.Before(&now) {
+  return nil, nil, "", c.String(http.StatusNotFound, "token has expired")
+ }
+ return &machine, tokenService, providedToken, nil
 }
 ```
 
@@ -632,29 +635,29 @@ func validateMetadataRequest(c *echo.Context, cl client.Client) (*infrastructure
 
 ```go
 func consumeMetadataToken(c *echo.Context, cl client.Client, tokenService *k8sbootstraptoken.Service, providedToken string, machine *infrastructurev1alpha1.TartMachine) error {
-	ctx := c.Request().Context()
-	if err := cl.Get(ctx, client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, machine); err != nil {
-		if apierrors.IsNotFound(err) {
-			return c.String(http.StatusNotFound, "TartMachine not found")
-		}
-		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
+ ctx := c.Request().Context()
+ if err := cl.Get(ctx, client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, machine); err != nil {
+  if apierrors.IsNotFound(err) {
+   return c.String(http.StatusNotFound, "TartMachine not found")
+  }
+  return c.String(http.StatusInternalServerError, "failed to get TartMachine")
+ }
 
-	expectedToken, exists, err := tokenService.Get(ctx, machine)
-	if err != nil {
-		return c.String(http.StatusInternalServerError, "failed to get bootstrap token")
-	}
-	if !exists || subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
-		return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
+ expectedToken, exists, err := tokenService.Get(ctx, machine)
+ if err != nil {
+  return c.String(http.StatusInternalServerError, "failed to get bootstrap token")
+ }
+ if !exists || subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
+  return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+ }
 
-	if err := consumeBootstrapToken(ctx, cl, machine); err != nil {
-		if apierrors.IsConflict(err) {
-			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
-		}
-		return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
-	}
-	return nil
+ if err := consumeBootstrapToken(ctx, cl, machine); err != nil {
+  if apierrors.IsConflict(err) {
+   return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+  }
+  return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
+ }
+ return nil
 }
 ```
 
@@ -683,6 +686,7 @@ git --no-pager commit --signoff -m "NoCloudとPreseedのmetadata配信を追加"
 ### Task 3b: 消費済み NoCloud token の hash 検証を完了
 
 **Files:**
+
 - Modify: `api/v1alpha1/tartmachine_types.go`
 - Generated: `api/v1alpha1/zz_generated.deepcopy.go`
 - Generated: `config/crd/bases/infrastructure.cluster.x-k8s.io_tartmachines.yaml`
@@ -731,15 +735,15 @@ ConsumedBootstrapTokenHash string `json:"consumedBootstrapTokenHash,omitempty"`
 
 ```go
 func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine, consumedTokenHash string) (infrastructurev1alpha1.TartMachineStatus, error) {
-	if err := validateProvisioningMachineStatus(machine.Status); err != nil {
-		return infrastructurev1alpha1.TartMachineStatus{}, err
-	}
+ if err := validateProvisioningMachineStatus(machine.Status); err != nil {
+  return infrastructurev1alpha1.TartMachineStatus{}, err
+ }
 
-	status := machine.Status.DeepCopy()
-	status.TokenExpiresAt = nil
-	status.ConsumedBootstrapTokenHash = consumedTokenHash
-	status.ObservedGeneration = machine.Generation
-	return *status, nil
+ status := machine.Status.DeepCopy()
+ status.TokenExpiresAt = nil
+ status.ConsumedBootstrapTokenHash = consumedTokenHash
+ status.ObservedGeneration = machine.Generation
+ return *status, nil
 }
 ```
 
@@ -751,8 +755,8 @@ func BootstrapTokenConsumedStatus(machine *infrastructurev1alpha1.TartMachine, c
 
 ```go
 func bootstrapTokenHash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
+ sum := sha256.Sum256([]byte(token))
+ return hex.EncodeToString(sum[:])
 }
 ```
 
@@ -768,35 +772,35 @@ NoCloud `meta-data` / `vendor-data` 用の検証は以下の contract にする�
 
 ```go
 func validateNoCloudMetadataRequest(c *echo.Context, cl client.Client) (*infrastructurev1alpha1.TartMachine, error) {
-	pathToken := c.Param("token")
-	if pathToken == "" {
-		return nil, echo.NewHTTPError(http.StatusUnauthorized, "token is required")
-	}
+ pathToken := c.Param("token")
+ if pathToken == "" {
+  return nil, echo.NewHTTPError(http.StatusUnauthorized, "token is required")
+ }
 
-	var machine infrastructurev1alpha1.TartMachine
-	if err := cl.Get(c.Request().Context(), client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, &machine); err != nil {
-		// existing English responses
-	}
+ var machine infrastructurev1alpha1.TartMachine
+ if err := cl.Get(c.Request().Context(), client.ObjectKey{Namespace: c.Param("namespace"), Name: c.Param("name")}, &machine); err != nil {
+  // existing English responses
+ }
 
-	tokenService := k8sbootstraptoken.NewService(cl)
-	expectedToken, exists, err := tokenService.Get(c.Request().Context(), &machine)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		if subtle.ConstantTimeCompare([]byte(pathToken), []byte(expectedToken.String())) != 1 {
-			return nil, echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
-		}
-		return &machine, nil
-	}
+ tokenService := k8sbootstraptoken.NewService(cl)
+ expectedToken, exists, err := tokenService.Get(c.Request().Context(), &machine)
+ if err != nil {
+  return nil, err
+ }
+ if exists {
+  if subtle.ConstantTimeCompare([]byte(pathToken), []byte(expectedToken.String())) != 1 {
+   return nil, echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
+  }
+  return &machine, nil
+ }
 
-	if machine.Status.ConsumedBootstrapTokenHash == "" {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
-	if subtle.ConstantTimeCompare([]byte(bootstrapTokenHash(pathToken)), []byte(machine.Status.ConsumedBootstrapTokenHash)) != 1 {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
-	return &machine, nil
+ if machine.Status.ConsumedBootstrapTokenHash == "" {
+  return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
+ }
+ if subtle.ConstantTimeCompare([]byte(bootstrapTokenHash(pathToken)), []byte(machine.Status.ConsumedBootstrapTokenHash)) != 1 {
+  return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
+ }
+ return &machine, nil
 }
 ```
 
@@ -862,6 +866,7 @@ git --no-pager commit --signoff -m "消費済みNoCloud tokenの検証を追加"
 ### Task 4: Sample と cluster template を multi OS bootstrap 用に更新
 
 **Files:**
+
 - Modify: `config/templates/cluster-template-kubeadm.yaml`
 - Create: `config/templates/cluster-template-kubeadm-ubuntu.yaml`
 - Create: `config/templates/cluster-template-kubeadm-debian.yaml`
@@ -884,32 +889,32 @@ git --no-pager commit --signoff -m "消費済みNoCloud tokenの検証を追加"
 
 ```go
 func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
-	tests := []struct {
-		name          string
-		path          string
-		requiredKinds []string
-	}{
-		{
-			name: "kubeadm ubuntu",
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
-			requiredKinds: []string{"Cluster", "KubeadmControlPlane", "KubeadmConfigTemplate", "MachineDeployment", "TartCluster", "TartMachineTemplate"},
-		},
-		{
-			name: "talos",
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
-			requiredKinds: []string{"Cluster", "MachineDeployment", "TartCluster", "TartMachineTemplate"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			found := readTemplateKinds(t, tt.path)
-			for _, kind := range tt.requiredKinds {
-				if !found[kind] {
-					t.Fatalf("template %s does not contain %s", tt.path, kind)
-				}
-			}
-		})
-	}
+ tests := []struct {
+  name          string
+  path          string
+  requiredKinds []string
+ }{
+  {
+   name: "kubeadm ubuntu",
+   path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
+   requiredKinds: []string{"Cluster", "KubeadmControlPlane", "KubeadmConfigTemplate", "MachineDeployment", "TartCluster", "TartMachineTemplate"},
+  },
+  {
+   name: "talos",
+   path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
+   requiredKinds: []string{"Cluster", "MachineDeployment", "TartCluster", "TartMachineTemplate"},
+  },
+ }
+ for _, tt := range tests {
+  t.Run(tt.name, func(t *testing.T) {
+   found := readTemplateKinds(t, tt.path)
+   for _, kind := range tt.requiredKinds {
+    if !found[kind] {
+     t.Fatalf("template %s does not contain %s", tt.path, kind)
+    }
+   }
+  })
+ }
 }
 ```
 
@@ -917,14 +922,14 @@ func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
 
 ```go
 tests := []struct {
-	path string
-	want string
+ path string
+ want string
 }{
-	{filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"), "format: NoCloud"},
-	{filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-debian.yaml"), "format: Preseed"},
-	{filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-ubuntu.yaml"), "format: NoCloud"},
-	{filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-debian.yaml"), "format: Preseed"},
-	{filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"), "format: Talos"},
+ {filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"), "format: NoCloud"},
+ {filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-debian.yaml"), "format: Preseed"},
+ {filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-ubuntu.yaml"), "format: NoCloud"},
+ {filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-debian.yaml"), "format: Preseed"},
+ {filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"), "format: Talos"},
 }
 ```
 
@@ -1061,6 +1066,7 @@ git --no-pager commit --signoff -m "multi OS bootstrapのsampleとtemplateを追
 ### Task 5: E2E の sample 受け入れ検証を拡張
 
 **Files:**
+
 - Modify: `test/e2e/e2e_test.go`
 
 - [ ] **Step 1: failing E2E test を追加する**
@@ -1069,64 +1075,64 @@ git --no-pager commit --signoff -m "multi OS bootstrapのsampleとtemplateを追
 
 ```go
 It("should accept multi OS TartMachineTemplate samples", func() {
-	tests := []struct {
-		name       string
-		file       string
-		resource   string
-		wantFormat string
-	}{
-		{
-			name:       "standalone Ubuntu NoCloud TartMachineTemplate",
-			file:       "config/samples/infrastructure_v1alpha1_tartmachinetemplate.yaml",
-			resource:   "tartmachinetemplate-sample",
-			wantFormat: "NoCloud",
-		},
-		{
-			name:       "kubeadm Ubuntu sample",
-			file:       "config/samples/cluster-kubeadm-ubuntu.yaml",
-			resource:   "tart-kubeadm-ubuntu-control-plane",
-			wantFormat: "NoCloud",
-		},
-		{
-			name:       "kubeadm Debian sample",
-			file:       "config/samples/cluster-kubeadm-debian.yaml",
-			resource:   "tart-kubeadm-debian-control-plane",
-			wantFormat: "Preseed",
-		},
-		{
-			name:       "k3s Ubuntu sample",
-			file:       "config/samples/cluster-k3s-ubuntu.yaml",
-			resource:   "tart-k3s-ubuntu-control-plane",
-			wantFormat: "NoCloud",
-		},
-		{
-			name:       "k3s Debian sample",
-			file:       "config/samples/cluster-k3s-debian.yaml",
-			resource:   "tart-k3s-debian-control-plane",
-			wantFormat: "Preseed",
-		},
-		{
-			name:       "Talos sample",
-			file:       "config/samples/cluster-talos.yaml",
-			resource:   "tart-talos-control-plane",
-			wantFormat: "Talos",
-		},
-	}
-	for _, tt := range tests {
-		By("applying " + tt.name)
-		cmd := exec.Command("kubectl", "apply", "-n", namespace, "-f", tt.file)
-		_, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to apply "+tt.file)
+ tests := []struct {
+  name       string
+  file       string
+  resource   string
+  wantFormat string
+ }{
+  {
+   name:       "standalone Ubuntu NoCloud TartMachineTemplate",
+   file:       "config/samples/infrastructure_v1alpha1_tartmachinetemplate.yaml",
+   resource:   "tartmachinetemplate-sample",
+   wantFormat: "NoCloud",
+  },
+  {
+   name:       "kubeadm Ubuntu sample",
+   file:       "config/samples/cluster-kubeadm-ubuntu.yaml",
+   resource:   "tart-kubeadm-ubuntu-control-plane",
+   wantFormat: "NoCloud",
+  },
+  {
+   name:       "kubeadm Debian sample",
+   file:       "config/samples/cluster-kubeadm-debian.yaml",
+   resource:   "tart-kubeadm-debian-control-plane",
+   wantFormat: "Preseed",
+  },
+  {
+   name:       "k3s Ubuntu sample",
+   file:       "config/samples/cluster-k3s-ubuntu.yaml",
+   resource:   "tart-k3s-ubuntu-control-plane",
+   wantFormat: "NoCloud",
+  },
+  {
+   name:       "k3s Debian sample",
+   file:       "config/samples/cluster-k3s-debian.yaml",
+   resource:   "tart-k3s-debian-control-plane",
+   wantFormat: "Preseed",
+  },
+  {
+   name:       "Talos sample",
+   file:       "config/samples/cluster-talos.yaml",
+   resource:   "tart-talos-control-plane",
+   wantFormat: "Talos",
+  },
+ }
+ for _, tt := range tests {
+  By("applying " + tt.name)
+  cmd := exec.Command("kubectl", "apply", "-n", namespace, "-f", tt.file)
+  _, err := utils.Run(cmd)
+  Expect(err).NotTo(HaveOccurred(), "Failed to apply "+tt.file)
 
-		By("validating bootstrap format for " + tt.name)
-		cmd = exec.Command("kubectl", "get", "tartmachinetemplate", tt.resource,
-			"-n", namespace,
-			"-o", "jsonpath={.spec.template.spec.bootstrap.format}",
-		)
-		output, err := utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred(), "Failed to get "+tt.resource)
-		Expect(output).To(Equal(tt.wantFormat))
-	}
+  By("validating bootstrap format for " + tt.name)
+  cmd = exec.Command("kubectl", "get", "tartmachinetemplate", tt.resource,
+   "-n", namespace,
+   "-o", "jsonpath={.spec.template.spec.bootstrap.format}",
+  )
+  output, err := utils.Run(cmd)
+  Expect(err).NotTo(HaveOccurred(), "Failed to get "+tt.resource)
+  Expect(output).To(Equal(tt.wantFormat))
+ }
 })
 ```
 
@@ -1169,6 +1175,7 @@ git --no-pager commit --signoff -m "multi OS bootstrap sampleのE2E検証を追�
 ### Task 6: 全体検証と調整
 
 **Files:**
+
 - Verify only: `api/v1alpha1/tartmachine_types.go`
 - Verify only: `internal/server/ipxe/server.go`
 - Verify only: `internal/server/ipxe/server_test.go`
@@ -1216,16 +1223,6 @@ go test -tags=e2e ./test/e2e -run TestE2E -ginkgo.dry-run -v
 
 Expected: PASS。
 
-- [ ] **Step 5: 実 cluster E2E を実行する**
-
-Run:
-
-```bash
-mise run test-e2e
-```
-
-Expected: Kind cluster 上で manager、metrics、sample apply の E2E が PASS。ローカル環境に Docker/Kind/Kubectl がない場合は実行できなかった理由を最終報告に残す。
-
 - [ ] **Step 6: 最終差分を確認する**
 
 Run:
@@ -1253,7 +1250,6 @@ gh pr create --title "multi OS bootstrap metadata配信を追加" --body "## Sum
 - go test ./api/v1alpha1 ./internal/server/ipxe ./test/templates -v
 - mise run test
 - mise run lint
-- go test -tags=e2e ./test/e2e -run TestE2E -ginkgo.dry-run -v"
 ```
 
-Expected: GitHub PR が作成される。`mise run test-e2e` を実行した場合は body の Tests に追記する。
+Expected: GitHub PR が作成される。

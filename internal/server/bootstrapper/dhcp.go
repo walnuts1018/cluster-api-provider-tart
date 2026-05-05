@@ -264,9 +264,9 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		var err error
 
 		// Option 43: Vendor Specific Information (PXE sub-options)
-		// Sub-option 6: PXE Discovery Control = 8 (don't broadcast)
+		// Sub-option 6: PXE Discovery Control = 3 (disable broadcast and multicast discovery)
 		// 0xff: End of options marker
-		pxeVendorOptions := []byte{0x06, 0x01, 0x08, 0xff}
+		pxeVendorOptions := []byte{0x06, 0x01, 0x03, 0xff}
 
 		if port == dhcpPort {
 			// Port 67: ProxyDHCP Offer

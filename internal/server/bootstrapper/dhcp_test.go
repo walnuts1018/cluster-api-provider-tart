@@ -281,7 +281,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 		if vendorOptions == nil {
 			t.Error("expected OptionVendorSpecificInformation (43) to be set")
 		} else {
-			expected := []byte{0x06, 0x01, 0x08, 0xff}
+			expected := []byte{0x06, 0x01, 0x03, 0xff}
 			if !slices.Equal(vendorOptions, expected) {
 				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
 			}
@@ -336,7 +336,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 		if vendorOptions == nil {
 			t.Error("expected OptionVendorSpecificInformation (43) to be set")
 		} else {
-			expected := []byte{0x06, 0x01, 0x08, 0xff}
+			expected := []byte{0x06, 0x01, 0x03, 0xff}
 			if !slices.Equal(vendorOptions, expected) {
 				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
 			}
@@ -439,7 +439,7 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWithServerID(t *testing.T) {
 		if vendorOptions == nil {
 			t.Error("expected OptionVendorSpecificInformation (43) to be set on Port 67")
 		} else {
-			expected := []byte{0x06, 0x01, 0x08, 0xff}
+			expected := []byte{0x06, 0x01, 0x03, 0xff}
 			if !slices.Equal(vendorOptions, expected) {
 				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
 			}

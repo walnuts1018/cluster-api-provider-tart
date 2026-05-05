@@ -86,8 +86,8 @@ jobs:
           ip link show br0 > "$CLUSTER_LOG_DIR/bridge-info.txt" 2>&1 || true
           ip addr show br0 > "$CLUSTER_LOG_DIR/bridge-addresses.txt" 2>&1 || true
           ip route > "$CLUSTER_LOG_DIR/route-table.txt" 2>&1 || true
-          sudo iptables -t nat -L -n -v > "$CLUSTER_LOG_DIR/iptables-nat.txt" 2>&1 || true
-          sudo iptables -L -n -v > "$CLUSTER_LOG_DIR/iptables-filter.txt" 2>&1 || true
+          sudo sh -c "iptables -t nat -L -n -v > $CLUSTER_LOG_DIR/iptables-nat.txt 2>&1" || true
+          sudo sh -c "iptables -L -n -v > $CLUSTER_LOG_DIR/iptables-filter.txt 2>&1" || true
           pgrep -af "qemu" > "$CLUSTER_LOG_DIR/qemu-status.txt" 2>&1 || true
           ip addr > "$CLUSTER_LOG_DIR/network-interfaces.txt" 2>&1 || true
 

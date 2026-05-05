@@ -460,7 +460,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "auto=true priority=critical url=http://"+testBootstrapHost+"/metadata/default/test-machine-preseed/preseed.cfg?token="+token) {
+		if !strings.Contains(body, "auto=true priority=critical url=http://"+testBootstrapHost+"/metadata/default/test-machine-preseed/preseed/"+token+"/preseed.cfg") {
 			t.Errorf("body missing preseed URL: %s", body)
 		}
 	})
@@ -492,7 +492,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-talos?token="+token) {
+		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-talos/talos/"+token) {
 			t.Errorf("body missing explicit talos.config metadata URL: %s", body)
 		}
 	})
@@ -640,7 +640,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 		svc := setupBootstrapTokenService(t, cl)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
@@ -817,7 +817,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 		svc := setupBootstrapTokenService(t, cl)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/preseed.cfg?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/preseed/"+token+"/preseed.cfg", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
@@ -965,7 +965,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 		svc := setupBootstrapTokenService(t, cl)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=invalidtoken", nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/invalidtoken", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
@@ -1035,7 +1035,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 		svc := setupBootstrapTokenService(t, cl)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
@@ -1087,7 +1087,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
 		svc := setupBootstrapTokenService(t, cl)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine?token=anything", nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/anything", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)

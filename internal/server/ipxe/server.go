@@ -89,6 +89,7 @@ func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limite
 	}
 
 	register("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl, svc) })
+	register("/metadata/:namespace/:name/talos/:token", func(c *echo.Context) error { return handleMetadata(c, cl, svc) })
 	register("/metadata/:namespace/:name/nocloud/:token/meta-data", func(c *echo.Context) error { return serveNoCloudMetaData(c, cl, svc) })
 	register("/metadata/:namespace/:name/nocloud/:token/user-data", func(c *echo.Context) error {
 		return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true, c.Param("token"), true, svc)
@@ -96,6 +97,9 @@ func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limite
 	register("/metadata/:namespace/:name/nocloud/:token/vendor-data", func(c *echo.Context) error { return serveNoCloudVendorData(c, cl, svc) })
 	register("/metadata/:namespace/:name/preseed.cfg", func(c *echo.Context) error {
 		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true, c.QueryParam("token"), true, svc)
+	})
+	register("/metadata/:namespace/:name/preseed/:token/preseed.cfg", func(c *echo.Context) error {
+		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true, c.Param("token"), true, svc)
 	})
 }
 
@@ -249,22 +253,26 @@ func buildBootstrapKernelParams(ctx context.Context, _ client.Client, serverURL 
 }
 
 func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+	metadataPath := fmt.Sprintf("/metadata/%s/%s/talos/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
+	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
 }
 
 func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
 	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/%s/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
-	return fmt.Sprintf("%s%s", serverURL, metadataPath)
+	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
 }
 
 func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+	metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
+	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
 }
 
 func handleMetadata(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
-	return serveBootstrapData(c, cl, "application/octet-stream", true, c.QueryParam("token"), true, svc)
+	token := c.Param("token")
+	if token == "" {
+		token = c.QueryParam("token")
+	}
+	return serveBootstrapData(c, cl, "application/octet-stream", true, token, true, svc)
 }
 
 func validateMetadataRequest(c *echo.Context, cl client.Client, providedToken string, requireLiveToken bool, svc applicationbootstraptoken.Service) (*infrastructurev1alpha1.TartMachine, error) {
@@ -580,7 +588,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot, MetadataLimiter: s.metadataLimiter, BootstrapTokenSvc: s.bootstrapTokenSvc}),
+		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot, BaseURL: s.baseURL, MetadataLimiter: s.metadataLimiter, BootstrapTokenSvc: s.bootstrapTokenSvc}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

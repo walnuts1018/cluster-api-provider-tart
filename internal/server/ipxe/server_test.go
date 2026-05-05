@@ -403,11 +403,11 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "#!ipxe") {
 			t.Errorf("body missing iPXE header: %s", body)
 		}
-		if !strings.Contains(body, "kernel https://example.com/vmlinuz console=tty0") {
-			t.Errorf("body missing kernel image and params: %s", body)
-		}
-		if !strings.Contains(body, "initrd https://example.com/initrd") {
+		if !strings.Contains(body, "initrd --name initrd https://example.com/initrd") {
 			t.Errorf("body missing initrd: %s", body)
+		}
+		if !strings.Contains(body, "kernel https://example.com/vmlinuz initrd=initrd console=tty0") {
+			t.Errorf("body missing kernel image and params: %s", body)
 		}
 		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-1/nocloud/"+token+"/") {
 			t.Errorf("body missing default NoCloud seed URL: %s", body)
@@ -425,7 +425,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
+		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot initrd=initrd") {
 			t.Errorf("body missing kernel image for boot mac: %s", body)
 		}
 		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-2/nocloud/"+token+"/") {

@@ -216,7 +216,12 @@ func buildTarGzForEntry(baseDir, entryName string) ([]byte, digest.Digest, error
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() {
+				if err := f.Close(); err != nil {
+					slog.Warn("failed to close file", "file", path, "error", err)
+				}
+			}()
+
 			if _, err := io.Copy(tw, f); err != nil {
 				return err
 			}

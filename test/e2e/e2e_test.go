@@ -342,6 +342,19 @@ var _ = Describe("Manager", Ordered, func() {
 				},
 			}
 
+			DeferCleanup(func() {
+				for i := len(tests) - 1; i >= 0; i-- {
+					tt := tests[i]
+					By("deleting " + tt.name)
+					cmd := exec.Command("kubectl", "delete",
+						"-n", namespace,
+						"-f", tt.file,
+						"--ignore-not-found",
+					)
+					_, _ = utils.Run(cmd)
+				}
+			})
+
 			for _, tt := range tests {
 				By("applying " + tt.name)
 				cmd := exec.Command("kubectl", "apply",

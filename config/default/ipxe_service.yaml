@@ -11,3 +11,4 @@ spec:
   selector:
     control-plane: controller-manager
     app.kubernetes.io/name: cluster-api-provider-tart
+  type: 'LoadBalancer'

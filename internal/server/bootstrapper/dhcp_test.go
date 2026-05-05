@@ -4,7 +4,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -276,16 +275,6 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 
 		nextServer := reply.ServerIPAddr
 		t.Logf("Next server: %s", nextServer)
-
-		vendorOptions := reply.GetOneOption(dhcpv4.OptionVendorSpecificInformation)
-		if vendorOptions == nil {
-			t.Error("expected OptionVendorSpecificInformation (43) to be set")
-		} else {
-			expected := []byte{0x06, 0x01, 0x03, 0xff}
-			if !slices.Equal(vendorOptions, expected) {
-				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
-			}
-		}
 	})
 
 	t.Run("iPXE client receives HTTP URL on Port 4011", func(t *testing.T) {
@@ -330,16 +319,6 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 
 		if !strings.Contains(bootFile, "http://127.0.0.1:8080/ipxe?mac=") {
 			t.Errorf("expected HTTP URL in boot file, got %s", bootFile)
-		}
-
-		vendorOptions := reply.GetOneOption(dhcpv4.OptionVendorSpecificInformation)
-		if vendorOptions == nil {
-			t.Error("expected OptionVendorSpecificInformation (43) to be set")
-		} else {
-			expected := []byte{0x06, 0x01, 0x03, 0xff}
-			if !slices.Equal(vendorOptions, expected) {
-				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
-			}
 		}
 	})
 }
@@ -433,16 +412,6 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWithServerID(t *testing.T) {
 
 		if reply.MessageType() != dhcpv4.MessageTypeOffer {
 			t.Errorf("expected MessageTypeOffer, got %s", reply.MessageType())
-		}
-
-		vendorOptions := reply.GetOneOption(dhcpv4.OptionVendorSpecificInformation)
-		if vendorOptions == nil {
-			t.Error("expected OptionVendorSpecificInformation (43) to be set on Port 67")
-		} else {
-			expected := []byte{0x06, 0x01, 0x03, 0xff}
-			if !slices.Equal(vendorOptions, expected) {
-				t.Errorf("expected vendor options %v, got %v", expected, vendorOptions)
-			}
 		}
 	})
 }

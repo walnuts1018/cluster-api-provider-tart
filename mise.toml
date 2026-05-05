@@ -193,11 +193,14 @@ rm Dockerfile.cross
 '''
 
 [tasks.docker-build-ipxe]
-description = "iPXE binaries をビルドし local に取り出す"
+description = "iPXE binaries をダウンロードして local に取り出す"
 run = '''
 mkdir -p dist/ipxe
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-"$CONTAINER_TOOL" buildx build --platform linux/amd64,linux/arm64 -f hack/ipxe-artifact/Dockerfile --output type=local,dest=dist/ipxe .
+curl -fsSL "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
+tar xzf /tmp/ipxeboot.tar.gz -C /tmp
+cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
+cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi
+rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
 '''
 
 [tasks.docker-push-ipxe]

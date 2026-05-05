@@ -33,15 +33,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-        with:
-          version: latest
-
-      - name: Build iPXE binaries
+      - name: Download iPXE binaries
         run: |
           mkdir -p dist/ipxe
-          docker buildx build --platform linux/amd64,linux/arm64 -f hack/ipxe-artifact/Dockerfile --output type=local,dest=dist/ipxe .
+          curl -fsSL "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
+          tar xzf /tmp/ipxeboot.tar.gz -C /tmp
+          cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
+          cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi
+          rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
 
       - name: Resolve image tag
         id: tag

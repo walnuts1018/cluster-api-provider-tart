@@ -127,6 +127,10 @@ type TartMachineStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// consumedBootstrapTokenHash stores the SHA-256 hash of the consumed bootstrap token for non-secret NoCloud metadata validation.
+	// +optional
+	ConsumedBootstrapTokenHash string `json:"consumedBootstrapTokenHash,omitempty"`
 }
 
 // TartMachineInitialization defines the initialization state of TartMachine.

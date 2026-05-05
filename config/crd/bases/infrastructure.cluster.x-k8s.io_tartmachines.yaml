@@ -185,6 +185,10 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              consumedBootstrapTokenHash:
+                description: consumedBootstrapTokenHash stores the SHA-256 hash of
+                  the consumed bootstrap token for non-secret NoCloud metadata validation.
+                type: string
               hostRef:
                 description: hostRef references the assigned TartHost.
                 properties:

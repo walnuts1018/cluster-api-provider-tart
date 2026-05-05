@@ -1,6 +1,8 @@
 package ipxe_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -122,6 +124,11 @@ func metadataObjects(token string) (
 		},
 	}
 	return tartMachine, capiMachine, tokenSecret, bootstrapSecret
+}
+
+func bootstrapTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func TestHandlerDynamicScript(t *testing.T) {
@@ -510,6 +517,14 @@ func TestHandlerServesMetadata(t *testing.T) {
 		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err == nil {
 			t.Fatal("bootstrap token secret still exists after NoCloud user-data delivery")
 		}
+
+		updated := &infrastructurev1alpha1.TartMachine{}
+		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
+			t.Fatalf("failed to get TartMachine after NoCloud user-data delivery: %v", err)
+		}
+		if updated.Status.ConsumedBootstrapTokenHash != bootstrapTokenHash(token) {
+			t.Fatalf("consumedBootstrapTokenHash = %q, want %q", updated.Status.ConsumedBootstrapTokenHash, bootstrapTokenHash(token))
+		}
 	})
 
 	t.Run("NoCloudVendorDataDoesNotConsumeToken", func(t *testing.T) {
@@ -545,6 +560,13 @@ func TestHandlerServesMetadata(t *testing.T) {
 		if userDataRec.Code != http.StatusOK {
 			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
 		}
+		updated := &infrastructurev1alpha1.TartMachine{}
+		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
+			t.Fatalf("failed to get TartMachine after user-data delivery: %v", err)
+		}
+		if updated.Status.ConsumedBootstrapTokenHash != bootstrapTokenHash(token) {
+			t.Fatalf("consumedBootstrapTokenHash = %q, want %q", updated.Status.ConsumedBootstrapTokenHash, bootstrapTokenHash(token))
+		}
 
 		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		metaDataRec := httptest.NewRecorder()
@@ -566,6 +588,28 @@ func TestHandlerServesMetadata(t *testing.T) {
 		}
 		if body := vendorDataRec.Body.String(); body != "#cloud-config\n{}\n" {
 			t.Fatalf("vendor-data body = %q, want NoCloud vendor-data", body)
+		}
+	})
+
+	t.Run("NoCloudUserDataThenMetaDataRejectsDifferentToken", func(t *testing.T) {
+		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+
+		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
+		userDataRec := httptest.NewRecorder()
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(userDataRec, userDataReq)
+
+		if userDataRec.Code != http.StatusOK {
+			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
+		}
+
+		otherToken := "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210abcdefghijklmnopqrstuvwxyz"
+		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+otherToken+"/meta-data", nil)
+		metaDataRec := httptest.NewRecorder()
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(metaDataRec, metaDataReq)
+
+		if metaDataRec.Code != http.StatusForbidden {
+			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusForbidden, metaDataRec.Body.String())
 		}
 	})
 

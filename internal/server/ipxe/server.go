@@ -2,7 +2,9 @@ package ipxe
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -370,7 +372,7 @@ func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, c
 			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
 		}
 
-		if err := consumeBootstrapToken(ctx, cl, machine); err != nil {
+		if err := consumeBootstrapToken(ctx, cl, machine, providedToken); err != nil {
 			if apierrors.IsConflict(err) {
 				span.SetStatus(codes.Error, "token consumed by conflict")
 				return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
@@ -394,7 +396,8 @@ func serveNoCloudMetaData(c *echo.Context, cl client.Client) error {
 		attribute.String("metadata.name", c.Param("name")),
 	)
 
-	if _, err := validateMetadataRequest(c, cl, c.Param("token"), false); err != nil {
+	machine, err := validateNoCloudMetadataRequest(c, cl)
+	if err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			span.SetStatus(codes.Error, httpErr.Message)
 			return c.String(httpErr.Code, httpErr.Message)
@@ -406,9 +409,9 @@ func serveNoCloudMetaData(c *echo.Context, cl client.Client) error {
 
 	body := fmt.Sprintf(
 		"instance-id: %s-%s\nlocal-hostname: %s\n",
-		c.Param("namespace"),
-		c.Param("name"),
-		c.Param("name"),
+		machine.Namespace,
+		machine.Name,
+		machine.Name,
 	)
 	span.SetStatus(codes.Ok, "NoCloud meta-data generated")
 	return c.Blob(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
@@ -423,7 +426,7 @@ func serveNoCloudVendorData(c *echo.Context, cl client.Client) error {
 		attribute.String("metadata.name", c.Param("name")),
 	)
 
-	if _, err := validateMetadataRequest(c, cl, c.Param("token"), false); err != nil {
+	if _, err := validateNoCloudMetadataRequest(c, cl); err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			span.SetStatus(codes.Error, httpErr.Message)
 			return c.String(httpErr.Code, httpErr.Message)
@@ -435,6 +438,51 @@ func serveNoCloudVendorData(c *echo.Context, cl client.Client) error {
 
 	span.SetStatus(codes.Ok, "NoCloud vendor-data generated")
 	return c.Blob(http.StatusOK, "text/cloud-config; charset=utf-8", []byte("#cloud-config\n{}\n"))
+}
+
+func validateNoCloudMetadataRequest(c *echo.Context, cl client.Client) (*infrastructurev1alpha1.TartMachine, error) {
+	pathToken := c.Param("token")
+	if pathToken == "" {
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "token is required")
+	}
+
+	ctx := c.Request().Context()
+	var machine infrastructurev1alpha1.TartMachine
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: c.Param("namespace"),
+		Name:      c.Param("name"),
+	}, &machine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, echo.NewHTTPError(http.StatusNotFound, "TartMachine not found")
+		}
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "failed to get TartMachine")
+	}
+
+	tokenService := k8sbootstraptoken.NewService(cl)
+	expectedToken, exists, err := tokenService.Get(ctx, &machine)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusInternalServerError, "failed to get bootstrap token")
+	}
+	if exists {
+		if subtle.ConstantTimeCompare([]byte(pathToken), []byte(expectedToken.String())) != 1 {
+			return nil, echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
+		}
+		if machine.Status.TokenExpiresAt != nil {
+			now := metav1.NewTime(time.Now())
+			if machine.Status.TokenExpiresAt.Before(&now) {
+				return nil, echo.NewHTTPError(http.StatusNotFound, "token has expired")
+			}
+		}
+		return &machine, nil
+	}
+
+	if machine.Status.ConsumedBootstrapTokenHash == "" {
+		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
+	}
+	if subtle.ConstantTimeCompare([]byte(bootstrapTokenHash(pathToken)), []byte(machine.Status.ConsumedBootstrapTokenHash)) != 1 {
+		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
+	}
+	return &machine, nil
 }
 
 func bootstrapDataSecretName(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (string, error) {
@@ -477,17 +525,22 @@ func ownerMachineReference(machine *infrastructurev1alpha1.TartMachine) (schema.
 	return schema.GroupVersionKind{}, ""
 }
 
-func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) error {
+func consumeBootstrapToken(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine, providedToken string) error {
 	if err := k8sbootstraptoken.NewService(cl).Delete(ctx, machine); err != nil {
 		return err
 	}
 	original := machine.DeepCopy()
-	status, err := machinedomain.BootstrapTokenConsumedStatus(machine)
+	status, err := machinedomain.BootstrapTokenConsumedStatus(machine, bootstrapTokenHash(providedToken))
 	if err != nil {
 		return err
 	}
 	machine.Status = status
 	return cl.Status().Patch(ctx, machine, client.MergeFrom(original))
+}
+
+func bootstrapTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func NewServer(cl client.Client, addr, assetsRoot string) *Server {

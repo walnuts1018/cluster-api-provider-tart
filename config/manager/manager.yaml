@@ -89,7 +89,7 @@ spec:
           name: ipxe
           protocol: TCP
         - containerPort: 9443
-          name: extension-webhook-server
+          name: ext-webhook
           protocol: TCP
         securityContext:
           readOnlyRootFilesystem: true

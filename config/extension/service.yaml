@@ -6,4 +6,4 @@ metadata:
 spec:
   ports:
     - port: 443
-      targetPort: extension-webhook-server
+      targetPort: ext-webhook

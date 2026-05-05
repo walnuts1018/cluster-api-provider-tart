@@ -1,0 +1,108 @@
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: Cluster
+metadata:
+  name: tart-kubeadm-sample
+  labels:
+    cluster.x-k8s.io/cluster-name: tart-kubeadm-sample
+spec:
+  clusterNetwork:
+    pods:
+      cidrBlocks:
+      - 192.168.0.0/16
+    services:
+      cidrBlocks:
+      - 10.128.0.0/12
+  controlPlaneEndpoint:
+    # TODO(user): 自分の環境で API Server に到達できる IP または DNS 名へ変更する
+    host: 192.0.2.10
+    port: 6443
+  controlPlaneRef:
+    apiGroup: controlplane.cluster.x-k8s.io
+    kind: KubeadmControlPlane
+    name: tart-kubeadm-sample-control-plane
+  infrastructureRef:
+    apiGroup: infrastructure.cluster.x-k8s.io
+    kind: TartCluster
+    name: tart-kubeadm-sample
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartCluster
+metadata:
+  name: tart-kubeadm-sample
+  labels:
+    cluster.x-k8s.io/cluster-name: tart-kubeadm-sample
+spec: {}
+---
+apiVersion: controlplane.cluster.x-k8s.io/v1beta2
+kind: KubeadmControlPlane
+metadata:
+  name: tart-kubeadm-sample-control-plane
+spec:
+  replicas: 1
+  version: v1.33.0
+  machineTemplate:
+    spec:
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TartMachineTemplate
+        name: tart-kubeadm-sample-control-plane
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-kubeadm-sample-control-plane
+spec:
+  template:
+    spec:
+      # TODO(user): 自分の PXE/HTTP 配信環境に合わせて kernel/initrd URL を変更する
+      image: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/vmlinuz
+      initrd: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/initrd
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - autoinstall
+      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev:8082/metadata
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineDeployment
+metadata:
+  name: tart-kubeadm-sample-md-0
+spec:
+  clusterName: tart-kubeadm-sample
+  replicas: 1
+  selector:
+    matchLabels: null
+  template:
+    spec:
+      clusterName: tart-kubeadm-sample
+      version: v1.33.0
+      bootstrap:
+        configRef:
+          apiGroup: bootstrap.cluster.x-k8s.io
+          kind: KubeadmConfigTemplate
+          name: tart-kubeadm-sample-md-0
+      infrastructureRef:
+        apiGroup: infrastructure.cluster.x-k8s.io
+        kind: TartMachineTemplate
+        name: tart-kubeadm-sample-md-0
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
+kind: KubeadmConfigTemplate
+metadata:
+  name: tart-kubeadm-sample-md-0
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachineTemplate
+metadata:
+  name: tart-kubeadm-sample-md-0
+spec:
+  template:
+    spec:
+      # TODO(user): Control Plane と同じく、自分の環境の URL へ変更する
+      image: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/vmlinuz
+      initrd: http://bootstrap.sample.walnuts.dev:8082/images/ubuntu/initrd
+      kernelParams:
+      - console=ttyS0
+      - ip=dhcp
+      - autoinstall
+      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev:8082/metadata

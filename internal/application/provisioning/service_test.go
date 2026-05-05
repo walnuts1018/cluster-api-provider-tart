@@ -22,8 +22,8 @@ func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 			UID:       types.UID("host-a-uid"),
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress:     "00:11:22:33:44:55",
-			BootMACAddress: "00:11:22:33:44:66",
+			MACAddress:     "00:00:5e:00:53:02",
+			BootMACAddress: "00:00:5e:00:53:03",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateReserved,
@@ -38,7 +38,7 @@ func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 		t.Fatalf("Begin returned error: %v", err)
 	}
 
-	if len(sender.sentMACAddresses) != 1 || sender.sentMACAddresses[0] != "00:11:22:33:44:66" {
+	if len(sender.sentMACAddresses) != 1 || sender.sentMACAddresses[0] != "00:00:5e:00:53:03" {
 		t.Fatalf("unexpected WoL destination: %#v", sender.sentMACAddresses)
 	}
 	if hostService.provisioningHost != host {
@@ -71,7 +71,7 @@ func TestServiceEnsureValidatesMachineRef(t *testing.T) {
 			UID:       types.UID("host-a-uid"),
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress: "00:11:22:33:44:55",
+			MACAddress: "00:00:5e:00:53:02",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateReserved,
@@ -146,7 +146,7 @@ func TestServiceEnsureSkipsWhenMachineRefMatches(t *testing.T) {
 			UID:       types.UID("host-a-uid"),
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress: "00:11:22:33:44:55",
+			MACAddress: "00:00:5e:00:53:02",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateReserved,
@@ -204,7 +204,7 @@ func TestServiceEnsureSkipsWhenAlreadyProvisioning(t *testing.T) {
 			UID:       types.UID("host-a-uid"),
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress: "00:11:22:33:44:55",
+			MACAddress: "00:00:5e:00:53:02",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateProvisioning,
@@ -259,7 +259,7 @@ func TestServiceEnsureSkipsWhenAlreadyProvisioned(t *testing.T) {
 			UID:       types.UID("host-a-uid"),
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress: "00:11:22:33:44:55",
+			MACAddress: "00:00:5e:00:53:02",
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateProvisioned,

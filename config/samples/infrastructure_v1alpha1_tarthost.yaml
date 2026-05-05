@@ -6,6 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: worker-01
 spec:
-  macAddress: "52:54:00:12:34:56"
+  macAddress: "00:00:5e:00:53:00"
   # PXE boot に使う NIC が別の場合だけ指定する
-  bootMacAddress: "52:54:00:12:34:57"
+  bootMacAddress: "00:00:5e:00:53:01"

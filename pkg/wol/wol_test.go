@@ -11,12 +11,12 @@ import (
 func TestMagicPacket(t *testing.T) {
 	t.Parallel()
 
-	packet, err := wol.MagicPacket("00:11:22:33:44:55")
+	packet, err := wol.MagicPacket("00:00:5e:00:53:02")
 	if err != nil {
 		t.Fatalf("MagicPacket() error = %v", err)
 	}
 
-	want := append(bytes.Repeat([]byte{0xff}, 6), bytes.Repeat([]byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55}, 16)...)
+	want := append(bytes.Repeat([]byte{0xff}, 6), bytes.Repeat([]byte{0x00, 0x00, 0x5e, 0x00, 0x53, 0x02}, 16)...)
 	if !bytes.Equal(packet, want) {
 		t.Fatalf("MagicPacket() = %x, want %x", packet, want)
 	}
@@ -39,7 +39,7 @@ func TestSend(t *testing.T) {
 	addr := conn.LocalAddr().String()
 	sender := wol.NewSender(addr)
 
-	const mac = "00:11:22:33:44:55"
+	const mac = "00:00:5e:00:53:02"
 	if err := sender.Send(mac); err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
@@ -71,7 +71,7 @@ func TestSendFailsOnUnreachableAddress(t *testing.T) {
 
 	// 不正なアドレスへの dial が失敗することを確認する
 	sender := wol.NewSender("not-a-valid-address")
-	if err := sender.Send("00:11:22:33:44:55"); err == nil {
+	if err := sender.Send("00:00:5e:00:53:02"); err == nil {
 		t.Fatal("Send() error = nil, want error")
 	}
 }

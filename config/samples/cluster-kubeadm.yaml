@@ -8,14 +8,14 @@ spec:
   clusterNetwork:
     pods:
       cidrBlocks:
-      - 192.168.0.0/16
+       - 10.0.0.0/16
     services:
       cidrBlocks:
-      - 10.128.0.0/12
-  controlPlaneEndpoint:
-    # TODO(user): 自分の環境で API Server に到達できる IP または DNS 名へ変更する
-    host: 192.0.2.10
-    port: 6443
+      - 10.96.0.0/12
+  # kube-vipなどを利用している場合は、controlPlaneEndpointを指定します。
+  # controlPlaneEndpoint:
+  #   host: 192.0.2.10
+  #   port: 6443
   controlPlaneRef:
     apiGroup: controlplane.cluster.x-k8s.io
     kind: KubeadmControlPlane
@@ -39,7 +39,7 @@ metadata:
   name: tart-kubeadm-sample-control-plane
 spec:
   replicas: 1
-  version: v1.33.0
+  version: v1.36.0
   machineTemplate:
     spec:
       infrastructureRef:
@@ -60,7 +60,8 @@ spec:
       - console=ttyS0
       - ip=dhcp
       - autoinstall
-      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev/metadata
+      # TODO(user): HTTP Route: cluster-api-provider-tart-controller-manager-ipxeと同じホスト名を指定する
+      - ds=nocloud-net;s=http://tart.sample.walnuts.dev/metadata
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -74,7 +75,7 @@ spec:
   template:
     spec:
       clusterName: tart-kubeadm-sample
-      version: v1.33.0
+      version: v1.36.0
       bootstrap:
         configRef:
           apiGroup: bootstrap.cluster.x-k8s.io
@@ -103,4 +104,16 @@ spec:
       - console=ttyS0
       - ip=dhcp
       - autoinstall
-      - ds=nocloud-net;s=http://bootstrap.sample.walnuts.dev/metadata
+      # TODO(user): HTTP Route: cluster-api-provider-tart-controller-manager-ipxeと同じホスト名を指定する
+      - ds=nocloud-net;s=http://tart.sample.walnuts.dev/metadata
+---
+apiVersion: cluster.x-k8s.io/v1beta2
+kind: MachineHealthCheck
+metadata:
+  name: tart-kubeadm-sample-md-0-health-check
+  namespace: default
+spec:
+  clusterName: tart-kubeadm-sample
+  selector:
+    matchLabels:
+      cluster.x-k8s.io/cluster-name: tart-kubeadm-sample

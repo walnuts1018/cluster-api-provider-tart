@@ -59,7 +59,7 @@ var _ = Describe("TartHost Controller", func() {
 						Namespace: "default",
 					},
 					Spec: infrastructurev1alpha1.TartHostSpec{
-						MACAddress: "00:11:22:33:44:55",
+						MACAddress: "00:00:5e:00:53:02",
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -110,7 +110,7 @@ var _ = Describe("TartHost Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:99",
+					MACAddress: "00:00:5e:00:53:04",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -172,7 +172,7 @@ var _ = Describe("TartHost Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:97",
+					MACAddress: "00:00:5e:00:53:05",
 				},
 				Status: infrastructurev1alpha1.TartHostStatus{
 					State: infrastructurev1alpha1.TartHostStateReserved,
@@ -230,7 +230,7 @@ var _ = Describe("TartHost Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:11",
+					MACAddress: "00:00:5e:00:53:06",
 				},
 			}
 
@@ -270,7 +270,7 @@ var _ = Describe("TartHost Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:22",
+					MACAddress: "00:00:5e:00:53:07",
 				},
 				Status: infrastructurev1alpha1.TartHostStatus{
 					State: infrastructurev1alpha1.TartHostStateReserved,

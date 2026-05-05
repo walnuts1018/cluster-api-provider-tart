@@ -82,7 +82,7 @@ var _ = Describe("TartMachine Controller", func() {
 						Namespace: "default",
 					},
 					Spec: infrastructurev1alpha1.TartHostSpec{
-						MACAddress: "00:11:22:33:44:66",
+						MACAddress: "00:00:5e:00:53:03",
 					},
 				}
 				Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -124,7 +124,7 @@ var _ = Describe("TartMachine Controller", func() {
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
-			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:66"))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:03"))
 		})
 	})
 
@@ -157,7 +157,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:99",
+					MACAddress: "00:00:5e:00:53:04",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -208,7 +208,7 @@ var _ = Describe("TartMachine Controller", func() {
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
-			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:99"))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:04"))
 		})
 	})
 
@@ -241,7 +241,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:98",
+					MACAddress: "00:00:5e:00:53:05",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -318,8 +318,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress:     "00:11:22:33:44:99",
-					BootMACAddress: "00:11:22:33:44:88",
+					MACAddress:     "00:00:5e:00:53:04",
+					BootMACAddress: "00:00:5e:00:53:09",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -402,8 +402,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress:     "00:11:22:33:44:77",
-					BootMACAddress: "00:11:22:33:44:88",
+					MACAddress:     "00:00:5e:00:53:08",
+					BootMACAddress: "00:00:5e:00:53:09",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -429,8 +429,8 @@ var _ = Describe("TartMachine Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:88"))
-			Expect(slices.Contains(wolSender.sentMACAddresses, "00:11:22:33:44:77")).To(BeFalse())
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:09"))
+			Expect(slices.Contains(wolSender.sentMACAddresses, "00:00:5e:00:53:08")).To(BeFalse())
 		})
 	})
 
@@ -463,7 +463,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:aa",
+					MACAddress: "00:00:5e:00:53:0a",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -540,8 +540,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress:     "00:11:22:33:44:aa",
-					BootMACAddress: "00:11:22:33:44:bb",
+					MACAddress:     "00:00:5e:00:53:0a",
+					BootMACAddress: "00:00:5e:00:53:0b",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -607,7 +607,7 @@ var _ = Describe("TartMachine Controller", func() {
 			updatedHost := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, updatedHost)).To(Succeed())
 			Expect(updatedHost.Status.State).To(Equal(infrastructurev1alpha1.TartHostStateProvisioning))
-			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:bb"))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:0b"))
 		})
 	})
 
@@ -640,8 +640,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress:     "00:11:22:33:44:cc",
-					BootMACAddress: "00:11:22:33:44:dd",
+					MACAddress:     "00:00:5e:00:53:0c",
+					BootMACAddress: "00:00:5e:00:53:0d",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -751,7 +751,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:ee",
+					MACAddress: "00:00:5e:00:53:0e",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -827,7 +827,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:66",
+					MACAddress: "00:00:5e:00:53:03",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -872,7 +872,7 @@ var _ = Describe("TartMachine Controller", func() {
 			n, _, err := udpListener.ReadFrom(buf)
 			Expect(err).NotTo(HaveOccurred())
 
-			expectedPacket, err := wol.MagicPacket("00:11:22:33:44:66")
+			expectedPacket, err := wol.MagicPacket("00:00:5e:00:53:03")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf[:n]).To(Equal(expectedPacket))
 		})
@@ -880,7 +880,7 @@ var _ = Describe("TartMachine Controller", func() {
 		It("should send WoL to boot MAC address when specified", func() {
 			host := &infrastructurev1alpha1.TartHost{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hostName, Namespace: "default"}, host)).To(Succeed())
-			host.Spec.BootMACAddress = "00:11:22:33:44:88"
+			host.Spec.BootMACAddress = "00:00:5e:00:53:09"
 			Expect(k8sClient.Update(ctx, host)).To(Succeed())
 
 			senderAddr := udpListener.LocalAddr().String()
@@ -898,7 +898,7 @@ var _ = Describe("TartMachine Controller", func() {
 			n, _, err := udpListener.ReadFrom(buf)
 			Expect(err).NotTo(HaveOccurred())
 
-			expectedPacket, err := wol.MagicPacket("00:11:22:33:44:88")
+			expectedPacket, err := wol.MagicPacket("00:00:5e:00:53:09")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf[:n]).To(Equal(expectedPacket))
 		})
@@ -970,7 +970,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:aa",
+					MACAddress: "00:00:5e:00:53:0a",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -1082,7 +1082,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:bb",
+					MACAddress: "00:00:5e:00:53:0b",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -1191,7 +1191,7 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:11:22:33:44:cc",
+					MACAddress: "00:00:5e:00:53:0c",
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -1231,7 +1231,7 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Status.HostRef).NotTo(BeNil())
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
-			Expect(wolSender.sentMACAddresses).To(ContainElement("00:11:22:33:44:cc"))
+			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:0c"))
 		})
 	})
 })

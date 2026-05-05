@@ -253,18 +253,18 @@ func buildBootstrapKernelParams(ctx context.Context, _ client.Client, serverURL 
 }
 
 func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/talos/%s", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
-	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
+	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "talos", token)
+	return u
 }
 
 func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/%s/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
-	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
+	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "nocloud", token)
+	return u + "/"
 }
 
 func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/preseed/%s/preseed.cfg", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
-	return fmt.Sprintf("%s%s", strings.TrimSuffix(serverURL, "/"), metadataPath)
+	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "preseed", token, "preseed.cfg")
+	return u
 }
 
 func handleMetadata(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {

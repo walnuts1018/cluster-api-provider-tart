@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -306,13 +307,21 @@ func main() {
 
 	var baseURL string
 	if ipxeDomain != "" {
-		baseURL = "http://" + ipxeDomain
+		u := url.URL{
+			Scheme: "http",
+			Host:   ipxeDomain,
+		}
+		baseURL = u.String()
 	} else {
 		_, port, err := net.SplitHostPort(ipxeBindAddress)
 		if err != nil {
 			port = "8082" // fallback
 		}
-		baseURL = fmt.Sprintf("http://%s:%s", advertiseIP.String(), port)
+		u := url.URL{
+			Scheme: "http",
+			Host:   net.JoinHostPort(advertiseIP.String(), port),
+		}
+		baseURL = u.String()
 	}
 
 	if ipxeBindAddress != "0" {

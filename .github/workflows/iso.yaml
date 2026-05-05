@@ -27,7 +27,7 @@ jobs:
               - casper/vmlinuz
               - casper/initrd
           - key: ubuntu-26.04-arm64
-            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/26.04/ubuntu-26.04-live-server-arm64.iso
+            iso: https://cdimage.ubuntu.com/releases/26.04/release/ubuntu-26.04-live-server-arm64.iso
             files:
               - casper/vmlinuz
               - casper/initrd
@@ -37,7 +37,7 @@ jobs:
               - casper/vmlinuz
               - casper/initrd
           - key: ubuntu-24.04-arm64
-            iso: http://ftp.riken.go.jp/Linux/ubuntu-releases/24.04/ubuntu-24.04-live-server-arm64.iso
+            iso: https://cdimage.ubuntu.com/releases/24.04/release/ubuntu-24.04.4-live-server-arm64.iso
             files:
               - casper/vmlinuz
               - casper/initrd

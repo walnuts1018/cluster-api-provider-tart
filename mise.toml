@@ -209,7 +209,7 @@ description = "iPXE artifact を ORAS を使って push する"
 run = '''
 IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
 IPXE_TAG="${IPXE_TAG:-latest}"
-go run hack/ipxe-artifact/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
+go run hack/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
 '''
 
 

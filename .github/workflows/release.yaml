@@ -66,7 +66,7 @@ jobs:
 
       - name: Push OCI Artifact using ORAS
         run: |
-          go run hack/ipxe-artifact/main.go \
+          go run hack/artifacter/main.go \
             -dir dist/ipxe \
             -repo ${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }} \
             -tag ${{ steps.tag.outputs.ImageTag }}

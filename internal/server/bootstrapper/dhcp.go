@@ -198,7 +198,7 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 		}
 		port := localAddr.Port
 
-		lg.Info("Received DHCP packet", "port", port, "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr)
+		lg.Info("Received DHCP packet", "port", port, "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr.String())
 
 		// BootRequestのみを処理
 		if m.OpCode != dhcpv4.OpcodeBootRequest {

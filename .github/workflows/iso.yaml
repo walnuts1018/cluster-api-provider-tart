@@ -75,3 +75,5 @@ jobs:
             -dir dist/iso \
             -repo ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.key }} \
             -tag ${{ steps.tag.outputs.ImageTag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

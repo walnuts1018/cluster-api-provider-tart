@@ -4,6 +4,8 @@ metadata:
   labels:
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
-  name: tarthost-sample
+  name: worker-01
 spec:
-  # TODO(user): Add fields here
+  macAddress: "00:00:5e:00:53:00"
+  # PXE boot に使う NIC が別の場合だけ指定する
+  bootMacAddress: "00:00:5e:00:53:01"

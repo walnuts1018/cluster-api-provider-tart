@@ -65,7 +65,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 
 		By("Creating TartHosts and starting simulators")
 		manager = NewSimulatorManager()
-		macs := []string{"52:54:00:12:34:56", "52:54:00:12:34:57"}
+		macs := []string{"00:00:5e:00:53:00", "00:00:5e:00:53:01"}
 		for i, mac := range macs {
 			host := &infrastructurev1alpha1.TartHost{}
 			host.Name = fmt.Sprintf("%s-host-%d", clusterName, i)

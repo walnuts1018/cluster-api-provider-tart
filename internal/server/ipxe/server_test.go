@@ -61,8 +61,8 @@ func setupFakeClient(t *testing.T, scheme *runtime.Scheme, objects ...client.Obj
 
 func TestHandlerDynamicScript(t *testing.T) {
 	scheme := setupScheme(t)
-	mac := "00:11:22:33:44:55"
-	bootMAC := "AA:BB:CC:DD:EE:FF"
+	mac := "00:00:5e:00:53:02"
+	bootMAC := "00:00:5e:00:53:11"
 	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
 
 	host1 := &infrastructurev1alpha1.TartHost{
@@ -98,7 +98,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: infrastructurev1alpha1.TartHostSpec{
-			MACAddress:     "11:22:33:44:55:66",
+			MACAddress:     "00:00:5e:00:53:12",
 			BootMACAddress: bootMAC,
 		},
 		Status: infrastructurev1alpha1.TartHostStatus{
@@ -192,7 +192,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 	})
 
 	t.Run("HostNotFound", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:aa:bb:cc:dd:ee", nil)
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:13", nil)
 		rec := httptest.NewRecorder()
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {

@@ -1,5 +1,7 @@
 ## Append samples of your project ##
 resources:
+- bootstrap-httproute.yaml
+- cluster-kubeadm.yaml
 - infrastructure_v1alpha1_tarthost.yaml
 - infrastructure_v1alpha1_tartmachine.yaml
 - infrastructure_v1alpha1_tartmachinetemplate.yaml

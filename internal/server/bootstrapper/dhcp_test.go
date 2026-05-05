@@ -238,7 +238,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 	}
 	defer conn.Close()
 
-	mac, err := net.ParseMAC("12:34:56:78:9a:bc")
+	mac, err := net.ParseMAC("00:00:5e:00:53:14")
 	if err != nil {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 			t.Errorf("expected HTTP URL in boot file, got %s", bootFile)
 		}
 
-		if !strings.Contains(bootFile, "12%3A34%3A56%3A78%3A9a%3Abc") {
+		if !strings.Contains(bootFile, "00%3A00%3A5e%3A00%3A53%3A14") {
 			t.Errorf("expected URL-encoded MAC address in boot file, got %s", bootFile)
 		}
 	})
@@ -370,7 +370,7 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWhenServerIDExists(t *testing.T) {
 	}
 	defer conn.Close()
 
-	mac, err := net.ParseMAC("12:34:56:78:9a:bc")
+	mac, err := net.ParseMAC("00:00:5e:00:53:14")
 	if err != nil {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}
@@ -472,7 +472,7 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 	}
 	defer conn.Close()
 
-	mac, err := net.ParseMAC("aa:bb:cc:dd:ee:ff")
+	mac, err := net.ParseMAC("00:00:5e:00:53:15")
 	if err != nil {
 		t.Fatalf("failed to parse MAC: %v", err)
 	}

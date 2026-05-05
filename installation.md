@@ -6,14 +6,13 @@
 
 - Cluster API Operator を使って Cluster API と Tart Provider をまとめてインストールする
 - 物理ホストを `TartHost` として登録する
-- kubeadm 用テンプレートから workload cluster のマニフェストを生成する
-- 生成したマニフェストを適用し、作成後の状態を確認する
+- kubeadm workload cluster 用の sample manifest を自分の環境向けに書き換える
+- 書き換えたマニフェストを適用し、作成後の状態を確認する
 
 ## 前提条件
 
 - Kubernetes v1.35 以降の management cluster がある
 - `kubectl` で management cluster に接続できる
-- `clusterctl` コマンドを利用できる
 - PXE ブート対象の物理マシンに到達できるネットワークがある
 - `cluster-api-provider-tart` のコントローラーが利用する UDP `67`, UDP `69`, TCP `8082` を開けられる
 
@@ -55,7 +54,7 @@ kubectl get pods -n capi-operator-system
 
 次に、Cluster API 本体と kubeadm/Tart provider をまとめてインストールします。以下の values は、Argo CD で Cluster API Operator を管理する場合も含めた完全なサンプルです。
 
-通常の手動運用では `enableHelmHook: false` は不要です。これは Argo CD で同期する場合にだけ必要な設定で、付けないと同期のたびに Helm hook が再実行され、Namespace ごと削除されることがあります。このガイドでは条件付きの設定であることが分かるよう、そのまま掲載しています。
+通常の手動運用では `enableHelmHook: false` は不要です。Argo CD で同期する場合だけ追加してください。
 
 ```yaml
 core:
@@ -71,7 +70,9 @@ infrastructure:
       url: https://github.com/walnuts1018/cluster-api-provider-tart/releases/v0.0.2/infrastructure-components.yaml
 resources:
   manager: {}
-enableHelmHook: false # ArgoCDを用いる場合これをつけないと、毎回Syncする時にnamespaceごと消える
+
+
+# enableHelmHook: false # これをつけないと、毎回Syncする時にnamespaceごと消える
 ```
 
 たとえば `capi-operator-values.yaml` という名前で保存して、次を実行します。
@@ -122,46 +123,48 @@ kubectl get tarthosts
 
 この時点では、ホストが「Cluster API から割り当て可能な候補」として登録された状態です。
 
-## Step 5. kubeadm クラスタ用の変数を準備する
+## Step 5. kubeadm クラスタ用の sample manifest をコピーする
 
-workload cluster のマニフェストは、[config/templates/cluster-template-kubeadm.yaml](./config/templates/cluster-template-kubeadm.yaml) を `clusterctl generate cluster` で展開して作ります。`clusterctl generate cluster` を使う理由は、テンプレート内の変数をまとめて置換しつつ、Cluster API が扱いやすい完成済みマニフェストを一度に生成できるためです。
+workload cluster の雛形は [config/samples/cluster-kubeadm.yaml](./config/samples/cluster-kubeadm.yaml) にあります。このファイルには、`Cluster`、`TartCluster`、`KubeadmControlPlane`、`TartMachineTemplate`、`MachineDeployment`、`KubeadmConfigTemplate` がすでに一式そろっています。
 
-このテンプレートでは、少なくとも次の環境変数が必要です。
-
-```bash
-export CLUSTER_NAME=tart-quickstart
-export KUBERNETES_VERSION=v1.33.0
-export CONTROL_PLANE_ENDPOINT_HOST=192.0.2.10
-export UBUNTU_KERNEL_URL=http://198.51.100.20:8082/images/ubuntu/vmlinuz
-export UBUNTU_INITRD_URL=http://198.51.100.20:8082/images/ubuntu/initrd
-export BOOTSTRAP_METADATA_URL=http://198.51.100.20:8082/metadata
-```
-
-必要に応じて、テンプレートのデフォルト値を上書きするために次の変数も追加できます。
-
-- `CONTROL_PLANE_ENDPOINT_PORT`
-- `CONTROL_PLANE_MACHINE_COUNT`
-- `WORKER_MACHINE_COUNT`
-- `POD_CIDR`
-- `SERVICE_CIDR`
-
-`UBUNTU_KERNEL_URL` と `UBUNTU_INITRD_URL` は、Tart Controller から到達できる HTTP URL を指定してください。`BOOTSTRAP_METADATA_URL` はテンプレート中で `ds=nocloud-net;s=...` として利用されます。
-
-## Step 6. workload cluster のマニフェストを生成する
-
-環境変数を設定したら、テンプレートから実際に適用するマニフェストを生成します。生成結果を `cluster.yaml` に保存しておくと、内容確認や再適用がしやすくなります。
+まずはこの sample をコピーして、自分の作業用ファイルを作ってください。
 
 ```bash
-clusterctl generate cluster "${CLUSTER_NAME}" \
-  --from ./config/templates/cluster-template-kubeadm.yaml \
-  > cluster.yaml
+cp ./config/samples/cluster-kubeadm.yaml cluster.yaml
 ```
 
-生成後は、`cluster.yaml` に `Cluster`、`KubeadmControlPlane`、`MachineDeployment`、`TartMachineTemplate` が含まれていることを確認してください。
+## Step 6. sample manifest を自分の環境向けに書き換える
+
+`cluster.yaml` を開いて、最低限次の箇所を自分の環境に合わせて変更します。
+
+- `metadata.name` と `cluster.x-k8s.io/cluster-name`
+  - この sample では `tart-kubeadm-sample` になっています。自分のクラスタ名に合わせて、ファイル内の同じ名前をまとめて置き換えてください。
+- `spec.controlPlaneEndpoint.host`
+  - workload cluster の Kubernetes API に到達するための IP または DNS 名です。
+- `spec.version`
+  - Control Plane と Worker の Kubernetes バージョンです。
+- `image` と `initrd`
+  - PXE 起動時に配信する kernel/initrd の URL です。Tart Controller から到達できる HTTP URL にしてください。
+- `ds=nocloud-net;s=...`
+  - bootstrap metadata を配信する URL です。通常は Tart Controller の HTTP エンドポイントを指定します。
+
+sample の初期値は、以下のような読み替えを想定しています。
+
+- `192.0.2.10`:
+  管理用ロードバランサや仮想 IP など、Control Plane Endpoint に使う実アドレスへ変更します。
+- `bootstrap.sample.walnuts.dev:8082`:
+  kernel/initrd と metadata を配信する自分の Tart Controller のホスト名または IP へ変更します。
+
+必要に応じて、次の値も調整してください。
+
+- `replicas`: Control Plane と Worker の台数
+- `clusterNetwork.pods.cidrBlocks` と `clusterNetwork.services.cidrBlocks`: 使いたい Pod/Service CIDR
+
+`config/samples/cluster-kubeadm.yaml` は [config/templates/cluster-template-kubeadm.yaml](./config/templates/cluster-template-kubeadm.yaml) と同じ構成に合わせてあるため、テンプレートを読む前にまずこの sample を編集すれば十分です。
 
 ## Step 7. workload cluster を作成する
 
-生成した `cluster.yaml` を management cluster に適用します。ここで初めて Cluster API が `TartMachine` や `Machine` を作成し、登録済みの `TartHost` を使ったプロビジョニングが始まります。
+書き換えた `cluster.yaml` を management cluster に適用します。ここで初めて Cluster API が `TartMachine` や `Machine` を作成し、登録済みの `TartHost` を使ったプロビジョニングが始まります。
 
 ```bash
 kubectl apply -f cluster.yaml
@@ -175,7 +178,7 @@ kubectl apply -f cluster.yaml
 
 ```bash
 kubectl get clusters,machines,kubeadmcontrolplanes,tartmachines,tarthosts -A
-kubectl describe cluster "${CLUSTER_NAME}"
+kubectl describe cluster tart-kubeadm-sample
 ```
 
 確認の見方:
@@ -201,7 +204,7 @@ kubectl logs -n cluster-api-provider-tart-system -l control-plane=controller-man
 - provider が `Ready` にならない場合: Operator ログを確認し、values の `fetchConfig.url` や version を見直す
 - `TartHost` が使われない場合: `macAddr` が対象ホストの NIC と一致しているか確認する
 - `TartMachine` が進まない場合: PXE 対象ホストから UDP `67`/`69` と TCP `8082` へ到達できるか確認する
-- kubeadm bootstrap が失敗する場合: `UBUNTU_KERNEL_URL`、`UBUNTU_INITRD_URL`、`BOOTSTRAP_METADATA_URL` がテンプレートと一致しているか確認する
+- kubeadm bootstrap が失敗する場合: `cluster.yaml` の `image`、`initrd`、`ds=nocloud-net;s=...` が実際の配信先と一致しているか確認する
 
 ## クリーンアップ
 

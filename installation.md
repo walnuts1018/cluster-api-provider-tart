@@ -85,7 +85,7 @@ kubectl apply -f tart-host.yaml
 
 ## Step 4. kubeadm クラスタ用の sample manifest を確認する
 
-workload cluster の雛形は [config/samples/cluster-kubeadm.yaml](./config/samples/cluster-kubeadm.yaml) にあります。
+workload cluster の雛形は [config/samples/cluster-kubeadm-ubuntu.yaml](./config/samples/cluster-kubeadm-ubuntu.yaml) にあります。
 この sample は Ubuntu kubeadm 用の NoCloud bootstrap を既定としており、NoCloud seed URL は controller が iPXE script へ自動で追加します。
 
 ## Step 5. workload cluster を作成する

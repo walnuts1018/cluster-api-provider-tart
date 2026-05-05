@@ -1,4 +1,4 @@
-name: Release
+name: Download ISO and Publish as OCI Artifact
 on:
   workflow_dispatch:
     inputs:

@@ -49,11 +49,12 @@ type TartMachineBootstrapSpec struct {
 
 type TartMachineSpec struct {
 	// existing fields...
+	// +kubebuilder:default={}
 	Bootstrap TartMachineBootstrapSpec `json:"bootstrap,omitempty"`
 }
 ```
 
-`format` の default は Ubuntu kubeadm 向けの `NoCloud` とする。既存の `TartMachine` や sample が `bootstrap` を持たない場合は `NoCloud` として扱い、Ubuntu kubeadm の seed URL を自動生成する。`talos.config=` は `format: Talos` を明示した場合にのみ追加する。
+`format` の default は Ubuntu kubeadm 向けの `NoCloud` とする。CRD は `bootstrap` の親 object も `default: {}` で生成し、`bootstrap` 自体を省略した `TartMachine` / `TartMachineTemplate` でも `format: NoCloud` が defaulting されるようにする。iPXE の runtime fallback も同じく `NoCloud` として扱い、Ubuntu kubeadm の seed URL を自動生成する。`talos.config=` は `format: Talos` を明示した場合にのみ追加する。
 
 `Raw` は controller が bootstrap 用 kernel parameter を追加しない形式とする。ユーザーは `kernelParams` へ必要な値をすべて明示する。
 

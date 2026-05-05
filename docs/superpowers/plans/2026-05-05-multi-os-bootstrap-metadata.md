@@ -167,6 +167,7 @@ Format TartMachineBootstrapFormat `json:"format,omitempty"`
 ```go
 // bootstrap configures how bootstrap data is passed to the booted OS or installer.
 // +optional
+// +kubebuilder:default={}
 Bootstrap TartMachineBootstrapSpec `json:"bootstrap,omitempty"`
 ```
 

@@ -52,6 +52,7 @@ spec:
             description: spec defines the desired state of TartMachine
             properties:
               bootstrap:
+                default: {}
                 description: bootstrap configures how bootstrap data is passed to
                   the booted OS or installer.
                 properties:

@@ -11,7 +11,7 @@
 
 ## 前提条件
 
-- Kubernetes v1.28 以降の management cluster がある
+- Kubernetes v1.35 以降の management cluster がある
 - `kubectl` で management cluster に接続できる
 - `clusterctl` コマンドを利用できる
 - PXE ブート対象の物理マシンに到達できるネットワークがある
@@ -24,7 +24,7 @@
 <details>
 <summary>kind で最小の management cluster を作る例</summary>
 
-ローカル検証だけ先に試したい場合は、次のように kind クラスタを作成できます。
+ローカル検証だけ先に試したい場合は、v1.35 以上の Kubernetes Node Image を選んだうえで、次のように kind クラスタを作成できます。
 
 ```bash
 cat <<'EOF' > kind-management-cluster.yaml

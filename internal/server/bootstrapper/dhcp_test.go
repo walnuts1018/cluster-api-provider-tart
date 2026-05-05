@@ -1,7 +1,6 @@
 package bootstrapper
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os"
@@ -143,8 +142,7 @@ func TestDHCPBootstrapper_Start(t *testing.T) {
 func TestDHCPBootstrapper_Start_WithoutIPXE(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1:0", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
@@ -169,8 +167,7 @@ func TestDHCPBootstrapper_Start_InvalidAddress(t *testing.T) {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewDHCPBootstrapper(tmpDir, "invalid", "127.0.0.1", "http://127.0.0.1:8080")
 	if err != nil {
@@ -207,8 +204,7 @@ func TestDHCPBootstrapper_NextServerAndFileURI(t *testing.T) {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testPort := 6800
 	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
@@ -342,8 +338,7 @@ func TestDHCPBootstrapper_ProxyMode_RespondsRegardlessOfServerID(t *testing.T) {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testPort := 6801
 	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")
@@ -453,8 +448,7 @@ func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
 		t.Fatalf("failed to create fake iPXE file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testPort := 6802
 	bs, err := NewDHCPBootstrapper(tmpDir, fmt.Sprintf("127.0.0.1:%d", testPort), "127.0.0.1", "http://127.0.0.1:8080")

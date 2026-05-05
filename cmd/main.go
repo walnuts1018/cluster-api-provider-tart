@@ -68,6 +68,7 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
+//nolint:gocyclo
 func main() {
 	var metricsAddr string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -381,7 +382,7 @@ func parseFeatureGates(s string) (map[string]bool, error) {
 	if s == "" {
 		return gates, nil
 	}
-	for _, pair := range strings.Split(s, ",") {
+	for pair := range strings.SplitSeq(s, ",") {
 		kv := strings.Split(pair, "=")
 		if len(kv) != 2 {
 			return nil, fmt.Errorf("invalid feature gate pair: %s", pair)

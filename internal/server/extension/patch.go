@@ -93,8 +93,8 @@ func patchTartMachineSpec(current, desired *infrastructurev1alpha1.TartMachine) 
 
 // generateJSONMergePatch generates a JSON merge patch (RFC 7386) from current to desired.
 func generateJSONMergePatch(current, desired []byte) ([]byte, error) {
-	var currentMap map[string]interface{}
-	var desiredMap map[string]interface{}
+	var currentMap map[string]any
+	var desiredMap map[string]any
 
 	if err := json.Unmarshal(current, &currentMap); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal current: %w", err)
@@ -108,8 +108,8 @@ func generateJSONMergePatch(current, desired []byte) ([]byte, error) {
 }
 
 // jsonMergePatch recursively computes a JSON merge patch.
-func jsonMergePatch(current, desired map[string]interface{}) map[string]interface{} {
-	patch := map[string]interface{}{}
+func jsonMergePatch(current, desired map[string]any) map[string]any {
+	patch := map[string]any{}
 
 	for key, desiredVal := range desired {
 		currentVal, exists := current[key]
@@ -118,8 +118,8 @@ func jsonMergePatch(current, desired map[string]interface{}) map[string]interfac
 			continue
 		}
 
-		desiredMap, desiredIsMap := desiredVal.(map[string]interface{})
-		currentMap, currentIsMap := currentVal.(map[string]interface{})
+		desiredMap, desiredIsMap := desiredVal.(map[string]any)
+		currentMap, currentIsMap := currentVal.(map[string]any)
 
 		if desiredIsMap && currentIsMap {
 			subPatch := jsonMergePatch(currentMap, desiredMap)
@@ -138,16 +138,16 @@ func jsonMergePatch(current, desired map[string]interface{}) map[string]interfac
 }
 
 // jsonEqual compares two JSON values for equality.
-func jsonEqual(a, b interface{}) bool {
+func jsonEqual(a, b any) bool {
 	switch av := a.(type) {
-	case map[string]interface{}:
-		bv, ok := b.(map[string]interface{})
+	case map[string]any:
+		bv, ok := b.(map[string]any)
 		if !ok {
 			return false
 		}
 		return mapsEqual(av, bv)
-	case []interface{}:
-		bv, ok := b.([]interface{})
+	case []any:
+		bv, ok := b.([]any)
 		if !ok {
 			return false
 		}
@@ -159,7 +159,7 @@ func jsonEqual(a, b interface{}) bool {
 	}
 }
 
-func mapsEqual(a, b map[string]interface{}) bool {
+func mapsEqual(a, b map[string]any) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -172,7 +172,7 @@ func mapsEqual(a, b map[string]interface{}) bool {
 	return true
 }
 
-func slicesEqual(a, b []interface{}) bool {
+func slicesEqual(a, b []any) bool {
 	if len(a) != len(b) {
 		return false
 	}

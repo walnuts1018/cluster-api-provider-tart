@@ -50,7 +50,7 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 		Hook:           runtimehooksv1.CanUpdateMachine,
 		HandlerFunc:    HandleCanUpdateMachine,
 		Name:           "can-update-machine",
-		TimeoutSeconds: ptrInt32(10),
+		TimeoutSeconds: new(int32(10)),
 	}); err != nil {
 		return nil, fmt.Errorf("failed to register CanUpdateMachine handler: %w", err)
 	}
@@ -59,7 +59,7 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 		Hook:           runtimehooksv1.CanUpdateMachineSet,
 		HandlerFunc:    HandleCanUpdateMachineSet,
 		Name:           "can-update-machine-set",
-		TimeoutSeconds: ptrInt32(10),
+		TimeoutSeconds: new(int32(10)),
 	}); err != nil {
 		return nil, fmt.Errorf("failed to register CanUpdateMachineSet handler: %w", err)
 	}
@@ -68,7 +68,7 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 		Hook:           runtimehooksv1.UpdateMachine,
 		HandlerFunc:    HandleUpdateMachine,
 		Name:           "update-machine",
-		TimeoutSeconds: ptrInt32(10),
+		TimeoutSeconds: new(int32(10)),
 	}); err != nil {
 		return nil, fmt.Errorf("failed to register UpdateMachine handler: %w", err)
 	}
@@ -90,8 +90,4 @@ func getWebhookCertDir() string {
 		return dir
 	}
 	return ""
-}
-
-func ptrInt32(v int32) *int32 {
-	return &v
 }

@@ -25,7 +25,7 @@ type timeTransformer struct {
 }
 
 func (t timeTransformer) Transformer(typ reflect.Type) func(dst, src reflect.Value) error {
-	if typ == reflect.TypeOf(metav1.Time{}) {
+	if typ == reflect.TypeFor[metav1.Time]() {
 		return func(dst, src reflect.Value) error {
 			if dst.CanSet() {
 				isZero := dst.FieldByName("Time").MethodByName("IsZero")

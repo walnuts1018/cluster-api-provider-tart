@@ -54,7 +54,7 @@ func writeVersionPinnedClusterctlConfig(e2eConfig *clusterctl.E2EConfig, reposit
 		})
 	}
 
-	values := map[string]interface{}{
+	values := map[string]any{
 		"providers":       providers,
 		"overridesFolder": filepath.Join(repositoryFolder, "overrides"),
 	}

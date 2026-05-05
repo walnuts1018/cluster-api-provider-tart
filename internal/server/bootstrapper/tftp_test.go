@@ -2,7 +2,6 @@ package bootstrapper
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,8 +86,7 @@ func TestTFTPBootstrapper_Start(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
 	if err != nil {
@@ -155,8 +153,7 @@ func TestTFTPBootstrapper_FileDownload(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
 	if err != nil {
@@ -285,8 +282,7 @@ func TestTFTPBootstrapper_RealFileDownload(t *testing.T) {
 		t.Fatalf("failed to create test file: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
 	if err != nil {
@@ -328,8 +324,7 @@ func TestTFTPBootstrapper_RealFileDownload(t *testing.T) {
 func TestTFTPBootstrapper_FileNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(tmpDir, "127.0.0.1:0")
 	if err != nil {
@@ -382,8 +377,7 @@ func TestTFTPBootstrapper_PathTraversalRejected(t *testing.T) {
 		t.Fatalf("failed to create symlink: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	bs, err := NewTFTPBootstrapper(root, "127.0.0.1:0")
 	if err != nil {

@@ -20,7 +20,7 @@ env:
 jobs:
   ipxe:
     name: Build and Push iPXE OCI Artifact
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: read
       packages: write
@@ -63,7 +63,7 @@ jobs:
 
   manifest:
     name: Release manifest
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     permissions:
       contents: read
     steps:

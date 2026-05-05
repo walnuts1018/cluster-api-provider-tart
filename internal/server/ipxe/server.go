@@ -83,12 +83,14 @@ func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limite
 	}
 
 	register("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl) })
-	register("/metadata/:namespace/:name/nocloud/meta-data", func(c *echo.Context) error { return serveNoCloudMetaData(c, cl) })
-	register("/metadata/:namespace/:name/nocloud/user-data", func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true)
+	register("/metadata/:namespace/:name/nocloud/:token/meta-data", func(c *echo.Context) error { return serveNoCloudMetaData(c, cl) })
+	register("/metadata/:namespace/:name/nocloud/:token/user-data", func(c *echo.Context) error {
+		return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true, c.Param("token"), true)
 	})
-	register("/metadata/:namespace/:name/nocloud/vendor-data", func(c *echo.Context) error { return serveNoCloudVendorData(c, cl) })
-	register("/metadata/:namespace/:name/preseed.cfg", func(c *echo.Context) error { return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true) })
+	register("/metadata/:namespace/:name/nocloud/:token/vendor-data", func(c *echo.Context) error { return serveNoCloudVendorData(c, cl) })
+	register("/metadata/:namespace/:name/preseed.cfg", func(c *echo.Context) error {
+		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true, c.QueryParam("token"), true)
+	})
 }
 
 func NormalizeMAC(mac string) (string, error) {
@@ -235,8 +237,8 @@ func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMach
 }
 
 func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name))
-	return fmt.Sprintf("%s%s?token=%s", serverURL, metadataPath, url.QueryEscape(token))
+	metadataPath := fmt.Sprintf("/metadata/%s/%s/nocloud/%s/", url.PathEscape(machine.Namespace), url.PathEscape(machine.Name), url.PathEscape(token))
+	return fmt.Sprintf("%s%s", serverURL, metadataPath)
 }
 
 func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
@@ -245,15 +247,14 @@ func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachi
 }
 
 func handleMetadata(c *echo.Context, cl client.Client) error {
-	return serveBootstrapData(c, cl, "application/octet-stream", true)
+	return serveBootstrapData(c, cl, "application/octet-stream", true, c.QueryParam("token"), true)
 }
 
-func validateMetadataRequest(c *echo.Context, cl client.Client) (*infrastructurev1alpha1.TartMachine, *k8sbootstraptoken.Service, string, error) {
+func validateMetadataRequest(c *echo.Context, cl client.Client, providedToken string, requireLiveToken bool) (*infrastructurev1alpha1.TartMachine, error) {
 	ctx := c.Request().Context()
 
-	providedToken := c.QueryParam("token")
 	if providedToken == "" {
-		return nil, nil, "", echo.NewHTTPError(http.StatusUnauthorized, "token is required")
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "token is required")
 	}
 
 	var machine infrastructurev1alpha1.TartMachine
@@ -262,34 +263,37 @@ func validateMetadataRequest(c *echo.Context, cl client.Client) (*infrastructure
 		Name:      c.Param("name"),
 	}, &machine); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, nil, "", echo.NewHTTPError(http.StatusNotFound, "TartMachine not found")
+			return nil, echo.NewHTTPError(http.StatusNotFound, "TartMachine not found")
 		}
-		return nil, nil, "", echo.NewHTTPError(http.StatusInternalServerError, "failed to get TartMachine")
+		return nil, fmt.Errorf("failed to get TartMachine: %w", err)
 	}
 
 	tokenService := k8sbootstraptoken.NewService(cl)
 	expectedToken, exists, err := tokenService.Get(ctx, &machine)
 	if err != nil {
-		return nil, nil, "", echo.NewHTTPError(http.StatusInternalServerError, "failed to get bootstrap token")
+		return nil, fmt.Errorf("failed to get bootstrap token: %w", err)
 	}
 	if !exists {
-		return nil, nil, "", echo.NewHTTPError(http.StatusPreconditionFailed, "bootstrap token is not set")
+		if requireLiveToken {
+			return nil, echo.NewHTTPError(http.StatusPreconditionFailed, "bootstrap token is not set")
+		}
+		return &machine, nil
 	}
 	if subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
-		return nil, nil, "", echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
 	}
 
-	if machine.Status.TokenExpiresAt != nil {
+	if requireLiveToken && machine.Status.TokenExpiresAt != nil {
 		now := metav1.NewTime(time.Now())
 		if machine.Status.TokenExpiresAt.Before(&now) {
-			return nil, nil, "", echo.NewHTTPError(http.StatusNotFound, "token has expired")
+			return nil, echo.NewHTTPError(http.StatusNotFound, "token has expired")
 		}
 	}
 
-	return &machine, tokenService, providedToken, nil
+	return &machine, nil
 }
 
-func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, consumeToken bool) error {
+func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, consumeToken bool, providedToken string, requireLiveToken bool) error {
 	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
 	defer span.End()
 
@@ -298,7 +302,7 @@ func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, c
 		attribute.String("metadata.name", c.Param("name")),
 	)
 
-	machine, tokenService, providedToken, err := validateMetadataRequest(c, cl)
+	machine, err := validateMetadataRequest(c, cl, providedToken, requireLiveToken)
 	if err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			span.SetStatus(codes.Error, httpErr.Message)
@@ -354,6 +358,7 @@ func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, c
 			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
 		}
 
+		tokenService := k8sbootstraptoken.NewService(cl)
 		expectedToken, exists, err := tokenService.Get(ctx, machine)
 		if err != nil {
 			span.RecordError(err)
@@ -389,7 +394,7 @@ func serveNoCloudMetaData(c *echo.Context, cl client.Client) error {
 		attribute.String("metadata.name", c.Param("name")),
 	)
 
-	if _, _, _, err := validateMetadataRequest(c, cl); err != nil {
+	if _, err := validateMetadataRequest(c, cl, c.Param("token"), false); err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			span.SetStatus(codes.Error, httpErr.Message)
 			return c.String(httpErr.Code, httpErr.Message)
@@ -418,7 +423,7 @@ func serveNoCloudVendorData(c *echo.Context, cl client.Client) error {
 		attribute.String("metadata.name", c.Param("name")),
 	)
 
-	if _, _, _, err := validateMetadataRequest(c, cl); err != nil {
+	if _, err := validateMetadataRequest(c, cl, c.Param("token"), false); err != nil {
 		if httpErr, ok := err.(*echo.HTTPError); ok {
 			span.SetStatus(codes.Error, httpErr.Message)
 			return c.String(httpErr.Code, httpErr.Message)

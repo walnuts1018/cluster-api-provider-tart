@@ -369,7 +369,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "ds=nocloud-net;s=http://bootstrap.example.invalid/metadata/default/test-machine-nocloud/nocloud/?token="+token) {
+		if !strings.Contains(body, "ds=nocloud-net;s=http://bootstrap.example.invalid/metadata/default/test-machine-nocloud/nocloud/"+token+"/") {
 			t.Errorf("body missing NoCloud seed URL: %s", body)
 		}
 	})
@@ -472,7 +472,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/meta-data?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -494,7 +494,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/user-data?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -516,7 +516,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
 		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/vendor-data?token="+token, nil)
+		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
 		rec := httptest.NewRecorder()
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
@@ -531,6 +531,41 @@ func TestHandlerServesMetadata(t *testing.T) {
 		remainingSecret := &corev1.Secret{}
 		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
 			t.Fatalf("bootstrap token secret unexpectedly consumed: %v", err)
+		}
+	})
+
+	t.Run("NoCloudUserDataThenMetaDataStillWorks", func(t *testing.T) {
+		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
+		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+
+		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
+		userDataRec := httptest.NewRecorder()
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(userDataRec, userDataReq)
+
+		if userDataRec.Code != http.StatusOK {
+			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
+		}
+
+		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
+		metaDataRec := httptest.NewRecorder()
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(metaDataRec, metaDataReq)
+
+		if metaDataRec.Code != http.StatusOK {
+			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusOK, metaDataRec.Body.String())
+		}
+		if body := metaDataRec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
+			t.Fatalf("meta-data body = %q, want NoCloud meta-data", body)
+		}
+
+		vendorDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
+		vendorDataRec := httptest.NewRecorder()
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(vendorDataRec, vendorDataReq)
+
+		if vendorDataRec.Code != http.StatusOK {
+			t.Fatalf("vendor-data status = %d, want %d\nbody=%s", vendorDataRec.Code, http.StatusOK, vendorDataRec.Body.String())
+		}
+		if body := vendorDataRec.Body.String(); body != "#cloud-config\n{}\n" {
+			t.Fatalf("vendor-data body = %q, want NoCloud vendor-data", body)
 		}
 	})
 

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 
+	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 	runtimecatalog "sigs.k8s.io/cluster-api/exp/runtime/catalog"
 	"sigs.k8s.io/cluster-api/exp/runtime/server"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,7 +47,8 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 
 	// Register extension handlers for in-place update hooks.
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
-		Hook:           HandleCanUpdateMachine,
+		Hook:           runtimehooksv1.CanUpdateMachine,
+		HandlerFunc:    HandleCanUpdateMachine,
 		Name:           "can-update-machine",
 		TimeoutSeconds: ptrInt32(10),
 	}); err != nil {
@@ -54,7 +56,8 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 	}
 
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
-		Hook:           HandleCanUpdateMachineSet,
+		Hook:           runtimehooksv1.CanUpdateMachineSet,
+		HandlerFunc:    HandleCanUpdateMachineSet,
 		Name:           "can-update-machine-set",
 		TimeoutSeconds: ptrInt32(10),
 	}); err != nil {
@@ -62,7 +65,8 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 	}
 
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
-		Hook:           HandleUpdateMachine,
+		Hook:           runtimehooksv1.UpdateMachine,
+		HandlerFunc:    HandleUpdateMachine,
 		Name:           "update-machine",
 		TimeoutSeconds: ptrInt32(10),
 	}); err != nil {

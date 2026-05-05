@@ -24,6 +24,8 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -83,9 +85,16 @@ func main() {
 	var enableHTTP2 bool
 	var logLevelStr string
 	var logTypeStr string
+	var diagnosticsAddr string
+	var insecureDiagnostics bool
+	var featureGatesStr string
 	var tlsOpts []func(*tls.Config)
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	flag.StringVar(&diagnosticsAddr, "diagnostics-address", "", "The address the diagnostics endpoint binds to. "+
+		"If set, this address will be used for metrics and profiling.")
+	flag.BoolVar(&insecureDiagnostics, "insecure-diagnostics", false, "Enable insecure diagnostics.")
+	flag.StringVar(&featureGatesStr, "feature-gates", "", "Comma-separated list of key=value pairs that describe feature gates for alpha/experimental features.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.StringVar(&ipxeBindAddress, "ipxe-bind-address", ":8082", "The address the iPXE script endpoint binds to. Use 0 to disable.")
 	flag.StringVar(&ipxeDomain, "ipxe-domain", "", "The domain to use for iPXE and metadata URLs (e.g. tart.example.com). If empty, the auto-detected IP address will be used.")
@@ -111,6 +120,19 @@ func main() {
 	flag.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
 	flag.StringVar(&logTypeStr, "log-type", "json", "Log type (json, text)")
 	flag.Parse()
+
+	featureGates, err := parseFeatureGates(featureGatesStr)
+	if err != nil {
+		setupLog.Error(err, "Failed to parse feature gates")
+		os.Exit(1)
+	}
+
+	if diagnosticsAddr != "" {
+		metricsAddr = diagnosticsAddr
+	}
+	if insecureDiagnostics {
+		secureMetrics = false
+	}
 
 	ctx := context.Background()
 
@@ -193,11 +215,17 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	var pprofAddr string
+	if diagnosticsAddr != "" {
+		pprofAddr = diagnosticsAddr
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
+		PprofBindAddress:       pprofAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "987dfa6a.cluster.x-k8s.io",
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
@@ -304,20 +332,22 @@ func main() {
 		}
 	}
 
-	// Start Runtime Extension webhook server for in-place update hooks.
-	extCatalog, err := extension.NewCatalog()
-	if err != nil {
-		setupLog.Error(err, "Failed to create Runtime Extension catalog")
-		os.Exit(1)
-	}
-	extManager, err := extension.NewManager(extCatalog)
-	if err != nil {
-		setupLog.Error(err, "Failed to create Runtime Extension manager")
-		os.Exit(1)
-	}
-	if err := mgr.Add(extManager); err != nil {
-		setupLog.Error(err, "Failed to add Runtime Extension manager")
-		os.Exit(1)
+	if featureGates["InPlaceUpdates"] {
+		// Start Runtime Extension webhook server for in-place update hooks.
+		extCatalog, err := extension.NewCatalog()
+		if err != nil {
+			setupLog.Error(err, "Failed to create Runtime Extension catalog")
+			os.Exit(1)
+		}
+		extManager, err := extension.NewManager(extCatalog)
+		if err != nil {
+			setupLog.Error(err, "Failed to create Runtime Extension manager")
+			os.Exit(1)
+		}
+		if err := mgr.Add(extManager); err != nil {
+			setupLog.Error(err, "Failed to add Runtime Extension manager")
+			os.Exit(1)
+		}
 	}
 
 	// +kubebuilder:scaffold:builder
@@ -344,4 +374,23 @@ func main() {
 		setupLog.Error(startErr, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+func parseFeatureGates(s string) (map[string]bool, error) {
+	gates := make(map[string]bool)
+	if s == "" {
+		return gates, nil
+	}
+	for _, pair := range strings.Split(s, ",") {
+		kv := strings.Split(pair, "=")
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid feature gate pair: %s", pair)
+		}
+		val, err := strconv.ParseBool(kv[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for feature gate %s: %w", kv[0], err)
+		}
+		gates[kv[0]] = val
+	}
+	return gates, nil
 }

@@ -41,9 +41,10 @@ const (
 // TartMachineBootstrapSpec defines how bootstrap data is served to the machine.
 type TartMachineBootstrapSpec struct {
 	// format selects how bootstrap data is exposed to the booted OS or installer.
-	// Defaults to Talos when omitted.
+	// Defaults to NoCloud for the default Ubuntu kubeadm bootstrap flow when omitted.
 	// +optional
 	// +kubebuilder:validation:Enum=Talos;NoCloud;Preseed;Raw
+	// +kubebuilder:default=NoCloud
 	Format TartMachineBootstrapFormat `json:"format,omitempty"`
 }
 

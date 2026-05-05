@@ -83,14 +83,14 @@ spec:
 kubectl apply -f tart-host.yaml
 ```
 
-## Step 4. kubeadm クラスタ用の sample manifest を書き換える
+## Step 4. kubeadm クラスタ用の sample manifest を確認する
 
 workload cluster の雛形は [config/samples/cluster-kubeadm.yaml](./config/samples/cluster-kubeadm.yaml) にあります。
-Step 2で作成した HTTPRoute のホスト名に合わせて、 `ds=nocloud-net;s=...` の値を変更してください。2箇所あります。
+この sample は Ubuntu kubeadm 用の NoCloud bootstrap を既定としており、NoCloud seed URL は controller が iPXE script へ自動で追加します。
 
 ## Step 5. workload cluster を作成する
 
-書き換えた `cluster.yaml` を management cluster に適用します。
+確認した `cluster.yaml` を management cluster に適用します。
 ここで初めて Tart Managerが物理マシンを起動・プロビジョニングし、kubeadm bootstrap を開始します。
 
 ```bash

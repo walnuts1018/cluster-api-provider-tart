@@ -57,9 +57,10 @@ spec:
                           to the booted OS or installer.
                         properties:
                           format:
+                            default: NoCloud
                             description: |-
                               format selects how bootstrap data is exposed to the booted OS or installer.
-                              Defaults to Talos when omitted.
+                              Defaults to NoCloud for the default Ubuntu kubeadm bootstrap flow when omitted.
                             enum:
                             - Talos
                             - NoCloud

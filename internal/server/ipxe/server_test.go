@@ -285,6 +285,33 @@ func TestHandlerDynamicScript(t *testing.T) {
 			},
 		},
 	}
+	host6 := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host-6",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:24",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine-talos",
+				Namespace: "default",
+			},
+		},
+	}
+	machineTalos := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-talos",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartMachineSpec{
+			Image: "https://example.com/vmlinuz-talos",
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatTalos,
+			},
+		},
+	}
 	tokenSecret1 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-machine-1-bootstrap-token",
@@ -330,8 +357,17 @@ func TestHandlerDynamicScript(t *testing.T) {
 			"token": []byte(token),
 		},
 	}
+	tokenSecret6 := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-talos-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
 
-	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5)
+	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac="+mac, nil)
@@ -353,8 +389,8 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "initrd https://example.com/initrd") {
 			t.Errorf("body missing initrd: %s", body)
 		}
-		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-1?token="+token) {
-			t.Errorf("body missing talos.config metadata URL: %s", body)
+		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-1/nocloud/"+token+"/") {
+			t.Errorf("body missing default NoCloud seed URL: %s", body)
 		}
 	})
 
@@ -372,8 +408,8 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
 			t.Errorf("body missing kernel image for boot mac: %s", body)
 		}
-		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-2?token="+token) {
-			t.Errorf("body missing metadata URL for boot mac: %s", body)
+		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-2/nocloud/"+token+"/") {
+			t.Errorf("body missing default NoCloud seed URL for boot mac: %s", body)
 		}
 	})
 
@@ -422,6 +458,22 @@ func TestHandlerDynamicScript(t *testing.T) {
 		body := rec.Body.String()
 		if strings.Contains(body, "talos.config=") || strings.Contains(body, "ds=nocloud-net") || strings.Contains(body, "preseed.cfg") {
 			t.Errorf("raw format unexpectedly added bootstrap params: %s", body)
+		}
+	})
+
+	t.Run("ValidRequest_TalosFormat", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:24", nil)
+		req.Host = testBootstrapHost
+		rec := httptest.NewRecorder()
+
+		ipxe.NewHandler(cl, ipxe.HandlerConfig{}).ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-talos?token="+token) {
+			t.Errorf("body missing explicit talos.config metadata URL: %s", body)
 		}
 	})
 

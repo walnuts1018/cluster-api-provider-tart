@@ -43,6 +43,7 @@ const (
 
 type TartMachineBootstrapSpec struct {
 	// format selects how bootstrap data is exposed to the booted OS or installer.
+	// +kubebuilder:default=NoCloud
 	Format TartMachineBootstrapFormat `json:"format,omitempty"`
 }
 
@@ -52,7 +53,7 @@ type TartMachineSpec struct {
 }
 ```
 
-`format` の default は後方互換性のため `Talos` とする。既存の `TartMachine` や sample が `bootstrap` を持たない場合、これまで通り `talos.config=` が自動追加される。
+`format` の default は Ubuntu kubeadm 向けの `NoCloud` とする。既存の `TartMachine` や sample が `bootstrap` を持たない場合は `NoCloud` として扱い、Ubuntu kubeadm の seed URL を自動生成する。`talos.config=` は `format: Talos` を明示した場合にのみ追加する。
 
 `Raw` は controller が bootstrap 用 kernel parameter を追加しない形式とする。ユーザーは `kernelParams` へ必要な値をすべて明示する。
 
@@ -184,7 +185,7 @@ NoCloud の非消費 endpoint は、token Secret が存在する間は live toke
 
 ## Sample と Template
 
-既存の `cluster-template-kubeadm.yaml` は Ubuntu NoCloud 用に更新する。
+既存の `cluster-template-kubeadm.yaml` は Ubuntu kubeadm / NoCloud の default template として更新する。
 
 ```yaml
 bootstrap:
@@ -251,7 +252,7 @@ API 型を変更するため、`controller-gen` を含む既存 mise task で CR
 
 ## 移行
 
-`bootstrap.format` 未指定は `Talos` として扱うため、既存 Talos 想定の利用者は動作を変えずにアップグレードできる。
+`bootstrap.format` 未指定は `NoCloud` として扱うため、既存の `cluster-template-kubeadm.yaml` など Ubuntu kubeadm 前提の利用者はそのまま NoCloud を使う。一方で Talos 想定の利用者は `format: Talos` を明示する必要がある。
 
 Ubuntu kubeadm sample は今回から NoCloud 形式に変わる。これにより `BOOTSTRAP_METADATA_URL` 変数は不要になる。既存 sample の `ds=nocloud-net;s=${BOOTSTRAP_METADATA_URL}` は controller 自動生成に置き換える。
 

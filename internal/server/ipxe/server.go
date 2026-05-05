@@ -205,7 +205,7 @@ func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructu
 
 func bootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineBootstrapFormat {
 	if machine.Spec.Bootstrap.Format == "" {
-		return infrastructurev1alpha1.TartMachineBootstrapFormatTalos
+		return infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud
 	}
 	return machine.Spec.Bootstrap.Format
 }

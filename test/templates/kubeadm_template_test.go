@@ -55,10 +55,11 @@ func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
 func TestClusterTemplatesSetBootstrapFormat(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		path string
-		want string
-	}{
+	assertFilesContain(t, "template", []fileExpectation{
+		{
+			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm.yaml"),
+			want: "format: NoCloud",
+		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
 			want: "format: NoCloud",
@@ -79,18 +80,50 @@ func TestClusterTemplatesSetBootstrapFormat(t *testing.T) {
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
 			want: "format: Talos",
 		},
+	})
+}
+
+func TestSamplesSetBootstrapFormat(t *testing.T) {
+	t.Parallel()
+
+	assertFilesContain(t, "sample", []fileExpectation{
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm.yaml"),
+			want: "format: NoCloud",
+		},
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-ubuntu.yaml"),
+			want: "format: NoCloud",
+		},
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-debian.yaml"),
+			want: "format: Preseed",
+		},
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-ubuntu.yaml"),
+			want: "format: NoCloud",
+		},
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-debian.yaml"),
+			want: "format: Preseed",
+		},
+		{
+			path: filepath.Join("..", "..", "config", "samples", "cluster-talos.yaml"),
+			want: "format: Talos",
+		},
+	})
+}
+
+func TestKubeadmSampleDoesNotHardCodeNoCloudSeedURL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "config", "samples", "cluster-kubeadm.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read sample %s: %v", path, err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			t.Parallel()
-			data, err := os.ReadFile(tt.path)
-			if err != nil {
-				t.Fatalf("failed to read template %s: %v", tt.path, err)
-			}
-			if !bytes.Contains(data, []byte(tt.want)) {
-				t.Fatalf("template %s does not contain %q", tt.path, tt.want)
-			}
-		})
+	if bytes.Contains(data, []byte("ds=nocloud-net;s=")) {
+		t.Fatalf("sample %s hard-codes NoCloud seed URL", path)
 	}
 }
 
@@ -115,6 +148,27 @@ func readTemplateKinds(t *testing.T, path string) map[string]bool {
 		}
 	}
 	return found
+}
+
+type fileExpectation struct {
+	path string
+	want string
+}
+
+func assertFilesContain(t *testing.T, fileKind string, tests []fileExpectation) {
+	t.Helper()
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			t.Parallel()
+			data, err := os.ReadFile(tt.path)
+			if err != nil {
+				t.Fatalf("failed to read %s %s: %v", fileKind, tt.path, err)
+			}
+			if !bytes.Contains(data, []byte(tt.want)) {
+				t.Fatalf("%s %s does not contain %q", fileKind, tt.path, tt.want)
+			}
+		})
+	}
 }
 
 func TestKubeadmClusterTemplateContainsRequiredKinds(t *testing.T) {

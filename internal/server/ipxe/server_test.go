@@ -522,8 +522,8 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
 		body := rec.Body.String()
-		if body != "#!ipxe\npoweroff\n" {
-			t.Errorf("body = %q, want %q", body, "#!ipxe\npoweroff\n")
+		if body != "#!ipxe\nexit\n" {
+			t.Errorf("body = %q, want %q", body, "#!ipxe\nexit\n")
 		}
 	})
 

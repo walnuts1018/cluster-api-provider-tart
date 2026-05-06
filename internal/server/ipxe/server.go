@@ -134,7 +134,7 @@ func handleIPXE(c *echo.Context, cl client.Client, svc applicationbootstraptoken
 	}
 	if targetHost == nil {
 		span.SetStatus(codes.Error, "host not found")
-		script := "#!ipxe\npoweroff\n"
+		script := "#!ipxe\nexit\n"
 		return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(script))
 	}
 

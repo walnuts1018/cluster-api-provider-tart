@@ -212,6 +212,32 @@ IPXE_TAG="${IPXE_TAG:-latest}"
 go run hack/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
 '''
 
+[tasks.build-kubeadm-os-image]
+description = "image-builder を使って kubeadm 用 raw OS image を作成する"
+run = '''
+IMAGE_KEY="${IMAGE_KEY:?IMAGE_KEY is required}"
+IMAGE_BUILDER_TARGET="${IMAGE_BUILDER_TARGET:?IMAGE_BUILDER_TARGET is required}"
+KUBERNETES_VERSION="${KUBERNETES_VERSION:-v1.35.4}"
+hack/osimage/build-kubeadm-raw.sh
+'''
+
+[tasks.build-k3s-os-image]
+description = "cloud image を加工して k3s 用 raw OS image を作成する"
+run = '''
+IMAGE_KEY="${IMAGE_KEY:?IMAGE_KEY is required}"
+CLOUD_IMAGE_URL="${CLOUD_IMAGE_URL:?CLOUD_IMAGE_URL is required}"
+hack/osimage/build-k3s-raw.sh
+'''
+
+[tasks.publish-os-image]
+description = "raw OS image directory を OCI Artifact として push する"
+run = '''
+OS_IMAGE_DIR="${OS_IMAGE_DIR:?OS_IMAGE_DIR is required}"
+OS_IMAGE_REPO="${OS_IMAGE_REPO:?OS_IMAGE_REPO is required}"
+OS_IMAGE_TAG="${OS_IMAGE_TAG:-latest}"
+go run hack/artifacter/main.go -dir "$OS_IMAGE_DIR" -repo "$OS_IMAGE_REPO" -tag "$OS_IMAGE_TAG"
+'''
+
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"

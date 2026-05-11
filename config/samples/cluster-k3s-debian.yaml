@@ -21,7 +21,7 @@ metadata:
 spec:
   template:
     spec:
-      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/debian-13-amd64.raw
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/k3s-debian-13-amd64.raw
       bootstrap:
         format: NoCloud
       kernelParams:
@@ -35,7 +35,7 @@ metadata:
 spec:
   template:
     spec:
-      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/debian-13-amd64.raw
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/k3s-debian-13-amd64.raw
       bootstrap:
         format: NoCloud
       kernelParams:

@@ -42,6 +42,8 @@ variables:
   CNI: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml"
   UBUNTU_RAW_IMAGE_URL: "http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/ubuntu-24.04-amd64.raw"
   DEBIAN_RAW_IMAGE_URL: "http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/debian-13-amd64.raw"
+  K3S_UBUNTU_RAW_IMAGE_URL: "http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/k3s-ubuntu-24.04-amd64.raw"
+  K3S_DEBIAN_RAW_IMAGE_URL: "http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/k3s-debian-13-amd64.raw"
   TALOS_RAW_IMAGE_URL: "http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/talos-amd64.raw"
   CONTROL_PLANE_ENDPOINT_HOST: "192.168.100.100"
   CLUSTER_NAME: "tart-test"

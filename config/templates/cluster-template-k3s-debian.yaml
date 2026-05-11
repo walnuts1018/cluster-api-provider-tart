@@ -21,7 +21,7 @@ metadata:
 spec:
   template:
     spec:
-      image: ${DEBIAN_RAW_IMAGE_URL}
+      image: ${K3S_DEBIAN_RAW_IMAGE_URL}
       bootstrap:
         format: NoCloud
       kernelParams:
@@ -35,7 +35,7 @@ metadata:
 spec:
   template:
     spec:
-      image: ${DEBIAN_RAW_IMAGE_URL}
+      image: ${K3S_DEBIAN_RAW_IMAGE_URL}
       bootstrap:
         format: NoCloud
       kernelParams:

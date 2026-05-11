@@ -53,15 +53,12 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${UBUNTU_KERNEL_URL}
-      initrd: ${UBUNTU_INITRD_URL}
+      image: ${UBUNTU_RAW_IMAGE_URL}
       bootstrap:
         format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - autoinstall
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -98,12 +95,9 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${UBUNTU_KERNEL_URL}
-      initrd: ${UBUNTU_INITRD_URL}
+      image: ${UBUNTU_RAW_IMAGE_URL}
       bootstrap:
         format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - autoinstall

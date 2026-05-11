@@ -126,10 +126,24 @@ spec:
         - name: bootloader
           mountPath: /var/lib/tftpboot
           readOnly: true
+        - name: agent-assets
+          mountPath: /var/lib/tart/assets/agent
+          readOnly: true
+        - name: os-images
+          mountPath: /var/lib/tart/assets/images
+          readOnly: true
       volumes:
       - name: bootloader
         image:
           reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
+          pullPolicy: IfNotPresent
+      - name: agent-assets
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-agent:latest
+          pullPolicy: IfNotPresent
+      - name: os-images
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-os-images:latest
           pullPolicy: IfNotPresent
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

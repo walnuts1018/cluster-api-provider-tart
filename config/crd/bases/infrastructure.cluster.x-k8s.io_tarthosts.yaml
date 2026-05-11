@@ -66,8 +66,24 @@ spec:
                   the physical host.
                 pattern: ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$
                 type: string
+              provisioning:
+                description: provisioning defines host-specific disk provisioning
+                  settings.
+                properties:
+                  device:
+                    description: |-
+                      device is the target disk device path.
+                      This field is required to avoid destructive writes to an inferred disk.
+                      Examples: /dev/sda, /dev/vda, /dev/nvme0n1, /dev/disk/by-id/nvme-Samsung_SSD_990_PRO_...
+                    minLength: 1
+                    pattern: ^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|disk/by-id/[A-Za-z0-9._:+-]+)$
+                    type: string
+                required:
+                - device
+                type: object
             required:
             - macAddress
+            - provisioning
             type: object
           status:
             description: status defines the observed state of TartHost

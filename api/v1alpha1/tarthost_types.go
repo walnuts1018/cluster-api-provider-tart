@@ -35,6 +35,21 @@ type TartHostSpec struct {
 	// +kubebuilder:validation:Pattern=`^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$`
 	// +optional
 	BootMACAddress string `json:"bootMacAddress,omitempty"`
+
+	// provisioning defines host-specific disk provisioning settings.
+	// +required
+	Provisioning TartHostProvisioningSpec `json:"provisioning"`
+}
+
+// TartHostProvisioningSpec defines destructive disk provisioning settings for a host.
+type TartHostProvisioningSpec struct {
+	// device is the target disk device path.
+	// This field is required to avoid destructive writes to an inferred disk.
+	// Examples: /dev/sda, /dev/vda, /dev/nvme0n1, /dev/disk/by-id/nvme-Samsung_SSD_990_PRO_...
+	// +kubebuilder:validation:Pattern=`^/dev/(sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme[0-9]+n[0-9]+|disk/by-id/[A-Za-z0-9._:+-]+)$`
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Device string `json:"device"`
 }
 
 // TartHostStatus defines the observed state of TartHost.

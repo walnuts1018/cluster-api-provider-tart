@@ -21,15 +21,12 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${DEBIAN_INSTALLER_KERNEL_URL}
-      initrd: ${DEBIAN_INSTALLER_INITRD_URL}
+      image: ${DEBIAN_RAW_IMAGE_URL}
       bootstrap:
-        format: Preseed
+        format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - interface=auto
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
@@ -38,12 +35,9 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${DEBIAN_INSTALLER_KERNEL_URL}
-      initrd: ${DEBIAN_INSTALLER_INITRD_URL}
+      image: ${DEBIAN_RAW_IMAGE_URL}
       bootstrap:
-        format: Preseed
+        format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - interface=auto

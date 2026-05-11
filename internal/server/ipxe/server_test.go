@@ -25,8 +25,9 @@ import (
 )
 
 const (
-	testBootstrapHost = "bootstrap.example.invalid"
-	testBootstrapData = "bootstrap-config"
+	testBootstrapHost  = "bootstrap.example.invalid"
+	testBootstrapData  = "bootstrap-config"
+	testBootstrapToken = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
 )
 
 func setupScheme(t *testing.T) *runtime.Scheme {
@@ -150,11 +151,12 @@ func bootstrapTokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+//nolint:gocyclo // 複数の独立した iPXE 応答シナリオをまとめて検証するため。
 func TestHandlerDynamicScript(t *testing.T) {
 	scheme := setupScheme(t)
 	mac := "00:00:5e:00:53:02"
 	bootMAC := "00:00:5e:00:53:11"
-	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
+	token := testBootstrapToken
 
 	host1 := &infrastructurev1alpha1.TartHost{
 		ObjectMeta: metav1.ObjectMeta{
@@ -178,9 +180,8 @@ func TestHandlerDynamicScript(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: infrastructurev1alpha1.TartMachineSpec{
-			Image:        "https://example.com/vmlinuz",
+			Image:        "https://example.com/ubuntu.raw",
 			KernelParams: []string{"console=tty0"},
-			Initrd:       "https://example.com/initrd",
 			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
 				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
 			},
@@ -255,20 +256,20 @@ func TestHandlerDynamicScript(t *testing.T) {
 		Status: infrastructurev1alpha1.TartHostStatus{
 			State: infrastructurev1alpha1.TartHostStateProvisioning,
 			MachineRef: &corev1.ObjectReference{
-				Name:      "test-machine-preseed",
+				Name:      "test-machine-debian",
 				Namespace: "default",
 			},
 		},
 	}
-	machinePreseed := &infrastructurev1alpha1.TartMachine{
+	machineDebian := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine-preseed",
+			Name:      "test-machine-debian",
 			Namespace: "default",
 		},
 		Spec: infrastructurev1alpha1.TartMachineSpec{
 			Image: "https://example.com/vmlinuz-preseed",
 			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
-				Format: infrastructurev1alpha1.TartMachineBootstrapFormatPreseed,
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
 			},
 		},
 	}
@@ -299,7 +300,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 				"console=tty0",
 			},
 			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
-				Format: infrastructurev1alpha1.TartMachineBootstrapFormatRaw,
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
 			},
 		},
 	}
@@ -358,9 +359,9 @@ func TestHandlerDynamicScript(t *testing.T) {
 			"token": []byte(token),
 		},
 	}
-	tokenSecret4 := &corev1.Secret{
+	tokenSecretDebian := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-machine-preseed-bootstrap-token",
+			Name:      "test-machine-debian-bootstrap-token",
 			Namespace: "default",
 		},
 		Data: map[string][]byte{
@@ -386,7 +387,7 @@ func TestHandlerDynamicScript(t *testing.T) {
 		},
 	}
 
-	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machinePreseed, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecret4, tokenSecret5, tokenSecret6)
+	cl := setupFakeClient(t, scheme, host1, machine1, host2, machine2, host3, machineNoCloud, host4, machineDebian, host5, machineRaw, host6, machineTalos, tokenSecret1, tokenSecret2, tokenSecret3, tokenSecretDebian, tokenSecret5, tokenSecret6)
 	svc := setupBootstrapTokenService(t, cl)
 
 	t.Run("ValidRequest_MACAddress", func(t *testing.T) {
@@ -408,14 +409,14 @@ func TestHandlerDynamicScript(t *testing.T) {
 		if kernelIdx == -1 || initrdIdx == -1 || kernelIdx > initrdIdx {
 			t.Errorf("kernel command must come before initrd command: kernel=%d, initrd=%d\nbody:\n%s", kernelIdx, initrdIdx, body)
 		}
-		if !strings.Contains(body, "initrd --name initrd https://example.com/initrd") {
-			t.Errorf("body missing initrd: %s", body)
+		if !strings.Contains(body, "kernel http://"+testBootstrapHost+"/assets/agent/vmlinuz initrd=agent-initrd tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-1/config/"+token+" console=tty0") {
+			t.Errorf("body missing agent kernel, config URL, and params: %s", body)
 		}
-		if !strings.Contains(body, "kernel https://example.com/vmlinuz initrd=initrd console=tty0") {
-			t.Errorf("body missing kernel image and params: %s", body)
+		if !strings.Contains(body, "initrd --name agent-initrd http://"+testBootstrapHost+"/assets/agent/initrd") {
+			t.Errorf("body missing agent initrd: %s", body)
 		}
-		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-1/nocloud/"+token+"/") {
-			t.Errorf("body missing default NoCloud seed URL: %s", body)
+		if strings.Contains(body, "ds=nocloud-net") || strings.Contains(body, "talos.config=") || strings.Contains(body, "preseed.cfg") {
+			t.Errorf("body unexpectedly contains legacy OS bootstrap params: %s", body)
 		}
 	})
 
@@ -430,14 +431,11 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "kernel https://example.com/vmlinuz-boot") {
-			t.Errorf("body missing kernel image for boot mac: %s", body)
+		if !strings.Contains(body, "tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-2/config/"+token) {
+			t.Errorf("body missing agent config URL for boot mac: %s", body)
 		}
-		if strings.Contains(body, "initrd=initrd") {
-			t.Errorf("body unexpectedly contains initrd=initrd: %s", body)
-		}
-		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-2/nocloud/"+token+"/") {
-			t.Errorf("body missing default NoCloud seed URL for boot mac: %s", body)
+		if strings.Contains(body, "kernel https://example.com/vmlinuz-boot") || strings.Contains(body, "initrd=initrd") {
+			t.Errorf("body unexpectedly contains legacy direct boot params: %s", body)
 		}
 	})
 
@@ -452,12 +450,12 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "ds=nocloud-net;s=http://"+testBootstrapHost+"/metadata/default/test-machine-nocloud/nocloud/"+token+"/") {
-			t.Errorf("body missing NoCloud seed URL: %s", body)
+		if !strings.Contains(body, "tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-nocloud/config/"+token) {
+			t.Errorf("body missing agent config URL: %s", body)
 		}
 	})
 
-	t.Run("ValidRequest_PreseedFormat", func(t *testing.T) {
+	t.Run("ValidRequest_DebianAgentConfig", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:22", nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
@@ -468,12 +466,12 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "auto=true priority=critical url=http://"+testBootstrapHost+"/metadata/default/test-machine-preseed/preseed/"+token+"/preseed.cfg") {
-			t.Errorf("body missing preseed URL: %s", body)
+		if !strings.Contains(body, "tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-debian/config/"+token) {
+			t.Errorf("body missing agent config URL: %s", body)
 		}
 	})
 
-	t.Run("ValidRequest_RawFormat", func(t *testing.T) {
+	t.Run("ValidRequest_UbuntuAgentFormat", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:23", nil)
 		req.Host = testBootstrapHost
 		rec := httptest.NewRecorder()
@@ -484,8 +482,8 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if strings.Contains(body, "talos.config=") || strings.Contains(body, "ds=nocloud-net") || strings.Contains(body, "preseed.cfg") {
-			t.Errorf("raw format unexpectedly added bootstrap params: %s", body)
+		if !strings.Contains(body, "tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-raw/config/"+token) {
+			t.Errorf("body missing agent config URL: %s", body)
 		}
 	})
 
@@ -500,8 +498,11 @@ func TestHandlerDynamicScript(t *testing.T) {
 			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 		}
 		body := rec.Body.String()
-		if !strings.Contains(body, "talos.config=http://"+testBootstrapHost+"/metadata/default/test-machine-talos/talos/"+token) {
-			t.Errorf("body missing explicit talos.config metadata URL: %s", body)
+		if !strings.Contains(body, "tart.config=http://"+testBootstrapHost+"/provisioning/default/test-machine-talos/config/"+token) {
+			t.Errorf("body missing agent config URL for Talos: %s", body)
+		}
+		if strings.Contains(body, "talos.config=") {
+			t.Errorf("body unexpectedly contains legacy Talos direct boot param: %s", body)
 		}
 	})
 
@@ -638,490 +639,164 @@ func TestHandlerDynamicScript(t *testing.T) {
 	})
 }
 
-//nolint:gocyclo // multiple independent test scenarios, not business logic
-func TestHandlerServesMetadata(t *testing.T) {
-	s := setupScheme(t)
-	token := "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ01"
-
-	t.Run("ValidToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		assertStatus(t, rec, http.StatusOK)
-		if body := rec.Body.String(); body != testBootstrapData {
-			t.Fatalf("body = %q, want %q", body, testBootstrapData)
-		}
-
-		updated := &infrastructurev1alpha1.TartMachine{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
-			t.Fatalf("failed to get TartMachine after metadata delivery: %v", err)
-		}
-		if updated.Status.Ready {
-			t.Fatal("ready = true, want false until controller marks the machine ready")
-		}
-		if updated.Status.TokenExpiresAt != nil {
-			t.Fatalf("tokenExpiresAt = %#v, want nil", updated.Status.TokenExpiresAt)
-		}
-		if updated.Status.ProvisioningStartTime == nil {
-			t.Fatal("provisioningStartTime = nil, want preserved value")
-		}
-		if updated.Status.ObservedGeneration != tartMachine.Generation {
-			t.Fatalf("observedGeneration = %d, want %d", updated.Status.ObservedGeneration, tartMachine.Generation)
-		}
-		remainingSecret := &corev1.Secret{}
-		err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret)
-		if err == nil {
-			t.Fatal("bootstrap token secret still exists after metadata delivery")
-		}
-	})
-
-	t.Run("ValidTokenWithStatusBootstrapSecretName", func(t *testing.T) {
-		tartMachine, _, tokenSecret, bootstrapSecret := metadataObjects(token)
-		// Set BootstrapSecretName in status and REMOVE capiMachine from the client to ensure it's not used
-		tartMachine.Status.BootstrapSecretName = "bootstrap-secret"
-		cl := setupFakeClient(t, s, tartMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		assertStatus(t, rec, http.StatusOK)
-		if body := rec.Body.String(); body != testBootstrapData {
-			t.Fatalf("body = %q, want %q", body, testBootstrapData)
-		}
-	})
-
-	t.Run("NoCloudMetaDataDoesNotConsumeToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		assertStatus(t, rec, http.StatusOK)
-		if body := rec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
-			t.Fatalf("body = %q, want NoCloud meta-data", body)
-		}
-
-		remainingSecret := &corev1.Secret{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
-			t.Fatalf("bootstrap token secret unexpectedly consumed: %v", err)
-		}
-	})
-
-	t.Run("NoCloudUserDataConsumesToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		assertStatus(t, rec, http.StatusOK)
-		if body := rec.Body.String(); body != testBootstrapData {
-			t.Fatalf("body = %q, want %q", body, testBootstrapData)
-		}
-
-		remainingSecret := &corev1.Secret{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err == nil {
-			t.Fatal("bootstrap token secret still exists after NoCloud user-data delivery")
-		}
-
-		updated := &infrastructurev1alpha1.TartMachine{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
-			t.Fatalf("failed to get TartMachine after NoCloud user-data delivery: %v", err)
-		}
-		if updated.Status.ConsumedBootstrapTokenHash != bootstrapTokenHash(token) {
-			t.Fatalf("consumedBootstrapTokenHash = %q, want %q", updated.Status.ConsumedBootstrapTokenHash, bootstrapTokenHash(token))
-		}
-	})
-
-	t.Run("NoCloudVendorDataDoesNotConsumeToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if body := rec.Body.String(); body != "#cloud-config\n{}\n" {
-			t.Fatalf("body = %q, want NoCloud vendor-data", body)
-		}
-
-		remainingSecret := &corev1.Secret{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
-			t.Fatalf("bootstrap token secret unexpectedly consumed: %v", err)
-		}
-	})
-
-	t.Run("NoCloudUserDataThenMetaDataStillWorks", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
-		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(userDataRec, userDataReq)
-
-		if userDataRec.Code != http.StatusOK {
-			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
-		}
-		updated := &infrastructurev1alpha1.TartMachine{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
-			t.Fatalf("failed to get TartMachine after user-data delivery: %v", err)
-		}
-		if updated.Status.ConsumedBootstrapTokenHash != bootstrapTokenHash(token) {
-			t.Fatalf("consumedBootstrapTokenHash = %q, want %q", updated.Status.ConsumedBootstrapTokenHash, bootstrapTokenHash(token))
-		}
-
-		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/meta-data", nil)
-		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(metaDataRec, metaDataReq)
-
-		if metaDataRec.Code != http.StatusOK {
-			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusOK, metaDataRec.Body.String())
-		}
-		if body := metaDataRec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
-			t.Fatalf("meta-data body = %q, want NoCloud meta-data", body)
-		}
-
-		vendorDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/vendor-data", nil)
-		vendorDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(vendorDataRec, vendorDataReq)
-
-		if vendorDataRec.Code != http.StatusOK {
-			t.Fatalf("vendor-data status = %d, want %d\nbody=%s", vendorDataRec.Code, http.StatusOK, vendorDataRec.Body.String())
-		}
-		if body := vendorDataRec.Body.String(); body != "#cloud-config\n{}\n" {
-			t.Fatalf("vendor-data body = %q, want NoCloud vendor-data", body)
-		}
-	})
-
-	t.Run("NoCloudUserDataThenMetaDataRejectsDifferentToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		userDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+token+"/user-data", nil)
-		userDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(userDataRec, userDataReq)
-
-		if userDataRec.Code != http.StatusOK {
-			t.Fatalf("user-data status = %d, want %d\nbody=%s", userDataRec.Code, http.StatusOK, userDataRec.Body.String())
-		}
-
-		otherToken := "ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210abcdefghijklmnopqrstuvwxyz"
-		metaDataReq := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/nocloud/"+otherToken+"/meta-data", nil)
-		metaDataRec := httptest.NewRecorder()
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(metaDataRec, metaDataReq)
-
-		if metaDataRec.Code != http.StatusForbidden {
-			t.Fatalf("meta-data status = %d, want %d\nbody=%s", metaDataRec.Code, http.StatusForbidden, metaDataRec.Body.String())
-		}
-	})
-
-	t.Run("PreseedConsumesToken", func(t *testing.T) {
-		tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/preseed/"+token+"/preseed.cfg", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
-		}
-		if body := rec.Body.String(); body != testBootstrapData {
-			t.Fatalf("body = %q, want %q", body, testBootstrapData)
-		}
-
-		remainingSecret := &corev1.Secret{}
-		if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err == nil {
-			t.Fatal("bootstrap token secret still exists after preseed delivery")
-		}
-	})
-
-	t.Run("MissingToken", func(t *testing.T) {
-		farFuture := metav1.Now().Add(1 * time.Hour)
-		tartMachine := &infrastructurev1alpha1.TartMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: "cluster.x-k8s.io/v1beta2",
-						Kind:       "Machine",
-						Name:       "capi-machine",
-					},
-				},
+func TestHandlerBootsImagingAgentForLinuxCloudImages(t *testing.T) {
+	scheme := setupScheme(t)
+	token := testBootstrapToken
+	host := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host-linux",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:40",
+			Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{
+				Device: "/dev/nvme0n1",
 			},
-			Spec: infrastructurev1alpha1.TartMachineSpec{
-				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
-					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
-				},
-			},
-			Status: infrastructurev1alpha1.TartMachineStatus{
-				TokenExpiresAt: &metav1.Time{Time: farFuture},
-			},
-		}
-		tokenSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine-bootstrap-token",
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
+			MachineRef: &corev1.ObjectReference{
+				Name:      "test-machine-linux",
 				Namespace: "default",
 			},
-			Data: map[string][]byte{
-				"token": []byte(token),
+		},
+	}
+	machine := &infrastructurev1alpha1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-linux",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartMachineSpec{
+			Image:        "/assets/images/ubuntu-24.04.raw",
+			KernelParams: []string{"console=ttyS0"},
+			Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+				Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
 			},
+		},
+	}
+	tokenSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-machine-linux-bootstrap-token",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"token": []byte(token),
+		},
+	}
+	cl := setupFakeClient(t, scheme, host, machine, tokenSecret)
+	svc := setupBootstrapTokenService(t, cl)
+
+	req := httptest.NewRequest(http.MethodGet, "/ipxe?mac=00:00:5e:00:53:40", nil)
+	req.Host = testBootstrapHost
+	rec := httptest.NewRecorder()
+
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
+
+	assertStatus(t, rec, http.StatusOK)
+	body := rec.Body.String()
+	for _, want := range []string{
+		"kernel http://" + testBootstrapHost + "/assets/agent/vmlinuz initrd=agent-initrd",
+		"tart.config=http://" + testBootstrapHost + "/provisioning/default/test-machine-linux/config/" + token,
+		"console=ttyS0",
+		"initrd --name agent-initrd http://" + testBootstrapHost + "/assets/agent/initrd",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
 		}
-		capiMachine := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta2",
-				"kind":       "Machine",
-				"metadata": map[string]any{
-					"name":      "capi-machine",
-					"namespace": "default",
-				},
-				"spec": map[string]any{
-					"bootstrap": map[string]any{
-						"dataSecretName": "bootstrap-secret",
-					},
-				},
+	}
+	if strings.Contains(body, "ds=nocloud-net") {
+		t.Fatalf("agent boot script must not pass NoCloud directly to the ramdisk kernel:\n%s", body)
+	}
+}
+
+func TestHandlerServesProvisioningConfig(t *testing.T) {
+	scheme := setupScheme(t)
+	token := testBootstrapToken
+	tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
+	tartMachine.Spec = infrastructurev1alpha1.TartMachineSpec{
+		Image: "/assets/images/debian-13.raw",
+		Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
+			Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
+		},
+	}
+	host := &infrastructurev1alpha1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-host",
+			Namespace: "default",
+		},
+		Spec: infrastructurev1alpha1.TartHostSpec{
+			MACAddress: "00:00:5e:00:53:41",
+			Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{
+				Device: "/dev/nvme0n1",
 			},
+		},
+		Status: infrastructurev1alpha1.TartHostStatus{
+			State: infrastructurev1alpha1.TartHostStateProvisioning,
+			MachineRef: &corev1.ObjectReference{
+				Name:      tartMachine.Name,
+				Namespace: tartMachine.Namespace,
+			},
+		},
+	}
+
+	cl := setupFakeClient(t, scheme, tartMachine, capiMachine, bootstrapSecret, tokenSecret, host)
+	svc := setupBootstrapTokenService(t, cl)
+	req := httptest.NewRequest(http.MethodGet, "/provisioning/default/test-machine/config/"+token, nil)
+	req.Host = testBootstrapHost
+	rec := httptest.NewRecorder()
+
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
+
+	assertStatus(t, rec, http.StatusOK)
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", got)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`"targetDevice":"/dev/nvme0n1"`,
+		`"imageUrl":"http://` + testBootstrapHost + `/assets/images/debian-13.raw"`,
+		`"repairGPT":true`,
+		`"cidataSizeMiB":20`,
+		`"completeUrl":"http://` + testBootstrapHost + `/provisioning/default/test-machine/complete/` + token + `"`,
+		`"bootstrap":{"format":"NoCloud","userData":"` + testBootstrapData + `"`,
+		`"metaData":"instance-id: default-test-machine\nlocal-hostname: test-machine\n"`,
+		`"vendorData":"#cloud-config\n{}\n"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
 		}
-		bootstrapSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bootstrap-secret",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"value": []byte(testBootstrapData),
-			},
-		}
+	}
 
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
+	remainingSecret := &corev1.Secret{}
+	if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err != nil {
+		t.Fatalf("provisioning config must not consume bootstrap token: %v", err)
+	}
+}
 
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine", nil)
-		rec := httptest.NewRecorder()
+func TestHandlerCompletesProvisioningAfterAgentFinishes(t *testing.T) {
+	scheme := setupScheme(t)
+	token := testBootstrapToken
+	tartMachine, capiMachine, tokenSecret, bootstrapSecret := metadataObjects(token)
+	cl := setupFakeClient(t, scheme, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
+	svc := setupBootstrapTokenService(t, cl)
 
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
+	req := httptest.NewRequest(http.MethodPost, "/provisioning/default/test-machine/complete/"+token, nil)
+	rec := httptest.NewRecorder()
 
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
-		}
-	})
+	ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
-	t.Run("InvalidToken", func(t *testing.T) {
-		farFuture := metav1.Now().Add(1 * time.Hour)
-		tartMachine := &infrastructurev1alpha1.TartMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: "cluster.x-k8s.io/v1beta2",
-						Kind:       "Machine",
-						Name:       "capi-machine",
-					},
-				},
-			},
-			Spec: infrastructurev1alpha1.TartMachineSpec{
-				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
-					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
-				},
-			},
-			Status: infrastructurev1alpha1.TartMachineStatus{
-				TokenExpiresAt: &metav1.Time{Time: farFuture},
-			},
-		}
-		tokenSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine-bootstrap-token",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"token": []byte(token),
-			},
-		}
-		capiMachine := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta2",
-				"kind":       "Machine",
-				"metadata": map[string]any{
-					"name":      "capi-machine",
-					"namespace": "default",
-				},
-				"spec": map[string]any{
-					"bootstrap": map[string]any{
-						"dataSecretName": "bootstrap-secret",
-					},
-				},
-			},
-		}
-		bootstrapSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bootstrap-secret",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"value": []byte(testBootstrapData),
-			},
-		}
-
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/invalidtoken", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusUnauthorized {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
-		}
-	})
-
-	t.Run("ExpiredToken", func(t *testing.T) {
-		pastTime := metav1.Now().Add(-1 * time.Hour)
-		tartMachine := &infrastructurev1alpha1.TartMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: "cluster.x-k8s.io/v1beta2",
-						Kind:       "Machine",
-						Name:       "capi-machine",
-					},
-				},
-			},
-			Spec: infrastructurev1alpha1.TartMachineSpec{
-				Bootstrap: infrastructurev1alpha1.TartMachineBootstrapSpec{
-					Format: infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud,
-				},
-			},
-			Status: infrastructurev1alpha1.TartMachineStatus{
-				TokenExpiresAt: &metav1.Time{Time: pastTime},
-			},
-		}
-		tokenSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine-bootstrap-token",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"token": []byte(token),
-			},
-		}
-		capiMachine := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta2",
-				"kind":       "Machine",
-				"metadata": map[string]any{
-					"name":      "capi-machine",
-					"namespace": "default",
-				},
-				"spec": map[string]any{
-					"bootstrap": map[string]any{
-						"dataSecretName": "bootstrap-secret",
-					},
-				},
-			},
-		}
-		bootstrapSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bootstrap-secret",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"value": []byte(testBootstrapData),
-			},
-		}
-
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret, tokenSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/"+token, nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusNotFound)
-		}
-	})
-
-	t.Run("EmptyBootstrapToken", func(t *testing.T) {
-		tartMachine := &infrastructurev1alpha1.TartMachine{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "test-machine",
-				Namespace: "default",
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion: "cluster.x-k8s.io/v1beta2",
-						Kind:       "Machine",
-						Name:       "capi-machine",
-					},
-				},
-			},
-		}
-		capiMachine := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": "cluster.x-k8s.io/v1beta2",
-				"kind":       "Machine",
-				"metadata": map[string]any{
-					"name":      "capi-machine",
-					"namespace": "default",
-				},
-				"spec": map[string]any{
-					"bootstrap": map[string]any{
-						"dataSecretName": "bootstrap-secret",
-					},
-				},
-			},
-		}
-		bootstrapSecret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "bootstrap-secret",
-				Namespace: "default",
-			},
-			Data: map[string][]byte{
-				"value": []byte(testBootstrapData),
-			},
-		}
-
-		cl := setupFakeClient(t, s, tartMachine, capiMachine, bootstrapSecret)
-		svc := setupBootstrapTokenService(t, cl)
-
-		req := httptest.NewRequest(http.MethodGet, "/metadata/default/test-machine/talos/anything", nil)
-		rec := httptest.NewRecorder()
-
-		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusPreconditionFailed {
-			t.Errorf("status = %d, want %d", rec.Code, http.StatusPreconditionFailed)
-		}
-	})
+	assertStatus(t, rec, http.StatusNoContent)
+	remainingSecret := &corev1.Secret{}
+	if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine-bootstrap-token"}, remainingSecret); err == nil {
+		t.Fatal("bootstrap token secret still exists after provisioning completion")
+	}
+	updated := &infrastructurev1alpha1.TartMachine{}
+	if err := cl.Get(t.Context(), client.ObjectKey{Namespace: "default", Name: "test-machine"}, updated); err != nil {
+		t.Fatalf("failed to get TartMachine after provisioning completion: %v", err)
+	}
+	if updated.Status.ConsumedBootstrapTokenHash != bootstrapTokenHash(token) {
+		t.Fatalf("consumedBootstrapTokenHash = %q, want %q", updated.Status.ConsumedBootstrapTokenHash, bootstrapTokenHash(token))
+	}
 }
 
 func TestHandlerServesAssets(t *testing.T) {

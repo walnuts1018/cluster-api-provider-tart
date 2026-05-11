@@ -21,8 +21,7 @@ metadata:
 spec:
   template:
     spec:
-      image: https://factory.talos.dev/image/installer/latest/kernel-amd64
-      initrd: https://factory.talos.dev/image/installer/latest/initramfs-amd64.xz
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/talos-amd64.raw
       bootstrap:
         format: Talos
       kernelParams:
@@ -36,8 +35,7 @@ metadata:
 spec:
   template:
     spec:
-      image: https://factory.talos.dev/image/installer/latest/kernel-amd64
-      initrd: https://factory.talos.dev/image/installer/latest/initramfs-amd64.xz
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/talos-amd64.raw
       bootstrap:
         format: Talos
       kernelParams:

@@ -36,7 +36,7 @@ func HandleUpdateMachine(ctx context.Context, req *runtimehooksv1.UpdateMachineR
 
 	// Tart provider does not manage OS-level changes.
 	// The infrastructure machine (TartMachine) does not need any update
-	// as it only tracks provisioning configuration (Image, Initrd, KernelParams).
+	// as it only tracks provisioning configuration (Image, KernelParams).
 	// Any actual in-place updates are handled by the bootstrap provider (e.g., Talos).
 	resp.SetStatus(runtimehooksv1.ResponseStatusSuccess)
 	resp.SetMessage("no in-place update required for Tart infrastructure machine")

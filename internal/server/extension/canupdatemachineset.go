@@ -60,10 +60,10 @@ func HandleCanUpdateMachineSet(ctx context.Context, req *runtimehooksv1.CanUpdat
 
 	// Check if rolling-update-required fields have changed.
 	if hasRollingUpdateRequiredChanges(currentSpec, desiredSpec) {
-		log.Info("Rolling update required - Image/Initrd/KernelParams changed",
+		log.Info("Rolling update required - Image/KernelParams changed",
 			"machineSet", req.Current.MachineSet.Name)
 		resp.SetStatus(runtimehooksv1.ResponseStatusSuccess)
-		resp.SetMessage("rolling update required: Image, Initrd, or KernelParams changed")
+		resp.SetMessage("rolling update required: Image or KernelParams changed")
 		return
 	}
 

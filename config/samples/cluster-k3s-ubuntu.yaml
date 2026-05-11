@@ -21,14 +21,12 @@ metadata:
 spec:
   template:
     spec:
-      image: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/ubuntu-24.04-amd64.raw
       bootstrap:
         format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - autoinstall
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
 kind: TartMachineTemplate
@@ -37,11 +35,9 @@ metadata:
 spec:
   template:
     spec:
-      image: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
+      image: http://cluster-api-provider-tart-controller-manager-ipxe.cluster-api-provider-tart-system.svc.cluster.local:8082/assets/images/ubuntu-24.04-amd64.raw
       bootstrap:
         format: NoCloud
       kernelParams:
       - console=tty0
       - ip=dhcp
-      - autoinstall

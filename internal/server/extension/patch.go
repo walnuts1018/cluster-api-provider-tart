@@ -39,9 +39,6 @@ func hasRollingUpdateRequiredChanges(current, desired infrastructurev1alpha1.Tar
 	if current.Image != desired.Image {
 		return true
 	}
-	if current.Initrd != desired.Initrd {
-		return true
-	}
 	if len(current.KernelParams) != len(desired.KernelParams) {
 		return true
 	}

@@ -15,17 +15,23 @@ func TestOSImagesWorkflowBuildsSupportedImages(t *testing.T) {
 
 	text := string(data)
 	for _, want := range []string{
-		"kubeadm-ubuntu-24.04-amd64",
-		"kubeadm-debian-13-amd64",
-		"kubeadm-ubuntu-26.04-amd64",
-		"k3s-ubuntu-24.04-amd64",
-		"k3s-debian-13-amd64",
-		"k3s-ubuntu-26.04-amd64",
+		"arch: [amd64, arm64]",
+		"image:",
+		"key_prefix: kubeadm-ubuntu-24.04",
+		"key_prefix: kubeadm-debian-13",
+		"key_prefix: kubeadm-ubuntu-26.04",
+		"key_prefix: k3s-ubuntu-24.04",
+		"key_prefix: k3s-debian-13",
+		"key_prefix: k3s-ubuntu-26.04",
+		"runner: ubuntu-latest",
+		"runner: ubuntu-24.04-arm",
+		"runs-on: ${{ matrix.runner }}",
+		"${{ matrix.image.key_prefix }}-${{ matrix.arch }}",
 		"hack/osimage/build-kubeadm-raw.sh",
 		"hack/osimage/build-k3s-raw.sh",
 		"hack/artifacter/main.go",
 		"packages: write",
-		"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.key }}",
+		"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image.key_prefix }}-${{ matrix.arch }}",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("workflow missing %q", want)
@@ -44,6 +50,7 @@ func TestOSImageBuildScriptsHaveRequiredBehavior(t *testing.T) {
 			path: filepath.Join("..", "..", "hack", "osimage", "build-kubeadm-raw.sh"),
 			want: []string{
 				"make deps-raw",
+				"IMAGE_ARCH",
 				"${IMAGE_BUILDER_TARGET}",
 				"kubernetes_semver=${KUBERNETES_VERSION}",
 				"manifest.json",
@@ -55,6 +62,7 @@ func TestOSImageBuildScriptsHaveRequiredBehavior(t *testing.T) {
 			path: filepath.Join("..", "..", "hack", "osimage", "build-k3s-raw.sh"),
 			want: []string{
 				"virt-customize",
+				"IMAGE_ARCH",
 				"INSTALL_K3S_SKIP_START=true",
 				"INSTALL_K3S_SKIP_ENABLE=true",
 				"qemu-img convert -O raw",

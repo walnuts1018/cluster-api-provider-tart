@@ -30,39 +30,39 @@ env:
 
 jobs:
   build:
-    name: Build and publish ${{ matrix.key }}
-    runs-on: ubuntu-latest
+    name: Build and publish ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - key: kubeadm-ubuntu-24.04-amd64
+        arch: [amd64, arm64]
+        image:
+          - key_prefix: kubeadm-ubuntu-24.04
             kind: kubeadm
-            output: kubeadm-ubuntu-24.04-amd64.raw
             image_builder_target: build-raw-ubuntu-2404
-          - key: kubeadm-debian-13-amd64
+          - key_prefix: kubeadm-debian-13
             kind: kubeadm
-            output: kubeadm-debian-13-amd64.raw
             image_builder_target: build-raw-debian-13
-          - key: kubeadm-ubuntu-26.04-amd64
+          - key_prefix: kubeadm-ubuntu-26.04
             kind: kubeadm
-            output: kubeadm-ubuntu-26.04-amd64.raw
             image_builder_target: build-raw-ubuntu-2604
-          - key: k3s-ubuntu-24.04-amd64
+          - key_prefix: k3s-ubuntu-24.04
             kind: k3s
-            output: k3s-ubuntu-24.04-amd64.raw
-            cloud_image_url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
-          - key: k3s-debian-13-amd64
+            cloud_image_url_format: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-{0}.img
+          - key_prefix: k3s-debian-13
             kind: k3s
-            output: k3s-debian-13-amd64.raw
-            cloud_image_url: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
-          - key: k3s-ubuntu-26.04-amd64
+            cloud_image_url_format: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-{0}.qcow2
+          - key_prefix: k3s-ubuntu-26.04
             kind: k3s
-            output: k3s-ubuntu-26.04-amd64.raw
-            cloud_image_url: https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img
+            cloud_image_url_format: https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-{0}.img
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - name: Check out
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -79,25 +79,27 @@ jobs:
           sudo chmod 0666 /dev/kvm || true
 
       - name: Build kubeadm raw image
-        if: matrix.kind == 'kubeadm'
+        if: matrix.image.kind == 'kubeadm'
         run: |
           hack/osimage/build-kubeadm-raw.sh
         env:
-          IMAGE_KEY: ${{ matrix.key }}
-          IMAGE_BUILDER_TARGET: ${{ matrix.image_builder_target }}
+          IMAGE_KEY: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+          IMAGE_BUILDER_TARGET: ${{ matrix.image.image_builder_target }}
+          IMAGE_ARCH: ${{ matrix.arch }}
           IMAGE_BUILDER_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.image_builder_ref || 'main' }}
           KUBERNETES_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.kubernetes_version || 'v1.35.4' }}
-          OUTPUT_IMAGE_NAME: ${{ matrix.output }}
+          OUTPUT_IMAGE_NAME: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}.raw
 
       - name: Build k3s raw image
-        if: matrix.kind == 'k3s'
+        if: matrix.image.kind == 'k3s'
         run: |
           hack/osimage/build-k3s-raw.sh
         env:
-          IMAGE_KEY: ${{ matrix.key }}
-          CLOUD_IMAGE_URL: ${{ matrix.cloud_image_url }}
+          IMAGE_KEY: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          CLOUD_IMAGE_URL: ${{ format(matrix.image.cloud_image_url_format, matrix.arch) }}
           K3S_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.k3s_version || '' }}
-          OUTPUT_IMAGE_NAME: ${{ matrix.output }}
+          OUTPUT_IMAGE_NAME: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}.raw
 
       - name: Resolve image tag
         id: tag
@@ -112,8 +114,8 @@ jobs:
       - name: Push OCI Artifact using ORAS
         run: |
           go run hack/artifacter/main.go \
-            -dir "dist/os-images/${{ matrix.key }}" \
-            -repo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.key }}" \
+            -dir "dist/os-images/${{ matrix.image.key_prefix }}-${{ matrix.arch }}" \
+            -repo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image.key_prefix }}-${{ matrix.arch }}" \
             -tag "${{ steps.tag.outputs.ImageTag }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

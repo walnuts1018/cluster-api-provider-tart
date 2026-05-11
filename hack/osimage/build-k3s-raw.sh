@@ -3,6 +3,7 @@ set -euo pipefail
 
 IMAGE_KEY="${IMAGE_KEY:?IMAGE_KEY is required}"
 CLOUD_IMAGE_URL="${CLOUD_IMAGE_URL:?CLOUD_IMAGE_URL is required}"
+IMAGE_ARCH="${IMAGE_ARCH:-amd64}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist/os-images/${IMAGE_KEY}}"
 OUTPUT_IMAGE_NAME="${OUTPUT_IMAGE_NAME:-${IMAGE_KEY}.raw}"
 K3S_VERSION="${K3S_VERSION:-}"
@@ -44,6 +45,7 @@ cat > "${OUTPUT_DIR}/manifest.json" <<EOF
 {
   "key": "${IMAGE_KEY}",
   "kind": "k3s",
+  "arch": "${IMAGE_ARCH}",
   "sourceImage": "${CLOUD_IMAGE_URL}",
   "k3sVersion": "${K3S_VERSION}",
   "diskSize": "${RAW_DISK_SIZE}",

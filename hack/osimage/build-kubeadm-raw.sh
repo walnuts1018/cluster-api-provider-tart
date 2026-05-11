@@ -4,6 +4,7 @@ set -euo pipefail
 IMAGE_KEY="${IMAGE_KEY:?IMAGE_KEY is required}"
 IMAGE_BUILDER_TARGET="${IMAGE_BUILDER_TARGET:?IMAGE_BUILDER_TARGET is required}"
 KUBERNETES_VERSION="${KUBERNETES_VERSION:?KUBERNETES_VERSION is required}"
+IMAGE_ARCH="${IMAGE_ARCH:-amd64}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist/os-images/${IMAGE_KEY}}"
 OUTPUT_IMAGE_NAME="${OUTPUT_IMAGE_NAME:-${IMAGE_KEY}.raw}"
 IMAGE_BUILDER_REF="${IMAGE_BUILDER_REF:-main}"
@@ -36,6 +37,7 @@ make deps-raw
 kubernetes_no_v="${KUBERNETES_VERSION#v}"
 kubernetes_series="v$(printf '%s' "${kubernetes_no_v}" | awk -F. '{print $1 "." $2}')"
 export PACKER_FLAGS="${PACKER_FLAGS:-} --var kubernetes_semver=${KUBERNETES_VERSION} --var kubernetes_deb_version=${kubernetes_no_v}-1.1 --var kubernetes_series=${kubernetes_series}"
+export PACKER_FLAGS="${PACKER_FLAGS} --var arch=${IMAGE_ARCH}"
 
 make "${IMAGE_BUILDER_TARGET}"
 
@@ -53,6 +55,7 @@ cat > "${OUTPUT_DIR}/manifest.json" <<EOF
 {
   "key": "${IMAGE_KEY}",
   "kind": "kubeadm",
+  "arch": "${IMAGE_ARCH}",
   "builder": "kubernetes-sigs/image-builder",
   "imageBuilderRef": "${IMAGE_BUILDER_REF}",
   "imageBuilderTarget": "${IMAGE_BUILDER_TARGET}",

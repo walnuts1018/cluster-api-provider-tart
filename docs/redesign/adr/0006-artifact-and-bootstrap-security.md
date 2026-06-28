@@ -9,14 +9,15 @@
 
 ## Decision
 
-- OS、agent、一時OSをdigest付きOCI Artifactで参照する。
-- CIでprovenance、SBOM、署名、dm-verity root hashを生成し、controllerとagentの両方でpolicyを検証する。
+- OS、Agent、一時OSを`sha256:<64桁>`付きOCI Artifactで参照する。tagだけの参照をAdmissionで拒否する。
+- CIでprovenance、SBOM、Manifest署名、dm-verity root hashを生成する。controllerはPlan生成前、Agentはdisk書き込み前に署名とdigestを検証する。
 - Bootstrap Dataは必要なmetadataとまとめた1つのbundleとしてHTTPSで返す。
 - bundleはBootstrap Secretの`value`、`format`、payload digest、Machine UID、operation IDを保持する。
-- tokenは短命、高entropy、host/operationへbindingし、server側にはhashだけを保存する。
-- 正常なbundleレスポンスを1回完了した時点でtokenを消費する。
-- agentはbundleをStateへ原子的に配置し、初回boot unitが一度だけ実行する。
-- 実行後は原本を削除または暗号化保管し、完了digestだけを残す。
+- Session Tokenは256 bit以上、TTL 10分とし、Host UIDとOperation UIDへbindingする。管理クラスタにはSHA-256 hashだけを保存する。
+- Bundle HTTP responseのheaderとbodyをserverが送信完了した時点でtokenを消費する。Client受信結果が不明でも同じtokenを再有効化しない。
+- AgentはBundleを一時fileへ書き、fsync後にrenameしてStateへ配置する。
+- Bootstrap Adapterはpayload digestの成功markerが存在する場合、payloadを再実行しない。
+- 実行成功後はpayload原本を削除し、payload digest、Adapter version、適用時刻だけを残す。暗号化保管は初期リリースでは実装しない。
 - 受理済みgenerationをcontrollerとStateへ保持してanti-rollbackを行う。
 - MVPはstandard CABPK `cloud-config`をOS内adapterで適用し、Ignitionや未分離pathへ書く任意customizationは拒否する。
 - initial credentialはTPM/事前登録host key/BMC保護mediaを優先し、それらを持たないnetwork boot hostは隔離L2を必須の脅威モデルとする。

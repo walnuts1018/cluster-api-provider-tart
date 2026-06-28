@@ -2,51 +2,77 @@
 
 ## 目的
 
-設計全体を成立させる高リスクな仮説を、production codeの大量変更前に実証する。
+大量のproduction codeを変更する前に、A/B disk、read-only root、CAPI Runtime Hook、Bootstrap、Artifact Buildの成立可否をQEMUで判定する。
 
-## 対象
+## 依存
 
-- CAPI v1.13.1のRuntimeSDK/InPlaceUpdates feature gate、KCP、MachineDeploymentのhook順序
-- Ubuntu 24.04 amd64のfilesystem slot image
-- dm-verity read-only rootとState/Dataのsystemd mount
-- UEFI boot trial、成功確定、試行回数超過rollback
-- systemd-boot boot countingとGRUB fallbackの比較、および採用方式の決定
-- kubeadm Bootstrap DataをStateから一度だけ実行する方式
-- CABPK standard `cloud-config`の`value`/`format`を保持し、read-only root上で適用する方式
-- initial Agent credentialのTPM/事前登録key/BMC media/隔離L2別の配送方式
-- Image Builder raw変換、Ansible role再利用、mkosi/systemd-repartの比較
-- agent書き込み中、boot metadata更新中、初回boot中の電源断
-- stable fallbackとしてのdelete-first host reuse
+なし。
+
+## 固定する検証環境
+
+| 項目 | 値 |
+|---|---|
+| OS | Ubuntu 24.04 LTS |
+| Architecture | amd64 |
+| CPU level | x86-64-v1 |
+| Firmware | OVMF UEFI |
+| Root filesystem | ext4 + dm-verity |
+| Disk | 空disk 1台、最低64 GiB |
+| Kubernetes | repositoryのCAPI v1.13.1、kubeadm |
+| Boot Transport | iPXE相当またはQEMU direct kernel boot |
 
 ## 成果物
 
-- `test/fixtures`ではなく、再現可能なQEMU検証用mise taskと必要な実装用fixture
-- hook request/responseとCAPI version/feature gateの検証記録
-- partition table、mount path、bootloader state遷移の確定案
-- ADR 0002、0003のAccepted/Rejected更新
-- 対応できない条件を記載したsupport matrix
+- QEMU VM作成、boot、電源断を実行するmise task
+- `amd64-uefi-ab/v1`の暫定Platform Profile
+- Disk Role、partition順、type GUID、最小sizeの比較表
+- systemd-bootとGRUBのboot trial比較記録
+- standard CABPK `cloud-config`適用記録
+- Runtime Hook request/response記録
+- Image Builder 3案の比較表
+- ADR 0002、0003、0009のStatus更新
+
+## 実装要件
+
+- 検証専用codeはproduction packageへ置かない。
+- QEMU disk image、download済みArtifact、test credentialをGitへcommitしない。
+- mise taskは必要toolのversionを固定する。
+- failure injectionは最低限、OS slot書き込み50%時点、boot metadata更新直後、新slot kernel起動直後の3点で実行する。
 
 ## 受け入れ条件
 
-1. read-only rootのUbuntu 24.04でcontainerd、kubelet、network、時刻同期、ログが再起動後も動く。
-2. OS dataまたはverity metadataの改変を検出して対象slotのcommitを拒否する。
-3. `/etc/kubernetes`、kubelet state、etcd dataを保持したslot切替を実証する。
-4. 新slotが起動不能な場合、operator操作なしで旧slotが起動する。
-5. 3つの電源断pointから旧slotまたは再開可能なoperationへ収束する。
-6. `CanUpdate*`が対象外差分を覆わず、CAPIが置換経路を選べる。
-7. Runtime Extension再起動後も同一operation IDで`UpdateMachine`を再開できる。
-8. 単一ノードは「実験的」とし、API server停止期間を含む成功/rollback条件を記録する。
-9. standard CABPK `cloud-config`の成功markerと再起動時の非再実行を確認し、Ignition/任意customizationの拒否範囲を決める。
-10. initial credentialをURL queryや公開scriptへ置かずに配送できるprofileと、hardware identityがない場合の脅威上限を記録する。
-11. Image Builderのpinned releaseからA/B/verity成果物を生成する案と独自pipeline案の保守コスト・不足機能を比較する。
+1. Ubuntu 24.04がdm-verity rootをread-only mountして起動する。
+2. State/Data mount成功後にcontainerdとkubeletを起動する。
+3. State mountを失敗させた場合、containerdとkubeletが起動しない。
+4. OS blockを1 byte変更した場合、dm-verityがI/O errorを返す。
+5. standard CABPK `cloud-config`を1回適用し、再起動後に同じpayloadを再実行しない。
+6. OS slot書き込み50%で電源断しても旧Active Slotが起動する。
+7. boot metadata更新直後の電源断後、boot trial回数が消失しない。
+8. 新slot bootを3回失敗させると旧slotが起動し、4回目に新slotを選択しない。
+9. KCPから`CanUpdateMachine`、MachineDeploymentから`CanUpdateMachineSet`が呼ばれる。
+10. Runtime Extension再起動後に同じPlan DigestのOperationを重複作成しない。
+11. Initial Credential候補ごとに、URL query、公開script、kernel command line、access logへの露出有無を記録する。
+12. 3つのArtifact Build案で、build可否、patch行数、build時間、Artifact sizeを記録する。
+
+## 完了証跡
+
+- `mise run <qemu-task>`の全出力
+- partition table (`sfdisk --json`または同等出力)
+- `findmnt --json`出力
+- boot trial 4回分のconsole log
+- dm-verity改変test log
+- Runtime Hook request/response fixture
+- Image Builder比較表
 
 ## 対象外
 
-- production CRDの確定
-- Redfish実機対応
-- Raspberry Pi対応
+- production CRDの追加
+- Redfish実機
+- Legacy BIOS
+- arm64/Raspberry Pi
+- Kubernetes version更新
 
 ## 関連
 
-- ADR 0002、0003、0007
+- ADR 0002、0003、0007、0009
 - Issue #143、#147

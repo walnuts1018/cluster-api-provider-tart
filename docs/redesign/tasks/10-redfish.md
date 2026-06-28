@@ -1,45 +1,85 @@
-# Task 10: Redfish対応
+# Task 10: Redfish
 
 ## 目的
 
-BMC搭載rack serverをRedfish経由で電源制御し、PXEまたはVirtual Mediaから共通Agentを起動する。
+BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作し、WoL/iPXEと同じProvisioning Agentを起動する。
 
 ## 依存
 
 - Task 03、06
+- ADR 0005、0010
 
-## 実装範囲
+## 入力
 
-- PowerState、PowerOn、graceful/forced PowerOff
-- one-time BootSourceOverride
-- Virtual Media insert/eject
-- capability discoveryとvendor差異の隔離
+- BMC endpoint
 - BMC credential Secret参照
-- BMC TLS trust、timeout、retry、rate limit
-- PXE、HTTP boot、Virtual Mediaから共通Provisioning Agentを起動するtransport選択
-- simulatorと複数vendor実機のcontract test
+- CA bundleまたはSPKI pin
+- Operation ID
+- Agent Artifact
+- Boot Transport選択Policy
 
-IPMIはRedfishで要件を満たせない機器の需要と保守コストを評価してから別adapterとして追加し、Redfish adapter内へ混在させない。
+## 成果物
+
+- Redfish Power Adapter
+- Redfish BootOverride Adapter
+- Redfish VirtualMedia Adapter
+- Capability discovery
+- BMC session/TLS設定
+- Redfish simulator Contract Test
+- 2種類以上の実機検証記録
+
+## Boot Transport選択
+
+利用者が明示指定しない場合は次の順で選ぶ。
+
+1. `RedfishHTTPBoot`
+2. `RedfishVirtualMedia`
+3. `RedfishPXE`
+
+利用者が指定したCapabilityをBMCが持たない場合は`Unsupported`で失敗し、別Transportへ自動fallbackしない。
+
+## 実装要件
+
+- Redfish session authenticationを優先し、未対応時だけbasic authenticationへfallbackする。
+- TLS certificate検証を既定で有効にする。`insecureSkipVerify` fieldは作成しない。
+- Power Offは`GracefulShutdown`と`ForceOff`を別操作とする。
+- one-time BootOverrideだけを使用し、通常boot orderを書き換えない。
+- Virtual Media mount済みの場合は挿入image digestを比較し、異なるimageを黙って置換しない。
+- controller再起動後にBMCをGETして現在状態を再観測する。
+- Redfish Adapterはdisk layoutまたはOS installerを実装しない。
 
 ## 受け入れ条件
 
-1. driverが実機の対応能力だけを報告する。
-2. one-time boot overrideが通常boot orderを恒久変更しない。
-3. operation再実行時にVirtual Mediaの二重mountや予期しないejectを起こさない。
-4. self-signedを無条件に許可せず、hostごとの明示trust policyを使う。
-5. 認証失敗をretryし続けず、credential値をログへ出さない。
-6. Redfish PXE、HTTP boot、Virtual Mediaのいずれからでも同じAgent protocolとoperationを使用する。
-7. controller再起動後にmount済みmediaとpower stateを再観測して収束する。
-8. Vendor OS installerへ処理を分岐せず、disk書き込みは共通Agentが行う。
+1. BMCが公開するCapabilityだけをTartHost Statusへ保存する。
+2. HTTPBoot、VirtualMedia、PXEの各Transportから同じAgent Protocol `/v1`でregisterする。
+3. one-time BootOverride後の2回目bootで通常boot orderへ戻る。
+4. 同じOperation IDのVirtual Media mountを2回受けても二重mountしない。
+5. 異なるOperation/Imageのmount要求をConflictとして拒否する。
+6. CA不一致、認証失敗、timeout、Unsupportedを別error型で返す。
+7. 認証失敗を再試行しない。
+8. Temporary errorを1秒、2秒、4秒の最大3回だけ再試行する。
+9. controller再起動後、mount済みmedia、PowerState、BootOverrideを再観測してStatusを修正する。
+10. Agentのdisk write code pathがWoL/iPXEと同じpackageである。
+11. BMC credential値がlog、Event、Status、traceへ出ない。
+
+## 完了証跡
+
+- Redfish simulator Contract Test
+- 実機のvendor/model/BMC Firmware version
+- 3 Boot TransportのAgent register log
+- one-time boot 2回分のboot順
+- TLS/認証/error分類test
+- controller再起動前後のBMC/Status比較
 
 ## 対象外
 
-- vendor固有firmware update
-- RAID構成
+- IPMI
+- firmware update
+- RAID設定
+- vendor OS deployment API
 - SwitchBot/GPIO
 
 ## 関連
 
-- ADR 0005
-- ADR 0010
+- ADR 0005、0010
 - Issue #146

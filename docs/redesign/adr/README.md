@@ -1,5 +1,7 @@
 # ADR一覧
 
+全ADRの用語と要求レベルは[記述規約と用語集](../conventions.md)に従う。`Accepted`は実装を拘束し、`Proposed`はAcceptance Gateを通過するまで実装選択を拘束しない。
+
 | ADR | 状態 | 判断 |
 |---|---|---|
 | [0001](0001-host-and-machine-lifecycles.md) | Accepted | Host inventoryとCAPI Machineのライフサイクルを分離する |

@@ -11,23 +11,25 @@ Kubernetes SIGsのImage BuilderはCAPI向けVM imageをPackerとAnsibleで生成
 
 ## Decision
 
-Task 05のspikeで次の3案を同じ受け入れ条件により比較する。
+Task 05で次の3案を同じUbuntu 24.04 amd64入力と同じQEMU boot testで比較する。
 
 1. release tagへ固定したImage Builder raw成果物を変換する。
 2. Image BuilderのAnsible roleだけを再利用し、slot layoutとverityは独自に生成する。
 3. mkosi/systemd-repart等で独自pipelineを構築し、Kubernetes package設定だけを別定義する。
 
-現時点では3を有力候補としつつ、検証前に最終決定しない。Image Builderの`main` branch、可変URL、`latest`をproduction inputにしない。
+現時点では3を第一候補とするが、検証前に確定しない。Image Builderの`main` branch、可変URL、`latest`をproduction inputにしない。
 
 ## Acceptance gate
 
-- Ubuntu 24.04 amd64で同じ成果物契約と比較testを実行できる。
-- whole-disk imageを経由せず、または安全で決定的な変換により、OS/Verity slotを生成できる。
+- 3案全てで同じManifest schemaを生成する。生成できない案は不採用とする。
+- OS/Verity payload digestがlock fileで指定した入力から再生成できる。
 - x86-64-v1、State mount、standard CABPK cloud-configを検証できる。
 - package、toolchain、base imageを固定し、SBOM、provenance、署名を生成できる。
-- upstream追随コストと独自patch量を測定できる。
+- upstreamから変更したfile数、patch行数、build時間、Artifact sizeを比較表へ記録する。
 
 Ubuntu 26.04、Debian 13、arm64への移植性はTask 11のrelease gateとし、Task 05の採用判断を不必要にブロックしない。
+
+全機能条件を満たす案が複数ある場合は、独自patch行数が最小の案を採用する。差が10%以内ならbuild時間が短い案を採用する。
 
 ## Consequences
 

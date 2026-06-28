@@ -330,7 +330,7 @@ type DistributionLifecycleDriver interface {
 
 kubeadm adapterは新OS slot内の署名済みNode Lifecycle Serviceから、対応versionに限定して`kubeadm upgrade plan/apply/node`を実行する。CAPI rollout owner（control planeはKCP、workerはMachineDeployment）がversionとnode順序を所有し、adapterがlocal state変更、snapshot、health確認を所有する。k3sは対応するBootstrap/Control Plane Providerと専用adapterの契約を別途定義する。
 
-workerはcontrol planeがtarget versionを受理した後、inactive slotをstageする。新slotではkubeletを開始する前にState/Dataをmountし、`kubeadm upgrade node`を実行する。control planeは旧slot稼働中にpreflightとsnapshotを完了し、target kubeadmで`upgrade apply`を実行した後に新slotを試行起動する。各stepの前後でplan digest、target version、snapshotRef、完了markerを`TartHostOperation`へ保存する。
+workerはcontrol planeがtarget versionを受理した後、inactive slotをstageする。新slotではkubeletを開始する前にState/Dataをmountし、`kubeadm upgrade node`を実行する。control planeは旧slot稼働中にpreflightとsnapshotを完了し、新OS slot（Inactive Slot）のパーティションを一時的に読み取り専用でマウントしてそこから target kubeadm バイナリを実行することで`upgrade apply`を行い、その後に新slotを試行起動する。各stepの前後でplan digest、target version、snapshotRef、完了markerを`TartHostOperation`へ保存する。
 
 初期リリースのA/B更新はOS-onlyに限定する。Distribution Lifecycleが完成するまで、Kubernetes version差分を`CanUpdate*`で覆ってはならない。
 

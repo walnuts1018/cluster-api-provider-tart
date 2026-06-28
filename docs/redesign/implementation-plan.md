@@ -22,6 +22,8 @@
 - ext4 slot image、read-only root、State/Data mountをQEMUで起動する。
 - UEFIのboot attempt/rollbackを電源断込みで検証する。
 - Bootstrap bundleをStateへ配置し、kubeadm bootstrapが完了することを確認する。
+- initial Agent credentialのplatform別配送方法と脅威上限を確定する。
+- Image Builderのraw変換/role再利用と独自pipelineを比較し、ADR 0009を確定する。
 
 結果が成立しない場合は後続実装を開始せず、ADRを更新する。
 
@@ -40,6 +42,7 @@
 
 - versioned agent protocol、session、進捗報告、再開を実装する。
 - partition imageとmanifestの再現可能ビルドを作る。
+- Image Builderを採用する範囲、または独自pipelineを選ぶ根拠を検証記録に残す。
 - digest、署名、SBOM、state schema検証を実装する。
 
 ### Phase 3: 初期導入の縦方向スライス
@@ -53,7 +56,7 @@
 
 この時点で従来のinstaller/whole-disk flowをdeprecatedにし、移行フラグなしで削除しない。
 
-### Phase 4: A/B更新
+### Phase 4: OS-only A/B更新
 
 対象: [Task 08](tasks/08-ab-update.md)
 
@@ -62,17 +65,26 @@
 - worker、複数control-plane、単一ノードcontrol-planeの順に安全性を検証する。
 - 更新前バックアップを自動実行するのではなく、policyによる必須preconditionとして検査可能にする。
 
-### Phase 5: BMC対応
+### Phase 5: Kubernetes Distribution Lifecycle
 
-対象: [Task 09](tasks/09-redfish.md)
+対象: [Task 09](tasks/09-kubernetes-lifecycle.md)
+
+- CAPI rollout owner（control planeはKCP、workerはMachineDeployment）が決めるversionと順序に従い、node-local adapterでkubeadm upgradeを実行する。
+- snapshot、State migration、health確認、復旧境界を実装する。
+- k3s用Bootstrap/Control Plane Providerとlifecycle adapterの契約を確定する。
+
+### Phase 6: BMC対応
+
+対象: [Task 10](tasks/10-redfish.md)
 
 - Redfish power、boot override、Virtual Mediaを実装する。
+- Virtual Mediaは共通Provisioning Agentのboot transportとして利用する。
 - vendor差異と未対応能力をcapability discoveryへ反映する。
 - credential rotation、TLS trust、rate limitを検証する。
 
-### Phase 6: 対応範囲拡大とリリース
+### Phase 7: 対応範囲拡大とリリース
 
-対象: [Task 10](tasks/10-compatibility-and-release.md)
+対象: [Task 11](tasks/11-compatibility-and-release.md)
 
 - k3s、Ubuntu 26.04、Debian 13、Legacy BIOS、arm64を順次有効化する。
 - Raspberry Piは専用boot profileの検証後に対応表へ追加する。
@@ -95,10 +107,13 @@
                     07 Initial provisioning
                          /           \
                         v             v
-                 08 A/B update    09 Redfish
-                        \             /
+                 08 OS-only A/B   10 Redfish
+                        |             |
+                        v             |
+                 09 K8s lifecycle     |
+                         \             /
                          v           v
-                    10 Compatibility/release
+                    11 Compatibility/release
 ```
 
 Task 04はAPIのoperation modelと成果物manifestを参照するため、02と05の契約部分が先に必要である。実装作業自体は03、04、05を別ブランチで並行化できる。
@@ -110,15 +125,16 @@ Task 04はAPIのoperation modelと成果物manifestを参照するため、02と
 | M0 | ADRとspike結果 | 主要仮説が実証済み |
 | M1 | API/driver/agent protocol | CRD conversionと単体テスト完了 |
 | M2 | Ubuntu 24.04初期導入 | 実機で再実行・電源断復旧が成功 |
-| M3 | A/B更新 | 単一ノードでState/Data保持とrollback成功 |
-| M4 | Redfish | 2系統以上のBMCまたは標準simulatorで検証 |
-| M5 | 対応matrix拡大 | 全組合せの証跡とrunbookが存在 |
+| M3 | OS-only A/B更新 | workerから開始し、slot rollback成功 |
+| M4 | Kubernetes lifecycle | kubeadmの順序、snapshot、health gateを検証 |
+| M5 | Redfish | 2系統以上のBMCまたは標準simulatorで検証 |
+| M6 | 対応matrix拡大 | 全組合せの証跡とrunbookが存在 |
 
 ## 5. 現行Issueとの対応
 
 - Issue #143「ディスクのパーティション設定」: Task 01、02、05、08へ分解する。
-- Issue #146「物理操作部分を抽象化」: Task 03、09へ分解する。
-- Issue #147「OSインストール手順を変更」: Task 04〜08へ分解する。
+- Issue #146「物理操作部分を抽象化」: Task 03、10へ分解する。
+- Issue #147「OSインストール手順を変更」: Task 04〜09へ分解する。
 - Issue #145「同時に2個TartMachine」: Task 02で予約競合の不変条件として扱う。
 
 既存Issueをそのまま巨大な実装PRにせず、各タスク開始時に親Issueとsub-issueの関係をGitHub上で設定する。

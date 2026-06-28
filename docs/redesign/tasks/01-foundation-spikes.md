@@ -12,6 +12,9 @@
 - UEFI boot trial、成功確定、試行回数超過rollback
 - systemd-boot boot countingとGRUB fallbackの比較、および採用方式の決定
 - kubeadm Bootstrap DataをStateから一度だけ実行する方式
+- CABPK standard `cloud-config`の`value`/`format`を保持し、read-only root上で適用する方式
+- initial Agent credentialのTPM/事前登録key/BMC media/隔離L2別の配送方式
+- Image Builder raw変換、Ansible role再利用、mkosi/systemd-repartの比較
 - agent書き込み中、boot metadata更新中、初回boot中の電源断
 - stable fallbackとしてのdelete-first host reuse
 
@@ -33,6 +36,9 @@
 6. `CanUpdate*`が対象外差分を覆わず、CAPIが置換経路を選べる。
 7. Runtime Extension再起動後も同一operation IDで`UpdateMachine`を再開できる。
 8. 単一ノードは「実験的」とし、API server停止期間を含む成功/rollback条件を記録する。
+9. standard CABPK `cloud-config`の成功markerと再起動時の非再実行を確認し、Ignition/任意customizationの拒否範囲を決める。
+10. initial credentialをURL queryや公開scriptへ置かずに配送できるprofileと、hardware identityがない場合の脅威上限を記録する。
+11. Image Builderのpinned releaseからA/B/verity成果物を生成する案と独自pipeline案の保守コスト・不足機能を比較する。
 
 ## 対象外
 

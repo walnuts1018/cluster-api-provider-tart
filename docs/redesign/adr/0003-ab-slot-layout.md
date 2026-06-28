@@ -18,6 +18,7 @@
 - State schema互換範囲外のimageは書き込み前に拒否する。
 - 受理済みgenerationと署名済みverity root hashを照合し、古い正規imageへのrollback攻撃を拒否する。
 - UEFIのsystemd-boot boot countingまたは同等方式と、Legacy BIOSのGRUB方式はTask 01で個別に実証し、同一実装を強制しない。
+- Secure Boot profileではverity root hashを署名済みUKIまたは署名対象boot metadataへ固定する。Secure Bootなしでは悪意ある同時改変に対する真正性を保証しない。
 
 ## Acceptance gate
 

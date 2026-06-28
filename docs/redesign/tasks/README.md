@@ -9,9 +9,10 @@
 | 05 | [OS成果物ビルド](05-image-pipeline.md) | slot image、manifest、署名、SBOM | 01 |
 | 06 | [Agentとネットワークブート統合](06-network-boot-agent.md) | 一時OS起動、agent実装、inventory | 03、04、05 |
 | 07 | [初期プロビジョニング](07-initial-provisioning.md) | Ubuntu 24.04 + kubeadm縦スライス | 02、06 |
-| 08 | [A/Bインプレース更新](08-ab-update.md) | Runtime Hooks、health gate、rollback | 07 |
-| 09 | [Redfish対応](09-redfish.md) | power、boot override、Virtual Media | 03、06 |
-| 10 | [対応拡大とリリース](10-compatibility-and-release.md) | k3s、各OS/boot/arch、runbook | 08、09 |
+| 08 | [OS-only A/Bインプレース更新](08-ab-update.md) | Runtime Hooks、health gate、slot rollback | 07 |
+| 09 | [Kubernetes Distribution Lifecycle](09-kubernetes-lifecycle.md) | kubeadm upgrade、snapshot、health | 08 |
+| 10 | [Redfish対応](10-redfish.md) | power、boot transport、Virtual Media | 03、06 |
+| 11 | [対応拡大とリリース](11-compatibility-and-release.md) | k3s、各OS/boot/arch、runbook | 09、10 |
 
 ## GitHub Issue運用
 
@@ -30,4 +31,3 @@
 - CRD/Webhook変更はKubebuilder/controller-genで生成する。
 - application logic以外のファイル存在確認テストを追加しない。
 - `mise run test-e2e`と`mise run test-provisioning-e2e`はローカル実行せず、GitHub Actionsで実行する。
-

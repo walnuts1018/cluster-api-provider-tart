@@ -10,5 +10,7 @@
 | [0006](0006-artifact-and-bootstrap-security.md) | Accepted | digest固定artifactと単回Bootstrap bundleを使用する |
 | [0007](0007-platform-profiles.md) | Accepted | UEFI、Legacy BIOS、Raspberry Piを別platform profileとして扱う |
 | [0008](0008-stateful-update-classes.md) | Accepted | OS slot切替とState migrationを別トランザクションとして扱う |
+| [0009](0009-image-build-toolchain.md) | Proposed | Image Builderを評価するが、最終成果物builderとは未決定とする |
+| [0010](0010-common-provisioning-agent.md) | Accepted | BMC搭載機でも共通Provisioning Agentがdiskを書き込む |
 
-`Proposed`は[Task 01](../tasks/01-foundation-spikes.md)の実証後に`Accepted`または`Rejected`へ変更する。
+`Proposed`は[Task 01](../tasks/01-foundation-spikes.md)または各ADRに記載した検証の完了後に`Accepted`または`Rejected`へ変更する。

@@ -11,6 +11,7 @@ CAPI契約、長寿命host、再開可能operation、A/B状態を表現できる
 ## 実装範囲
 
 - `TartCluster`、`TartMachine`、`TartMachineTemplate`のv1beta2 contract整合
+- `InfraMachineTemplate.spec.template.metadata`、CRD contract label、SSA dry-run
 - `TartHost`のidentity、root device hints、driver設定、capabilities、consumerRef
 - 長時間処理を表す`TartHostOperation`
 - Host selectionと楽観ロックによる予約
@@ -29,6 +30,8 @@ CAPI契約、長寿命host、再開可能operation、A/B状態を表現できる
 5. 不正なslot遷移、digestなしartifact、曖昧なdisk targetをWebhookまたはdomainで拒否する。
 6. 既存v1alpha1 objectを読み、明示した互換範囲で新storage versionへ変換できる。
 7. controller-gen生成物とAPI単体テストが通る。
+8. provider-owned `spec.providerID`とTemplate複製フィールドが分離され、providerIDとworkload Nodeの一致を検証できる。
+9. ClusterClass利用時のSSA dry-runでimmutable fieldやdefaultingが副作用を起こさない。
 
 ## テスト
 
@@ -46,4 +49,3 @@ CAPI契約、長寿命host、再開可能operation、A/B状態を表現できる
 
 - ADR 0001
 - Issue #143、#145
-

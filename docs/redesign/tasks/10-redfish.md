@@ -1,4 +1,4 @@
-# Task 09: Redfish対応
+# Task 10: Redfish対応
 
 ## 目的
 
@@ -16,6 +16,7 @@ BMC搭載rack serverをRedfish経由で電源制御し、PXEまたはVirtual Med
 - capability discoveryとvendor差異の隔離
 - BMC credential Secret参照
 - BMC TLS trust、timeout、retry、rate limit
+- PXE、HTTP boot、Virtual Mediaから共通Provisioning Agentを起動するtransport選択
 - simulatorと複数vendor実機のcontract test
 
 IPMIはRedfishで要件を満たせない機器の需要と保守コストを評価してから別adapterとして追加し、Redfish adapter内へ混在させない。
@@ -27,8 +28,9 @@ IPMIはRedfishで要件を満たせない機器の需要と保守コストを評
 3. operation再実行時にVirtual Mediaの二重mountや予期しないejectを起こさない。
 4. self-signedを無条件に許可せず、hostごとの明示trust policyを使う。
 5. 認証失敗をretryし続けず、credential値をログへ出さない。
-6. Redfish PXE/Virtual Mediaのどちらからでも同じAgent protocolとoperationを使用する。
+6. Redfish PXE、HTTP boot、Virtual Mediaのいずれからでも同じAgent protocolとoperationを使用する。
 7. controller再起動後にmount済みmediaとpower stateを再観測して収束する。
+8. Vendor OS installerへ処理を分岐せず、disk書き込みは共通Agentが行う。
 
 ## 対象外
 
@@ -39,5 +41,5 @@ IPMIはRedfishで要件を満たせない機器の需要と保守コストを評
 ## 関連
 
 - ADR 0005
+- ADR 0010
 - Issue #146
-

@@ -17,9 +17,11 @@
 - TLS、request size limit、deadline、replay防止
 - operation phaseとagent sequence numberによる重複・順序逆転対策
 - CAPI Bootstrap Secretから1レスポンスのbundleを生成するadapter
+- Bootstrap Secretの`value`、`format`、digestを保持するbundle schema
+- platform別initial credential bootstrapと脅威モデル
 - 監査EventとOpenTelemetry span
 
-TokenをURL queryへ入れずAuthorization header等で送る。agentの`disk write completed`だけではMachineをReadyにしない。
+TokenをURL queryへ入れずAuthorization header等で送る。最初のcredentialを取得する前提として、TPM/事前登録host key/BMC保護mediaまたは隔離provisioning L2のいずれを使うかをprofileへ明記する。agentの`disk write completed`だけではMachineをReadyにしない。
 
 ## 受け入れ条件
 
@@ -30,6 +32,9 @@ TokenをURL queryへ入れずAuthorization header等で送る。agentの`disk wr
 5. controller再起動後もtokenとoperationを復元できる。
 6. log、Event、Status、trace attributeにtokenまたはBootstrap Dataがない。
 7. race detectorを含む並行token消費テストで1 requestだけ成功する。
+8. initial credentialが公開iPXE script、kernel command lineの監査log、HTTP access logへ出ない。
+9. hardware identityを持たないprofileを悪意あるL2参加者に安全と表示しない。
+10. unsupportedなBootstrap `format`と未分離pathへ書くcustomizationを処理前に拒否する。
 
 ## 対象外
 
@@ -41,4 +46,3 @@ TokenをURL queryへ入れずAuthorization header等で送る。agentの`disk wr
 
 - ADR 0004、0006
 - Issue #147
-

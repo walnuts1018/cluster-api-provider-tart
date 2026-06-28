@@ -64,8 +64,6 @@ spec:
                     enum:
                     - Talos
                     - NoCloud
-                    - Preseed
-                    - Raw
                     type: string
                 type: object
               failureDomain:
@@ -74,13 +72,8 @@ spec:
                   Must comply with the failure domain specified in the core Machine object.
                 type: string
               image:
-                description: image is the boot OS image URL or a path served by the
+                description: image is the raw disk image URL or a path served by the
                   assets server.
-                minLength: 1
-                type: string
-              initrd:
-                description: initrd is the boot initrd image URL or a path served
-                  by the assets server.
                 minLength: 1
                 type: string
               kernelParams:

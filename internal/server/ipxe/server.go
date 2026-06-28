@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -23,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	"golang.org/x/time/rate"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -39,14 +39,34 @@ type Server struct {
 	addr              string
 	assetsRoot        string
 	baseURL           string
-	metadataLimiter   *rate.Limiter
 }
 
 type HandlerConfig struct {
 	AssetsRoot        string
 	BaseURL           string
-	MetadataLimiter   *rate.Limiter
 	BootstrapTokenSvc applicationbootstraptoken.Service
+}
+
+const (
+	agentKernelPath = "/assets/agent/vmlinuz"
+	agentInitrdPath = "/assets/agent/initrd"
+)
+
+type provisioningConfig struct {
+	TargetDevice  string                      `json:"targetDevice"`
+	ImageURL      string                      `json:"imageUrl"`
+	RepairGPT     bool                        `json:"repairGPT"`
+	CIDATASizeMiB int                         `json:"cidataSizeMiB"`
+	CompleteURL   string                      `json:"completeUrl"`
+	Bootstrap     provisioningBootstrapConfig `json:"bootstrap"`
+}
+
+type provisioningBootstrapConfig struct {
+	Format      infrastructurev1alpha1.TartMachineBootstrapFormat `json:"format"`
+	UserData    string                                            `json:"userData,omitempty"`
+	MetaData    string                                            `json:"metaData,omitempty"`
+	VendorData  string                                            `json:"vendorData,omitempty"`
+	TalosConfig string                                            `json:"talosConfig,omitempty"`
 }
 
 func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
@@ -67,40 +87,16 @@ func NewHandler(cl client.Client, config HandlerConfig) http.Handler {
 		return c.NoContent(http.StatusOK)
 	})
 	e.GET("/ipxe", func(c *echo.Context) error { return handleIPXE(c, cl, config.BootstrapTokenSvc, config.BaseURL) })
-	registerMetadataRoutes(e, cl, config.MetadataLimiter, config.BootstrapTokenSvc)
+	e.GET("/provisioning/:namespace/:name/config/:token", func(c *echo.Context) error {
+		return handleProvisioningConfig(c, cl, config.BootstrapTokenSvc, config.BaseURL)
+	})
+	e.POST("/provisioning/:namespace/:name/complete/:token", func(c *echo.Context) error {
+		return handleProvisioningComplete(c, cl, config.BootstrapTokenSvc)
+	})
 	if config.AssetsRoot != "" {
 		e.Static("/assets", config.AssetsRoot)
 	}
 	return e
-}
-
-func registerMetadataRoutes(e *echo.Echo, cl client.Client, limiter *rate.Limiter, svc applicationbootstraptoken.Service) {
-	register := func(path string, handler func(*echo.Context) error) {
-		if limiter != nil {
-			e.GET(path, func(c *echo.Context) error {
-				if !limiter.Allow() {
-					return c.String(http.StatusTooManyRequests, "rate limit exceeded")
-				}
-				return handler(c)
-			})
-			return
-		}
-		e.GET(path, handler)
-	}
-
-	register("/metadata/:namespace/:name", func(c *echo.Context) error { return handleMetadata(c, cl, svc) })
-	register("/metadata/:namespace/:name/talos/:token", func(c *echo.Context) error { return handleMetadata(c, cl, svc) })
-	register("/metadata/:namespace/:name/nocloud/:token/meta-data", func(c *echo.Context) error { return serveNoCloudMetaData(c, cl, svc) })
-	register("/metadata/:namespace/:name/nocloud/:token/user-data", func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/cloud-config; charset=utf-8", true, c.Param("token"), true, svc)
-	})
-	register("/metadata/:namespace/:name/nocloud/:token/vendor-data", func(c *echo.Context) error { return serveNoCloudVendorData(c, cl, svc) })
-	register("/metadata/:namespace/:name/preseed.cfg", func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true, c.QueryParam("token"), true, svc)
-	})
-	register("/metadata/:namespace/:name/preseed/:token/preseed.cfg", func(c *echo.Context) error {
-		return serveBootstrapData(c, cl, "text/plain; charset=utf-8", true, c.Param("token"), true, svc)
-	})
 }
 
 func NormalizeMAC(mac string) (string, error) {
@@ -164,7 +160,7 @@ func generateIPXEScriptByHostState(c *echo.Context, cl client.Client, host *infr
 			}
 			return "", fmt.Errorf("failed to get TartMachine: %w", err)
 		}
-		return generateIPXEScript(c, cl, &machine, svc, baseURL)
+		return generateIPXEScript(c, cl, host, &machine, svc, baseURL)
 	case infrastructurev1alpha1.TartHostStateProvisioned:
 		return "#!ipxe\nexit\n", nil
 	case infrastructurev1alpha1.TartHostStateAvailable:
@@ -195,33 +191,31 @@ func findHostByMAC(ctx context.Context, cl client.Client, normalizedMAC string) 
 	return nil, nil
 }
 
-func generateIPXEScript(c *echo.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service, baseURL string) (string, error) {
+func generateIPXEScript(c *echo.Context, _ client.Client, host *infrastructurev1alpha1.TartHost, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service, baseURL string) (string, error) {
 	serverURL := baseURL
 
 	var sb strings.Builder
 	sb.WriteString("#!ipxe\n")
 
-	bootstrapParams, err := buildBootstrapKernelParams(c.Request().Context(), cl, serverURL, machine, svc)
+	token, exists, err := svc.Get(c.Request().Context(), machine)
 	if err != nil {
 		return "", err
 	}
-	paramsList := append([]string{}, machine.Spec.KernelParams...)
-	paramsList = append(paramsList, bootstrapParams...)
-
-	if machine.Spec.Initrd != "" {
-		paramsList = append([]string{"initrd=initrd"}, paramsList...)
-	}
-	params := strings.Join(paramsList, " ")
-
-	if params == "" {
-		fmt.Fprintf(&sb, "kernel %s\n", machine.Spec.Image)
-	} else {
-		fmt.Fprintf(&sb, "kernel %s %s\n", machine.Spec.Image, params)
+	if !exists {
+		return "", nil
 	}
 
-	if machine.Spec.Initrd != "" {
-		fmt.Fprintf(&sb, "initrd --name initrd %s\n", machine.Spec.Initrd)
+	paramsList := []string{
+		"initrd=agent-initrd",
+		"tart.config=" + buildProvisioningConfigURL(serverURL, machine, token.String()),
 	}
+	paramsList = append(paramsList, machine.Spec.KernelParams...)
+	if host.Spec.Provisioning.Device == "" {
+		paramsList = append(paramsList, "tart.missing_target_device=1")
+	}
+
+	fmt.Fprintf(&sb, "kernel %s %s\n", assetURL(serverURL, agentKernelPath), strings.Join(paramsList, " "))
+	fmt.Fprintf(&sb, "initrd --name agent-initrd %s\n", assetURL(serverURL, agentInitrdPath))
 	sb.WriteString("boot\n")
 
 	return sb.String(), nil
@@ -234,50 +228,168 @@ func bootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructure
 	return machine.Spec.Bootstrap.Format
 }
 
-func buildBootstrapKernelParams(ctx context.Context, _ client.Client, serverURL string, machine *infrastructurev1alpha1.TartMachine, svc applicationbootstraptoken.Service) ([]string, error) {
-	token, exists, err := svc.Get(ctx, machine)
+func buildProvisioningConfigURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
+	u, _ := url.JoinPath(serverURL, "provisioning", machine.Namespace, machine.Name, "config", token)
+	return u
+}
+
+func buildProvisioningCompleteURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
+	u, _ := url.JoinPath(serverURL, "provisioning", machine.Namespace, machine.Name, "complete", token)
+	return u
+}
+
+func assetURL(serverURL, value string) string {
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		return value
+	}
+	u, _ := url.JoinPath(serverURL, value)
+	return u
+}
+
+func handleProvisioningConfig(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service, baseURL string) error {
+	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Provisioning.Config.Get")
+	defer span.End()
+
+	machine, err := validateMetadataRequest(c, cl, c.Param("token"), true, svc)
 	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			span.SetStatus(codes.Error, httpErr.Message)
+			return c.String(httpErr.Code, httpErr.Message)
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to validate provisioning token")
+	}
+
+	host, err := provisioningHost(ctx, cl, machine)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			span.SetStatus(codes.Error, httpErr.Message)
+			return c.String(httpErr.Code, httpErr.Message)
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to get provisioning host")
+	}
+
+	bootstrapData, err := bootstrapSecretValue(ctx, cl, machine)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			span.SetStatus(codes.Error, "bootstrap secret not found")
+			return c.String(http.StatusNotFound, "bootstrap secret not found")
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusPreconditionFailed, err.Error())
+	}
+
+	config := provisioningConfig{
+		TargetDevice:  host.Spec.Provisioning.Device,
+		ImageURL:      assetURL(baseURL, machine.Spec.Image),
+		RepairGPT:     true,
+		CIDATASizeMiB: 20,
+		CompleteURL:   buildProvisioningCompleteURL(baseURL, machine, c.Param("token")),
+		Bootstrap: provisioningBootstrapConfig{
+			Format: effectiveBootstrapFormat(machine),
+		},
+	}
+	switch config.Bootstrap.Format {
+	case infrastructurev1alpha1.TartMachineBootstrapFormatTalos:
+		config.Bootstrap.TalosConfig = string(bootstrapData)
+	default:
+		config.Bootstrap.UserData = string(bootstrapData)
+		config.Bootstrap.MetaData = fmt.Sprintf("instance-id: %s-%s\nlocal-hostname: %s\n", machine.Namespace, machine.Name, machine.Name)
+		config.Bootstrap.VendorData = "#cloud-config\n{}\n"
+	}
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to serialize provisioning config")
+	}
+
+	span.SetStatus(codes.Ok, "provisioning config generated")
+	return c.Blob(http.StatusOK, "application/json; charset=utf-8", configJSON)
+}
+
+func handleProvisioningComplete(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
+	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Provisioning.Complete")
+	defer span.End()
+
+	machine, err := validateMetadataRequest(c, cl, c.Param("token"), true, svc)
+	if err != nil {
+		if httpErr, ok := err.(*echo.HTTPError); ok {
+			span.SetStatus(codes.Error, httpErr.Message)
+			return c.String(httpErr.Code, httpErr.Message)
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to validate provisioning token")
+	}
+
+	// ディスク書き込み、GPT修復、CIDATA注入が完了してから token を消費し、途中失敗で Ready にならないようにします。
+	if err := consumeBootstrapToken(ctx, cl, machine, c.Param("token"), svc); err != nil {
+		if apierrors.IsConflict(err) {
+			span.SetStatus(codes.Error, "token consumed by conflict")
+			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
+		}
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return c.String(http.StatusInternalServerError, "failed to complete provisioning")
+	}
+
+	span.SetStatus(codes.Ok, "provisioning completed")
+	return c.NoContent(http.StatusNoContent)
+}
+
+func provisioningHost(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartHost, error) {
+	if machine.Status.HostRef == nil {
+		return nil, echo.NewHTTPError(http.StatusPreconditionFailed, "hostRef is not set")
+	}
+	var host infrastructurev1alpha1.TartHost
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: machine.Status.HostRef.Namespace,
+		Name:      machine.Status.HostRef.Name,
+	}, &host); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, echo.NewHTTPError(http.StatusNotFound, "TartHost not found")
+		}
 		return nil, err
 	}
-	if !exists {
-		return nil, nil
+	if host.Spec.Provisioning.Device == "" {
+		return nil, echo.NewHTTPError(http.StatusPreconditionFailed, "target provisioning device is not set")
+	}
+	return &host, nil
+}
+
+func bootstrapSecretValue(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) ([]byte, error) {
+	var secretName string
+	if machine.Status.BootstrapSecretName != "" {
+		secretName = machine.Status.BootstrapSecretName
+	} else {
+		var err error
+		secretName, err = bootstrapDataSecretName(ctx, cl, machine)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	switch bootstrapFormat(machine) {
-	case infrastructurev1alpha1.TartMachineBootstrapFormatTalos:
-		return []string{"talos.config=" + buildMetadataURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatNoCloud:
-		return []string{"ds=nocloud-net;s=" + buildNoCloudSeedURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatPreseed:
-		return []string{"auto=true", "priority=critical", "url=" + buildPreseedURL(serverURL, machine, token.String())}, nil
-	case infrastructurev1alpha1.TartMachineBootstrapFormatRaw:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("unsupported bootstrap format: %s", machine.Spec.Bootstrap.Format)
+	var secret corev1.Secret
+	if err := cl.Get(ctx, client.ObjectKey{
+		Namespace: machine.Namespace,
+		Name:      secretName,
+	}, &secret); err != nil {
+		return nil, err
 	}
-}
-
-func buildMetadataURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "talos", token)
-	return u
-}
-
-func buildNoCloudSeedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "nocloud", token)
-	return u + "/"
-}
-
-func buildPreseedURL(serverURL string, machine *infrastructurev1alpha1.TartMachine, token string) string {
-	u, _ := url.JoinPath(serverURL, "metadata", machine.Namespace, machine.Name, "preseed", token, "preseed.cfg")
-	return u
-}
-
-func handleMetadata(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
-	token := c.Param("token")
-	if token == "" {
-		token = c.QueryParam("token")
+	data, ok := secret.Data["value"]
+	if !ok {
+		return nil, fmt.Errorf("bootstrap secret does not contain value key")
 	}
-	return serveBootstrapData(c, cl, "application/octet-stream", true, token, true, svc)
+	return data, nil
+}
+
+func effectiveBootstrapFormat(machine *infrastructurev1alpha1.TartMachine) infrastructurev1alpha1.TartMachineBootstrapFormat {
+	return bootstrapFormat(machine)
 }
 
 func validateMetadataRequest(c *echo.Context, cl client.Client, providedToken string, requireLiveToken bool, svc applicationbootstraptoken.Service) (*infrastructurev1alpha1.TartMachine, error) {
@@ -327,200 +439,6 @@ func validateMetadataRequest(c *echo.Context, cl client.Client, providedToken st
 	return &machine, nil
 }
 
-func serveBootstrapData(c *echo.Context, cl client.Client, contentType string, consumeToken bool, providedToken string, requireLiveToken bool, svc applicationbootstraptoken.Service) error {
-	ctx, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("metadata.namespace", c.Param("namespace")),
-		attribute.String("metadata.name", c.Param("name")),
-	)
-
-	machine, err := validateMetadataRequest(c, cl, providedToken, requireLiveToken, svc)
-	if err != nil {
-		if httpErr, ok := err.(*echo.HTTPError); ok {
-			span.SetStatus(codes.Error, httpErr.Message)
-			return c.String(httpErr.Code, httpErr.Message)
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
-
-	var secretName string
-	if machine.Status.BootstrapSecretName != "" {
-		secretName = machine.Status.BootstrapSecretName
-	} else {
-		var err error
-		secretName, err = bootstrapDataSecretName(ctx, cl, machine)
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				span.SetStatus(codes.Error, "owner not found")
-				return c.String(http.StatusNotFound, fmt.Sprintf("bootstrap secret owner %v", err))
-			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return c.String(http.StatusPreconditionFailed, err.Error())
-		}
-	}
-
-	var secret corev1.Secret
-	if err := cl.Get(ctx, client.ObjectKey{
-		Namespace: machine.Namespace,
-		Name:      secretName,
-	}, &secret); err != nil {
-		if apierrors.IsNotFound(err) {
-			span.SetStatus(codes.Error, "secret not found")
-			return c.String(http.StatusNotFound, "bootstrap secret not found")
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get bootstrap secret")
-	}
-
-	data, ok := secret.Data["value"]
-	if !ok {
-		span.SetStatus(codes.Error, "secret missing value key")
-		return c.String(http.StatusPreconditionFailed, "bootstrap secret does not contain value key")
-	}
-
-	if consumeToken {
-		if err := cl.Get(ctx, client.ObjectKey{
-			Namespace: c.Param("namespace"),
-			Name:      c.Param("name"),
-		}, machine); err != nil {
-			if apierrors.IsNotFound(err) {
-				span.SetStatus(codes.Error, "machine not found on re-fetch")
-				return c.String(http.StatusNotFound, "TartMachine not found")
-			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-		}
-
-		expectedToken, exists, err := svc.Get(ctx, machine)
-		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return c.String(http.StatusInternalServerError, "failed to get bootstrap token")
-		}
-		if !exists || subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken.String())) != 1 {
-			span.SetStatus(codes.Error, "token consumed")
-			return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
-		}
-
-		if err := consumeBootstrapToken(ctx, cl, machine, providedToken, svc); err != nil {
-			if apierrors.IsConflict(err) {
-				span.SetStatus(codes.Error, "token consumed by conflict")
-				return c.String(http.StatusForbidden, "bootstrap token has already been consumed")
-			}
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-			return c.String(http.StatusInternalServerError, "failed to consume bootstrap token")
-		}
-	}
-
-	span.SetStatus(codes.Ok, "bootstrap token consumed")
-	return c.Blob(http.StatusOK, contentType, data)
-}
-
-func serveNoCloudMetaData(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
-	_, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("metadata.namespace", c.Param("namespace")),
-		attribute.String("metadata.name", c.Param("name")),
-	)
-
-	machine, err := validateNoCloudMetadataRequest(c, cl, svc)
-	if err != nil {
-		if httpErr, ok := err.(*echo.HTTPError); ok {
-			span.SetStatus(codes.Error, httpErr.Message)
-			return c.String(httpErr.Code, httpErr.Message)
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
-
-	body := fmt.Sprintf(
-		"instance-id: %s-%s\nlocal-hostname: %s\n",
-		machine.Namespace,
-		machine.Name,
-		machine.Name,
-	)
-	span.SetStatus(codes.Ok, "NoCloud meta-data generated")
-	return c.Blob(http.StatusOK, "text/yaml; charset=utf-8", []byte(body))
-}
-
-func serveNoCloudVendorData(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) error {
-	_, span := telemetry.Tracer.Start(c.Request().Context(), "Metadata.Get")
-	defer span.End()
-
-	span.SetAttributes(
-		attribute.String("metadata.namespace", c.Param("namespace")),
-		attribute.String("metadata.name", c.Param("name")),
-	)
-
-	if _, err := validateNoCloudMetadataRequest(c, cl, svc); err != nil {
-		if httpErr, ok := err.(*echo.HTTPError); ok {
-			span.SetStatus(codes.Error, httpErr.Message)
-			return c.String(httpErr.Code, httpErr.Message)
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return c.String(http.StatusInternalServerError, "failed to get TartMachine")
-	}
-
-	span.SetStatus(codes.Ok, "NoCloud vendor-data generated")
-	return c.Blob(http.StatusOK, "text/cloud-config; charset=utf-8", []byte("#cloud-config\n{}\n"))
-}
-
-func validateNoCloudMetadataRequest(c *echo.Context, cl client.Client, svc applicationbootstraptoken.Service) (*infrastructurev1alpha1.TartMachine, error) {
-	pathToken := c.Param("token")
-	if pathToken == "" {
-		return nil, echo.NewHTTPError(http.StatusUnauthorized, "token is required")
-	}
-
-	ctx := c.Request().Context()
-	var machine infrastructurev1alpha1.TartMachine
-	if err := cl.Get(ctx, client.ObjectKey{
-		Namespace: c.Param("namespace"),
-		Name:      c.Param("name"),
-	}, &machine); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, echo.NewHTTPError(http.StatusNotFound, "TartMachine not found")
-		}
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, "failed to get TartMachine")
-	}
-
-	expectedToken, exists, err := svc.Get(ctx, &machine)
-	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusInternalServerError, "failed to get bootstrap token")
-	}
-	if exists {
-		if subtle.ConstantTimeCompare([]byte(pathToken), []byte(expectedToken.String())) != 1 {
-			return nil, echo.NewHTTPError(http.StatusUnauthorized, "invalid or missing token")
-		}
-		if machine.Status.TokenExpiresAt != nil {
-			now := metav1.NewTime(time.Now())
-			if machine.Status.TokenExpiresAt.Before(&now) {
-				return nil, echo.NewHTTPError(http.StatusNotFound, "token has expired")
-			}
-		}
-		return &machine, nil
-	}
-
-	if machine.Status.ConsumedBootstrapTokenHash == "" {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
-	if subtle.ConstantTimeCompare([]byte(bootstrapTokenHash(pathToken)), []byte(machine.Status.ConsumedBootstrapTokenHash)) != 1 {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "bootstrap token has already been consumed")
-	}
-	return &machine, nil
-}
-
 func bootstrapDataSecretName(ctx context.Context, cl client.Client, machine *infrastructurev1alpha1.TartMachine) (string, error) {
 	gvk, name := ownerMachineReference(machine)
 	if name == "" {
@@ -532,7 +450,7 @@ func bootstrapDataSecretName(ctx context.Context, cl client.Client, machine *inf
 	capiMachine.SetGroupVersionKind(gvk)
 	if err := cl.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: name}, &capiMachine); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", fmt.Errorf("Machine %s/%s not found: %w", machine.Namespace, name, err)
+			return "", fmt.Errorf("machine %s/%s not found: %w", machine.Namespace, name, err)
 		}
 		return "", err
 	}
@@ -589,7 +507,6 @@ func NewServer(cl client.Client, svc applicationbootstraptoken.Service, addr, as
 		addr:              addr,
 		assetsRoot:        assetsRoot,
 		baseURL:           baseURL,
-		metadataLimiter:   rate.NewLimiter(rate.Every(100*time.Millisecond), 5),
 	}
 }
 
@@ -602,7 +519,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot, BaseURL: s.baseURL, MetadataLimiter: s.metadataLimiter, BootstrapTokenSvc: s.bootstrapTokenSvc}),
+		Handler:           NewHandler(s.client, HandlerConfig{AssetsRoot: s.assetsRoot, BaseURL: s.baseURL, BootstrapTokenSvc: s.bootstrapTokenSvc}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -32,10 +32,6 @@ const (
 	TartMachineBootstrapFormatTalos TartMachineBootstrapFormat = "Talos"
 	// TartMachineBootstrapFormatNoCloud serves bootstrap data through cloud-init NoCloud files.
 	TartMachineBootstrapFormatNoCloud TartMachineBootstrapFormat = "NoCloud"
-	// TartMachineBootstrapFormatPreseed serves bootstrap data as a Debian Installer preseed file.
-	TartMachineBootstrapFormatPreseed TartMachineBootstrapFormat = "Preseed"
-	// TartMachineBootstrapFormatRaw leaves bootstrap kernel parameters fully user-managed.
-	TartMachineBootstrapFormatRaw TartMachineBootstrapFormat = "Raw"
 )
 
 // TartMachineBootstrapSpec defines how bootstrap data is served to the machine.
@@ -43,7 +39,7 @@ type TartMachineBootstrapSpec struct {
 	// format selects how bootstrap data is exposed to the booted OS or installer.
 	// Defaults to NoCloud for the default Ubuntu kubeadm bootstrap flow when omitted.
 	// +optional
-	// +kubebuilder:validation:Enum=Talos;NoCloud;Preseed;Raw
+	// +kubebuilder:validation:Enum=Talos;NoCloud
 	// +kubebuilder:default=NoCloud
 	Format TartMachineBootstrapFormat `json:"format,omitempty"`
 }
@@ -59,7 +55,7 @@ type TartMachineSpec struct {
 	// +optional
 	FailureDomain string `json:"failureDomain,omitempty"`
 
-	// image is the boot OS image URL or a path served by the assets server.
+	// image is the raw disk image URL or a path served by the assets server.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Image string `json:"image"`
@@ -70,11 +66,6 @@ type TartMachineSpec struct {
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=2048
 	KernelParams []string `json:"kernelParams,omitempty"`
-
-	// initrd is the boot initrd image URL or a path served by the assets server.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	Initrd string `json:"initrd,omitempty"`
 
 	// bootstrap configures how bootstrap data is passed to the booted OS or installer.
 	// +optional

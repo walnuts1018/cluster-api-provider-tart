@@ -82,7 +82,8 @@ var _ = Describe("TartMachine Controller", func() {
 						Namespace: "default",
 					},
 					Spec: infrastructurev1alpha1.TartHostSpec{
-						MACAddress: "00:00:5e:00:53:03",
+						MACAddress:   "00:00:5e:00:53:03",
+						Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 					},
 				}
 				Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -157,7 +158,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:04",
+					MACAddress:   "00:00:5e:00:53:04",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -241,7 +243,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:05",
+					MACAddress:   "00:00:5e:00:53:05",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -320,6 +323,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: infrastructurev1alpha1.TartHostSpec{
 					MACAddress:     "00:00:5e:00:53:04",
 					BootMACAddress: "00:00:5e:00:53:09",
+					Provisioning:   infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -404,6 +408,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: infrastructurev1alpha1.TartHostSpec{
 					MACAddress:     "00:00:5e:00:53:08",
 					BootMACAddress: "00:00:5e:00:53:09",
+					Provisioning:   infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -463,7 +468,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:0a",
+					MACAddress:   "00:00:5e:00:53:0a",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -542,6 +548,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: infrastructurev1alpha1.TartHostSpec{
 					MACAddress:     "00:00:5e:00:53:0a",
 					BootMACAddress: "00:00:5e:00:53:0b",
+					Provisioning:   infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -642,6 +649,7 @@ var _ = Describe("TartMachine Controller", func() {
 				Spec: infrastructurev1alpha1.TartHostSpec{
 					MACAddress:     "00:00:5e:00:53:0c",
 					BootMACAddress: "00:00:5e:00:53:0d",
+					Provisioning:   infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -751,7 +759,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:0e",
+					MACAddress:   "00:00:5e:00:53:0e",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -827,7 +836,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:03",
+					MACAddress:   "00:00:5e:00:53:03",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -970,7 +980,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:0a",
+					MACAddress:   "00:00:5e:00:53:0a",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -1082,7 +1093,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:0b",
+					MACAddress:   "00:00:5e:00:53:0b",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())
@@ -1191,7 +1203,8 @@ var _ = Describe("TartMachine Controller", func() {
 					Namespace: "default",
 				},
 				Spec: infrastructurev1alpha1.TartHostSpec{
-					MACAddress: "00:00:5e:00:53:0c",
+					MACAddress:   "00:00:5e:00:53:0c",
+					Provisioning: infrastructurev1alpha1.TartHostProvisioningSpec{Device: "/dev/nvme0n1"},
 				},
 			}
 			Expect(k8sClient.Create(ctx, host)).To(Succeed())

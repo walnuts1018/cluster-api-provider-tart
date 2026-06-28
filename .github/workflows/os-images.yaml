@@ -1,0 +1,121 @@
+name: Build OS Images
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag for manual publishing.
+        required: true
+        default: dev
+      kubernetes_version:
+        description: Kubernetes version installed into kubeadm images.
+        required: true
+        default: v1.35.4
+      k3s_version:
+        description: k3s version installed into k3s images. Empty uses the installer default.
+        required: false
+        default: ""
+      image_builder_ref:
+        description: kubernetes-sigs/image-builder git ref.
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-os-image
+
+jobs:
+  build:
+    name: Build and publish ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        image:
+          - key_prefix: kubeadm-ubuntu-24.04
+            kind: kubeadm
+            image_builder_target: build-raw-ubuntu-2404
+          - key_prefix: kubeadm-debian-13
+            kind: kubeadm
+            image_builder_target: build-raw-debian-13
+          - key_prefix: kubeadm-ubuntu-26.04
+            kind: kubeadm
+            image_builder_target: build-raw-ubuntu-2604
+          - key_prefix: k3s-ubuntu-24.04
+            kind: k3s
+            cloud_image_url_format: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-{0}.img
+          - key_prefix: k3s-debian-13
+            kind: k3s
+            cloud_image_url_format: https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-{0}.qcow2
+          - key_prefix: k3s-ubuntu-26.04
+            kind: k3s
+            cloud_image_url_format: https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-{0}.img
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install image build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-kvm qemu-utils libguestfs-tools curl tar
+          sudo chmod 0666 /dev/kvm || true
+
+      - name: Build kubeadm raw image
+        if: matrix.image.kind == 'kubeadm'
+        run: |
+          hack/osimage/build-kubeadm-raw.sh
+        env:
+          IMAGE_KEY: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+          IMAGE_BUILDER_TARGET: ${{ matrix.image.image_builder_target }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          IMAGE_BUILDER_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.image_builder_ref || 'main' }}
+          KUBERNETES_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.kubernetes_version || 'v1.35.4' }}
+          OUTPUT_IMAGE_NAME: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}.raw
+
+      - name: Build k3s raw image
+        if: matrix.image.kind == 'k3s'
+        run: |
+          hack/osimage/build-k3s-raw.sh
+        env:
+          IMAGE_KEY: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}
+          IMAGE_ARCH: ${{ matrix.arch }}
+          CLOUD_IMAGE_URL: ${{ format(matrix.image.cloud_image_url_format, matrix.arch) }}
+          K3S_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.k3s_version || '' }}
+          OUTPUT_IMAGE_NAME: ${{ matrix.image.key_prefix }}-${{ matrix.arch }}.raw
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            image_tag="${{ github.ref_name }}"
+          else
+            image_tag="${{ inputs.image_tag }}"
+          fi
+          echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Push OCI Artifact using ORAS
+        run: |
+          go run hack/artifacter/main.go \
+            -dir "dist/os-images/${{ matrix.image.key_prefix }}-${{ matrix.arch }}" \
+            -repo "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.image.key_prefix }}-${{ matrix.arch }}" \
+            -tag "${{ steps.tag.outputs.ImageTag }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

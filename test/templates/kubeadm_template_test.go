@@ -67,7 +67,7 @@ func TestClusterTemplatesSetBootstrapFormat(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-debian.yaml"),
-			want: "format: Preseed",
+			want: "format: NoCloud",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-ubuntu.yaml"),
@@ -75,7 +75,7 @@ func TestClusterTemplatesSetBootstrapFormat(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-debian.yaml"),
-			want: "format: Preseed",
+			want: "format: NoCloud",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
@@ -94,7 +94,7 @@ func TestSamplesSetBootstrapFormat(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-debian.yaml"),
-			want: "format: Preseed",
+			want: "format: NoCloud",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-ubuntu.yaml"),
@@ -102,7 +102,7 @@ func TestSamplesSetBootstrapFormat(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-debian.yaml"),
-			want: "format: Preseed",
+			want: "format: NoCloud",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-talos.yaml"),

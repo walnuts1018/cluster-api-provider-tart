@@ -315,11 +315,11 @@ var _ = Describe("Manager", Ordered, func() {
 					resource:   "tart-kubeadm-ubuntu-control-plane",
 					wantFormat: "NoCloud",
 				},
-				{
-					name:       "kubeadm Debian sample",
-					file:       "config/samples/cluster-kubeadm-debian.yaml",
-					resource:   "tart-kubeadm-debian-control-plane",
-					wantFormat: "Preseed",
+					{
+						name:       "kubeadm Debian sample",
+						file:       "config/samples/cluster-kubeadm-debian.yaml",
+						resource:   "tart-kubeadm-debian-control-plane",
+						wantFormat: "NoCloud",
 				},
 				{
 					name:       "k3s Ubuntu sample",
@@ -327,11 +327,11 @@ var _ = Describe("Manager", Ordered, func() {
 					resource:   "tart-k3s-ubuntu-control-plane",
 					wantFormat: "NoCloud",
 				},
-				{
-					name:       "k3s Debian sample",
-					file:       "config/samples/cluster-k3s-debian.yaml",
-					resource:   "tart-k3s-debian-control-plane",
-					wantFormat: "Preseed",
+					{
+						name:       "k3s Debian sample",
+						file:       "config/samples/cluster-k3s-debian.yaml",
+						resource:   "tart-k3s-debian-control-plane",
+						wantFormat: "NoCloud",
 				},
 				{
 					name:       "Talos sample",

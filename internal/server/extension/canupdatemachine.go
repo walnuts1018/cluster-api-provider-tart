@@ -56,10 +56,10 @@ func HandleCanUpdateMachine(ctx context.Context, req *runtimehooksv1.CanUpdateMa
 
 	// Check if rolling-update-required fields have changed.
 	if hasRollingUpdateRequiredChanges(currentTartMachine.Spec, desiredTartMachine.Spec) {
-		log.Info("Rolling update required - Image/Initrd/KernelParams changed",
+		log.Info("Rolling update required - Image/KernelParams changed",
 			"machine", req.Current.Machine.Name)
 		resp.SetStatus(runtimehooksv1.ResponseStatusSuccess)
-		resp.SetMessage("rolling update required: Image, Initrd, or KernelParams changed")
+		resp.SetMessage("rolling update required: Image or KernelParams changed")
 		return
 	}
 

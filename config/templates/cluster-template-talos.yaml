@@ -21,9 +21,7 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${TALOS_KERNEL_URL}
-      initrd: ${TALOS_INITRD_URL}
+      image: ${TALOS_RAW_IMAGE_URL}
       bootstrap:
         format: Talos
       kernelParams:
@@ -37,9 +35,7 @@ metadata:
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${TALOS_KERNEL_URL}
-      initrd: ${TALOS_INITRD_URL}
+      image: ${TALOS_RAW_IMAGE_URL}
       bootstrap:
         format: Talos
       kernelParams:

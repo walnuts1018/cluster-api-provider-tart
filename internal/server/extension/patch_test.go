@@ -24,8 +24,7 @@ import (
 
 func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 	baseSpec := infrastructurev1alpha1.TartMachineSpec{
-		Image:        "ubuntu:22.04",
-		Initrd:       "/initrd.img",
+		Image:        "/assets/images/ubuntu-24.04.raw",
 		KernelParams: []string{"param1=value1", "param2=value2"},
 	}
 
@@ -45,18 +44,7 @@ func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 			name:    "image changed - rolling update required",
 			current: baseSpec,
 			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:24.04",
-				Initrd:       "/initrd.img",
-				KernelParams: []string{"param1=value1", "param2=value2"},
-			},
-			expected: true,
-		},
-		{
-			name:    "initrd changed - rolling update required",
-			current: baseSpec,
-			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:22.04",
-				Initrd:       "/new-initrd.img",
+				Image:        "/assets/images/ubuntu-24.04-v2.raw",
 				KernelParams: []string{"param1=value1", "param2=value2"},
 			},
 			expected: true,
@@ -65,8 +53,7 @@ func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 			name:    "kernel params changed - rolling update required",
 			current: baseSpec,
 			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:22.04",
-				Initrd:       "/initrd.img",
+				Image:        "/assets/images/ubuntu-24.04.raw",
 				KernelParams: []string{"param1=value1", "param2=value3"},
 			},
 			expected: true,
@@ -75,8 +62,7 @@ func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 			name:    "kernel params count changed - rolling update required",
 			current: baseSpec,
 			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:22.04",
-				Initrd:       "/initrd.img",
+				Image:        "/assets/images/ubuntu-24.04.raw",
 				KernelParams: []string{"param1=value1"},
 			},
 			expected: true,
@@ -84,14 +70,12 @@ func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 		{
 			name: "only providerID changed - no rolling update required",
 			current: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:22.04",
-				Initrd:       "/initrd.img",
+				Image:        "/assets/images/ubuntu-24.04.raw",
 				KernelParams: []string{"param1=value1"},
 				ProviderID:   "old-id",
 			},
 			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:        "ubuntu:22.04",
-				Initrd:       "/initrd.img",
+				Image:        "/assets/images/ubuntu-24.04.raw",
 				KernelParams: []string{"param1=value1"},
 				ProviderID:   "new-id",
 			},
@@ -100,14 +84,12 @@ func TestHasRollingUpdateRequiredChanges(t *testing.T) {
 		{
 			name: "only failureDomain changed - no rolling update required",
 			current: infrastructurev1alpha1.TartMachineSpec{
-				Image:         "ubuntu:22.04",
-				Initrd:        "/initrd.img",
+				Image:         "/assets/images/ubuntu-24.04.raw",
 				KernelParams:  []string{"param1=value1"},
 				FailureDomain: "dc1",
 			},
 			desired: infrastructurev1alpha1.TartMachineSpec{
-				Image:         "ubuntu:22.04",
-				Initrd:        "/initrd.img",
+				Image:         "/assets/images/ubuntu-24.04.raw",
 				KernelParams:  []string{"param1=value1"},
 				FailureDomain: "dc2",
 			},
@@ -154,12 +136,12 @@ func TestCanUpdateInPlace(t *testing.T) {
 			name: "same specs - can update in place",
 			current: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			desired: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			expected: true,
@@ -168,12 +150,12 @@ func TestCanUpdateInPlace(t *testing.T) {
 			name: "different image - cannot update in place",
 			current: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			desired: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:24.04",
+					Image: "/assets/images/ubuntu-24.04-v2.raw",
 				},
 			},
 			expected: false,
@@ -201,12 +183,12 @@ func TestPatchTartMachineSpec(t *testing.T) {
 			name: "no changes - returns nil",
 			current: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			desired: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			wantNil: true,
@@ -215,13 +197,13 @@ func TestPatchTartMachineSpec(t *testing.T) {
 			name: "only providerID changed - returns patch",
 			current: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image:      "ubuntu:22.04",
+					Image:      "/assets/images/ubuntu-24.04.raw",
 					ProviderID: "old-id",
 				},
 			},
 			desired: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image:      "ubuntu:22.04",
+					Image:      "/assets/images/ubuntu-24.04.raw",
 					ProviderID: "new-id",
 				},
 			},
@@ -231,12 +213,12 @@ func TestPatchTartMachineSpec(t *testing.T) {
 			name: "image changed - returns empty TartMachine (rolling update signal)",
 			current: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:22.04",
+					Image: "/assets/images/ubuntu-24.04.raw",
 				},
 			},
 			desired: &infrastructurev1alpha1.TartMachine{
 				Spec: infrastructurev1alpha1.TartMachineSpec{
-					Image: "ubuntu:24.04",
+					Image: "/assets/images/ubuntu-24.04-v2.raw",
 				},
 			},
 			wantNil: false,

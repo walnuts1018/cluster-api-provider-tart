@@ -82,19 +82,25 @@
   - **Embedded TFTP Server**: `pin/tftp` を利用。アーキテクチャに応じた iPXE バイナリ (`ipxe-x86_64.efi`, `ipxe-arm64.efi`) を配信。
   - **Embedded HTTP Server**: カーネル/initrd、動的iPXEスクリプト、および機密データ (Bootstrap Secret) をセキュアに配信。
 
-## リトライ
+### リトライ
 
 - このアプリケーションでは、ネットワーク越しの通信や、別ホストで実行する処理などが存在し、それらの処理の失敗やタイムアウトについて考慮する必要があります。
   - リトライを行う場合は、`github.com/avast/retry-go/v4`などを利用して、指数バックオフやリトライ回数・時間の制限を設けるようにしてください。
 
-## OpenTelemetry
+### OpenTelemetry
 
 - TracerやMeterは、`telemetry.Tracer`などのグローバル変数から取得してください。TracerProviderやMeterProviderも、`otel.GetTracerProvider()`などを用いてグローバルに取得して下さい。
 - TracerやMeterの設定について、サンプリングレートやExport先のアドレスなどは、`OTEL_TRACES_SAMPLER`といった環境変数から動的に設定する機能が`go.opentelemetry.io/otel/`側に備わっています。私たちのコード側で勝手に固定値に設定したり、独自の環境変数パースロジックを実装したりすることは禁止です。
 
-## Cluster API
+### Cluster API
 
 - 詳細なCluster APIの実装ルールについては、`cluster-api` スキルを参照してください。
+
+### テスト
+
+- サンプルファイルが存在するかの確認や、Actionsの内容の確認、スクリプトの内容のチェックなど、アプリケーションのロジックの振る舞い以外のテストは書かないでください。
+  - 純粋にGo言語のアプリケーションの振る舞いに関するテストのみを書いて下さい。
+  - すでに存在するテストであっても、そのような不必要なテストはできるだけ早く削除して下さい。
 
 ## 　実装のフェーズ分け
 

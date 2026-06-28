@@ -1,47 +1,77 @@
-# Task 08: OS-only A/Bインプレース更新
+# Task 08: OSOnly A/Bインプレース更新
 
 ## 目的
 
-CAPIの調整下で同じMachine、Host、Node identity、State/Dataを維持したOS-only更新とslot rollbackを実装する。
+Kubernetes version、Bootstrap Data、State/Dataを変更せず、同じMachine/Host/Node identityでOS ArtifactをInactive Slotへ更新し、失敗時に旧slotへ自動Rollbackする。
 
 ## 依存
 
 - Task 07
-- ADR 0002、0003がAcceptedであること
+- ADR 0002、0003が`Accepted`
 
-## 実装範囲
+## 入力
 
-- RuntimeSDK/InPlaceUpdates feature gateとExtensionConfig
-- `CanUpdateMachine`、`CanUpdateMachineSet`の厳密な差分判定
-- Machine、InfraMachine、BootstrapConfigとMachineSet側各Templateに対する6種のpatch分類
-- `UpdateMachine`と`TartHostOperation`の接続
-- inactive slot書き込み、boot trial、health gate、commit
-- boot失敗、Node NotReady、期限切れ時のrollback
-- update中Conditions、Events、metrics、traces
-- state schema preflight
-- single-node向けmaintenance/backup precondition
+- current/desired Machine、InfraMachine、BootstrapConfig
+- current Active Slot
+- target OS Artifact Manifest
+- Update Policy `InPlace`
 
-更新中も`status.initialization.provisioned`はtrueを維持し、`Updating` Conditionで進行を表す。
+## 成果物
 
-rolloutはworker限定で開始し、次に複数control-plane、最後に単一ノードcontrol-planeをexperimentalとして有効化する。前段のfailure injectionとrollback条件を満たすまで次の対象を有効化しない。
+- RuntimeSDK/InPlaceUpdates feature gate設定
+- `CanUpdateMachine`/`CanUpdateMachineSet`
+- 6種類のpatch field allowlist
+- `UpdateMachine`とTartHostOperation連携
+- Boot trial、Health Gate、Commit、Rollback
+- Update Condition/Event/Metric/Trace
+
+## OSOnly差分規則
+
+許可する差分:
+
+- `TartMachine.spec.image.ref`
+- `TartMachine.spec.updatePolicy`
+
+拒否する差分:
+
+- Machine Kubernetes version
+- Bootstrap payload digest/format
+- Platform Profile
+- Host selector
+- disk layout/root device hint
+- providerID
+- deletion Policy
+
+拒否差分が1つでも存在する場合はpatchで覆わず、通常置換へfallbackさせる。
 
 ## 受け入れ条件
 
-1. `machinePatch`、`infrastructureMachinePatch`、`bootstrapConfigPatch`とMachineSet側の3 patchについて許可・拒否差分をテストし、未対応差分があれば通常置換へフォールバックできる。
-2. 同じ`UpdateMachine` requestの反復でoperationが重複しない。
-3. OS-AからOS-Bへ更新後、Node UID、証明書、etcd、workload/PV dataが保持される。
-4. image破損、boot失敗、kubelet失敗、health deadline超過でOS-Aへ戻る。
-5. rollback後に失敗したtarget digestを自動再試行し続けない。
-6. control-planeを同時更新せず、CAPIが決めた順序を守る。
-7. Runtime Extension無効時、既存clusterのReconcileと通常置換を妨げない。
-8. Alpha機能であること、対応CAPI version、feature gate、制約を利用者文書へ明記する。
-9. Kubernetes versionまたはBootstrapConfigの実質変更をTask 09完成前にpatchで覆わない。
+1. 6種類のpatchについて、許可fieldだけのcaseをin-placeとして受理する。
+2. 拒否fieldを1つずつ変更したcaseをin-placeとして受理しない。
+3. 同じ`UpdateMachine` requestを100回呼び、Operationを1つだけ作成する。
+4. OS-AからOS-Bへ更新後、Node UID、providerID、machine-id、Kubernetes versionが更新前と一致する。
+5. write、verify、boot、mount、Node healthの各失敗caseで旧slotへ戻る。
+6. boot失敗3回後、4回目に新slotを選択しない。
+7. Rollback成功後、Operation=`Failed`、Host=`Provisioned`、TartMachine Ready=`true`とし、更新失敗Conditionを保持する。
+8. 旧slotもHealth Gateを通らない場合は`RecoveryRequired`にする。
+9. 失敗Artifact Generationを同じdesired specのまま自動再試行しない。
+10. RuntimeSDK/InPlaceUpdates無効時はExtension endpointを登録せず通常置換だけを行う。
+11. worker、複数control plane、単一control planeを別feature gateで順に有効化する。
+
+## 完了証跡
+
+- 6 patch allow/deny table test
+- 100並列UpdateMachine test
+- failure injection 5種のslot/Operation最終状態
+- Node UID/providerID/machine-id比較
+- feature gate on/off E2E
 
 ## 対象外
 
 - Kubernetes version更新
-- State schemaの破壊的migration
-- rollback不能なfirmware update
+- Bootstrap Data変更
+- StateMigration
+- Firmware更新
 
 ## 関連
 

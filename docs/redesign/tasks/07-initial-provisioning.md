@@ -1,45 +1,70 @@
-# Task 07: 初期プロビジョニング
+# Task 07: 初期Provisioning
 
 ## 目的
 
-Ubuntu 24.04 + amd64 + UEFI + WoL + kubeadmのCAPI縦方向スライスを完成させる。
+CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまでを、手動SSH/installer操作なしで完了させる。
 
 ## 依存
 
 - Task 02、06
 
-## 実装範囲
+## 入力
 
-- Host選択、予約、network boot、disk初期化、OS-A配置
-- Bootstrap bundleのStateへの原子的配置
-- first-boot systemd unitによるBootstrap Dataの一度だけの実行
-- providerID、addresses、initialization、Conditions
-- boot confirmationとNode Readyの確認
-- deletion policy、clean/release、stableなdelete-first host reuse
-- controller/agent/host再起動からのoperation再開
+- CAPI Machine
+- CABPK Bootstrap Secret (`format=cloud-config`)
+- TartMachine
+- `amd64-uefi-ab/v1`
+- `WipeAll`削除Policy
 
-Bootstrap Providerの出力をInfrastructure Providerがkubeadm設定として再解釈しない。実行adapterはOS image側に置く。
+## 成果物
+
+- Host選択・予約Use Case
+- Provision Operation orchestrator
+- Bootstrap Bundle生成
+- cloud-config Bootstrap Adapter
+- first-boot systemd unit
+- OS boot reportとNode health判定
+- providerID/address/Condition更新
+- `WipeAll`、`RetainData`、`RetainState` Cleaning Operation
+
+## 状態更新規則
+
+- Agent verify完了時点ではOperation=`BootTrial`、TartMachine Ready=`false`とする。
+- Bootstrap成功markerがない場合はReadyにしない。
+- Node Ready、providerID一致、期待version一致後だけ`initialization.provisioned=true`にする。
+- 初期化完了後は`initialization.provisioned`を`false`へ戻さない。
+- Bootstrap payload digestが成功markerと一致する場合は再実行しない。
 
 ## 受け入れ条件
 
-1. CAPI cluster作成からNode Readyまで手操作なしで到達する。
-2. Machine Readyはdisk writeではなく、対象slot起動、bootstrap成功、providerID/Node確認後に成立する。
-3. controller再起動、agent再送、WoL重複で二重partitionや二重bootstrapが起きない。
-4. Bootstrap Secret/tokenが完了後に不要な場所へ残らない。
-5. `WipeAll`だけが直接hostをAvailableへ戻し、`RetainState`はDetached、`RetainData`は明示的adoption/wipe待ちになる。
-6. `maxSurge=0`等のdelete-first構成で、旧State/providerID/credential/bootstrap markerを初期化してから同じ物理hostを新Machineへ再割当できる。
-7. 通常のCAPI置換更新がRuntime Extension無効時にも動く。
+1. Cluster/Machine作成からNode Readyまで追加のkubectl/SSH操作なしで完了する。
+2. controllerをHost予約後、Agent登録後、Bundle配信後、Node boot後に再起動しても同じOperationを再開する。
+3. Agentが同じprogressを再送してもpartition作成とBootstrapを重複実行しない。
+4. providerID不一致のNodeをReadyにしない。
+5. Bootstrap Adapter失敗時にBootstrap payloadを削除せず、OperationをFailedにする。
+6. 成功後、Session Token SecretとBootstrap payload原本を削除する。
+7. `WipeAll`は全logical blockをzero overwriteするかdevice sanitize完了を確認してHost=`Available`にする。
+8. `RetainData`はStateを消去しDataを保持してHost=`Retained`にする。
+9. `RetainState`はState/Dataを保持してHost=`Detached`にする。
+10. `Retained`/`Detached` Hostを通常のHost選択候補に含めない。
+11. `Retained`/`Detached` Hostは`WipeAll`完了後にだけ新Machineへ割り当てる。
+12. Runtime Extension無効時に通常のCAPI Machine置換が成功する。
 
-## 検証
+## 完了証跡
 
-- ローカルでは単体・統合・QEMUを実行する。
-- `mise run test-provisioning-e2e`はGitHub Actions上で実行する。
-- 最低1台の実機でdisk identityと再起動を検証する。
+- CAPI object作成からNode ReadyまでのEvent/Condition timeline
+- 4再起動pointのtest結果
+- Bootstrap成功marker
+- providerID比較結果
+- 3削除Policy後のpartition/Host Status
+- GitHub Actions上の`mise run test-provisioning-e2e`結果
 
 ## 対象外
 
-- 同一Node identityを維持するA/B更新
-- k3s、他OS、Redfish
+- A/B更新
+- Kubernetes version更新
+- k3s
+- Redfish
 
 ## 関連
 

@@ -14,10 +14,10 @@
 - OS成果物はwhole-disk imageではなく、固定slotへ書けるfilesystem imageとする。
 - 稼働rootはdm-verityで検証したdeviceをread-onlyでmountし、変更可能パスをState/Dataから明示的にbind mountする。
 - 更新はinactive slotだけへ書き、read-back検証後に次回boot targetを変更する。
-- boot trialに回数と期限を持たせ、health confirmationがない場合は旧slotへ戻す。
+- boot trialは最大3回とし、PlanのOperation deadlineまでにHealth Gateが成立しない場合は旧slotへ戻す。
 - State schema互換範囲外のimageは書き込み前に拒否する。
 - 受理済みgenerationと署名済みverity root hashを照合し、古い正規imageへのrollback攻撃を拒否する。
-- UEFIのsystemd-boot boot countingまたは同等方式と、Legacy BIOSのGRUB方式はTask 01で個別に実証し、同一実装を強制しない。
+- UEFIはsystemd-boot boot countingとGRUBの2案をTask 01で比較する。Legacy BIOSはGRUBを候補とする。採用方式は電源断後も残り試行回数を保持できることを必須とする。
 - Secure Boot profileではverity root hashを署名済みUKIまたは署名対象boot metadataへ固定する。Secure Bootなしでは悪意ある同時改変に対する真正性を保証しない。
 
 ## Acceptance gate
@@ -28,7 +28,7 @@ Task 01で次をQEMU上に実証する。
 - OS blockを改変した場合にdm-verity検証で起動または読み取りが失敗する。
 - Bootstrap Provider出力をStateから一度だけ実行できる。
 - slot書き込み途中の電源断でactive slotが壊れない。
-- 新slotの起動失敗を所定回数で旧slotへrollbackできる。
+- 新slotの起動失敗3回後に旧slotへRollbackし、4回目に新slotを起動しない。
 
 ## Consequences
 
@@ -37,7 +37,7 @@ Task 01で次をQEMU上に実証する。
 - State/Dataのschema migrationはOS rollbackとは別に設計する必要がある。破壊的migrationをcommit前に行ってはならない。
 - slotと同容量以上の空きdiskが必要になる。
 
-## Rejected alternatives
+## Alternatives
 
 - OverlayFS root: 長期の下位image交換とパッケージ状態の一貫性を保証しにくい。
 - whole-disk raw imageの上書き: 更新時に永続partitionを保護できない。

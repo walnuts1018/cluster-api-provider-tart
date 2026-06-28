@@ -9,9 +9,10 @@ CAPIの通常更新はMachineを置換する。物理ホスト数に余裕がな
 
 ## Decision
 
-- 明示的にInPlace policyが選択された更新だけをRuntime SDKの`CanUpdateMachine`、`CanUpdateMachineSet`、`UpdateMachine`で処理する。
-- `CanUpdate*`はMachine、InfraMachine、BootstrapConfigとMachineSet側各Templateについて、Providerが安全に処理できるspec差分だけを各patchで覆う。
-- `UpdateMachine`は長時間処理を同期実行せず、永続operationを開始・再開し、進行中は`retryAfterSeconds`を返す。
+- `TartMachine.spec.updatePolicy.mode=InPlace`の更新だけをRuntime SDKの`CanUpdateMachine`、`CanUpdateMachineSet`、`UpdateMachine`で処理する。
+- OSOnlyではOS Artifact参照とUpdate Policyの差分だけをpatchで覆う。Machine version、Bootstrap payload digest、Host selector、Platform Profile、disk設定の差分を覆わない。
+- `UpdateMachine`は処理を同期実行せず、`TartHostOperation`を作成または再利用する。
+- 非terminal Operationでは`status=Success`、`retryAfterSeconds=10`を返す。`Succeeded`ではretryを0、`Failed/RecoveryRequired`では`status=Failure`を返す。
 - 初期リリースではKubernetes versionを変えないOS-only artifact更新だけを対象にする。
 - Kubernetes更新はTask 09以降とし、version skew、node順、drain/maintenanceはCAPI rollout ownerの調整に従う。
 - hookが無効または対象外の差分では通常のMachine置換へフォールバックする。
@@ -21,10 +22,10 @@ CAPIの通常更新はMachineを置換する。物理ホスト数に余裕がな
 
 次をTask 01で実証するまでAcceptedにしない。
 
-1. 使用するCAPIバージョンでKCPとMachineDeploymentの両方から期待したhookが呼ばれる。
-2. controller/extension再起動後に同じoperationを再開できる。
-3. hook timeout時に通常Reconcileや既存clusterを停止させない。
-4. 単一ノードcontrol planeのOS-only slot更新前後でetcdとNode identityを保持できる。
+1. CAPI v1.13.1でKCPから`CanUpdateMachine`、MachineDeploymentから`CanUpdateMachineSet`が呼ばれるintegration testが成功する。
+2. Extension再起動後、同じPlan Digestに対して新しいOperationを作らない。
+3. Extension endpointを停止した場合、既存Machineの通常Reconcileが継続し、in-place更新だけがtimeoutになる。
+4. 単一control planeのOSOnly更新前後でNode UID、providerID、etcd member IDが一致する。
 
 ## Consequences
 

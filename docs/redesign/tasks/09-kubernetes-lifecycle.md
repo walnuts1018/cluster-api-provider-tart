@@ -2,45 +2,95 @@
 
 ## 目的
 
-A/B OS slot切替とは別に、既存node上でkubeadm/k3sの状態変更を安全に実行する責務を実装する。
+A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapshot、検証、Recoveryを実行する。
 
 ## 依存
 
-- Task 08のOS-only A/B更新
+- Task 08
 - ADR 0008
 
-## 実装範囲
+## 入力
 
-- typedな`DistributionLifecycleDriver`
-- 署名済みone-shot update planを実行するnode-local service
-- kubeadmのpreflight、etcd snapshot、`kubeadm upgrade plan/apply/node`、health確認
-- CAPI rollout owner（control planeはKCP、workerはMachineDeployment）が所有するversionとnode順序への追従
-- operation credential、plan digest、target version、desired object digest、snapshotRef、step marker、deadline、再起動後再開
-- OS-only、binary-only、State migrationの分類
-- k3s adapterに必要なBootstrap/Control Plane Provider契約の設計
+- CAPI rollout ownerが指定したcurrent/target Kubernetes version
+- Update class
+- Plan Digest
+- desired Machine/BootstrapConfig digest
+- Active/target Slot
+- State schema
 
-node-local serviceは任意shell APIや長期管理credentialを持たず、対応version範囲のtyped operationだけを実行する。
+## 成果物
 
-workerはcontrol planeがtarget versionを受理した後にslotをstageし、新slotのkubeletを開始する前に`kubeadm upgrade node`を実行する。control planeは旧slot稼働中にpreflightとsnapshotを完了し、target kubeadmで`upgrade apply`を実行してから、新slotを試行起動する。kubeletはState/Data mountと該当lifecycle stepが完了するまで起動しない。
+- `DistributionLifecycleDriver` Port
+- kubeadm Adapter
+- 署名済みPlanだけを実行するNode Lifecycle Service
+- worker/control plane別Plan
+- SnapshotRef
+- Lifecycle Phase/Stepを持つOperation Status
+- Recovery Runbook
+
+## worker更新順
+
+1. control planeがtarget versionを受理済みであることを検証する。
+2. target OS Slotを書き込んでverifyする。
+3. target Slotをbootするがkubeletを起動しない。
+4. State/Dataをmountする。
+5. target kubeadmで`kubeadm upgrade node`を実行する。
+6. kubeletを起動する。
+7. Node Readyと期待versionを検証する。
+8. SlotをCommitする。
+
+## control plane更新順
+
+1. CAPI rollout ownerが当該Nodeの更新を許可したことを検証する。
+2. version skew、etcd quorum、disk空き容量をPreflightする。
+3. etcd Snapshotを作成し、SnapshotRefと復元検証結果を保存する。
+4. target OS Slotを書き込んでverifyする。
+5. 旧slot稼働中にtarget kubeadmで`kubeadm upgrade apply`を実行する。
+6. target Slotをbootする。
+7. Node Ready、static Pod、etcd quorum、API healthを検証する。
+8. SlotとLifecycle GenerationをCommitする。
+
+## 永続化するStep
+
+- `PreflightCompleted`
+- `SnapshotCreated`
+- `TargetSlotWritten`
+- `KubeadmApplied`
+- `TargetSlotBooted`
+- `HealthVerified`
+- `Committed`
+
+各Step成功直後にOperation Statusを更新する。Status更新前にprocessが終了した場合、再実行しても同じ結果へ収束する実装だけを許可する。
 
 ## 受け入れ条件
 
-1. Distribution Lifecycle未対応時はKubernetes version差分を`CanUpdate*` patchで覆わない。
-2. worker、複数control-plane、単一ノードの順に有効化し、CAPI rollout ownerの更新順を迂回しない。
-3. `kubeadm upgrade`のminor version skipとversion skew違反をpreflightで拒否する。
-4. control-plane/etcd migration前にsnapshotと復元可能性を確認する。
-5. 同じoperationの再実行でupgrade commandやmigrationを重複適用しない。
-6. OS slot rollbackだけではStateが戻らない更新を自動rollback成功として報告しない。
-7. update後にNode Ready、control-plane component、etcd quorumを確認する。
-8. 単一ノードはmanagement API停止中の復帰を含むE2Eが通るまでexperimentalとする。
-9. `TartHostOperation`にplan/desired object digest、target distribution version、lifecycle phase、snapshotRef、完了stepを保存する。
-10. preflight、snapshot、apply、slot boot、verifyの各phase直後にcontrollerまたはnodeを再起動しても、重複実行せず再開する。
+1. Distribution Lifecycle未実装時にKubernetes version差分をin-place patchで覆わない。
+2. minor versionを1つ以上skipするPlanをPreflightで拒否する。
+3. workerをcontrol planeより先にtarget versionへ更新しない。
+4. control planeでSnapshotRefなしに`kubeadm upgrade apply`を実行しない。
+5. Snapshot作成後にrestore testを実行し、失敗したSnapshotを使用しない。
+6. 7つの各Step直後にcontrollerまたはNodeを再起動し、Stepを重複適用しない。
+7. Node Ready、期待version、static Pod、etcd quorumのいずれかが失敗した場合にCommitしない。
+8. OS slotだけ戻してStateMigrationを`Succeeded`と報告しない。
+9. StateMigration失敗時にOperation=`RecoveryRequired`、SnapshotRef保持となる。
+10. worker、3台control plane、単一control planeの順にfeature gateを有効化する。
+11. 単一control planeではmanagement API停止中のcontroller再接続を含むE2Eが成功するまでExperimentalとする。
+
+## 完了証跡
+
+- worker/control plane Plan例
+- version skip拒否test
+- Snapshot作成/restore test
+- 7再起動pointのOperation Status
+- etcd quorum/API health log
+- Recovery Runbook実行記録
 
 ## 対象外
 
-- 任意versionのpackage manager upgrade
-- 任意commandを配るremote execution framework
-- storage application dataの自動snapshot
+- 任意command実行API
+- package managerによる任意version更新
+- application/PVの整合性Snapshot
+- k3s実装
 
 ## 関連
 

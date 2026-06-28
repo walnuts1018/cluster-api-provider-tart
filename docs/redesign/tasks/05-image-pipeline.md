@@ -1,55 +1,85 @@
-# Task 05: OS成果物ビルド
+# Task 05: OS Artifact Build
 
 ## 目的
 
-A/B slotへ安全に書ける再現可能なOS成果物と、一時Provisioning OSをCIで生成する。
+Ubuntu 24.04 amd64のOS/Verity SlotとProvisioning Agentを、固定入力からCIで再生成し、署名付きOCI Artifactとして公開する。
 
 ## 依存
 
-- Task 01で確定したfilesystem、mount、boot方式
+- Task 01
+- ADR 0003、0006、0009
 
-## 実装範囲
+## 入力
 
-- Ubuntu 24.04 amd64 filesystem slot image
-- State/Data mount unitとdistribution adapter
-- kubeadm/containerd/kubeletのversion固定
-- Provisioning Agent入りの小さなkernel/initramfs
-- artifact manifest、state schema、CPU requirement、dm-verity metadata
-- digest、署名、SBOM、provenance
-- OCI registryへのimmutable publish
-- image builder/tool versionのpin
-- Kubernetes SIGs Image Builder、mkosi/systemd-repart、独自変換の比較spike
+- Ubuntu releaseとrepository snapshot
+- package名とversion
+- Kubernetes/containerd/kubelet version
+- kernel/initramfs package version
+- Build toolとversion
+- Platform Profile ID
+- `stateSchema`
 
-`current`、`latest`、Git branch `main`、未固定の`curl | sh`をbuild inputにしない。whole-disk raw imageとslot filesystem imageを別media typeで識別する。
+全入力をrepository内のlock fileへ保存する。`latest`、`current`、Git `main`、version未指定の`curl | sh`を禁止する。
 
-Image BuilderはUbuntu raw targetとKubernetes用Ansible roleを再利用候補とするが、A/B、dm-verity、Debian 13、upgrade semanticsを満たすと仮定しない。採用する場合はrelease tagへ固定し、upstream patch量を成果として記録する。
+## 成果物
+
+- OS filesystem payload
+- Verity payload
+- Artifact Manifest
+- SBOM
+- provenance
+- Manifest署名
+- Provisioning Agent kernel/initramfsまたはISO
+- OCI publish/verify用mise task
+- Image Builder 3案比較表
+
+## Manifest必須field
+
+- `schemaVersion`
+- `mediaType`
+- OS family/version
+- architecture/CPU level
+- filesystem
+- OS/Verity digestとbyte数
+- verity root hash
+- stateSchema min/max
+- Kubernetes distribution/version
+- kernel/initrd digest
+- Artifact Generation
+- Platform Profile ID
 
 ## 受け入れ条件
 
-1. 同じsource、lock、toolchainから機能的に同一のmanifestと追跡可能な成果物を生成する。
-2. manifestにOS、architecture、filesystem、size、Kubernetes distribution/version、state schema、CPU levelがある。
-3. x86-64-v1相当の対象hardwareで起動するbuild設定を明示する。
-4. 署名不正、digest不一致、size超過、state schema不適合をagentが書き込み前に拒否できる。
-5. rootをread-onlyで起動し、必要なwrite pathがState/Dataへ向く。
-6. block改変をdm-verityで検出できる。
-7. buildとpublishをmise taskから呼び出せる。
-8. 3つのbuilder案を同じmanifest/boot testで比較し、ADR 0009をAcceptedまたはRejectedへ更新する。
+1. lock file以外を変更せず2回buildし、package一覧、Manifest field、payload内file一覧が一致する。
+2. OCI参照がdigest固定であり、tagを変更しても取得内容が変わらない。
+3. Manifest signatureを変更したcaseをcontrollerとAgentの両方が拒否する。
+4. OS payloadを1 byte変更したcaseをdigest検証で拒否する。
+5. 書き込み後のblockを1 byte変更したcaseをdm-verityが検出する。
+6. rootをread-only mountし、Platform Profileの全State/Data pathがbind mountになる。
+7. x86-64-v1 CPU modelでbootする。
+8. SBOMへ全OS packageとGo binary moduleを記録する。
+9. Image Builder raw変換、Ansible role再利用、mkosi/systemd-repart案のpatch行数、build時間、Artifact sizeを記録する。
+10. ADR 0009の選択規則に従いStatusを`Accepted`または`Rejected`へ更新する。
 
-## テスト
+## 完了証跡
 
-- QEMU bootとapplication behaviorの統合テスト
-- artifact parser/verificationのGo単体テスト
-- build証跡のCI artifact保存
-
-Workflowやsample fileが存在することだけを確認するテストは追加しない。
+- lock file
+- 2回分のbuild logとManifest
+- OCI digest
+- signature verification log
+- QEMU boot log
+- SBOM/provenance
+- 3案比較表
 
 ## 対象外
 
-- Ubuntu 26.04、Debian 13、k3s
-- Raspberry Pi firmware image
+- Ubuntu 26.04
+- Debian 13
+- arm64
+- k3s
+- Raspberry Pi firmware
 
 ## 関連
 
-- ADR 0003、0006
-- ADR 0009
+- ADR 0003、0006、0009
 - Issue #147

@@ -48,6 +48,8 @@
 | Infrastructure Provider | このリポジトリで実装するProvider。物理ホスト割当、電源・boot操作、OS配置、InfraMachine状態を担当 |
 | Bootstrap Provider | Machineをクラスタへ参加させるBootstrap Dataを生成するProvider。kubeadmではCABPK |
 | Control Plane Provider | control planeのversion、replica、更新順を管理するProvider。kubeadmではKCP |
+| CABPK | Cluster API Bootstrap Provider Kubeadm。kubeadm用のBootstrap Dataを生成するcontroller |
+| KCP | KubeadmControlPlane。kubeadm control planeのMachine数、Kubernetes version、更新順を管理するcontroller |
 | `TartHost` | 1台の物理ホストを表す長寿命CR。Machineを削除しても自動削除しない |
 | `TartMachine` | 1つのCAPI Machineに対応するInfraMachine CR。CAPI Machineと同時に作成・削除する |
 | `TartHostOperation` | 1回のProvision、Update、Rollback、Cleanを表すCR。長時間処理の再開位置を保存 |
@@ -93,15 +95,19 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | OS Artifact | OS filesystem image、verity metadata、manifestを含むdigest固定OCI Artifact |
 | Agent Artifact | Provisioning Agentを含むkernel/initramfsまたはbootable ISO |
 | Artifact Manifest | OS、architecture、distribution、size、digest、stateSchema、generation、verity root hashを記録する署名対象データ |
+| SBOM | Software Bill of Materials。Artifactに含まれるOS package、Go module、versionを列挙した機械可読文書 |
+| Provenance | Artifactを生成したsource revision、build command、builder identity、入力Artifact digestを記録した署名可能な生成証明 |
 | Bootstrap Data | Bootstrap Providerが生成し、Secretの`value`へ保存するbyte列 |
 | Bootstrap Bundle | Bootstrap Data、`format`、payload digest、Machine UID、Operation IDを1つにまとめた配信単位 |
 | Initial Credential | Provisioning Agentが最初のsessionを開始するためのcredential |
 | Session Token | Host UIDとOperation UIDへ結び付けた256 bit以上の乱数。保存時はSHA-256 hashだけを保持 |
 | Plan | 1つのOperationでAgentまたはNode Lifecycle Serviceが実行する命令を列挙した署名対象データ |
-| Plan Digest | Planをcanonical serializationしたbyte列のSHA-256 digest |
+| Plan Digest | PlanをRFC 8785 JSON Canonicalization Schemeで直列化したbyte列のSHA-256 digest |
 | Artifact Generation | 古い署名済みArtifactへの巻き戻しを防ぐための単調増加整数 |
 
 「digest」は明記がない限りSHA-256を意味し、`sha256:<64桁の小文字16進数>`形式で表す。可変tagだけのOCI参照は禁止する。
+
+「Canonical JSON」は[RFC 8785 JSON Canonicalization Scheme](https://www.rfc-editor.org/rfc/rfc8785)によって直列化したJSONを意味する。別のkey順序、空白、数値表現を独自に定義してはならない。
 
 ## 8. Operationと状態
 
@@ -109,6 +115,8 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 |---|---|
 | Operation ID | UUIDとして生成し、1つの`TartHostOperation`の生存期間中は変更しない識別子 |
 | Phase | Operation全体の現在位置を表す列挙値 |
+| Terminal Phase | Reconcileによって別Phaseへ自動遷移しない終了状態。`Succeeded`、`Failed`、`RecoveryRequired`の3つ |
+| Active Operation | Terminal Phaseへ到達していない`TartHostOperation` |
 | Step | Phase内で1回だけ実行する副作用。完了したStep名をStatusへ保存 |
 | Retry | 同じOperation IDと同じ入力でStepを再実行すること |
 | Requeue | controller-runtimeが同じKubernetes objectを再度Reconcileすること |
@@ -116,6 +124,7 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | Rollback | State schemaを変更していない更新で、既定boot先を旧slotへ戻す処理 |
 | Recovery | Snapshot復元またはoperator操作が必要な状態。自動Rollbackと区別する |
 | Health Gate | Commit前に全て満たす必要がある検査項目の集合 |
+| WipeAll | 対象diskの全logical blockをzero overwriteするか、device sanitize commandの完了を確認する処理。partition table削除だけはWipeAllと呼ばない |
 
 冪等とは、同じOperation ID、Plan Digest、Stepを複数回受け取っても、外部状態が1回成功した場合と同じ状態へ収束することを意味する。「APIを2回呼ばない」という意味ではない。
 
@@ -135,14 +144,26 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 |---|---|
 | Agent書き込み完了 | imageとverityを書き込み、read-back digestがManifestと一致 |
 | OS boot完了 | 指定slotとArtifact Generationで起動し、State/Dataの必須mountが成功 |
-| Node health完了 | 対象Nodeの`Ready=True`、providerID一致、期待するKubernetes version一致 |
+| Node health完了 | 10秒間隔の2回連続で対象Nodeの`Ready=True`、providerID一致、期待するKubernetes version一致 |
 | Provisioning完了 | OS boot完了、Bootstrap成功marker、Node health完了の全てが成立 |
 | OS-only更新完了 | OS boot完了、Node health完了、slot Commitが成立 |
-| Operation失敗 | 再試行可能回数またはdeadlineを超過し、`Failed`または`RecoveryRequired`へ遷移 |
+| Operation失敗 | 再試行可能回数またはdeadlineを超過し、terminal Phaseの`Failed`または`RecoveryRequired`へ遷移 |
 
 「成功」「Ready」「完了」は、対象となる上記の判定条件を特定して使用する。
 
-## 11. 時間、回数、上限値
+## 11. Securityと検証の用語
+
+| 用語 | 定義 |
+|---|---|
+| HardwareBound Identity | TPM attestation、事前登録したHost key、またはBMCで保護された媒体により、Credentialを特定Hostのhardwareまたは管理interfaceへ結び付ける方式 |
+| Isolated Provisioning L2 | Provisioning対象、controllerのnetwork endpoint、管理者が許可したnetwork機器だけが参加でき、一般利用LANからroutingされないLayer 2 network |
+| SPKI pin | TLS証明書のSubject Public Key Infoのdigestを事前設定し、通常の証明書検証に加えて公開鍵の一致を検証する方式 |
+| OVMF | QEMUでUEFI firmwareを提供するEDK IIのbuild。本設計ではUEFI経路の仮想machine testに使用 |
+| Failure Injection | process停止、通信切断、書き込み失敗、boot失敗等を指定Stepへ意図的に発生させ、期待する再開・Rollback・Recovery遷移を検証する試験 |
+| Contract Test | 同じPortまたはProtocolを実装する全Adapterへ同一の入力と期待結果を適用する共有test suite |
+| SSA | Kubernetes Server-Side Apply。field ownershipと競合をAPI server側で管理するapply方式 |
+
+## 12. 時間、回数、上限値
 
 次の値はAPIまたはcontroller設定へ明示し、コードへ散在させない。
 
@@ -151,13 +172,13 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | Session Token TTL | 10分 | 発行時刻から計測。延長せず、再発行時は別token |
 | Session認証失敗上限 | 5回 | Host UIDとOperation UIDの組ごと。超過後はtokenを失効 |
 | 外部APIの1回のtimeout | 30秒 | Redfish等で別値が必要な場合はDriver設定に明記 |
-| 一時エラーの再試行 | 最大3回 | 初期待機1秒、倍率2、jitter有り。Operation全体の再試行とは別 |
+| 一時エラーの再試行 | 合計3回の試行 | 1回目は即時、2回目は1秒後、3回目は2秒後。待機時間へ±20%のjitterを加える |
 | boot trial回数 | 3回 | 3回ともHealth Gate前に失敗したら旧slotへ戻す |
 | Operation deadline | Planの必須フィールド | 未設定のPlanを拒否。Operation種別ごとの値はTask 01で決定 |
 
 値を変更する場合は、対応するテストと運用文書を同じ変更へ含める。
 
-## 12. 未決定事項の書き方
+## 13. 未決定事項の書き方
 
 未決定事項は次の形式で記載する。
 

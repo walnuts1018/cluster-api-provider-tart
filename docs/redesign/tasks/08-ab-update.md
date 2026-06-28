@@ -40,7 +40,7 @@ Kubernetes version、Bootstrap Data、State/Dataを変更せず、同じMachine/
 - Host selector
 - disk layout/root device hint
 - providerID
-- deletion Policy
+- deletionPolicy
 
 拒否差分が1つでも存在する場合はpatchで覆わず、通常置換へfallbackさせる。
 

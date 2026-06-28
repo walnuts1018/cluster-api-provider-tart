@@ -45,7 +45,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapsh
 2. version skew、etcd quorum、disk空き容量をPreflightする。
 3. etcd Snapshotを作成し、SnapshotRefと復元検証結果を保存する。
 4. target OS Slotを書き込んでverifyする。
-5. 旧slot稼働中にtarget kubeadmで`kubeadm upgrade apply`を実行する。
+5. 旧slot稼働中に、新OS slot（Inactive Slot）のパーティションを一時的に読み取り専用でマウントし、そこから target kubeadm バイナリを実行することで `kubeadm upgrade apply` を実行する。
 6. target Slotをbootする。
 7. Node Ready、static Pod、etcd quorum、API healthを検証する。
 8. SlotとLifecycle GenerationをCommitする。

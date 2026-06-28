@@ -11,7 +11,7 @@
 
 更新を次の3分類へ分ける。
 
-1. `OSOnly`: Kubernetes version、Bootstrap payload digest、stateSchemaを変更しない。自動Rollbackを必須とする。
+1. `OSOnly`: Kubernetes version、Bootstrap Data、stateSchemaを変更しない。自動Rollbackを必須とする。また、配信されるOS Artifactは既存のState領域のファイル構造を変更せず、旧OSスロットへの自動Rollback時に不整合を起こさない互換性を持つことを必須とする。
 2. `KubernetesBinary`: Kubernetes versionを変更するが不可逆なState/Data format変更を行わない。検証済みversion pairだけRollbackを許可する。
 3. `StateMigration`: etcd、kubeadm、k3s等がState/Data formatを変更する。自動Rollbackを禁止し、SnapshotRefを必須とする。
 

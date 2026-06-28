@@ -6,6 +6,7 @@
 
 ## 文書一覧
 
+- [記述規約と用語集](conventions.md)
 - [達成すべき状態](target-state.md)
 - [アーキテクチャ](architecture.md)
 - [全体の実装計画](implementation-plan.md)
@@ -21,6 +22,16 @@
 5. OSスロットは単なる`ro` mountではなくdm-verityで検証し、Boot/OS/Verity/State/Dataという論理roleをプラットフォームごとの物理レイアウトへ写像する。
 6. Ubuntu/DebianのA/B構成とRaspberry Pi固有のブート構成は、同一レイアウトを強制せず、明示的なプラットフォームプロファイルで分ける。
 7. 外部プラグインABIを先に固定しない。まずGoのCapability別インターフェースでWoLとRedfishを実装し、その意味論を検証した後にversioned gRPC APIを追加する。
+
+## 読み方
+
+1. 最初に[記述規約と用語集](conventions.md)を読む。
+2. [達成すべき状態](target-state.md)で完成条件と対応範囲を確認する。
+3. [アーキテクチャ](architecture.md)でコンポーネント、CR、状態遷移、処理順を確認する。
+4. 判断理由が必要な場合は[ADR一覧](adr/README.md)を参照する。
+5. 実装時は[タスク一覧](tasks/README.md)から依存関係と受け入れ条件を確認する。
+
+文書中の「必須」「禁止」「推奨」「任意」「未決定」は、[要求レベル](conventions.md#2-要求レベル)の意味で使用する。英語の用語を独自解釈せず、用語集の定義を使用する。
 
 ## 文書の位置付け
 

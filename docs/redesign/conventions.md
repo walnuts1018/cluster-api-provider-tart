@@ -64,7 +64,7 @@
 | Port | application層が外部副作用を呼び出すためのGo interface |
 | Adapter | Portを満たす具体実装。例: WoL adapter、Redfish adapter、Kubernetes adapter |
 | Driver | 物理機器の操作を実装するAdapterの総称。Power、BootOverride、VirtualMediaの各Portを必要な分だけ実装 |
-| Capability | Driverが実行できる操作を表す列挙値。例: `PowerOn`、`PowerOff`、`ObservePowerState`、`SetNextBoot`、`VirtualMedia` |
+| Capability | Driverが実行できる操作を表す列挙値。例: `PowerOn`、`PowerOff`、`PowerState`、`SetNextBoot`、`VirtualMedia` |
 | Platform Profile | architecture、firmware、boot transport、partition role、bootloader、Agent artifactの組を識別するversion付き設定 |
 | Distribution Lifecycle Driver | kubeadmまたはk3sの更新前検査、snapshot、適用、検証を実行するPort/Adapter |
 | Boot Transport | Provisioning Agentを起動する経路。`IPXE`、`RedfishPXE`、`RedfishHTTPBoot`、`RedfishVirtualMedia`、`RaspberryPiEEPROM`のいずれか |
@@ -104,6 +104,8 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | Plan | 1つのOperationでAgentまたはNode Lifecycle Serviceが実行する命令を列挙した署名対象データ |
 | Plan Digest | PlanをRFC 8785 JSON Canonicalization Schemeで直列化したbyte列のSHA-256 digest |
 | Artifact Generation | 古い署名済みArtifactへの巻き戻しを防ぐための単調増加整数 |
+| desiredObjectsDigest | TartMachine、TartHost、BootstrapConfig 等のインプレース更新対象の元リソース群の定義をシリアライズした digest |
+| Lifecycle Generation | stateSchema とは別に、Kubernetes 構成（kubeadm 設定やバージョン）の適用世代を表す単調増加整数 |
 
 「digest」は明記がない限りSHA-256を意味し、`sha256:<64桁の小文字16進数>`形式で表す。可変tagだけのOCI参照は禁止する。
 
@@ -124,7 +126,7 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | Rollback | State schemaを変更していない更新で、既定boot先を旧slotへ戻す処理 |
 | Recovery | Snapshot復元またはoperator操作が必要な状態。自動Rollbackと区別する |
 | Health Gate | Commit前に全て満たす必要がある検査項目の集合 |
-| WipeAll | 対象diskの全logical blockをzero overwriteするか、device sanitize commandの完了を確認する処理。partition table削除だけはWipeAllと呼ばない |
+| WipeAll | 対象diskの全logical blockをzero overwriteするか、device sanitize commandの完了を確認する処理。大容量diskでのzero overwriteは数時間かかるため、可能な限りdevice sanitizeを優先し、タイムアウト設定を適切に長くすること。partition table削除だけはWipeAllと呼ばない |
 
 冪等とは、同じOperation ID、Plan Digest、Stepを複数回受け取っても、外部状態が1回成功した場合と同じ状態へ収束することを意味する。「APIを2回呼ばない」という意味ではない。
 
@@ -174,7 +176,7 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 | 外部APIの1回のtimeout | 30秒 | Redfish等で別値が必要な場合はDriver設定に明記 |
 | 一時エラーの再試行 | 合計3回の試行 | 1回目は即時、2回目は1秒後、3回目は2秒後。待機時間へ±20%のjitterを加える |
 | boot trial回数 | 3回 | 3回ともHealth Gate前に失敗したら旧slotへ戻す |
-| Operation deadline | Planの必須フィールド | 未設定のPlanを拒否。Operation種別ごとの値はTask 01で決定 |
+| Operation deadline | Planの必須フィールド | 未設定のPlanを拒否。Operation種別ごとの値はTask 01で決定。WipeAll実行時はディスク容量に応じた長い時間を設定すること。 |
 
 値を変更する場合は、対応するテストと運用文書を同じ変更へ含める。
 

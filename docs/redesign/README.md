@@ -17,7 +17,7 @@
 
 1. `TartMachine`はCAPIのInfraMachine契約を守り、`TartHost`はMachineとは独立した物理インベントリとして存続する。
 2. 初期プロビジョニングとインプレース更新を分ける。後者はCAPI Runtime SDKのIn-Place Update Hooksから開始する。
-3. Infrastructure ProviderはBootstrap Providerを置き換えない。Bootstrap Dataを安全に対象ホストへ運び、OS上で一度だけ実行可能な形に配置する。
+3. Infrastructure ProviderはBootstrap Providerを置き換えない。Bootstrap DataはHost/Operationへ結び付けた10分TTLのSession Tokenで1回だけ配信し、OS上でpayload digestごとに1回だけ適用する。
 4. OS成果物はwhole-disk imageではなく、固定サイズのOSスロットへ書けるファイルシステムイメージとマニフェストを基本単位にする。
 5. OSスロットは単なる`ro` mountではなくdm-verityで検証し、Boot/OS/Verity/State/Dataという論理roleをプラットフォームごとの物理レイアウトへ写像する。
 6. Ubuntu/DebianのA/B構成とRaspberry Pi固有のブート構成は、同一レイアウトを強制せず、明示的なプラットフォームプロファイルで分ける。

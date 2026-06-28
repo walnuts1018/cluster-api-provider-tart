@@ -9,7 +9,7 @@ Ubuntu 24.04 amd64のOS/Verity SlotとProvisioning Agentを、固定入力から
 - Task 01
 - ADR 0003、0006、0009
 
-## 固定入力
+## 入力
 
 - Ubuntu releaseとrepository snapshot
 - package名とversion

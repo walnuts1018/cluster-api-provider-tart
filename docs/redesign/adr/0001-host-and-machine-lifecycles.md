@@ -23,7 +23,7 @@
 
 1. Host.consumerRefのUIDに一致するTartMachineが存在し、そのTartMachine.hostRefが空ならhostRefを補完する。
 2. TartMachine.hostRefが指すHostのconsumerRefが別UIDなら、TartMachine側をReadyにせず`AllocationConflict` Conditionを設定する。
-3. consumerRefのUIDに一致するTartMachineが存在しなければ、削除Policyに従うCleaning Operationを作成する。
+3. consumerRefのUIDに一致するTartMachineが存在しなければ、削除Policyに従うCleaning Operationを作成する。Policyが保存されていなければ自動消去せず`Detached`にする。
 4. controllerがUID不一致を自動上書きしてはならない。
 
 ## Consequences

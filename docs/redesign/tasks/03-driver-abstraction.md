@@ -10,6 +10,14 @@ controllerのUse CaseからWoL/Redfish固有codeを除き、Hostが持つCapabil
 - Task 02のOperation ID、Host identity、Capability型
 - ADR 0005
 
+## 入力
+
+- TartHost management設定
+- TartHost StatusのCapability
+- Operation ID
+- HostTarget（MAC addressまたはBMC endpoint参照）
+- context deadline
+
 ## 成果物
 
 - PowerOn、PowerOff、ObservePowerState、SetNextBoot、VirtualMedia Port
@@ -26,7 +34,7 @@ controllerのUse CaseからWoL/Redfish固有codeを除き、Hostが持つCapabil
 - WoL Adapterは`PowerOn`だけをRegistryへ登録する。
 - MAC addressはparse済み値としてAdapterへ渡し、Adapter内でCRを参照しない。
 - 同じOperation IDでWoL packetを再送しても成功として扱う。
-- Retryは`Temporary`だけを対象とし、1秒、2秒、4秒の最大3回とする。
+- Retryは`Temporary`だけを対象とし、合計3回試行する。1回目は即時、2回目は1秒後、3回目は2秒後とし、productionでは各待機へ±20% jitterを加える。
 - Driver callへ30秒deadlineを渡す。
 - ping、ARP、Agent heartbeatはPowerStateとは別のReachability値へ保存する。
 

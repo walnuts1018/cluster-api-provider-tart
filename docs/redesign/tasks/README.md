@@ -49,7 +49,7 @@
 
 - Reconcileの判断はprocess memoryだけへ保存しない。
 - 外部APIにはcontext deadlineを渡す。
-- Retryは[共通上限値](../conventions.md#11-時間回数上限値)に従う。
+- Retryは[共通上限値](../conventions.md#12-時間回数上限値)に従う。
 - Condition、Event、log messageは英語とする。
 - Token、Secret、Bootstrap payloadをlog、Event、Status、traceへ出さない。
 - Tracer/Meterは`telemetry.Tracer`等のglobal providerから取得する。

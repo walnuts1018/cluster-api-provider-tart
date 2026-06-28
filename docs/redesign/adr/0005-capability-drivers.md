@@ -24,7 +24,7 @@ Redfishはpower state、power off、boot override、Virtual Mediaを提供でき
 - SwitchBot等で操作結果の即時確認ができない場合は、Driverが成功を返してもPowerStateを`Unknown`のままとする。
 - gRPC API追加時にはGo型との変換層が必要になる。
 
-## Rejected alternatives
+## Alternatives
 
 - 単一の巨大interface: WoLで偽の状態または恒常エラーを生む。
 - Go plugin package: Go toolchain/依存ABIが強く結合し、process isolationがない。

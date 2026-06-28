@@ -8,6 +8,14 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 
 - Task 09、10
 
+## 入力
+
+- Ubuntu 24.04 amd64 UEFI kubeadmのSupported Platform Profile
+- OS/Agent Artifact Build pipeline
+- Agent Protocol `/v1`
+- 初期Provisioning、OSOnly、Kubernetes LifecycleのE2E suite
+- 対象OS/board/BMCの公式仕様
+
 ## Sub-issue分割
 
 次の各行を独立したsub-issueとする。複数行を1つのPRへ含めない。
@@ -22,7 +30,9 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 | 6 | Raspberry Pi 4 EEPROM | arm64 UEFI |
 | 7 | Raspberry Pi 5 EEPROM | Raspberry Pi 4 |
 
-## 各sub-issueの成果物
+## 成果物
+
+各sub-issueで次を作成する。
 
 - version付きPlatform Profile
 - OS/Agent Artifact
@@ -33,7 +43,9 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 - backup/restore/Recovery Runbook
 - E2E証跡
 
-## 共通受け入れ条件
+## 受け入れ条件
+
+### 全sub-issue共通
 
 1. 初期ProvisioningでNode Readyになる。
 2. controller、Agent、Hostの再起動からOperationを再開する。
@@ -44,7 +56,7 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 7. Artifact signature、digest、dm-verity改変testを通過する。
 8. Platform Profileの全State/Data pathが実OSのwrite pathを覆う。
 
-## 軸固有の受け入れ条件
+### 軸固有
 
 ### Debian 13
 
@@ -54,7 +66,7 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 ### Ubuntu 26.04
 
 - x86-64-v1でbuildする。
-- Intel Sandy Bridge相当CPU modelでbootする。
+- Intel Sandy Bridge実機またはQEMU `-cpu SandyBridge`でbootする。
 - systemd version差によるmount/boot unit変更をProfileへ記録する。
 
 ### k3s

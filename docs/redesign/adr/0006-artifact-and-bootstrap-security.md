@@ -30,7 +30,7 @@
 - hardware identityを持たないLegacy BIOS機では、悪意あるprovisioning L2参加者からBootstrap Secretを完全には保護できない。
 - 署名鍵のrotationとtrust policy運用が必要になる。
 
-## Rejected alternatives
+## Alternatives
 
 - URLだけをCRDに保存する: 内容を固定できない。
 - tokenをquery parameterで長期使用する: 漏洩面とreplay期間が広い。

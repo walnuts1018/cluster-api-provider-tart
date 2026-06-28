@@ -24,6 +24,12 @@ controllerがPlan作成時に更新クラスを決定し、AgentまたはNode Li
 - 単一ノードでは外部backupとmanagement plane停止中の復元手段がrelease gateになる。
 - 一部の更新はoperator approvalを必要とし、完全自動化できない。
 
+## Alternatives
+
+- 全更新を`OSOnly`として旧slotへ戻す: State/Dataの変更を戻せず、古いbinaryと新しいStateの組合せを作るため却下。
+- Kubernetes更新を常にMachine置換で行う: 安定経路として維持するが、単一ノードを停止せず同じNode identityで更新する要件を満たさないため唯一の方式にはしない。
+- State/Data全体を更新前に複製する: 必要容量と停止時間が大きく、外部PVを含む一貫性を保証できないため共通Rollback方式にはしない。
+
 ## References
 
 - [Kubernetes version skew policy](https://kubernetes.io/releases/version-skew-policy/)

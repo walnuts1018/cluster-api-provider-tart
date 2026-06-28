@@ -8,7 +8,9 @@
 
 なし。
 
-## 固定する検証環境
+## 入力
+
+次の値を検証環境の固定入力とする。
 
 | 項目 | 値 |
 |---|---|
@@ -19,7 +21,7 @@
 | Root filesystem | ext4 + dm-verity |
 | Disk | 空disk 1台、最低64 GiB |
 | Kubernetes | repositoryのCAPI v1.13.1、kubeadm |
-| Boot Transport | iPXE相当またはQEMU direct kernel boot |
+| Boot | disk/OS検証はQEMU direct kernel boot、Network Boot検証はiPXE |
 
 ## 成果物
 
@@ -57,7 +59,7 @@
 ## 完了証跡
 
 - `mise run <qemu-task>`の全出力
-- partition table (`sfdisk --json`または同等出力)
+- partition table (`sfdisk --json`)
 - `findmnt --json`出力
 - boot trial 4回分のconsole log
 - dm-verity改変test log

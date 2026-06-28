@@ -37,7 +37,7 @@ Task 01で次をQEMU上に実証する。
 - State/Dataのschema migrationはOS rollbackとは別に設計する必要がある。破壊的migrationをcommit前に行ってはならない。
 - slotと同容量以上の空きdiskが必要になる。
 
-## Rejected alternatives
+## Alternatives
 
 - OverlayFS root: 長期の下位image交換とパッケージ状態の一貫性を保証しにくい。
 - whole-disk raw imageの上書き: 更新時に永続partitionを保護できない。

@@ -6,6 +6,8 @@
 
 v1beta1へ変換したobjectは、新しい必須fieldを構造的に満たす。ただし、旧APIから意味を決定できない値には移行用placeholderを設定する。placeholderを含むobjectをProvisioningへ使用してはならない。
 
+v1beta1からv1alpha1 storageへ変換されたobjectには`cluster.x-k8s.io/conversion-data` annotationが付く。現行v1alpha1 Controllerはこのannotationを持つobjectを旧Provisioning flowで処理せず、新Controllerへ接続するまで変更せず保持する。
+
 ## 自動変換
 
 | v1alpha1 | v1beta1 |

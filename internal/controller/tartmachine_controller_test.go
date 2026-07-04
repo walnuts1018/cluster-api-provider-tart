@@ -37,6 +37,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	utilconversion "sigs.k8s.io/cluster-api/util/conversion"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -1232,6 +1233,45 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(updated.Status.HostRef).NotTo(BeNil())
 			Expect(updated.Status.HostRef.Name).To(Equal(hostName))
 			Expect(wolSender.sentMACAddresses).To(ContainElement("00:00:5e:00:53:0c"))
+		})
+	})
+
+	Context("When a resource is managed through v1beta1 conversion", func() {
+		const resourceName = "v1beta1-managed-machine"
+
+		ctx := context.Background()
+		key := types.NamespacedName{Name: resourceName, Namespace: "default"}
+
+		BeforeEach(func() {
+			resource := &infrastructurev1alpha1.TartMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      resourceName,
+					Namespace: "default",
+					Annotations: map[string]string{
+						utilconversion.DataAnnotation: `{"spec":{"platformProfile":"amd64-uefi-ab/v1"}}`,
+					},
+				},
+				Spec: infrastructurev1alpha1.TartMachineSpec{
+					Image: "oci://migration.invalid/legacy@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				},
+			}
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+		})
+
+		AfterEach(func() {
+			cleanupTartMachine(ctx, key)
+		})
+
+		It("should skip legacy provisioning", func() {
+			reconciler := &TartMachineReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			current := &infrastructurev1alpha1.TartMachine{}
+			Expect(k8sClient.Get(ctx, key, current)).To(Succeed())
+			Expect(current.Finalizers).To(BeEmpty())
+			Expect(current.Spec.ProviderID).To(BeEmpty())
+			Expect(current.Status.HostRef).To(BeNil())
 		})
 	})
 })

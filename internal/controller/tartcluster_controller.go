@@ -71,6 +71,10 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	if managedByV1Beta1(&cluster) {
+		logf.FromContext(ctx).V(4).Info("Skipping v1beta1-managed TartCluster in the legacy controller", "cluster", req.String())
+		return ctrl.Result{}, nil
+	}
 
 	if !cluster.DeletionTimestamp.IsZero() {
 		if err := r.reconcileDelete(ctx, &cluster); err != nil {

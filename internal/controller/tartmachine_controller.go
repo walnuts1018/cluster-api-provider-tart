@@ -90,6 +90,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	if managedByV1Beta1(&machine) {
+		log.V(4).Info("Skipping v1beta1-managed TartMachine in the legacy controller", "machine", req.String())
+		return ctrl.Result{}, nil
+	}
 
 	if !machine.DeletionTimestamp.IsZero() {
 		if err := r.reconcileDelete(ctx, &machine); err != nil {

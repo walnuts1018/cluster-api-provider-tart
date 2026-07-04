@@ -1,0 +1,24 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+kind: TartMachine
+metadata:
+  name: migration-machine
+  namespace: default
+spec:
+  providerID: tart://legacy-host
+  failureDomain: lab-a
+  image: https://assets.sample.walnuts.dev/ubuntu/vmlinuz
+  initrd: https://assets.sample.walnuts.dev/ubuntu/initrd
+  kernelParams:
+    - console=ttyS0
+  bootstrap:
+    format: NoCloud
+status:
+  initialization:
+    provisioned: true
+  hostRef:
+    apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+    kind: TartHost
+    namespace: default
+    name: host-a
+    uid: host-a-uid
+  ready: true

@@ -67,6 +67,10 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
+	if managedByV1Beta1(&host) {
+		log.V(4).Info("Skipping v1beta1-managed TartHost in the legacy controller", "host", req.String())
+		return ctrl.Result{}, nil
+	}
 
 	if host.Status.State == "" {
 		if err := r.hostService().MarkAvailable(ctx, &host, "InventoryReady", "Host is available for TartMachine assignment"); err != nil {

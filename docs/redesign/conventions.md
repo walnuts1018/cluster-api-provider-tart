@@ -64,7 +64,7 @@
 | Port | application層が外部副作用を呼び出すためのGo interface |
 | Adapter | Portを満たす具体実装。例: WoL adapter、Redfish adapter、Kubernetes adapter |
 | Driver | 物理機器の操作を実装するAdapterの総称。Power、BootOverride、VirtualMediaの各Portを必要な分だけ実装 |
-| Capability | Driverが実行できる操作を表す列挙値。例: `PowerOn`、`PowerOff`、`PowerState`、`SetNextBoot`、`VirtualMedia` |
+| Capability | Driverが実行できる操作を表す列挙値。`PowerOn`、`PowerOff`、`ObservePowerState`、`SetNextBoot`、`VirtualMedia`のいずれか |
 | Platform Profile | architecture、firmware、boot transport、partition role、bootloader、Agent artifactの組を識別するversion付き設定 |
 | Distribution Lifecycle Driver | kubeadmまたはk3sの更新前検査、snapshot、適用、検証を実行するPort/Adapter |
 | Boot Transport | Provisioning Agentを起動する経路。`IPXE`、`RedfishPXE`、`RedfishHTTPBoot`、`RedfishVirtualMedia`、`RaspberryPiEEPROM`のいずれか |

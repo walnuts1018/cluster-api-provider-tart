@@ -79,6 +79,7 @@ const (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.state`,description="Host allocation state"
 // +kubebuilder:printcolumn:name="MAC Address",type=string,JSONPath=`.spec.macAddress`,description="NIC MAC address"
 // +kubebuilder:printcolumn:name="Boot MAC Address",type=string,JSONPath=`.spec.bootMacAddress`,description="PXE boot NIC MAC address"

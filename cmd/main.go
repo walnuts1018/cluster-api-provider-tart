@@ -34,14 +34,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/go-logr/logr"
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
-	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -53,6 +45,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
+	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
+	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
+	webhookv1beta1 "github.com/walnuts1018/cluster-api-provider-tart/internal/webhook/v1beta1"
+	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -66,6 +71,7 @@ func init() {
 
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(infrastructurev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(infrastructurev1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -298,6 +304,15 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineTemplate")
 		os.Exit(1)
 	}
+	tartMachineV1Beta1 := &controller.TartMachineV1Beta1Reconciler{
+		Client:         mgr.GetClient(),
+		HostReferences: k8sallocation.NewService(mgr.GetClient()),
+		NodeHealth:     k8smachinehealth.NewObserver(mgr.GetClient()),
+	}
+	if err := tartMachineV1Beta1.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineV1Beta1")
+		os.Exit(1)
+	}
 
 	advertiseIP, err := bootstrapper.ResolveAdvertiseIP(bootstrapBindAddress, ipxeBindAddress, bootstrapAdvertiseAddress)
 	if err != nil {
@@ -360,6 +375,32 @@ func main() {
 		}
 	}
 
+	if os.Getenv("ENABLE_WEBHOOKS") != "false" {
+		if err := webhookv1beta1.SetupTartClusterWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartCluster")
+			os.Exit(1)
+		}
+		if err := webhookv1beta1.SetupTartHostWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartHost")
+			os.Exit(1)
+		}
+		if err := webhookv1beta1.SetupTartHostOperationWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartHostOperation")
+			os.Exit(1)
+		}
+		if err := webhookv1beta1.SetupTartMachineWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartMachine")
+			os.Exit(1)
+		}
+		if err := webhookv1beta1.SetupTartClusterTemplateWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartClusterTemplate")
+			os.Exit(1)
+		}
+		if err := webhookv1beta1.SetupTartMachineTemplateWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "TartMachineTemplate")
+			os.Exit(1)
+		}
+	}
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

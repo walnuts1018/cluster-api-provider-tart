@@ -73,10 +73,10 @@ func setupBootstrapTokenService(t *testing.T, cl client.Client) applicationboots
 	return k8sbootstraptoken.NewService(cl)
 }
 
-func assertStatus(t *testing.T, rec *httptest.ResponseRecorder, expected int) {
+func assertStatusOK(t *testing.T, rec *httptest.ResponseRecorder) {
 	t.Helper()
-	if rec.Code != expected {
-		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, expected, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d\nbody=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }
 
@@ -150,6 +150,7 @@ func bootstrapTokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+//nolint:gocyclo // HTTP経路ごとの独立したシナリオを一つのfixtureで検証するため。
 func TestHandlerDynamicScript(t *testing.T) {
 	scheme := setupScheme(t)
 	mac := "00:00:5e:00:53:02"
@@ -653,7 +654,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
-		assertStatus(t, rec, http.StatusOK)
+		assertStatusOK(t, rec)
 		if body := rec.Body.String(); body != testBootstrapData {
 			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}
@@ -693,7 +694,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
-		assertStatus(t, rec, http.StatusOK)
+		assertStatusOK(t, rec)
 		if body := rec.Body.String(); body != testBootstrapData {
 			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}
@@ -709,7 +710,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
-		assertStatus(t, rec, http.StatusOK)
+		assertStatusOK(t, rec)
 		if body := rec.Body.String(); body != "instance-id: default-test-machine\nlocal-hostname: test-machine\n" {
 			t.Fatalf("body = %q, want NoCloud meta-data", body)
 		}
@@ -730,7 +731,7 @@ func TestHandlerServesMetadata(t *testing.T) {
 
 		ipxe.NewHandler(cl, ipxe.HandlerConfig{BootstrapTokenSvc: svc, BaseURL: "http://" + testBootstrapHost}).ServeHTTP(rec, req)
 
-		assertStatus(t, rec, http.StatusOK)
+		assertStatusOK(t, rec)
 		if body := rec.Body.String(); body != testBootstrapData {
 			t.Fatalf("body = %q, want %q", body, testBootstrapData)
 		}

@@ -64,6 +64,10 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
+	if managedByV1Beta1(&template) {
+		log.V(4).Info("Skipping v1beta1-managed TartMachineTemplate in the legacy controller", "template", req.String())
+		return ctrl.Result{}, nil
+	}
 
 	log.V(4).Info("Reconciling TartMachineTemplate")
 

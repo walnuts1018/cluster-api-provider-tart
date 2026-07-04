@@ -22,6 +22,18 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the cluster-api-provider-tart itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- tartmachinetemplate_admin_role.yaml
+- tartmachinetemplate_editor_role.yaml
+- tartmachinetemplate_viewer_role.yaml
+- tartclustertemplate_admin_role.yaml
+- tartclustertemplate_editor_role.yaml
+- tartclustertemplate_viewer_role.yaml
+- tartcluster_admin_role.yaml
+- tartcluster_editor_role.yaml
+- tartcluster_viewer_role.yaml
+- tarthostoperation_admin_role.yaml
+- tarthostoperation_editor_role.yaml
+- tarthostoperation_viewer_role.yaml
 - tartmachine_admin_role.yaml
 - tartmachine_editor_role.yaml
 - tartmachine_viewer_role.yaml

@@ -1,0 +1,19 @@
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TartMachineTemplate
+metadata:
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-tart
+    app.kubernetes.io/managed-by: kustomize
+  name: tartmachinetemplate-sample
+spec:
+  template:
+    metadata:
+      labels:
+        sample.walnuts.dev/profile: amd64-uefi
+    spec:
+      image:
+        ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      platformProfile: amd64-uefi-ab/v1
+      updatePolicy:
+        mode: Replace
+      deletionPolicy: WipeAll

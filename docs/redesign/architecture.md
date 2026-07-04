@@ -122,7 +122,7 @@ status:
   powerState: Unknown
   capabilities:
     - PowerOn
-    - NetworkBoot
+    - SetNextBoot
   inventory: {}
   conditions: []
 ```
@@ -181,7 +181,9 @@ status:
   conditions: []
 ```
 
-1 hostにつきactive operationは1つだけ許可する。管理者は、`Retained`/`Detached` 状態のホストを `Available` に戻すために、`machineRef` を空にした `WipeAll` タイプの `TartHostOperation` を手動で作成できる。`TartMachine`と`TartHost`には参照と要約Conditionだけを持たせ、長時間処理の詳細を重複保存しない。
+1 hostにつきactive operationは1つだけ許可する。OperationのResource名は`active-`とHost UIDのSHA-256先頭224 bitを小文字16進数で連結した63文字に固定する。同じHostを対象とするCreateを同じResource名へ集約し、API serverの名前一意制約で並列二重作成を防ぐ。terminal Operationは次Operationの開始時まで保持し、次Operationを開始するAdapterが旧OperationをUIDとresourceVersionのprecondition付きで削除して同名Resourceを作り直す。
+
+管理者は、`Retained`/`Detached` 状態のホストを `Available` に戻すために、`machineRef` を空にした `WipeAll` タイプの `TartHostOperation` を手動で作成できる。手動作成時も上記の決定的Resource名を使用する。`TartMachine`と`TartHost`には参照と要約Conditionだけを持たせ、長時間処理の詳細を重複保存しない。
 
 ### ProvisioningProfile
 
@@ -222,20 +224,20 @@ Profileへshell commandを保存するfieldは作成しない。利用者が追�
 
 ### 5.2 TartHostOperation phase
 
-| Phase | 実行主体 | 完了条件 | 失敗時 |
+| Phase | 実行主体 | 完了条件 | 許可する次Phase |
 |---|---|---|---|
-| `Pending` | controller | Spec検証とHost lock取得 | `Failed` |
-| `PreparingBoot` | Driver | 次回boot設定とPowerOn成功 | `Failed` |
-| `WaitingForAgent` | controller | Agent認証とinventory受信 | `Failed` |
-| `Writing` | Agent | 全target block書き込みとfsync成功 | `Failed` |
-| `Verifying` | Agent | read-back digestとverity root hash一致 | `Failed` |
-| `BootTrial` | Driver/Host | target slotでOS boot report受信 | `RollingBack` |
-| `AwaitingHealth` | controller | PlanのHealth Gate成立 | `RollingBack`または`RecoveryRequired` |
-| `DistributionUpdating` | Node Lifecycle Service | Planの全Lifecycle Step成功 | `RecoveryRequired` |
-| `RollingBack` | Driver/Host | 旧slotのHealth Gate成立 | `RecoveryRequired` |
+| `Pending` | controller | Spec検証とHost lock取得 | `PreparingBoot`、`Failed` |
+| `PreparingBoot` | Driver | 次回boot設定とPowerOn成功 | `WaitingForAgent`、`Failed` |
+| `WaitingForAgent` | controller | Agent認証とinventory受信 | `Writing`、`Failed` |
+| `Writing` | Agent | 全target block書き込みとfsync成功 | `Verifying`、`Failed` |
+| `Verifying` | Agent | read-back digestとverity root hash一致 | `BootTrial`、`Failed` |
+| `BootTrial` | Driver/Host | target slotでOS boot report受信 | `AwaitingHealth`、`RollingBack` |
+| `AwaitingHealth` | controller | PlanのHealth Gate成立 | `Succeeded`、`DistributionUpdating`、`RollingBack`、`RecoveryRequired` |
+| `DistributionUpdating` | Node Lifecycle Service | Planの全Lifecycle Step成功 | `BootTrial`、`AwaitingHealth`、`RecoveryRequired` |
+| `RollingBack` | Driver/Host | 旧slotのHealth Gate成立 | `Failed`、`RecoveryRequired` |
 | `Succeeded` | なし | terminal | 遷移禁止 |
-| `Failed` | なし | terminal | 新Operationだけ作成可能 |
-| `RecoveryRequired` | なし | terminal。SnapshotRefと失敗Stepを保持 | 新しいRecovery Operationだけ作成可能 |
+| `Failed` | なし | terminal | 遷移禁止。新Operationだけ作成可能 |
+| `RecoveryRequired` | なし | terminal。SnapshotRefと失敗Stepを保持 | 遷移禁止。新しいRecovery Operationだけ作成可能 |
 
 controllerはPhaseを飛び越えて更新してはならない。Agent/Driverから同じ完了reportを複数受信した場合は、既に保存済みのStepとして200応答し、Phaseを再度進めない。
 

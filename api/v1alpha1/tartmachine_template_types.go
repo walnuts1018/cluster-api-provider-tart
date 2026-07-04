@@ -39,7 +39,6 @@ type TartMachineTemplateResource struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartmachinetemplates,scope=Namespaced,categories=cluster-api
 // +kubebuilder:storageversion
-
 // TartMachineTemplate is the Schema for the tartmachinetemplates API.
 type TartMachineTemplate struct {
 	metav1.TypeMeta `json:",inline"`

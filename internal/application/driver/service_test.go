@@ -8,9 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
 	fakedriver "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/fake"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 func TestServiceRetriesTemporaryErrorAtDefinedIntervals(t *testing.T) {
@@ -117,6 +121,71 @@ func TestServiceDoesNotCallUnsupportedDriver(t *testing.T) {
 	err = service.PowerOn(context.Background(), "missing", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
 		t.Fatalf("PowerOn() error = %v, want Unsupported", err)
+	}
+}
+
+func TestServiceMetricUsesOnlyAllowedLabels(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	originalMeter := telemetry.Meter
+	telemetry.Meter = provider.Meter("driver-service-test")
+	t.Cleanup(func() {
+		telemetry.Meter = originalMeter
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Errorf("shutdown MeterProvider: %v", err)
+		}
+	})
+
+	registry := NewRegistry()
+	if err := registry.RegisterPowerOn("fake", fakedriver.NewPowerOn()); err != nil {
+		t.Fatalf("RegisterPowerOn() error = %v", err)
+	}
+	service, err := NewServiceForTest(
+		registry,
+		time.Second,
+		sleep,
+		func(delay time.Duration) time.Duration { return delay },
+	)
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	if err := service.PowerOn(
+		context.Background(),
+		"fake",
+		testTarget(t),
+		testOperationID(t),
+		Invocation{
+			OperationType: "Provision",
+			Phase:         "PreparingBoot",
+			Rollback:      false,
+		},
+	); err != nil {
+		t.Fatalf("PowerOn() error = %v", err)
+	}
+
+	var metrics metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &metrics); err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if len(metrics.ScopeMetrics) != 1 || len(metrics.ScopeMetrics[0].Metrics) != 1 {
+		t.Fatalf("collected metrics = %#v, want one metric", metrics.ScopeMetrics)
+	}
+	sum, ok := metrics.ScopeMetrics[0].Metrics[0].Data.(metricdata.Sum[int64])
+	if !ok || len(sum.DataPoints) != 1 {
+		t.Fatalf("metric data = %#v, want one int64 sum data point", metrics.ScopeMetrics[0].Metrics[0].Data)
+	}
+	got := make(map[string]struct{})
+	for _, label := range sum.DataPoints[0].Attributes.ToSlice() {
+		got[string(label.Key)] = struct{}{}
+	}
+	want := []string{"operation_type", "phase", "driver", "result", "rollback"}
+	if len(got) != len(want) {
+		t.Fatalf("metric labels = %v, want exactly %v", got, want)
+	}
+	for _, label := range want {
+		if _, exists := got[label]; !exists {
+			t.Fatalf("metric labels = %v, missing %q", got, label)
+		}
 	}
 }
 

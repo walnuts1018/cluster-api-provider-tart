@@ -9,6 +9,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -108,7 +109,14 @@ func (service *Service) PowerOn(
 			service.record(ctx, name, invocation, "temporary")
 			return err
 		}
-		if err := service.sleep(callCtx, service.jitter(time.Duration(attempt+1)*time.Second)); err != nil {
+		delay := service.jitter(time.Duration(attempt+1) * time.Second)
+		ctrllog.FromContext(ctx).Error(err, "Retrying temporary driver failure",
+			"driver", name,
+			"attempt", attempt+2,
+			"maxAttempts", defaultAttempts,
+			"retryAfter", delay,
+		)
+		if err := service.sleep(callCtx, delay); err != nil {
 			service.record(ctx, name, invocation, errorResult(err))
 			if errors.Is(err, context.DeadlineExceeded) {
 				return driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)

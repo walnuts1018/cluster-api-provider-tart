@@ -7,13 +7,15 @@
 package wire
 
 import (
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	bootstraptoken2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	host2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
+	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -24,8 +26,16 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	service := host.NewService(k8sClient)
 	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme, service)
 	bootstraptokenService := bootstraptoken.NewService(k8sClient)
-	wakeOnLANSender := provideWakeOnLANSender()
-	provisioningService := provisioning.NewService(service, service, wakeOnLANSender)
+	adapter := wol.Default()
+	registry, err := provideDriverRegistry(adapter)
+	if err != nil {
+		return Reconcilers{}, err
+	}
+	driverService, err := driver.NewService(registry)
+	if err != nil {
+		return Reconcilers{}, err
+	}
+	provisioningService := provisioning.NewService(service, service, driverService)
 	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme, service, bootstraptokenService, provisioningService)
 	tartClusterReconciler := provideTartClusterReconciler(k8sClient, scheme)
 	tartMachineTemplateReconciler := provideTartMachineTemplateReconciler(k8sClient, scheme)
@@ -42,8 +52,12 @@ type Reconcilers struct {
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 }
 
-func provideWakeOnLANSender() provisioning.WakeOnLANSender {
-	return wol.DefaultSender()
+func provideDriverRegistry(wolDriver *wol.Adapter) (*driver.Registry, error) {
+	registry := driver.NewRegistry()
+	if err := registry.RegisterPowerOn(driver2.WoL, wolDriver); err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, hostService host2.Service) *controller.TartHostReconciler {

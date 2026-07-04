@@ -38,7 +38,7 @@ mise run wire
 
 [tasks.wire]
 description = "wire injector を生成する"
-run = "(cd cmd && wire)"
+run = "(cd cmd/wire && wire)"
 
 [tasks.fmt]
 description = "Go コードを go fmt で整形する"

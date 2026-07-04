@@ -26,6 +26,11 @@ func Default() *Adapter {
 	return New(sender)
 }
 
+func NewForAddress(address string) *Adapter {
+	sender := wolpacket.NewSender(address)
+	return New(sender)
+}
+
 func (adapter *Adapter) PowerOn(
 	ctx context.Context,
 	target driverdomain.HostTarget,

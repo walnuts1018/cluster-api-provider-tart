@@ -35,3 +35,27 @@ func TestParseIDRejectsInvalidValues(t *testing.T) {
 		})
 	}
 }
+
+func TestDeterministicIDIsStableForTheSameKey(t *testing.T) {
+	t.Parallel()
+
+	first, err := DeterministicID("host-uid/machine-uid")
+	if err != nil {
+		t.Fatalf("first DeterministicID() error = %v", err)
+	}
+	second, err := DeterministicID("host-uid/machine-uid")
+	if err != nil {
+		t.Fatalf("second DeterministicID() error = %v", err)
+	}
+	if first != second {
+		t.Fatalf("DeterministicID() returned different IDs: %s != %s", first.String(), second.String())
+	}
+}
+
+func TestDeterministicIDRejectsEmptyKey(t *testing.T) {
+	t.Parallel()
+
+	if _, err := DeterministicID(""); !errors.Is(err, ErrInvalidID) {
+		t.Fatalf("DeterministicID() error = %v, want ErrInvalidID", err)
+	}
+}

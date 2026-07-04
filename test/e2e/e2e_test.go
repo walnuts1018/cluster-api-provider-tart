@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -436,6 +437,37 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(len(vwhOutput)).To(BeNumerically(">", 10))
 			}
 			Eventually(verifyCAInjection).Should(Succeed())
+		})
+
+		It("should return defaults without persisting an SSA dry-run object", func() {
+			manifest := `
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: TartMachine
+metadata:
+  name: ssa-dry-run
+  namespace: default
+spec:
+  image:
+    ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  platformProfile: amd64-uefi-ab/v1
+  deletionPolicy: WipeAll
+`
+			cmd := exec.Command(
+				"kubectl", "apply",
+				"--server-side",
+				"--dry-run=server",
+				"--field-manager=task02-e2e",
+				"-f", "-",
+				"-o", "jsonpath={.spec.updatePolicy.mode}",
+			)
+			cmd.Stdin = strings.NewReader(manifest)
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(strings.TrimSpace(output)).To(Equal("Replace"))
+
+			cmd = exec.Command("kubectl", "get", "tartmachine", "ssa-dry-run", "-n", "default")
+			_, err = utils.Run(cmd)
+			Expect(err).To(HaveOccurred())
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks

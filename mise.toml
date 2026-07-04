@@ -234,6 +234,31 @@ go run ./hack/artifact-manifest \
   -output-dir "${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
 '''
 
+[tasks.artifact-push]
+description = "署名済み OS Artifact をOCI registryへ公開してdigest固定参照を出力する"
+run = '''
+: "${ARTIFACT_REPOSITORY:?ARTIFACT_REPOSITORY is required}"
+: "${ARTIFACT_TAG:?ARTIFACT_TAG is required}"
+: "${ARTIFACT_IMAGE:?ARTIFACT_IMAGE is required}"
+: "${ARTIFACT_VERITY:?ARTIFACT_VERITY is required}"
+: "${ARTIFACT_KERNEL:?ARTIFACT_KERNEL is required}"
+: "${ARTIFACT_INITRD:?ARTIFACT_INITRD is required}"
+: "${ARTIFACT_SBOM:?ARTIFACT_SBOM is required}"
+: "${ARTIFACT_PROVENANCE:?ARTIFACT_PROVENANCE is required}"
+artifact_output="${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
+go run ./hack/artifact-oci \
+  -repository "$ARTIFACT_REPOSITORY" \
+  -tag "$ARTIFACT_TAG" \
+  -manifest "$artifact_output/manifest.json" \
+  -signature "$artifact_output/manifest.signature.json" \
+  -image "$ARTIFACT_IMAGE" \
+  -verity "$ARTIFACT_VERITY" \
+  -kernel "$ARTIFACT_KERNEL" \
+  -initrd "$ARTIFACT_INITRD" \
+  -sbom "$ARTIFACT_SBOM" \
+  -provenance "$ARTIFACT_PROVENANCE"
+'''
+
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"

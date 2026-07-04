@@ -49,6 +49,7 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
+	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
@@ -300,6 +301,14 @@ func main() {
 	}
 	if err := reconcilers.TartMachineTemplate.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineTemplate")
+		os.Exit(1)
+	}
+	tartMachineV1Beta1 := &controller.TartMachineV1Beta1Reconciler{
+		Client:         mgr.GetClient(),
+		HostReferences: k8sallocation.NewService(mgr.GetClient()),
+	}
+	if err := tartMachineV1Beta1.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineV1Beta1")
 		os.Exit(1)
 	}
 

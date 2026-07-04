@@ -16,14 +16,14 @@ import (
 )
 
 var ErrNoMatchingHost = errors.New("no matching TartHost")
-var ErrAllocationConflict = errors.New("TartHost allocation conflict")
+var ErrAllocationConflict = allocationdomain.ErrConflict
 
-type ReferenceResult string
+type ReferenceResult = allocationdomain.ReferenceResult
 
 const (
-	ReferenceMissing    ReferenceResult = "Missing"
-	ReferenceConsistent ReferenceResult = "Consistent"
-	ReferenceRepaired   ReferenceResult = "Repaired"
+	ReferenceMissing    = allocationdomain.ReferenceMissing
+	ReferenceConsistent = allocationdomain.ReferenceConsistent
+	ReferenceRepaired   = allocationdomain.ReferenceRepaired
 )
 
 type Service struct {

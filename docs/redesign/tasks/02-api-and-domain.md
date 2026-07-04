@@ -99,7 +99,7 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 | 1 | 実装済み、envtest未実施 | `TestServiceReserveAllowsOneOfOneHundredConcurrentMachines`。fake clientでresourceVersion競合を確認済み。実API serverでの確認が残る |
 | 2 | 実装済み | `TestMatch`でarchitecture、Firmware、disk size、Capability、Profile ID、labelの不一致を個別に確認 |
 | 3 | 実装済み | `TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef` |
-| 4 | 一部実装 | UID不一致を`ErrAllocationConflict`として返し参照を維持する。Controllerから`Ready=False` Conditionへ接続する作業が残る |
+| 4 | 実装済み | UID不一致では参照を維持し、v1beta1 Controllerが`Ready=False`、Reason `AllocationConflict`を設定する |
 | 5 | 実装済み | Host UIDから決定した同一Resource名へのCreateで並列作成を直列化し、`TestServiceStartAllowsOneConcurrentOperationPerHost`で100並列中1件だけ成功することを確認 |
 | 6 | 実装済み | HostとOperationの全Phase組合せtable test |
 | 7 | 実装済み | v1beta1 Admissionのdigest固定OCI参照検証 |

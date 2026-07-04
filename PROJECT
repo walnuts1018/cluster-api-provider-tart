@@ -47,7 +47,10 @@ resources:
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
   webhooks:
+    conversion: true
     defaulting: true
+    spoke:
+    - v1alpha1
     validation: true
     webhookVersion: v1
 - api:
@@ -59,7 +62,10 @@ resources:
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
   webhooks:
+    conversion: true
     defaulting: true
+    spoke:
+    - v1alpha1
     validation: true
     webhookVersion: v1
 - api:
@@ -71,7 +77,10 @@ resources:
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
   webhooks:
+    conversion: true
     defaulting: true
+    spoke:
+    - v1alpha1
     validation: true
     webhookVersion: v1
 - api:
@@ -83,7 +92,10 @@ resources:
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
   webhooks:
+    conversion: true
     defaulting: true
+    spoke:
+    - v1alpha1
     validation: true
     webhookVersion: v1
 - api:
@@ -95,7 +107,22 @@ resources:
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
   webhooks:
+    conversion: true
     defaulting: true
+    spoke:
+    - v1alpha1
     validation: true
     webhookVersion: v1
+- domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: TartCluster
+  version: v1alpha1
+- domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: TartClusterTemplate
+  version: v1alpha1
+- domain: cluster.x-k8s.io
+  group: infrastructure
+  kind: TartMachineTemplate
+  version: v1alpha1
 version: "3"

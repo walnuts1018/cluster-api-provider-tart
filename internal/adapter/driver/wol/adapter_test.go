@@ -12,7 +12,9 @@ func TestAdapterPowerOnContract(t *testing.T) {
 
 	sender := &recordingSender{}
 	adapter := New(sender)
-	drivercontract.PowerOn(t, adapter)
+	if err := drivercontract.PowerOn(adapter); err != nil {
+		t.Fatalf("PowerOn contract failed: %v", err)
+	}
 
 	if len(sender.addresses) != 2 {
 		t.Fatalf("sent packets = %d, want 2", len(sender.addresses))

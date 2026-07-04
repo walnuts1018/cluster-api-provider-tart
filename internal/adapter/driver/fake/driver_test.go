@@ -9,5 +9,7 @@ import (
 func TestDriverPowerOnContract(t *testing.T) {
 	t.Parallel()
 
-	drivercontract.PowerOn(t, NewPowerOn())
+	if err := drivercontract.PowerOn(NewPowerOn()); err != nil {
+		t.Fatalf("PowerOn contract failed: %v", err)
+	}
 }

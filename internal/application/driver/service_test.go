@@ -124,6 +124,18 @@ func TestServiceDoesNotCallUnsupportedDriver(t *testing.T) {
 	}
 }
 
+func TestProductionJitterStaysWithinTwentyPercent(t *testing.T) {
+	t.Parallel()
+
+	const base = 10 * time.Second
+	for range 100 {
+		got := productionJitter(base)
+		if got < 8*time.Second || got > 12*time.Second {
+			t.Fatalf("productionJitter(%s) = %s, want within ±20%%", base, got)
+		}
+	}
+}
+
 func TestServiceMetricUsesOnlyAllowedLabels(t *testing.T) {
 	reader := metric.NewManualReader()
 	provider := metric.NewMeterProvider(metric.WithReader(reader))

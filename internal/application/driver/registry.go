@@ -41,29 +41,53 @@ func (registry *Registry) RegisterPowerOn(name driverdomain.Name, implementation
 }
 
 func (registry *Registry) RegisterPowerOff(name driverdomain.Name, implementation PowerOffDriver) error {
+	if implementation == nil {
+		return fmt.Errorf("register PowerOff driver %q: implementation must not be nil", name)
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if _, exists := registry.powerOff[name]; exists {
+		return fmt.Errorf("register PowerOff driver %q: already registered", name)
+	}
 	registry.powerOff[name] = implementation
 	return nil
 }
 
 func (registry *Registry) RegisterPowerStateObserver(name driverdomain.Name, implementation PowerStateObserver) error {
+	if implementation == nil {
+		return fmt.Errorf("register ObservePowerState driver %q: implementation must not be nil", name)
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if _, exists := registry.powerStateObservers[name]; exists {
+		return fmt.Errorf("register ObservePowerState driver %q: already registered", name)
+	}
 	registry.powerStateObservers[name] = implementation
 	return nil
 }
 
 func (registry *Registry) RegisterBootOverride(name driverdomain.Name, implementation BootOverrideDriver) error {
+	if implementation == nil {
+		return fmt.Errorf("register SetNextBoot driver %q: implementation must not be nil", name)
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if _, exists := registry.bootOverride[name]; exists {
+		return fmt.Errorf("register SetNextBoot driver %q: already registered", name)
+	}
 	registry.bootOverride[name] = implementation
 	return nil
 }
 
 func (registry *Registry) RegisterVirtualMedia(name driverdomain.Name, implementation VirtualMediaDriver) error {
+	if implementation == nil {
+		return fmt.Errorf("register VirtualMedia driver %q: implementation must not be nil", name)
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
+	if _, exists := registry.virtualMedia[name]; exists {
+		return fmt.Errorf("register VirtualMedia driver %q: already registered", name)
+	}
 	registry.virtualMedia[name] = implementation
 	return nil
 }
@@ -73,12 +97,56 @@ func (registry *Registry) PowerOn(name driverdomain.Name) (PowerOnDriver, error)
 	defer registry.mu.RUnlock()
 	implementation, exists := registry.powerOn[name]
 	if !exists {
-		return nil, driverdomain.NewError(
-			driverdomain.ErrorUnsupported,
-			fmt.Errorf("driver %q does not provide %s", name, capabilitydomain.PowerOn),
-		)
+		return nil, unsupported(name, capabilitydomain.PowerOn)
 	}
 	return implementation, nil
+}
+
+func (registry *Registry) PowerOff(name driverdomain.Name) (PowerOffDriver, error) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.powerOff[name]
+	if !exists {
+		return nil, unsupported(name, capabilitydomain.PowerOff)
+	}
+	return implementation, nil
+}
+
+func (registry *Registry) PowerStateObserver(name driverdomain.Name) (PowerStateObserver, error) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.powerStateObservers[name]
+	if !exists {
+		return nil, unsupported(name, capabilitydomain.ObservePowerState)
+	}
+	return implementation, nil
+}
+
+func (registry *Registry) BootOverride(name driverdomain.Name) (BootOverrideDriver, error) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.bootOverride[name]
+	if !exists {
+		return nil, unsupported(name, capabilitydomain.SetNextBoot)
+	}
+	return implementation, nil
+}
+
+func (registry *Registry) VirtualMedia(name driverdomain.Name) (VirtualMediaDriver, error) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.virtualMedia[name]
+	if !exists {
+		return nil, unsupported(name, capabilitydomain.VirtualMedia)
+	}
+	return implementation, nil
+}
+
+func unsupported(name driverdomain.Name, capability capabilitydomain.Capability) error {
+	return driverdomain.NewError(
+		driverdomain.ErrorUnsupported,
+		fmt.Errorf("driver %q does not provide %s", name, capability),
+	)
 }
 
 func (registry *Registry) Capabilities(name driverdomain.Name) capabilitydomain.Set {

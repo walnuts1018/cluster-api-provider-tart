@@ -91,7 +91,7 @@ func (service *Service) PowerOn(
 	callCtx, cancel := context.WithTimeout(ctx, service.timeout)
 	defer cancel()
 
-	for attempt := 0; attempt < defaultAttempts; attempt++ {
+	for attempt := range defaultAttempts {
 		err = implementation.PowerOn(callCtx, target, operationID)
 		if err == nil {
 			service.record(ctx, name, invocation, "success")

@@ -96,7 +96,7 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 
 | 受け入れ条件 | 状況 | 証跡または残作業 |
 |---|---|---|
-| 1 | 実装済み、envtest未実施 | `TestServiceReserveAllowsOneOfOneHundredConcurrentMachines`。fake clientでresourceVersion競合を確認済み。実API serverでの確認が残る |
+| 1 | 実装済み | `TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer`でenvtestのAPI serverに対する100並列予約のうち1件だけが成功することを確認 |
 | 2 | 実装済み | `TestMatch`でarchitecture、Firmware、disk size、Capability、Profile ID、labelの不一致を個別に確認 |
 | 3 | 実装済み | `TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef` |
 | 4 | 実装済み | UID不一致では参照を維持し、v1beta1 Controllerが`Ready=False`、Reason `AllocationConflict`を設定する |

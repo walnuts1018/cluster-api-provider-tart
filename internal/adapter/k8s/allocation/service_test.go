@@ -41,13 +41,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachines(t *testing.T) {
 	for i := range goroutines {
 		go func() {
 			defer wg.Done()
-			machine := &infrastructurev1beta1.TartMachine{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      fmt.Sprintf("machine-%03d", i),
-					Namespace: "default",
-					UID:       types.UID(fmt.Sprintf("machine-%03d-uid", i)),
-				},
-			}
+			machine := concurrentMachine(i)
 			_, err := service.Reserve(ctx, machine, requirements)
 			switch {
 			case err == nil:
@@ -73,6 +67,16 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachines(t *testing.T) {
 	}
 	if current.Spec.ConsumerRef == nil || current.Spec.ConsumerRef.UID == "" {
 		t.Fatalf("consumerRef = %#v, want a persisted machine UID", current.Spec.ConsumerRef)
+	}
+}
+
+func concurrentMachine(index int) *infrastructurev1beta1.TartMachine {
+	return &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("machine-%03d", index),
+			Namespace: "default",
+			UID:       types.UID(fmt.Sprintf("machine-%03d-uid", index)),
+		},
 	}
 }
 
@@ -196,9 +200,19 @@ func matchingHost() *infrastructurev1beta1.TartHost {
 			Labels:          map[string]string{"rack": "a"},
 		},
 		Spec: infrastructurev1beta1.TartHostSpec{
+			Identifiers: infrastructurev1beta1.HostIdentifiers{
+				BootMACAddress: "02:00:00:00:00:01",
+			},
 			Architecture:    infrastructurev1beta1.ArchitectureAMD64,
 			Firmware:        infrastructurev1beta1.FirmwareUEFI,
 			PlatformProfile: "amd64-uefi-ab/v1",
+			RootDeviceHints: infrastructurev1beta1.RootDeviceHints{
+				MinSizeBytes: 256_000_000_000,
+			},
+			Management: infrastructurev1beta1.HostManagement{
+				PowerDriver: "wake-on-lan",
+				BootDriver:  "pxe",
+			},
 		},
 		Status: infrastructurev1beta1.TartHostStatus{
 			Phase: infrastructurev1beta1.TartHostPhaseAvailable,

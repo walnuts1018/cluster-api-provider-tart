@@ -90,6 +90,28 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 - conversion前後のYAML fixture
 - SSA dry-run test結果
 
+## 実装状況
+
+2026-07-04時点の実装状況を示す。テストを追加しただけで未実行の項目は完了に含めない。
+
+| 受け入れ条件 | 状況 | 証跡または残作業 |
+|---|---|---|
+| 1 | 実装済み、envtest未実施 | `TestServiceReserveAllowsOneOfOneHundredConcurrentMachines`。fake clientでresourceVersion競合を確認済み。実API serverでの確認が残る |
+| 2 | 実装済み | `TestMatch`でarchitecture、Firmware、disk size、Capability、Profile ID、labelの不一致を個別に確認 |
+| 3 | 実装済み | `TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef` |
+| 4 | 一部実装 | UID不一致を`ErrAllocationConflict`として返し参照を維持する。Controllerから`Ready=False` Conditionへ接続する作業が残る |
+| 5 | 一部実装 | Admissionで既存の非terminal Operationを拒否する。並列createをresourceVersion lockへ接続する作業が残る |
+| 6 | 実装済み | HostとOperationの全Phase組合せtable test |
+| 7 | 実装済み | v1beta1 Admissionのdigest固定OCI参照検証 |
+| 8 | 実装済み | v1beta1 AdmissionのOperation deadline検証 |
+| 9 | 実装済み | `api/v1alpha1/testdata/tartmachine-v1alpha1.yaml`と[v1alpha1からv1beta1への移行](../migration-v1alpha1-to-v1beta1.md) |
+| 10 | E2E実装済み、未実行 | GitHub Actions用E2EでSSA dry-runの既定値と非永続化を検証。ローカル実行は禁止 |
+| 11 | Application実装済み | `TestStatusWithNodeHealthSetsReadyFalseForProviderIDMismatch`。v1beta1 Controllerへの接続が残る |
+| 12 | 実装済み | 空、wildcard、path、scheme、不正portをAdmission testで拒否 |
+| 13 | 実装済み | `TestTartHostOperationPreservesDesiredObjectsDigest` |
+
+v1beta1は変換Webhookを有効化して`served=true`にしたが、既存Controllerとの共存のため`storage=false`である。storage version切り替え条件は[v1alpha1からv1beta1への移行](../migration-v1alpha1-to-v1beta1.md)に従う。
+
 ## 対象外
 
 - Driver呼び出し

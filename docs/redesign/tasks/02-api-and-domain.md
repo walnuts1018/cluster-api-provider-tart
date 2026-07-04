@@ -9,6 +9,18 @@ Host割当、長時間Operation、A/B slot、削除PolicyをKubernetes Resource�
 - Task 01
 - ADR 0001、0002、0003
 
+### Task 01未完了で先行する範囲
+
+2026-07-04の実装方針として、Task 01の完了を待たず、Task 01の検証結果に依存しない
+APIとDomainの実装を先行する。これはTask 02の依存完了またはPhase 1の開始条件達成を
+意味しない。
+
+- 先行可能: Accepted ADRで確定したHost lifecycle、Operationの永続状態、
+  Capability、Operation ID、削除Policy、排他割当
+- 保留: ADR 0002に依存するRuntime Hook固有API、ADR 0003に依存する物理partition
+  番号やboot trial実装、Task 01で確定するPlatform Profileの物理layout
+- Task 02完了条件: Task 01とADR 0002、0003の完了後に保留事項との整合を再検証する
+
 ## 入力
 
 - CAPI v1beta2 InfraCluster/InfraMachine contract
@@ -53,6 +65,22 @@ Host割当、長時間Operation、A/B slot、削除PolicyをKubernetes Resource�
 11. providerIDとworkload Node providerIDの不一致を`Ready=False`にする。
 12. `allowedRegistries`が空、wildcardを含む、またはpathを含む`TartCluster`をAdmissionで拒否する。
 13. `TartHostOperation` の作成時に `desiredObjectsDigest` が定義通り保存されることをテストする。
+
+## 作業単位
+
+Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条件を含むため、次の
+作業単位へ分割する。
+
+| 作業単位 | 内容 | 対応する受け入れ条件 |
+|---|---|---|
+| 02A | Host、Operation、SlotのDomain型と純粋な状態遷移 | 6 |
+| 02B | storage API、TartHostOperation CRD、Admission | 5、7、8、12、13 |
+| 02C | CAPI v1beta2 contract、defaulting、conversion、SSA | 9、10、11 |
+| 02D | Host選択、resourceVersionによる排他予約、参照修復 | 1、2、3、4 |
+| 02E | 移行手順、生成差分、全受け入れ条件の証跡 | 1から13 |
+
+02AでCapability名とOperation ID型を確定した後にTask 03との共有を開始する。
+02Bから02Dは同じstorage API型を使用するため、02B、02C、02Dの順で実施する。
 
 ## 完了証跡
 

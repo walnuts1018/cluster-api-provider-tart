@@ -12,10 +12,10 @@
 | 成果物 | repositoryへ追加・変更するcode、schema、文書 |
 | 実装要件 | 成果物が必ず満たす動作 |
 | 受け入れ条件 | Yes/Noで完了を判定するtest |
-| 完了証跡 | PRまたはIssueへ添付するcommand出力、Artifact、実機情報 |
+| 完了証跡 | repository内の検証記録またはPRへ記載するcommand出力、Artifact、実機情報 |
 | 対象外 | このTaskで実装してはならない事項 |
 
-「実装した」だけではタスク完了にしない。全受け入れ条件に対応するtest名または検証記録をIssueへ記載する。
+「実装した」だけではタスク完了にしない。全受け入れ条件に対応するtest名または検証記録をrepository内の文書またはPRへ記載する。
 
 ## 2. タスク一覧
 
@@ -33,14 +33,13 @@
 | 10 | [Redfish](10-redfish.md) | Power、Boot Transport、Virtual Media | 03、06 |
 | 11 | [対応Matrix拡大とRelease](11-compatibility-and-release.md) | OS/architecture/firmware追加、Runbook | 09、10 |
 
-## 3. GitHub Issue運用
+## 3. 作業単位とPR運用
 
-- このMarkdownは設計上の分割を表す。進捗の正本はGitHub Issueとする。
-- Task開始時に1つの親Issueを作成する。
-- 1 PRで完了しないTaskは、受け入れ条件の集合ごとにsub-issueを作成する。
-- sub-issueは1つ以上の受け入れ条件へ対応し、対応しない作業を含めない。
-- PR本文には検証した受け入れ条件の番号とcommandを記載する。
-- PRは対象Issueを`Closes #...`で関連付ける。
+- Taskの要求と依存関係の正本は、このディレクトリのTask文書とする。進捗管理のためのGitHub Issueは作成しない。
+- 1 PRで完了しないTaskは、受け入れ条件の集合ごとに作業単位を分ける。
+- 各作業単位は1つ以上の受け入れ条件へ対応し、対応しない作業を含めない。
+- PR本文には対象Task、検証した受け入れ条件の番号、実行したcommandと結果を記載する。
+- Task完了の判定は、受け入れ条件に対応する変更と検証記録が全てdefault branchへmergeされた時点で行う。
 - 設計変更を伴うPRはADRとTask文書を同じcommitまたは直前commitで更新する。
 
 ## 4. 共通Definition of Done
@@ -72,7 +71,7 @@
 
 ## 5. Taskを分割し直す条件
 
-次のいずれかに該当するTaskは、実装開始前にsub-issueへ分割する。
+次のいずれかに該当するTaskは、実装開始前に複数の作業単位へ分割する。
 
 - 2つ以上の独立したCRDを追加する。
 - 2つ以上のOS/architecture/firmware組合せを追加する。

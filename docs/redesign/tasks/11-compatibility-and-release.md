@@ -16,9 +16,9 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 - 初期Provisioning、OSOnly、Kubernetes LifecycleのE2E suite
 - 対象OS/board/BMCの公式仕様
 
-## Sub-issue分割
+## 作業単位の分割
 
-次の各行を独立したsub-issueとする。複数行を1つのPRへ含めない。
+次の各行を独立した作業単位とする。複数行を1つのPRへ含めない。
 
 | 順序 | 追加する軸 | 比較元 |
 |---|---|---|
@@ -32,7 +32,7 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 
 ## 成果物
 
-各sub-issueで次を作成する。
+各作業単位で次を作成する。
 
 - version付きPlatform Profile
 - OS/Agent Artifact
@@ -45,7 +45,7 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 
 ## 受け入れ条件
 
-### 全sub-issue共通
+### 全作業単位共通
 
 1. 初期ProvisioningでNode Readyになる。
 2. controller、Agent、Hostの再起動からOperationを再開する。

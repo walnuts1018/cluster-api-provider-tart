@@ -24,7 +24,7 @@ Ubuntu 24.04 LTS
 - 依存Taskが全て完了している。
 - 依存する`Proposed` ADRが`Accepted`または`Rejected`へ更新されている。
 - API、Artifact、Protocolのversionが文書に記録されている。
-- 変更対象のGitHub Issueと専用branchがある。
+- 変更対象のTaskと受け入れ条件を特定し、専用branchを作成している。
 
 ### 終了条件
 
@@ -199,7 +199,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 
 対象: [Task 11](tasks/11-compatibility-and-release.md)
 
-1つのsub-issueでは1つの軸だけを追加する。順序は次とする。
+1つの作業単位では1つの軸だけを追加する。順序は次とする。
 
 1. Debian 13 + amd64 UEFI + kubeadm
 2. Ubuntu 26.04 + amd64 UEFI + kubeadm
@@ -209,7 +209,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 6. Raspberry Pi 4
 7. Raspberry Pi 5
 
-各sub-issueは初期Provisioning、再起動、OSOnly更新、Rollback、削除PolicyのE2Eを持つ。
+各作業単位は初期Provisioning、再起動、OSOnly更新、Rollback、削除PolicyのE2Eを持つ。
 
 ## 11. 依存関係
 
@@ -249,16 +249,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 | M5 | 10 | 2種類のBMCでAgent起動 |
 | M6 | 11 | Supported Matrix全組合せのE2E証跡 |
 
-## 13. 現行Issueとの対応
-
-| Issue | 分割先 |
-|---|---|
-| #143 ディスクpartition設定 | Task 01、02、05、08 |
-| #145 TartMachine二重作成疑い | Task 02 |
-| #146 物理操作抽象化 | Task 03、10 |
-| #147 OS install手順変更 | Task 04-09 |
-
-## 14. テスト実行場所
+## 13. テスト実行場所
 
 | Test | Local | GitHub Actions | 実機Lab |
 |---|---|---|---|
@@ -270,7 +261,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 
 サンプル、Workflow、scriptの存在だけを確認するテストは禁止する。Go applicationの入力に対する出力または状態遷移を検証する。
 
-## 15. 移行と削除
+## 14. 移行と削除
 
 1. 新APIと旧flowをfeature gate下で共存させる。
 2. 新規Clusterの既定をAgent flowへ変更する。

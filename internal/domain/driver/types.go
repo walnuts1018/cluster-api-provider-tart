@@ -24,6 +24,14 @@ const (
 	PowerStateUnknown PowerState = "Unknown"
 )
 
+type Reachability string
+
+const (
+	ReachabilityReachable   Reachability = "Reachable"
+	ReachabilityUnreachable Reachability = "Unreachable"
+	ReachabilityUnknown     Reachability = "Unknown"
+)
+
 type BootTarget string
 
 const (

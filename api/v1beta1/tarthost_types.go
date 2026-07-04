@@ -45,6 +45,14 @@ const (
 	PowerStateUnknown PowerState = "Unknown"
 )
 
+type Reachability string
+
+const (
+	ReachabilityReachable   Reachability = "Reachable"
+	ReachabilityUnreachable Reachability = "Unreachable"
+	ReachabilityUnknown     Reachability = "Unknown"
+)
+
 type Capability string
 
 const (
@@ -175,6 +183,11 @@ type TartHostStatus struct {
 	// +optional
 	// +kubebuilder:validation:Enum=On;Off;Unknown
 	PowerState PowerState `json:"powerState,omitempty"`
+
+	// reachability is the last network observation and does not imply a power state.
+	// +optional
+	// +kubebuilder:validation:Enum=Reachable;Unreachable;Unknown
+	Reachability Reachability `json:"reachability,omitempty"`
 
 	// capabilities contains only operations implemented by the configured drivers.
 	// +optional

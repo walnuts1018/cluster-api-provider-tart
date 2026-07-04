@@ -510,6 +510,14 @@ spec:
                 - "Off"
                 - Unknown
                 type: string
+              reachability:
+                description: reachability is the last network observation and does
+                  not imply a power state.
+                enum:
+                - Reachable
+                - Unreachable
+                - Unknown
+                type: string
             type: object
         required:
         - spec

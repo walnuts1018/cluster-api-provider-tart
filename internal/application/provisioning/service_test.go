@@ -9,6 +9,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
+	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
 func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
@@ -290,7 +293,13 @@ type fakeWakeOnLANSender struct {
 	sentMACAddresses []string
 }
 
-func (f *fakeWakeOnLANSender) Send(macAddress string) error {
-	f.sentMACAddresses = append(f.sentMACAddresses, macAddress)
+func (f *fakeWakeOnLANSender) PowerOn(
+	_ context.Context,
+	_ driverdomain.Name,
+	target driverdomain.HostTarget,
+	_ operationdomain.ID,
+	_ applicationdriver.Invocation,
+) error {
+	f.sentMACAddresses = append(f.sentMACAddresses, target.BootMACAddress().String())
 	return nil
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -26,10 +27,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	woladapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/wol"
+	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -850,7 +854,7 @@ var _ = Describe("TartMachine Controller", func() {
 
 		It("should send a real WoL magic packet over the network", func() {
 			senderAddr := udpListener.LocalAddr().String()
-			realSender := wol.NewSender(senderAddr)
+			realSender := newPowerOnService(woladapter.NewForAddress(senderAddr))
 
 			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), realSender)
 
@@ -873,7 +877,7 @@ var _ = Describe("TartMachine Controller", func() {
 			n, _, err := udpListener.ReadFrom(buf)
 			Expect(err).NotTo(HaveOccurred())
 
-			expectedPacket, err := wol.MagicPacket("00:00:5e:00:53:03")
+			expectedPacket, err := expectedMagicPacket("00:00:5e:00:53:03")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf[:n]).To(Equal(expectedPacket))
 		})
@@ -885,7 +889,7 @@ var _ = Describe("TartMachine Controller", func() {
 			Expect(k8sClient.Update(ctx, host)).To(Succeed())
 
 			senderAddr := udpListener.LocalAddr().String()
-			realSender := wol.NewSender(senderAddr)
+			realSender := newPowerOnService(woladapter.NewForAddress(senderAddr))
 
 			controllerReconciler := newTartMachineReconciler(k8sClient, k8sClient.Scheme(), realSender)
 
@@ -899,7 +903,7 @@ var _ = Describe("TartMachine Controller", func() {
 			n, _, err := udpListener.ReadFrom(buf)
 			Expect(err).NotTo(HaveOccurred())
 
-			expectedPacket, err := wol.MagicPacket("00:00:5e:00:53:09")
+			expectedPacket, err := expectedMagicPacket("00:00:5e:00:53:09")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(buf[:n]).To(Equal(expectedPacket))
 		})
@@ -1280,12 +1284,18 @@ type fakeWakeOnLANSender struct {
 	sentMACAddresses []string
 }
 
-func (s *fakeWakeOnLANSender) Send(macAddress string) error {
-	s.sentMACAddresses = append(s.sentMACAddresses, macAddress)
+func (s *fakeWakeOnLANSender) PowerOn(
+	_ context.Context,
+	_ driverdomain.Name,
+	target driverdomain.HostTarget,
+	_ operationdomain.ID,
+	_ applicationdriver.Invocation,
+) error {
+	s.sentMACAddresses = append(s.sentMACAddresses, target.BootMACAddress().String())
 	return nil
 }
 
-func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, wolSender applicationprovisioning.WakeOnLANSender) *TartMachineReconciler {
+func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, power applicationprovisioning.PowerOnService) *TartMachineReconciler {
 	hostService := k8shost.NewService(k8sClient)
 	tokenService := k8sbootstraptoken.NewService(k8sClient)
 	return &TartMachineReconciler{
@@ -1293,8 +1303,27 @@ func newTartMachineReconciler(k8sClient client.Client, scheme *runtime.Scheme, w
 		Scheme:       scheme,
 		HostService:  hostService,
 		TokenService: tokenService,
-		Provisioning: applicationprovisioning.NewService(hostService, hostService, wolSender),
+		Provisioning: applicationprovisioning.NewService(hostService, hostService, power),
 	}
+}
+
+func newPowerOnService(implementation applicationdriver.PowerOnDriver) *applicationdriver.Service {
+	registry := applicationdriver.NewRegistry()
+	Expect(registry.RegisterPowerOn(driverdomain.WoL, implementation)).To(Succeed())
+	service, err := applicationdriver.NewService(registry)
+	Expect(err).NotTo(HaveOccurred())
+	return service
+}
+
+func expectedMagicPacket(macAddress string) ([]byte, error) {
+	hardwareAddress, err := net.ParseMAC(macAddress)
+	if err != nil {
+		return nil, err
+	}
+	packet := make([]byte, 0, 102)
+	packet = append(packet, bytes.Repeat([]byte{0xff}, 6)...)
+	packet = append(packet, bytes.Repeat(hardwareAddress, 16)...)
+	return packet, nil
 }
 
 func cleanupTartMachine(ctx context.Context, key types.NamespacedName) {

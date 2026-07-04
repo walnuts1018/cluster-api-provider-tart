@@ -3,17 +3,22 @@ package provisioning
 import (
 	"context"
 	"fmt"
-	"time"
-
-	"github.com/avast/retry-go/v4"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
+	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
-type WakeOnLANSender interface {
-	Send(macAddress string) error
+type PowerOnService interface {
+	PowerOn(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		operationdomain.ID,
+		applicationdriver.Invocation,
+	) error
 }
 
 type HostReader interface {
@@ -32,34 +37,47 @@ type Service interface {
 type service struct {
 	hostReader      HostReader
 	hostProvisioner HostProvisioner
-	wolSender       WakeOnLANSender
+	power           PowerOnService
 }
 
-func NewService(hostReader HostReader, hostProvisioner HostProvisioner, wolSender WakeOnLANSender) Service {
+func NewService(hostReader HostReader, hostProvisioner HostProvisioner, power PowerOnService) Service {
 	return &service{
 		hostReader:      hostReader,
 		hostProvisioner: hostProvisioner,
-		wolSender:       wolSender,
+		power:           power,
 	}
 }
 
 func (s *service) Begin(ctx context.Context, host *infrastructurev1alpha1.TartHost) error {
-	log := ctrllog.FromContext(ctx).WithName("provisioning")
-	if err := retry.Do(
-		func() error {
-			return s.wolSender.Send(hostdomain.BootMACAddress(host))
+	bootMACAddress, err := driverdomain.ParseMACAddress(hostdomain.BootMACAddress(host))
+	if err != nil {
+		return fmt.Errorf("parse TartHost boot MAC address: %w", err)
+	}
+	operationID, err := operationdomain.DeterministicID(string(host.UID) + "/" + machineReferenceUID(host))
+	if err != nil {
+		return fmt.Errorf("derive legacy provisioning operation ID: %w", err)
+	}
+	if err := s.power.PowerOn(
+		ctx,
+		driverdomain.WoL,
+		driverdomain.NewHostTarget(bootMACAddress),
+		operationID,
+		applicationdriver.Invocation{
+			OperationType: "Provision",
+			Phase:         "PreparingBoot",
+			Rollback:      false,
 		},
-		retry.Context(ctx),
-		retry.MaxDelay(2*time.Second),
-		retry.Attempts(3),
-		retry.LastErrorOnly(true),
-		retry.OnRetry(func(n uint, err error) {
-			log.Error(err, "Retrying WoL send", "attempt", n+1, "maxAttempts", 3, "mac", hostdomain.BootMACAddress(host))
-		}),
 	); err != nil {
-		return fmt.Errorf("failed to send wake-on-lan after retries: %w", err)
+		return fmt.Errorf("power on TartHost: %w", err)
 	}
 	return s.hostProvisioner.MarkProvisioning(ctx, host)
+}
+
+func machineReferenceUID(host *infrastructurev1alpha1.TartHost) string {
+	if host.Status.MachineRef == nil {
+		return "unassigned"
+	}
+	return string(host.Status.MachineRef.UID)
 }
 
 func (s *service) Ensure(ctx context.Context, machine *infrastructurev1alpha1.TartMachine) error {

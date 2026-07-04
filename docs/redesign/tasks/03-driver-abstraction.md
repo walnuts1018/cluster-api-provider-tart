@@ -10,6 +10,13 @@ controllerのUse CaseからWoL/Redfish固有codeを除き、Hostが持つCapabil
 - Task 02のOperation ID、Host identity、Capability型
 - ADR 0005
 
+### Task 01未完了で先行する範囲
+
+2026-07-05の実装方針として、Task 01の実機・QEMU検証を待たず、Acceptedの
+ADR 0005とTask 02で確定した型だけに依存するDriver境界、WoL Adapter、
+呼び出しpolicyを先行実装した。boot trialやPlatform Profileの物理layoutには
+依存しない。
+
 ## 入力
 
 - TartHost management設定
@@ -55,6 +62,36 @@ controllerのUse CaseからWoL/Redfish固有codeを除き、Hostが持つCapabil
 - Fake Driverのerror分類test
 - WoL packet送信test
 - race detector結果
+
+## 実装状況
+
+2026-07-05時点で、Task 01の検証に依存しない受け入れ条件1から8を実装・検証済み。
+
+| 受け入れ条件 | 証跡 |
+|---|---|
+| 1 | `TestRegistryRejectsUnsupportedPowerOnBeforeCallingDriver` |
+| 2 | `TestAdapterImplementsOnlyPowerOnPort`とRegistryのCapability test |
+| 3 | WoL AdapterとFake Driverへ共通のPowerOn Contract Testを適用し、同一Operation IDの再送を確認 |
+| 4 | `TestServiceRetriesTemporaryErrorAtDefinedIntervals`で3回呼び出しと1秒、2秒の間隔を確認 |
+| 5 | `TestServiceDoesNotRetryAuthenticationFailure` |
+| 6 | `TestServiceDeadlineDoesNotLeaveDriverWorkRunning` |
+| 7 | `TestServiceMetricUsesOnlyAllowedLabels` |
+| 8 | `TestAdapterPowerOnContract`と`TestDriverPowerOnContract` |
+
+実行済みcommand:
+
+```text
+MISE_OFFLINE=1 mise exec -- go test -race ./internal/domain/driver ./internal/application/driver ./internal/adapter/driver/... ./internal/application/provisioning -count=1
+MISE_OFFLINE=1 mise exec -- go test ./... -v
+MISE_OFFLINE=1 mise run build
+MISE_OFFLINE=1 mise run lint
+MISE_OFFLINE=1 mise run generate
+MISE_OFFLINE=1 mise exec -- go list -deps ./internal/application/provisioning ./internal/controller
+```
+
+最後の依存検査では`internal/application`と`internal/controller`から
+`pkg/wol`への依存がないことを確認した。WoL実装への依存は
+`internal/adapter/driver/wol`だけに存在する。ローカルE2Eは実行していない。
 
 ## 対象外
 

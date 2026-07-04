@@ -60,3 +60,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tarthostoperations
+  verbs:
+  - get
+  - list
+  - watch

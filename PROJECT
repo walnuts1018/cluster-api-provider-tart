@@ -34,6 +34,10 @@ resources:
   kind: TartHostOperation
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -42,6 +46,10 @@ resources:
   kind: TartCluster
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -50,6 +58,10 @@ resources:
   kind: TartClusterTemplate
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -58,6 +70,10 @@ resources:
   kind: TartMachine
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -66,6 +82,10 @@ resources:
   kind: TartMachineTemplate
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true
@@ -74,4 +94,8 @@ resources:
   kind: TartHost
   path: github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1
   version: v1beta1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"

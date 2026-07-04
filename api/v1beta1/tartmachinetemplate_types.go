@@ -65,7 +65,6 @@ type TartMachineTemplateResourceSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartmachinetemplates,scope=Namespaced,categories=cluster-api
-// +kubebuilder:unservedversion
 
 type TartMachineTemplate struct {
 	metav1.TypeMeta   `json:",inline"`

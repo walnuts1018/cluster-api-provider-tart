@@ -39,7 +39,6 @@ type TartClusterTemplateResource struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartclustertemplates,scope=Namespaced,categories=cluster-api
-// +kubebuilder:unservedversion
 
 type TartClusterTemplate struct {
 	metav1.TypeMeta   `json:",inline"`

@@ -2,7 +2,7 @@
 
 ## 現在の公開状態
 
-変換Webhookと変換関数は実装済みだが、既存controllerはv1alpha1を使用している。このため、v1beta1は移行完了まで`served=false`、`storage=false`のままにし、v1alpha1をstorage versionとして維持する。
+変換Webhookと変換関数を実装し、v1beta1は`served=true`、`storage=false`として公開する。既存controllerはv1alpha1を使用しているため、移行完了までv1alpha1をstorage versionとして維持する。
 
 v1beta1へ変換したobjectは、新しい必須fieldを構造的に満たす。ただし、旧APIから意味を決定できない値には移行用placeholderを設定する。placeholderを含むobjectをProvisioningへ使用してはならない。
 
@@ -46,7 +46,7 @@ v1beta1にだけ存在するfieldは、v1alpha1へ一時的に変換する際に
 2. 全TartHostへinventory、Platform Profile、root device hint、Driver設定を入力する。
 3. 全TartMachineとTemplateのimageをdigest固定OCI参照へ置換する。
 4. controllerをv1beta1 APIと新Operation modelへ切り替える。
-5. v1beta1の`unservedversion` markerを削除し、v1alpha1から`storageversion` markerを削除してv1beta1へ追加する。
+5. v1alpha1から`storageversion` markerを削除してv1beta1へ追加する。
 6. controller-genでCRDを再生成し、変換WebhookがReadyになった後にCRDを適用する。
 7. Storage Version Migratorまたは全objectのno-op updateで保存済みobjectをv1beta1へ書き直す。
 8. `status.storedVersions`とobject一覧からv1alpha1保存objectが0件であることを確認する。

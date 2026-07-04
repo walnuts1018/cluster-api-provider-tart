@@ -242,7 +242,6 @@ type ObservedDisk struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tarthosts,scope=Namespaced,categories=cluster-api
-// +kubebuilder:unservedversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`,description="Host lifecycle phase"
 // +kubebuilder:printcolumn:name="Architecture",type=string,JSONPath=`.spec.architecture`,description="CPU architecture"

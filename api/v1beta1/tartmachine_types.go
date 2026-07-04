@@ -152,7 +152,6 @@ const (
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartmachines,scope=Namespaced,categories=cluster-api
-// +kubebuilder:unservedversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provisioned",type=string,JSONPath=`.status.initialization.provisioned`,description="Infrastructure provisioned"
 // +kubebuilder:printcolumn:name="Host",type=string,JSONPath=`.status.hostRef.name`,description="Assigned TartHost"

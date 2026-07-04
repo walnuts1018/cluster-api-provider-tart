@@ -90,7 +90,6 @@ type TartClusterInitializationStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartclusters,scope=Namespaced,categories=cluster-api
-// +kubebuilder:unservedversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Provisioned",type=string,JSONPath=`.status.initialization.provisioned`,description="Infrastructure provisioned"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=`.metadata.creationTimestamp`

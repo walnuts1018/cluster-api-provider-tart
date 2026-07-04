@@ -6,11 +6,10 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
 func TestValidateRegistry(t *testing.T) {
@@ -155,7 +154,7 @@ func TestTartHostOperationValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			operation := validOperation("operation-a")
+			operation := validOperation()
 			if tt.mutate != nil {
 				tt.mutate(operation)
 			}
@@ -170,30 +169,13 @@ func TestTartHostOperationValidation(t *testing.T) {
 	}
 }
 
-func TestTartHostOperationRejectsSecondActiveOperation(t *testing.T) {
+func TestTartHostOperationRequiresDeterministicActiveName(t *testing.T) {
 	t.Parallel()
 
-	scheme := runtime.NewScheme()
-	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
-		t.Fatalf("AddToScheme() error = %v", err)
-	}
-	existing := validOperation("operation-a")
-	existing.Namespace = "default"
-	existing.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseWriting
-	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
-
-	candidate := validOperation("operation-b")
-	candidate.Namespace = "default"
-	validator := TartHostOperationCustomValidator{client: k8sClient}
-	if _, err := validator.ValidateCreate(context.Background(), candidate); err == nil {
-		t.Fatal("ValidateCreate() error = nil, want active operation conflict")
-	}
-
-	existing.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseSucceeded
-	k8sClient = fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
-	validator.client = k8sClient
-	if _, err := validator.ValidateCreate(context.Background(), candidate); err != nil {
-		t.Fatalf("ValidateCreate() error = %v", err)
+	operation := validOperation()
+	operation.Name = "arbitrary-name"
+	if _, err := (&TartHostOperationCustomValidator{}).ValidateCreate(context.Background(), operation); err == nil {
+		t.Fatal("ValidateCreate() error = nil, want deterministic name error")
 	}
 }
 
@@ -207,13 +189,18 @@ func validMachine() *infrastructurev1beta1.TartMachine {
 	}
 }
 
-func validOperation(name string) *infrastructurev1beta1.TartHostOperation {
+func validOperation() *infrastructurev1beta1.TartHostOperation {
+	hostUID := types.UID("host-a-uid")
+	activeName, err := operationdomain.ResourceName(string(hostUID))
+	if err != nil {
+		panic(err)
+	}
 	return &infrastructurev1beta1.TartHostOperation{
-		ObjectMeta: metav1.ObjectMeta{Name: name},
+		ObjectMeta: metav1.ObjectMeta{Name: activeName},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
 			OperationID:          "0197d640-8d00-7a65-b67f-3f7c42a6935f",
 			Type:                 infrastructurev1beta1.OperationTypeProvision,
-			HostRef:              infrastructurev1beta1.ResourceReference{Namespace: "default", Name: "host-a", UID: types.UID("host-a-uid")},
+			HostRef:              infrastructurev1beta1.ResourceReference{Namespace: "default", Name: "host-a", UID: hostUID},
 			MachineRef:           &infrastructurev1beta1.ResourceReference{Namespace: "default", Name: "machine-a", UID: types.UID("machine-a-uid")},
 			PlanDigest:           "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			DesiredObjectsDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

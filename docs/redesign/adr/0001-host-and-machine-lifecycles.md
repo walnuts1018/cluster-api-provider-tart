@@ -15,6 +15,7 @@
 - `TartHost.spec.consumerRef`はnamespace、name、UIDの3つを必須とし、UIDが一致しない同名Machineを同じconsumerとして扱わない。
 - 同一Hostに対するactive TartMachineは最大1つ、非terminal Operationは最大1つとする。
 - API serverのresourceVersionを含むUpdateで予約を確定する。HTTP 409 Conflictを受けた候補は取得済みとみなし、同じlist結果を再利用せず再listする。
+- TartHostOperationのResource名はHost UIDから決定的に生成し、同一Hostへの並列CreateをAPI serverの名前一意制約で直列化する。terminal Operationは次Operationの開始時にUIDとresourceVersionのprecondition付きで置換する。
 - Machine削除時は`WipeAll`、`RetainData`、`RetainState`のいずれかを必須指定する。各Policyの遷移先は[target-state](../target-state.md#7-machine削除とhost再利用)へ固定する。
 
 ## Crash recovery

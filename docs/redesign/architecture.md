@@ -181,7 +181,9 @@ status:
   conditions: []
 ```
 
-1 hostにつきactive operationは1つだけ許可する。管理者は、`Retained`/`Detached` 状態のホストを `Available` に戻すために、`machineRef` を空にした `WipeAll` タイプの `TartHostOperation` を手動で作成できる。`TartMachine`と`TartHost`には参照と要約Conditionだけを持たせ、長時間処理の詳細を重複保存しない。
+1 hostにつきactive operationは1つだけ許可する。OperationのResource名は`active-`とHost UIDのSHA-256先頭224 bitを小文字16進数で連結した63文字に固定する。同じHostを対象とするCreateを同じResource名へ集約し、API serverの名前一意制約で並列二重作成を防ぐ。terminal Operationは次Operationの開始時まで保持し、次Operationを開始するAdapterが旧OperationをUIDとresourceVersionのprecondition付きで削除して同名Resourceを作り直す。
+
+管理者は、`Retained`/`Detached` 状態のホストを `Available` に戻すために、`machineRef` を空にした `WipeAll` タイプの `TartHostOperation` を手動で作成できる。手動作成時も上記の決定的Resource名を使用する。`TartMachine`と`TartHost`には参照と要約Conditionだけを持たせ、長時間処理の詳細を重複保存しない。
 
 ### ProvisioningProfile
 

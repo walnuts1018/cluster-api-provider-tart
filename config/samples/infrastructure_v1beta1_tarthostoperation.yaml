@@ -4,7 +4,7 @@ metadata:
   labels:
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
-  name: tarthostoperation-sample
+  name: active-666ff6ccaa5b3c07feaa3a95d3a4bd2c46ac9e9abdb09ca9133528d
 spec:
   operationID: 0197d640-8d00-7a65-b67f-3f7c42a6935f
   type: Provision

@@ -65,6 +65,8 @@ rules:
   resources:
   - tarthostoperations
   verbs:
+  - create
+  - delete
   - get
   - list
   - watch

@@ -155,9 +155,12 @@ func (s *Service) EnsureMachineHostReference(
 }
 
 func matchesRequirements(requirements allocationdomain.Requirements, host *infrastructurev1beta1.TartHost) (bool, error) {
+	if host.Status.Phase == "" {
+		return false, nil
+	}
 	phase, err := hostdomain.ParsePhase(string(host.Status.Phase))
 	if err != nil {
-		return false, nil
+		return false, fmt.Errorf("parse TartHost phase: %w", err)
 	}
 	hostCapabilities := make([]capability.Capability, 0, len(host.Status.Capabilities))
 	for _, value := range host.Status.Capabilities {

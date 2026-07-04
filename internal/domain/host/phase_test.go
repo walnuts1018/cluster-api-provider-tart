@@ -2,6 +2,7 @@ package host
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -116,10 +117,5 @@ func TestZeroStateCannotTransition(t *testing.T) {
 }
 
 func containsPhase(phases []Phase, target Phase) bool {
-	for _, phase := range phases {
-		if phase == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(phases, target)
 }

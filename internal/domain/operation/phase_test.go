@@ -2,6 +2,7 @@ package operation
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -82,10 +83,5 @@ func TestTerminal(t *testing.T) {
 }
 
 func containsPhase(phases []Phase, target Phase) bool {
-	for _, phase := range phases {
-		if phase == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(phases, target)
 }

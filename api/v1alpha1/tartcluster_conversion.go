@@ -40,7 +40,7 @@ func (src *TartCluster) ConvertTo(dstRaw conversion.Hub) error {
 	if len(dst.Spec.ArtifactPolicy.AllowedRegistries) == 0 {
 		dst.Spec.ArtifactPolicy.AllowedRegistries = []string{migrationRegistry}
 	}
-	dst.Status.Initialization.Provisioned = ptr.To(src.Status.Initialization.Provisioned)
+	dst.Status.Initialization.Provisioned = new(src.Status.Initialization.Provisioned)
 	dst.Status.ObservedGeneration = src.Status.ObservedGeneration
 	dst.Status.Conditions = src.Status.Conditions
 	return nil

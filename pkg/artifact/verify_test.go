@@ -111,3 +111,19 @@ func TestVerifyPayload(t *testing.T) {
 		})
 	}
 }
+
+func TestDescribePayload(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte("immutable OS payload")
+	description, err := DescribePayload(bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("DescribePayload() error = %v", err)
+	}
+	if description.Digest != digest.FromBytes(payload).String() {
+		t.Fatalf("DescribePayload().Digest = %q", description.Digest)
+	}
+	if description.SizeBytes != int64(len(payload)) {
+		t.Fatalf("DescribePayload().SizeBytes = %d, want %d", description.SizeBytes, len(payload))
+	}
+}

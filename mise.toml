@@ -212,6 +212,28 @@ IPXE_TAG="${IPXE_TAG:-latest}"
 go run hack/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
 '''
 
+[tasks.artifact-manifest]
+description = "OS/Verity payload から署名済み Artifact Manifest を生成する"
+run = '''
+: "${ARTIFACT_IMAGE:?ARTIFACT_IMAGE is required}"
+: "${ARTIFACT_VERITY:?ARTIFACT_VERITY is required}"
+: "${ARTIFACT_VERITY_ROOT_HASH:?ARTIFACT_VERITY_ROOT_HASH is required}"
+: "${ARTIFACT_KERNEL:?ARTIFACT_KERNEL is required}"
+: "${ARTIFACT_INITRD:?ARTIFACT_INITRD is required}"
+: "${ARTIFACT_SIGNING_KEY:?ARTIFACT_SIGNING_KEY is required}"
+: "${ARTIFACT_SIGNING_KEY_ID:?ARTIFACT_SIGNING_KEY_ID is required}"
+go run ./hack/artifact-manifest \
+  -config "${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64.json}" \
+  -image "$ARTIFACT_IMAGE" \
+  -verity "$ARTIFACT_VERITY" \
+  -verity-root-hash "$ARTIFACT_VERITY_ROOT_HASH" \
+  -kernel "$ARTIFACT_KERNEL" \
+  -initrd "$ARTIFACT_INITRD" \
+  -signing-key "$ARTIFACT_SIGNING_KEY" \
+  -key-id "$ARTIFACT_SIGNING_KEY_ID" \
+  -output-dir "${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
+'''
+
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"

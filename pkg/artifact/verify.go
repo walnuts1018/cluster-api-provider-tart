@@ -104,3 +104,19 @@ func VerifyPayload(reader io.Reader, expectedDigest string, expectedSize int64) 
 	}
 	return nil
 }
+
+func DescribePayload(reader io.Reader) (Payload, error) {
+	hash := sha256.New()
+	size, err := io.Copy(hash, reader)
+	if err != nil {
+		return Payload{}, fmt.Errorf("read payload: %w", err)
+	}
+	if size <= 0 {
+		return Payload{}, errors.New("payload must not be empty")
+	}
+
+	return Payload{
+		Digest:    digest.NewDigest(digest.SHA256, hash).String(),
+		SizeBytes: size,
+	}, nil
+}

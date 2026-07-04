@@ -106,7 +106,7 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 | 8 | 実装済み | v1beta1 AdmissionのOperation deadline検証 |
 | 9 | 実装済み | `api/v1alpha1/testdata/tartmachine-v1alpha1.yaml`と[v1alpha1からv1beta1への移行](../migration-v1alpha1-to-v1beta1.md) |
 | 10 | E2E実装済み、未実行 | GitHub Actions用E2EでSSA dry-runの既定値と非永続化を検証。ローカル実行は禁止 |
-| 11 | Application実装済み | `TestStatusWithNodeHealthSetsReadyFalseForProviderIDMismatch`。v1beta1 Controllerへの接続が残る |
+| 11 | 実装済み | v1beta1 ControllerがCAPI MachineのNode参照からworkload Nodeを取得し、providerID不一致を`Ready=False`へ反映する |
 | 12 | 実装済み | 空、wildcard、path、scheme、不正portをAdmission testで拒否 |
 | 13 | 実装済み | `TestTartHostOperationPreservesDesiredObjectsDigest` |
 

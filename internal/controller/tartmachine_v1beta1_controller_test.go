@@ -14,6 +14,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	applicationallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineallocation"
+	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 )
 
 func TestTartMachineV1Beta1ReconcilerSetsAllocationConflict(t *testing.T) {
@@ -136,6 +137,56 @@ func TestTartMachineV1Beta1ReconcilerRepairsHostReference(t *testing.T) {
 	}
 }
 
+func TestTartMachineV1Beta1ReconcilerSetsProviderIDMismatch(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-a",
+			Namespace:  "default",
+			UID:        types.UID("machine-a-uid"),
+			Generation: 2,
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-a"},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}).
+		WithObjects(machine).
+		Build()
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client:         k8sClient,
+		HostReferences: k8sallocation.NewService(k8sClient),
+		NodeHealth: nodeHealthObserverStub{
+			observation: machinehealthdomain.NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-b",
+				NodeReady:         true,
+			},
+		},
+	}
+
+	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartMachine{}
+	if err := k8sClient.Get(
+		context.Background(),
+		types.NamespacedName{Namespace: machine.Namespace, Name: machine.Name},
+		current,
+	); err != nil {
+		t.Fatalf("get TartMachine: %v", err)
+	}
+	condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
+	if condition == nil ||
+		condition.Status != metav1.ConditionFalse ||
+		condition.Reason != string(machinehealthdomain.ReasonProviderIDMismatch) {
+		t.Fatalf("Ready condition = %#v", condition)
+	}
+}
+
 func newV1Beta1TestScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	testScheme := runtime.NewScheme()
@@ -152,4 +203,15 @@ func requestFor(machine *infrastructurev1beta1.TartMachine) ctrl.Request {
 			Name:      machine.Name,
 		},
 	}
+}
+
+type nodeHealthObserverStub struct {
+	observation machinehealthdomain.NodeObservation
+}
+
+func (s nodeHealthObserverStub) Observe(
+	context.Context,
+	*infrastructurev1beta1.TartMachine,
+) (machinehealthdomain.NodeObservation, bool, error) {
+	return s.observation, true, nil
 }

@@ -14,14 +14,6 @@
     name: webhook-certs
     readOnly: true
 
-# Add the port configuration for the webhook server
-- op: add
-  path: /spec/template/spec/containers/0/ports/-
-  value:
-    containerPort: 9443
-    name: webhook-server
-    protocol: TCP
-
 # Add the volume configuration for the webhook certificates
 - op: add
   path: /spec/template/spec/volumes/-

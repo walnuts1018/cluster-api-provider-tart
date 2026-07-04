@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: tartmachinetemplates.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
@@ -110,3 +110,123 @@ spec:
         type: object
     served: true
     storage: true
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              template:
+                description: template is the TartMachine object template used by Cluster
+                  API controllers.
+                properties:
+                  metadata:
+                    description: metadata is applied to the generated TartMachine.
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
+                  spec:
+                    description: spec defines fields copied to a generated TartMachine.
+                    properties:
+                      deletionPolicy:
+                        description: deletionPolicy controls how State and Data are
+                          handled when the machine is deleted.
+                        enum:
+                        - WipeAll
+                        - RetainData
+                        - RetainState
+                        type: string
+                      hostSelector:
+                        description: hostSelector selects TartHosts by label.
+                        properties:
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: matchLabels selects hosts containing all
+                              listed labels.
+                            maxProperties: 64
+                            type: object
+                        type: object
+                      image:
+                        description: image identifies the digest-pinned OS artifact
+                          to install.
+                        properties:
+                          ref:
+                            description: ref is a digest-pinned OCI artifact reference.
+                            pattern: ^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$
+                            type: string
+                        required:
+                        - ref
+                        type: object
+                      platformProfile:
+                        description: platformProfile identifies the versioned platform
+                          configuration required by the machine.
+                        maxLength: 128
+                        minLength: 1
+                        type: string
+                      updatePolicy:
+                        default:
+                          mode: Replace
+                        description: updatePolicy selects replacement or experimental
+                          in-place updates.
+                        properties:
+                          mode:
+                            default: Replace
+                            description: mode selects machine replacement or an experimental
+                              in-place update.
+                            enum:
+                            - Replace
+                            - InPlace
+                            type: string
+                        type: object
+                    required:
+                    - deletionPolicy
+                    - image
+                    - platformProfile
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+        required:
+        - spec
+        type: object
+    served: false
+    storage: false

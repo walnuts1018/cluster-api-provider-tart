@@ -14,22 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1beta1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+)
 
-// TartClusterTemplateSpec defines the desired state of TartClusterTemplate.
 type TartClusterTemplateSpec struct {
 	// template is the TartCluster object template used by Cluster API controllers.
 	// +required
 	Template TartClusterTemplateResource `json:"template"`
 }
 
-// TartClusterTemplateResource describes the TartCluster created from a template.
 type TartClusterTemplateResource struct {
 	// metadata is applied to the generated TartCluster.
 	// +optional
-	ObjectMeta metav1.ObjectMeta `json:"metadata,omitempty"`
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
 	// spec defines the desired state of the generated TartCluster.
 	// +required
@@ -38,29 +39,22 @@ type TartClusterTemplateResource struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartclustertemplates,scope=Namespaced,categories=cluster-api
-// +kubebuilder:storageversion
-// TartClusterTemplate is the Schema for the tartclustertemplates API.
+// +kubebuilder:unservedversion
+
 type TartClusterTemplate struct {
-	metav1.TypeMeta `json:",inline"`
-
-	// metadata is a standard object metadata.
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitzero"`
-
-	// spec defines the desired state of TartClusterTemplate.
-	// +required
-	Spec TartClusterTemplateSpec `json:"spec"`
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+	Spec              TartClusterTemplateSpec `json:"spec"`
 }
 
 // +kubebuilder:object:root=true
 
-// TartClusterTemplateList contains a list of TartClusterTemplate.
 type TartClusterTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitzero"`
+	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartClusterTemplate `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&TartClusterTemplate{}, &TartClusterTemplateList{})
+	registerKnownTypes(&TartClusterTemplate{}, &TartClusterTemplateList{})
 }

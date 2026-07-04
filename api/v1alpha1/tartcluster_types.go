@@ -85,6 +85,7 @@ type ClusterInitialization struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=tartclusters,scope=Namespaced,categories=cluster-api
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Cluster",type=string,JSONPath=`.metadata.labels.cluster\.x-k8s\.io/cluster-name`,description="Cluster to which this TartCluster belongs"
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.ready`,description="Ready status"
 // +kubebuilder:printcolumn:name="Provisioned",type=string,JSONPath=`.status.initialization.provisioned`,description="Infrastructure provisioned"

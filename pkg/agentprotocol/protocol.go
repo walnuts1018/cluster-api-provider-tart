@@ -125,10 +125,12 @@ type Inventory struct {
 }
 
 type DiskInventory struct {
-	DevicePath   string `json:"devicePath"`
-	SerialNumber string `json:"serialNumber,omitempty"`
-	WWN          string `json:"wwn,omitempty"`
-	SizeBytes    int64  `json:"sizeBytes"`
+	DevicePath   string   `json:"devicePath"`
+	ByIDPaths    []string `json:"byIDPaths"`
+	SerialNumber string   `json:"serialNumber,omitempty"`
+	WWN          string   `json:"wwn,omitempty"`
+	SizeBytes    int64    `json:"sizeBytes"`
+	HoldsAgentOS bool     `json:"holdsAgentOS"`
 }
 
 type RegisterResponse struct {

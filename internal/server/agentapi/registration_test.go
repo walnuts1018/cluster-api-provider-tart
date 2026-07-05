@@ -29,6 +29,7 @@ func TestIsolatedL2RegistrationVerifier(t *testing.T) {
 		Inventory: agentprotocol.Inventory{
 			Disks: []agentprotocol.DiskInventory{{
 				DevicePath: "/dev/disk/by-id/test",
+				ByIDPaths:  []string{"/dev/disk/by-id/test"},
 				SizeBytes:  64 << 30,
 			}},
 		},

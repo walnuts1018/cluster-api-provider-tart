@@ -144,7 +144,7 @@ description = "GitHub Actions workflow を actionlint で検証する"
 run = "actionlint"
 
 [tasks.build]
-description = "manager バイナリをビルドする"
+description = "managerとProvisioning Agentバイナリをビルドする"
 run = '''
 mise run manifests
 mise run generate
@@ -152,6 +152,7 @@ mise run fmt
 mise run vet
 mkdir -p bin
 go build -o bin/manager cmd/main.go
+go build -o bin/provisioning-agent ./cmd/provisioning-agent
 '''
 
 [tasks.run]

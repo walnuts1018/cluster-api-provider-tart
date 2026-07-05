@@ -67,7 +67,8 @@
 
 ## 実装状況
 
-2026-07-05時点で、誤disk破壊を防ぐ境界とNetwork Serverの対象制御を先行実装した。
+2026-07-05時点で、誤disk破壊を防ぐ境界、Network Serverの対象制御、Agentがcontrollerへ
+接続するまでのruntime境界を先行実装した。
 Plan schemaは未リリースのため互換層を設けず、`operationType`、Update時の`activeSlot`、
 `rootDevice.deviceName`を直接追加した。
 
@@ -89,13 +90,19 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 - `internal/provisioningagent/disk`: 複数identityを全て満たす唯一diskの選択
 - `internal/provisioningagent/plan`: Provision/Update別の書込み可能Disk Role検証
 - `internal/provisioningagent/payload`: 1 MiB単位write、10%進捗、fsync、read-back digest検証
+- `internal/provisioningagent/inventory`: sysfs、`/dev/disk/by-id`、mountinfoからwhole diskと
+  Agent一時OS保持deviceを収集
+- `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
+  Plan digestとEd25519署名をAgent側で検証
 - `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
 - `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
+- `cmd/provisioning-agent`: register、Plan取得、disk選択までを実行する
+  `--preflight-only`診断binary。通常のdisk実行は未接続
 
 残作業:
 
-- Linux inventory収集とAgent API client/binary
-- `amd64-uefi-ab/v1`のpartition作成とDisk Role解決
+- `amd64-uefi-ab/v1`のpartition作成とDisk Role解決、および診断binaryから
+  `internal/provisioningagent.Service`への実行接続
 - Agent Artifactの署名検証、配信、iPXE script生成
 - verity root hash検証、boot trial metadata更新、failure injection
 - 実クラスタでのleader切替試験

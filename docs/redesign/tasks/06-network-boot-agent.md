@@ -103,6 +103,14 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
   Plan digestとEd25519署名をAgent側で検証
 - `internal/provisioningagent/progress`: register responseの保存済みsequenceから再開し、同一requestを
   再試行可能なAgent progress reporter
+- `pkg/agentartifact`: Agent Artifactのdigest固定OCI参照、対象architecture/firmware/Profile、
+  kernel/initrd descriptor、RFC 8785 canonical JSON、Ed25519署名を検証
+- `internal/adapter/k8s/agentboot`: boot MACから`amd64-uefi-ab/v1` Hostと
+  `PreparingBoot`から`Verifying`までのactive Operationを解決
+- `internal/domain/agentboot`: credentialを含めず、Agent API URL、Host UID、Operation UID、
+  boot MACだけを渡すUEFI amd64向けiPXE scriptを生成
+- `internal/server/agentboot`: 起動時に署名とpayload digest/sizeを検証し、検証時に開いた
+  file descriptorからdigest固定URLでkernel/initrdをHTTPS配信。leaderだけがlistenerを開始
 - `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
 - `internal/adapter/k8s/agentprogress`: 10%刻みのstep/role/percent、完了Step、最大sequenceを
   Operation Statusへ保存し、Writing/Verifying Phaseへ進める
@@ -116,9 +124,21 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 Write/Verify完了StepをOperationへ保存する処理まで実装した。再登録時はStatusのagentSequenceを
 register responseで返し、Agentが次の番号から再開する。
 
+同日、Agent Artifactの署名・kernel/initrd digest/size検証、固定digest URLによるHTTPS配信、
+v1beta1 Host/OperationからのiPXE script生成を実装した。`--agent-artifact-root`を指定すると、
+同directoryの`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`を
+controller起動時に検証する。信頼する公開鍵はArtifactと別のread-only mountに置き、
+`--agent-artifact-public-key-file`で指定する。検証に成功したfile descriptorを保持するため、
+検証後のpath差し替えを配信しない。Agent Artifact配信を有効にする場合は
+`--agent-artifact-key-id`、`--agent-artifact-public-key-file`、
+`--agent-artifact-base-url`、`--agent-api-url`、`--agent-boot-cert-file`、
+`--agent-boot-key-file`も必須とする。
+
 残作業:
 
-- Agent Artifactの署名検証、配信、iPXE script生成
+- Provisioning Agentを含む実Agent Artifactのbuild/publishとcontroller Podへのread-only mount
+- HTTPS対応iPXE binaryから実Agent Artifactを起動し、initramfsが`provisioning-agent`へ
+  kernel command lineを渡す実機またはOVMF試験
 - verity root hash検証、boot trial metadata更新、failure injection
 - 実クラスタでのleader切替試験
 

@@ -49,5 +49,14 @@ A/Bの区別は一意なGPT labelで行い、OS起動時のmountはAgentが報�
 - Update Planは`sfdisk --json`による既存レイアウト検証だけを行い、partition tableを変更しない。
 - `sfdisk`完了後は`udevadm settle --timeout=30`を待ってからRoleを解決する。
 - Agent Artifactには`blockdev`、`sfdisk`、`udevadm`を含める。
+- Agent Artifact manifestは`application/vnd.tart.provisioning-agent.v1`とし、digest固定OCI参照、
+  `architecture=amd64`、`firmware=UEFI`、`platformProfile=amd64-uefi-ab/v1`、
+  kernel/initrdのSHA-256 digestとsizeを署名対象へ含める。
+- controllerへmountするAgent Artifact directoryは`manifest.json`、
+  `manifest.signature.json`、`vmlinuz`、`initrd`を持つ。信頼する公開鍵はArtifactとは
+  別のread-only mountからcontrollerへ渡す。
+- iPXE scriptは`controller-url`、Host UID、Operation UID、boot MACだけを
+  `tart.agent.*` kernel parameterとして渡す。Initial Credential、Session Token、
+  Bootstrap Dataをscriptまたはkernel command lineへ含めない。
 - `--prepare-layout-only`は署名済みPlan、deadline、disk identity、許可Roleの検証後だけ実行する。
   Provisionでは選択diskの既存partitionを破壊する診断オプションとして扱う。

@@ -41,3 +41,5 @@ dist/
 artifact/mkosi/mkosi.cache/
 artifact/mkosi/mkosi.output/
 artifact/mkosi/mkosi.packages/
+
+.agents/*

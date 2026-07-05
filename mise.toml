@@ -110,9 +110,9 @@ description = "golangci-lint を実行する"
 run = '''
 mise run ensure-custom-golangci-lint
 if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint run
+  bin/golangci-lint run --fix
 else
-  golangci-lint run
+  golangci-lint run --fix
 fi
 mise run actionlint
 '''

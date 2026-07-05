@@ -6,6 +6,7 @@
 kind = "latest"
 kubebuilder = "latest"
 kubectl = "latest"
+jq = "latest"
 tilt = "latest"
 golangci-lint = "latest"
 actionlint = "latest"
@@ -257,6 +258,54 @@ go run ./hack/artifact-oci \
   -initrd "$ARTIFACT_INITRD" \
   -sbom "$ARTIFACT_SBOM" \
   -provenance "$ARTIFACT_PROVENANCE"
+'''
+
+[tasks.artifact-provenance]
+description = "Artifact Manifestとlock fileからSLSA provenanceを生成する"
+run = '''
+: "${ARTIFACT_SOURCE_URI:?ARTIFACT_SOURCE_URI is required}"
+: "${ARTIFACT_SOURCE_REVISION:?ARTIFACT_SOURCE_REVISION is required}"
+: "${ARTIFACT_BUILDER_ID:?ARTIFACT_BUILDER_ID is required}"
+artifact_output="${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
+go run ./hack/artifact-provenance \
+  -manifest "$artifact_output/manifest.json" \
+  -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
+  -source-uri "$ARTIFACT_SOURCE_URI" \
+  -source-revision "$ARTIFACT_SOURCE_REVISION" \
+  -builder-id "$ARTIFACT_BUILDER_ID" \
+  -output "$artifact_output/provenance.intoto.json"
+'''
+
+[tasks.artifact-download-inputs]
+description = "lock fileで固定したArtifact build入力を取得して検証する"
+run = '''
+go run ./hack/locked-download \
+  -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
+  -output-dir artifact/mkosi/mkosi.packages
+'''
+
+[tasks.artifact-build-mkosi]
+description = "mkosiでUbuntu OS/Verity payloadを生成する（Linux専用）"
+depends = ["artifact-download-inputs"]
+run = '''
+if [ "$(uname -s)" != Linux ]; then
+  echo "artifact-build-mkosi requires Linux" >&2
+  exit 1
+fi
+lock="${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}"
+snapshot="$(jq -er '.ubuntuSnapshot' "$lock")"
+source_date_epoch="$(jq -er '.sourceDateEpoch' "$lock")"
+mkosi \
+  --directory artifact/mkosi \
+  --snapshot "$snapshot" \
+  --source-date-epoch "$source_date_epoch" \
+  build
+bash artifact/mkosi/normalize-output.sh \
+  artifact/mkosi/mkosi.output \
+  "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}"
+go run ./hack/mkosi-sbom \
+  -input "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/packages.json" \
+  -output "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/sbom.cdx.json"
 '''
 
 

@@ -36,3 +36,8 @@ go.work.sum
 .cache/
 .worktree/
 dist/
+
+# OS Artifact build outputs and downloaded locked packages
+artifact/mkosi/mkosi.cache/
+artifact/mkosi/mkosi.output/
+artifact/mkosi/mkosi.packages/

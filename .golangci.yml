@@ -6,10 +6,14 @@ linters:
   enable:
     - asasalint
     - containedctx
+    - contextcheck
     - copyloopvar
     - dupl
     - durationcheck
     - errcheck
+    - exhaustive
+    - fatcontext
+    - forbidigo
     - ginkgolinter
     - gocheckcompilerdirectives
     - goconst
@@ -24,6 +28,8 @@ linters:
     - modernize
     - nakedret
     - nilerr
+    - nilnil
+    - noctx
     - nolintlint
     - prealloc
     - predeclared
@@ -44,6 +50,10 @@ linters:
     revive:
       rules:
         - name: comment-spacings
+    exhaustive:
+      check:
+        - switch
+        - map
   exclusions:
     generated: lax
     rules:

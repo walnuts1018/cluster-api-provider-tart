@@ -15,6 +15,11 @@ const (
 	DecisionInvalid   Decision = "Invalid"
 )
 
+const (
+	phaseWriting   = "Writing"
+	phaseVerifying = "Verifying"
+)
+
 type Progress struct {
 	Step      string
 	DiskRole  string
@@ -35,7 +40,7 @@ type Evaluation struct {
 
 func NextPhase(current string, progress Progress) string {
 	switch current {
-	case "WaitingForAgent", "Writing", "Verifying":
+	case "WaitingForAgent", phaseWriting, phaseVerifying:
 	case "Pending", "PreparingBoot", "BootTrial", "AwaitingHealth",
 		"DistributionUpdating", "RollingBack", "Succeeded", "Failed", "RecoveryRequired":
 		return current
@@ -45,11 +50,11 @@ func NextPhase(current string, progress Progress) string {
 	switch progress.Step {
 	case agentprotocol.StepWriteImage:
 		if progress.Completed {
-			return "Verifying"
+			return phaseVerifying
 		}
-		return "Writing"
+		return phaseWriting
 	case agentprotocol.StepVerifyImage:
-		return "Verifying"
+		return phaseVerifying
 	}
 	return current
 }

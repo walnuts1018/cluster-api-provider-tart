@@ -1,0 +1,103 @@
+name: OS Artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified artifact to GHCR.
+        required: true
+        type: boolean
+        default: false
+      image_tag:
+        description: Immutable build tag used when publishing.
+        required: true
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu-24-04-amd64:
+    name: Ubuntu 24.04 amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      - name: Setup mkosi
+        uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
+
+      - name: Build OS and Verity payloads
+        run: mise run artifact-build-mkosi
+
+      - name: Prepare signing key
+        id: signing
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.OS_ARTIFACT_SIGNING_KEY }}
+        run: |
+          umask 077
+          if [ -n "$RELEASE_SIGNING_KEY" ]; then
+            printf '%s' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/os-artifact-signing-key.pem"
+            echo "key-id=release-v1" >> "$GITHUB_OUTPUT"
+          else
+            openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/os-artifact-signing-key.pem"
+            echo "key-id=github-actions-ephemeral" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate signed Artifact Manifest
+        env:
+          ARTIFACT_IMAGE: dist/os-artifact/os.img
+          ARTIFACT_VERITY: dist/os-artifact/os.verity
+          ARTIFACT_KERNEL: dist/os-artifact/vmlinuz
+          ARTIFACT_INITRD: dist/os-artifact/initrd
+          ARTIFACT_SIGNING_KEY: ${{ runner.temp }}/os-artifact-signing-key.pem
+          ARTIFACT_SIGNING_KEY_ID: ${{ steps.signing.outputs.key-id }}
+          ARTIFACT_OUTPUT_DIR: dist/os-artifact
+        run: |
+          ARTIFACT_VERITY_ROOT_HASH="$(tr -d '\n' < dist/os-artifact/verity-root-hash)"
+          export ARTIFACT_VERITY_ROOT_HASH
+          mise run artifact-manifest
+
+      - name: Generate provenance
+        env:
+          ARTIFACT_OUTPUT_DIR: dist/os-artifact
+          ARTIFACT_SOURCE_URI: https://github.com/${{ github.repository }}
+          ARTIFACT_SOURCE_REVISION: ${{ github.sha }}
+          ARTIFACT_BUILDER_ID: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: mise run artifact-provenance
+
+      - name: Upload build evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ubuntu-24.04-amd64-os-artifact
+          path: |
+            dist/os-artifact/manifest.json
+            dist/os-artifact/manifest.signature.json
+            dist/os-artifact/sbom.cdx.json
+            dist/os-artifact/provenance.intoto.json
+            dist/os-artifact/packages.json
+            dist/os-artifact/verity-root-hash
+          if-no-files-found: error
+
+      - name: Publish OCI Artifact
+        if: inputs.publish
+        env:
+          ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository }}-os-ubuntu-24.04-amd64
+          ARTIFACT_TAG: ${{ inputs.image_tag }}
+          ARTIFACT_OUTPUT_DIR: dist/os-artifact
+          ARTIFACT_IMAGE: dist/os-artifact/os.img
+          ARTIFACT_VERITY: dist/os-artifact/os.verity
+          ARTIFACT_KERNEL: dist/os-artifact/vmlinuz
+          ARTIFACT_INITRD: dist/os-artifact/initrd
+          ARTIFACT_SBOM: dist/os-artifact/sbom.cdx.json
+          ARTIFACT_PROVENANCE: dist/os-artifact/provenance.intoto.json
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise run artifact-push

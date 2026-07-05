@@ -83,3 +83,33 @@ Ubuntu 24.04 amd64のOS/Verity SlotとProvisioning Agentを、固定入力から
 
 - ADR 0003、0006、0009
 - Issue #147
+
+## 実装状況（2026-07-05）
+
+Task 01のboot方式比較は保留したまま、Task 04を解放するManifest契約とmkosi案の実装を先行した。
+
+実装済み:
+
+- `pkg/artifact`にManifest v1のGo型、検証済み型、RFC 8785 canonical JSON、digest計算を追加した。
+- Ed25519によるManifest署名・検証と、payloadのsize/SHA-256事前検証を追加した。
+- `artifact/schema/os-manifest-v1.schema.json`にProtocol共有用JSON Schemaを追加した。
+- Ubuntu snapshot、mkosi v26 commit、Kubernetes v1.35.0 amd64 debのURL・size・SHA-256をlock fileへ固定した。
+- lock fileに一致する入力だけをatomicに配置するdownload処理とmise taskを追加した。
+- mkosi/systemd-repartで8 GiB ext4 rootとdetached dm-verity hashを分離出力する設定を追加した。
+- mkosi package manifestからCycloneDX 1.6 SBOMを生成する処理を追加した。
+- Artifact Manifestとlock fileからSLSA provenance v1を生成する処理を追加した。
+- OS/Verity/kernel/initrd、Manifest、署名、SBOM、provenanceをOCI Artifactへまとめ、digest固定参照を出力する処理を追加した。
+- Linux上のbuild確認とGHCR公開を行うGitHub Actions workflowを追加した。
+
+未検証・未実装:
+
+- mkosi案の初回Linux buildは、全Ubuntu snapshot timestampで`503 Service Unavailable`となり、
+  filesystem生成前に停止した。入力固定を外して通常mirrorへfallbackせず、snapshot endpointの
+  1秒/2秒backoff付き事前検査を追加した。成果物名と2回buildの一致はservice復旧後に再検証する。
+- dm-verity block改変検出、read-only root boot、x86-64-v1 QEMU bootはTask 01の保留に伴い未検証。
+- State/Data bind mount契約とbootloader方式はTask 01の測定結果がないため確定していない。
+- Image Builder raw変換案とAnsible role再利用案の比較は未実施で、ADR 0009は`Proposed`のままとする。
+- Provisioning Agent Artifact、release用署名鍵の運用、controller/Agent双方への署名検証接続は未実装。
+
+mkosi設定の`Bootloader=systemd-boot`はkernel/initrdをbuild成果物として取り出すための暫定値であり、物理diskの既定bootloader採用を意味しない。
+Task 01のboot trial検証後にPlatform Profileのbootloaderと一致させること。

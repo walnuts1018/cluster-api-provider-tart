@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "sourceDateEpoch": 1783204483,
+  "ubuntuSnapshot": "20260704T223443Z",
+  "mkosi": {
+    "version": "26",
+    "commit": "84af20892b61c8e177e391f997ded8b4cb5514f2"
+  },
+  "files": [
+    {
+      "name": "cri-tools_1.35.0-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.35/deb/amd64/cri-tools_1.35.0-1.1_amd64.deb",
+      "sizeBytes": 16247240,
+      "sha256": "325b0d3731cb1daf210da5026a1d9ea35f5d63cab156c8817c0e136e36a60788"
+    },
+    {
+      "name": "kubeadm_1.35.0-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.35/deb/amd64/kubeadm_1.35.0-1.1_amd64.deb",
+      "sizeBytes": 12389220,
+      "sha256": "42038aa8c2d7125ca788c611287f38ffcd2e2b1df2d067a2263bd2f2b59a616b"
+    },
+    {
+      "name": "kubectl_1.35.0-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.35/deb/amd64/kubectl_1.35.0-1.1_amd64.deb",
+      "sizeBytes": 11489760,
+      "sha256": "94817c028e5e968b359c2d35fcf9de9150ee59a29811de26502aa8652ddb15a1"
+    },
+    {
+      "name": "kubelet_1.35.0-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.35/deb/amd64/kubelet_1.35.0-1.1_amd64.deb",
+      "sizeBytes": 12915928,
+      "sha256": "3c86d42fdd5607afa409ace33100d9a5993285f0b8e707878e3151778231f4eb"
+    },
+    {
+      "name": "kubernetes-cni_1.8.0-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.35/deb/amd64/kubernetes-cni_1.8.0-1.1_amd64.deb",
+      "sizeBytes": 38926236,
+      "sha256": "39fbccec875ea73bda221cc6777b1344733bd81c875aa1faa5271854f9c7f9c5"
+    }
+  ]
+}

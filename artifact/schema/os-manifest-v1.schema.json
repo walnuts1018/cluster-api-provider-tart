@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cluster-api-provider-tart.walnuts.dev/schema/os-manifest-v1.schema.json",
+  "title": "Tart OS Artifact Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "mediaType",
+    "os",
+    "architecture",
+    "filesystem",
+    "image",
+    "verity",
+    "stateSchema",
+    "kubernetes",
+    "boot",
+    "requirements",
+    "generation",
+    "platformProfile"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "mediaType": {
+      "const": "application/vnd.tart.os-slot.v1"
+    },
+    "os": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "version"],
+      "properties": {
+        "family": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "architecture": {
+      "type": "string",
+      "minLength": 1
+    },
+    "filesystem": {
+      "type": "string",
+      "minLength": 1
+    },
+    "image": {
+      "$ref": "#/$defs/payload"
+    },
+    "verity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "sizeBytes", "rootHash"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "sizeBytes": {"type": "integer", "minimum": 1},
+        "rootHash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "stateSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": {"type": "integer", "minimum": 1},
+        "max": {"type": "integer", "minimum": 1}
+      }
+    },
+    "kubernetes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["distribution", "version"],
+      "properties": {
+        "distribution": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "minLength": 1}
+      }
+    },
+    "boot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernelDigest", "initrdDigest"],
+      "properties": {
+        "kernelDigest": {"$ref": "#/$defs/digest"},
+        "initrdDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpuLevel"],
+      "properties": {
+        "cpuLevel": {"type": "string", "minLength": 1}
+      }
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "platformProfile": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)+$"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "sizeBytes"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/digest"},
+        "sizeBytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

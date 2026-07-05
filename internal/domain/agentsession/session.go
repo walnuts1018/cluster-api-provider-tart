@@ -21,7 +21,6 @@ var (
 	ErrInvalidTTL     = errors.New("session token TTL must be greater than zero")
 	ErrInvalidBinding = errors.New("session token requires host and operation UID")
 	ErrInvalidDigest  = errors.New("session token digest is invalid")
-	ErrAuthentication = errors.New("session authentication failed")
 )
 
 type Token struct {

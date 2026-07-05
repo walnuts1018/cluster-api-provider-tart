@@ -230,9 +230,26 @@ func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	bundle, err := handler.config.Bootstrap.GetBootstrapBundle(request.Context(), key)
+	if errors.Is(err, agentprotocol.ErrUnsupportedBootstrapFormat) {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "unsupported_format", "Bootstrap format is not supported")
+		return
+	}
+	if errors.Is(err, agentprotocol.ErrBootstrapTooLarge) {
+		handler.writeError(writer, http.StatusRequestEntityTooLarge, "response_too_large", "Bootstrap response exceeds 16 MiB")
+		return
+	}
+	validationErr := agentprotocol.ValidateBootstrapBundle(bundle)
+	if errors.Is(validationErr, agentprotocol.ErrUnsupportedBootstrapFormat) {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "unsupported_format", "Bootstrap format is not supported")
+		return
+	}
+	if errors.Is(validationErr, agentprotocol.ErrBootstrapTooLarge) {
+		handler.writeError(writer, http.StatusRequestEntityTooLarge, "response_too_large", "Bootstrap response exceeds 16 MiB")
+		return
+	}
 	if err != nil ||
 		bundle.OperationUID != operation.Spec.OperationID ||
-		agentprotocol.ValidateBootstrapBundle(bundle) != nil {
+		validationErr != nil {
 		handler.notFound(writer)
 		return
 	}

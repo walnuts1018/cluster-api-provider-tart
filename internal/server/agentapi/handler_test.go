@@ -170,6 +170,58 @@ func TestHandlerRejectsRequestLargerThanOneMiB(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
+	tests := []struct {
+		name       string
+		bundle     agentprotocol.BootstrapBundle
+		wantStatus int
+	}{
+		{
+			name: "unsupported format",
+			bundle: agentprotocol.BootstrapBundle{
+				APIVersion:    agentprotocol.APIVersion,
+				Format:        "ignition",
+				Payload:       []byte("payload"),
+				PayloadDigest: digest.FromBytes([]byte("payload")).String(),
+				MachineUID:    "machine-uid",
+				OperationUID:  "operation-uid",
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name: "oversized payload",
+			bundle: func() agentprotocol.BootstrapBundle {
+				payload := make([]byte, agentprotocol.MaxBootstrapPayloadBytes+1)
+				return agentprotocol.BootstrapBundle{
+					APIVersion:    agentprotocol.APIVersion,
+					Format:        agentprotocol.BootstrapFormatCloud,
+					Payload:       payload,
+					PayloadDigest: digest.FromBytes(payload).String(),
+					MachineUID:    "machine-uid",
+					OperationUID:  "operation-uid",
+				}
+			}(),
+			wantStatus: http.StatusRequestEntityTooLarge,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, token := newAuthenticatedHandler(t, staticBootstrap{bundle: test.bundle})
+			response := performJSONRequest(
+				t,
+				handler,
+				http.MethodGet,
+				"/v1/operations/operation-uid/bootstrap",
+				token,
+				nil,
+			)
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, test.wantStatus, response.Body.String())
+			}
+		})
+	}
+}
+
 func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handler, string) {
 	t.Helper()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}

@@ -24,8 +24,9 @@ const (
 )
 
 var (
-	uidPattern     = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`)
-	diskRoleValues = map[DiskRole]struct{}{
+	uidPattern         = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`)
+	artifactRefPattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
+	diskRoleValues     = map[DiskRole]struct{}{
 		DiskRoleBoot:    {},
 		DiskRoleOSA:     {},
 		DiskRoleOSB:     {},
@@ -34,6 +35,8 @@ var (
 		DiskRoleState:   {},
 		DiskRoleData:    {},
 	}
+	ErrUnsupportedBootstrapFormat = errors.New("unsupported bootstrap format")
+	ErrBootstrapTooLarge          = errors.New("bootstrap response exceeds 16 MiB")
 )
 
 type DiskRole string
@@ -187,8 +190,8 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 		return ValidatedPlan{}, errors.New("rootDevice.minSizeBytes must be greater than zero")
 	case plan.RootDevice.SerialNumber == "" && plan.RootDevice.WWN == "":
 		return ValidatedPlan{}, errors.New("rootDevice requires serialNumber or wwn")
-	case plan.Artifact.Ref == "":
-		return ValidatedPlan{}, errors.New("artifact.ref is required")
+	case !artifactRefPattern.MatchString(plan.Artifact.Ref):
+		return ValidatedPlan{}, errors.New("artifact.ref must be a digest-pinned OCI reference")
 	case !validSHA256Digest(plan.Artifact.ManifestDigest):
 		return ValidatedPlan{}, errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
 	case plan.Artifact.Generation == 0:
@@ -261,11 +264,11 @@ func ValidateBootstrapBundle(bundle BootstrapBundle) error {
 	case bundle.APIVersion != APIVersion:
 		return fmt.Errorf("unsupported apiVersion: %q", bundle.APIVersion)
 	case bundle.Format != BootstrapFormatCloud:
-		return fmt.Errorf("unsupported bootstrap format: %q", bundle.Format)
+		return fmt.Errorf("%w: %q", ErrUnsupportedBootstrapFormat, bundle.Format)
 	case len(bundle.Payload) == 0:
 		return errors.New("payload must not be empty")
 	case len(bundle.Payload) > MaxBootstrapPayloadBytes:
-		return errors.New("payload is too large for a 16 MiB Bootstrap response")
+		return ErrBootstrapTooLarge
 	case !validSHA256Digest(bundle.PayloadDigest):
 		return errors.New("payloadDigest must be a canonical SHA-256 digest")
 	case digest.FromBytes(bundle.Payload).String() != bundle.PayloadDigest:

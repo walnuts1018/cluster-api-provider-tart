@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/retry"
@@ -72,10 +73,8 @@ func (service *Service) Report(
 }
 
 func appendStep(steps []string, step string) []string {
-	for _, existing := range steps {
-		if existing == step {
-			return steps
-		}
+	if slices.Contains(steps, step) {
+		return steps
 	}
 	return append(steps, step)
 }

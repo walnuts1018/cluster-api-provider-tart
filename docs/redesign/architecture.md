@@ -395,19 +395,18 @@ Agent APIはOperation IDとPlan Digestをidempotency keyとする。進捗は`Ta
 
 ### Initial credential
 
-最初のSession CredentialをAgentへ渡す方式はPlatform Capabilityごとに異なる。
+最初のSession CredentialをAgentへ渡す方式は[ADR 0011](adr/0011-initial-agent-credential.md)に従い、
+Platform Capabilityごとに異なる。
 
-- `HardwareBound`方式: TPM attestation、事前登録Host key、またはBMCで保護されたVirtual Mediaを使う。
-- `IsolatedL2`方式: 隔離Provisioning L2、HTTPS server pinning、OperationへbindingしたSession Credentialを使う。
+- `MutualTLS`方式: TPM等で保護した事前登録Host client certificateを使う。
+- `SignedChallenge`方式: TPM等で保護した事前登録Host keyを使う。
+- `BMCProtectedMedia`方式: OperationごとのcredentialをBMCで保護されたVirtual Mediaへ置く。
+- `IsolatedL2`方式: Initial secretを配らず、隔離Provisioning L2とHTTPS server pinningを使い、
+  register responseでOperationへbindingしたSession Tokenを返す。
 
-後者は悪意あるL2参加者に対するHost identityを提供しない。Secure Boot/TPMを持たないLegacy BIOS機ではこの制約を明記し、同等の強度を主張しない。
-
-未決定:
-
-- 選択肢: TPM attestation / 事前登録Host key / BMC保護media / 隔離L2用の一時credential
-- 決定タスク: Task 04
-- 判定基準: credentialがURL query、公開iPXE script、kernel command line、access logへ現れないこと
-- 決定まで禁止する実装: Bootstrap DataをAgentへ配信するproduction endpointの有効化
+`IsolatedL2`は悪意あるL2参加者に対するHost identityを提供しない。Secure Boot/TPMを持たない
+Legacy BIOS機ではこの制約をStatusと利用者文書へ明記し、同等の強度を主張しない。
+全方式でcredentialをURL query、公開iPXE script、kernel command line、access logへ出すことを禁止する。
 
 ### Bootstrap bundle
 

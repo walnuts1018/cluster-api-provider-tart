@@ -1,7 +1,6 @@
 package agentprogress
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -16,7 +15,7 @@ import (
 )
 
 func TestServiceAppliesSequenceOneTwoTwoOneFourThree(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {

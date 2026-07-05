@@ -1,7 +1,6 @@
 package agentapi
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
@@ -22,7 +21,7 @@ import (
 func TestPlanWriterPersistsImmutableSignedPlan(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	operation, plan, signature := planWriterFixture(t)
 	k8sClient := newPlanWriterClient(t, operation)
 	writer := NewPlanWriter(k8sClient)
@@ -62,7 +61,7 @@ func TestPlanWriterRejectsOperationDigestMismatch(t *testing.T) {
 	operation, plan, signature := planWriterFixture(t)
 	operation.Spec.PlanDigest = digest.FromString("different").String()
 	err := NewPlanWriter(newPlanWriterClient(t, operation)).Write(
-		context.Background(),
+		t.Context(),
 		operation,
 		plan,
 		signature,

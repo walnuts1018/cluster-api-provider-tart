@@ -54,6 +54,9 @@ linters:
       check:
         - switch
         - map
+    usetesting:
+      context-background: true
+      context-todo: true
   exclusions:
     generated: lax
     rules:

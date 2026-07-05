@@ -1,7 +1,6 @@
 package agentapi
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -23,7 +22,7 @@ import (
 )
 
 func TestProviderResolvesOperationAndReadsSignedPlan(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	operation := testOperation()
 	plan := testPlan()
 	validated, err := agentprotocol.ValidatePlan(plan)
@@ -69,7 +68,7 @@ func TestProviderResolvesOperationAndReadsSignedPlan(t *testing.T) {
 }
 
 func TestProviderBuildsBootstrapBundleFromCABPKSecret(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	operation := testOperation()
 	machineUID := types.UID("capi-machine-uid")
 	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{

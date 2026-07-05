@@ -1,7 +1,6 @@
 package artifactoci
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -43,11 +42,11 @@ func TestPackCreatesExpectedArtifact(t *testing.T) {
 		}
 	})
 
-	descriptor, err := Pack(context.Background(), store, input)
+	descriptor, err := Pack(t.Context(), store, input)
 	if err != nil {
 		t.Fatalf("Pack() error = %v", err)
 	}
-	reader, err := store.Fetch(context.Background(), descriptor)
+	reader, err := store.Fetch(t.Context(), descriptor)
 	if err != nil {
 		t.Fatalf("store.Fetch() error = %v", err)
 	}
@@ -85,7 +84,7 @@ func TestPackRejectsChangedPayload(t *testing.T) {
 		}
 	})
 
-	if _, err := Pack(context.Background(), store, input); err == nil {
+	if _, err := Pack(t.Context(), store, input); err == nil {
 		t.Fatal("Pack() error = nil, want payload verification error")
 	}
 }
@@ -103,7 +102,7 @@ func packInNewStore(t *testing.T, input Input) ocispec.Descriptor {
 		}
 	}()
 
-	descriptor, err := Pack(context.Background(), store, input)
+	descriptor, err := Pack(t.Context(), store, input)
 	if err != nil {
 		t.Fatalf("Pack() error = %v", err)
 	}

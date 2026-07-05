@@ -1,7 +1,6 @@
 package provisioning
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +51,7 @@ func TestCreateClusterctlConfigReturnsExistingConfigPath(t *testing.T) {
 		},
 	}
 
-	clusterctlConfigPath := createClusterctlConfig(context.Background(), config, tempDir)
+	clusterctlConfigPath := createClusterctlConfig(t.Context(), config, tempDir)
 	if _, err := os.Stat(clusterctlConfigPath); err != nil {
 		t.Fatalf("expected clusterctl config at %s: %v", clusterctlConfigPath, err)
 	}

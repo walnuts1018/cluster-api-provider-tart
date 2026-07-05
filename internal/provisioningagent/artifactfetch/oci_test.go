@@ -22,7 +22,7 @@ func TestOCIFetchVerifiesMetadataBeforeReturningPayloads(t *testing.T) {
 	t.Parallel()
 
 	source, request, repo, image, verity := newTestSource(t)
-	fetched, err := source.Fetch(context.Background(), request, "amd64-uefi-ab/v1")
+	fetched, err := source.Fetch(t.Context(), request, "amd64-uefi-ab/v1")
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestOCIFetchRejectsPlanIdentityMismatchBeforePayloadFetch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			source, request, repo, _, _ := newTestSource(t)
 			test.mutate(&request)
-			if _, err := source.Fetch(context.Background(), request, "amd64-uefi-ab/v1"); err == nil {
+			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab/v1"); err == nil {
 				t.Fatal("Fetch() accepted mismatched Plan identity")
 			}
 			if repo.payloadFetchCount != 0 {
@@ -233,7 +233,7 @@ func testDescriptor(data []byte, mediaType string) ocispec.Descriptor {
 
 func assertPayload(t *testing.T, payload Payload, expected []byte) {
 	t.Helper()
-	reader, err := payload.Open(context.Background())
+	reader, err := payload.Open(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

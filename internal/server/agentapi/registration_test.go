@@ -1,7 +1,6 @@
 package agentapi
 
 import (
-	"context"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,11 +34,11 @@ func TestIsolatedL2RegistrationVerifier(t *testing.T) {
 		},
 	}
 	verifier := IsolatedL2RegistrationVerifier{}
-	if err := verifier.Verify(context.Background(), operation, "", request); err != nil {
+	if err := verifier.Verify(t.Context(), operation, "", request); err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
 	request.HostUID = "other-host"
-	if err := verifier.Verify(context.Background(), operation, "", request); err == nil {
+	if err := verifier.Verify(t.Context(), operation, "", request); err == nil {
 		t.Fatal("Verify() accepted another Host UID")
 	}
 }

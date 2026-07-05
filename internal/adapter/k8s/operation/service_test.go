@@ -1,7 +1,6 @@
 package operation
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -20,7 +19,7 @@ import (
 )
 
 func TestServiceStartAllowsOneConcurrentOperationPerHost(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient := newFakeClient(t)
 	service := NewService(k8sClient)
 
@@ -69,7 +68,7 @@ func TestServiceStartAllowsOneConcurrentOperationPerHost(t *testing.T) {
 func TestServiceStartIsIdempotentForSameOperation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient := newFakeClient(t)
 	service := NewService(k8sClient)
 	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
@@ -90,7 +89,7 @@ func TestServiceStartIsIdempotentForSameOperation(t *testing.T) {
 func TestServiceStartKeepsExistingDeadlineForSameOperation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient := newFakeClient(t)
 	service := NewService(k8sClient)
 	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
@@ -114,7 +113,7 @@ func TestServiceStartKeepsExistingDeadlineForSameOperation(t *testing.T) {
 func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	old := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
 	name, err := operationdomain.ResourceName(string(old.Spec.HostRef.UID))
 	if err != nil {
@@ -147,7 +146,7 @@ func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 func TestServiceCompleteProvisionTransitionsAwaitingHealthOnce(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	operation := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
 	name, err := operationdomain.ResourceName(string(operation.Spec.HostRef.UID))
 	if err != nil {

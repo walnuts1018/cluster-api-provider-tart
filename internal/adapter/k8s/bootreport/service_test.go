@@ -29,7 +29,7 @@ func (provider staticPlanProvider) GetPlan(
 }
 
 func TestServiceRecordsIncompleteBootAndAdvancesWhenComplete(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	service, k8sClient, key, planDigest := newTestService(t)
 	firstTime := metav1.NewTime(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
 	incomplete := agentprotocol.BootReportRequest{
@@ -78,7 +78,7 @@ func TestServiceRecordsIncompleteBootAndAdvancesWhenComplete(t *testing.T) {
 }
 
 func TestServiceRejectsConflictingReportAfterBootCompletion(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	service, _, key, planDigest := newTestService(t)
 	report := agentprotocol.BootReportRequest{
 		APIVersion:         agentprotocol.APIVersion,

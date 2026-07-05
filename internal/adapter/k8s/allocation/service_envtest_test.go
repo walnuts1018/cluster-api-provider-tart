@@ -33,7 +33,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 		t.Fatalf("start envtest: %v", err)
 	}
 	t.Cleanup(func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		stopCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
 		defer cancel()
 		stopped := make(chan error, 1)
 		go func() {
@@ -57,7 +57,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 	if err != nil {
 		t.Fatalf("create Kubernetes client: %v", err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	host := matchingHost()
 	host.ResourceVersion = ""
 	desiredStatus := host.Status

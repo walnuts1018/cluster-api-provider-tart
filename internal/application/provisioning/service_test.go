@@ -17,7 +17,7 @@ import (
 func TestServiceBeginUsesBootMACAndMarksProvisioning(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	host := &infrastructurev1alpha1.TartHost{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "host-a",
@@ -66,7 +66,7 @@ func (f *fakeHostService) MarkProvisioning(_ context.Context, host *infrastructu
 func TestServiceEnsureValidatesMachineRef(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	host := &infrastructurev1alpha1.TartHost{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "host-a",
@@ -124,7 +124,7 @@ func TestServiceEnsureValidatesMachineRef(t *testing.T) {
 func TestServiceEnsureSkipsWhenMachineRefMatches(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	machine := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-machine",
@@ -182,7 +182,7 @@ func TestServiceEnsureSkipsWhenMachineRefMatches(t *testing.T) {
 func TestServiceEnsureSkipsWhenAlreadyProvisioning(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	machine := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-machine",
@@ -237,7 +237,7 @@ func TestServiceEnsureSkipsWhenAlreadyProvisioning(t *testing.T) {
 func TestServiceEnsureSkipsWhenAlreadyProvisioned(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	machine := &infrastructurev1alpha1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-machine",

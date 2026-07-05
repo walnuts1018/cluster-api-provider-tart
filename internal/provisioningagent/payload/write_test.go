@@ -59,7 +59,7 @@ func TestWriteAndVerifyUsesOneMiBChunksAndReportsEveryTenPercent(t *testing.T) {
 	target := newMemoryTarget(len(data))
 	var progress []int
 	err := WriteAndVerify(
-		context.Background(),
+		t.Context(),
 		target,
 		bytes.NewReader(data),
 		int64(len(data)),
@@ -91,7 +91,7 @@ func TestWriteAndVerifyRejectsDigestMismatchAfterSync(t *testing.T) {
 	data := []byte("payload")
 	target := newMemoryTarget(len(data))
 	err := WriteAndVerify(
-		context.Background(),
+		t.Context(),
 		target,
 		bytes.NewReader(data),
 		int64(len(data)),
@@ -113,7 +113,7 @@ func TestWriteAndVerifyStopsWhenProgressReportFails(t *testing.T) {
 	target := newMemoryTarget(len(data))
 	reportErr := errors.New("report failed")
 	err := WriteAndVerify(
-		context.Background(),
+		t.Context(),
 		target,
 		bytes.NewReader(data),
 		int64(len(data)),

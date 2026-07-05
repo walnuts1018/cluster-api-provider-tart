@@ -78,7 +78,7 @@ func TestOrchestratorMapsNoMatchingHost(t *testing.T) {
 		operationServiceStub{},
 	)
 	_, _, err := orchestrator.ReserveAndStartOperation(
-		context.Background(),
+		t.Context(),
 		testMachine(),
 		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	)

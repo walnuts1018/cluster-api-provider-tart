@@ -62,13 +62,13 @@ func TestTartMachineV1Beta1ReconcilerSetsAllocationConflict(t *testing.T) {
 		HostReferences: k8sallocation.NewService(k8sClient),
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
 	if err := k8sClient.Get(
-		context.Background(),
+		t.Context(),
 		types.NamespacedName{Namespace: machine.Namespace, Name: machine.Name},
 		current,
 	); err != nil {
@@ -120,13 +120,13 @@ func TestTartMachineV1Beta1ReconcilerRepairsHostReference(t *testing.T) {
 		HostReferences: k8sallocation.NewService(k8sClient),
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
 	if err := k8sClient.Get(
-		context.Background(),
+		t.Context(),
 		types.NamespacedName{Namespace: machine.Namespace, Name: machine.Name},
 		current,
 	); err != nil {
@@ -169,13 +169,13 @@ func TestTartMachineV1Beta1ReconcilerSetsProviderIDMismatch(t *testing.T) {
 		},
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
 	if err := k8sClient.Get(
-		context.Background(),
+		t.Context(),
 		types.NamespacedName{Namespace: machine.Namespace, Name: machine.Name},
 		current,
 	); err != nil {
@@ -213,12 +213,12 @@ func TestTartMachineV1Beta1ReconcilerDoesNotProvisionBeforeHealthGate(t *testing
 		}},
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(machine), current); err != nil {
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), current); err != nil {
 		t.Fatalf("get TartMachine: %v", err)
 	}
 	if current.Status.Initialization.Provisioned != nil && *current.Status.Initialization.Provisioned {
@@ -287,7 +287,7 @@ func TestTartMachineV1Beta1ReconcilerResumesOperationAfterHostReferenceRepair(t 
 		Provisioner:    provisioner,
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	if provisioner.calls != 1 {
@@ -295,7 +295,7 @@ func TestTartMachineV1Beta1ReconcilerResumesOperationAfterHostReferenceRepair(t 
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(machine), current); err != nil {
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), current); err != nil {
 		t.Fatalf("get TartMachine: %v", err)
 	}
 	if current.Status.OperationRef == nil || current.Status.OperationRef.UID != operation.UID {
@@ -332,12 +332,12 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 		Provisioner: provisioner,
 	}
 
-	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
-	if err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(machine), current); err != nil {
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), current); err != nil {
 		t.Fatalf("get TartMachine: %v", err)
 	}
 	if current.Status.Initialization.Provisioned == nil || !*current.Status.Initialization.Provisioned {

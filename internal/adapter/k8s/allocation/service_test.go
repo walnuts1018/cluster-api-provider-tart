@@ -1,7 +1,6 @@
 package allocation
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -19,7 +18,7 @@ import (
 )
 
 func TestServiceReserveAllowsOneOfOneHundredConcurrentMachines(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -83,7 +82,7 @@ func concurrentMachine(index int) *infrastructurev1beta1.TartMachine {
 func TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -129,7 +128,7 @@ func TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef(t *testing.T) {
 func TestServiceReserveReturnsHostAlreadyClaimedBySameMachine(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -159,7 +158,7 @@ func TestServiceReserveReturnsHostAlreadyClaimedBySameMachine(t *testing.T) {
 func TestServiceEnsureMachineHostReferenceRejectsDifferentConsumerUID(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)

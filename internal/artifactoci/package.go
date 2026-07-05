@@ -13,7 +13,15 @@ import (
 	"oras.land/oras-go/v2/content/file"
 )
 
-const ArtifactType = "application/vnd.tart.os-artifact.v1"
+const (
+	ArtifactType               = "application/vnd.tart.os-artifact.v1"
+	ManifestMediaType          = "application/vnd.tart.os-manifest.v1+json"
+	ManifestSignatureMediaType = "application/vnd.tart.os-manifest-signature.v1+json"
+	OSFilesystemMediaType      = "application/vnd.tart.os-filesystem.v1"
+	VerityMediaType            = "application/vnd.tart.dm-verity.v1"
+	KernelMediaType            = "application/vnd.tart.kernel.v1"
+	InitrdMediaType            = "application/vnd.tart.initrd.v1"
+)
 
 type Input struct {
 	Manifest   string
@@ -47,12 +55,12 @@ func Pack(ctx context.Context, store *file.Store, input Input) (ocispec.Descript
 	}
 
 	layers := []layer{
-		{name: "manifest.json", mediaType: "application/vnd.tart.os-manifest.v1+json", path: input.Manifest},
-		{name: "manifest.signature.json", mediaType: "application/vnd.tart.os-manifest-signature.v1+json", path: input.Signature},
-		{name: "os.img", mediaType: "application/vnd.tart.os-filesystem.v1", path: input.Image},
-		{name: "os.verity", mediaType: "application/vnd.tart.dm-verity.v1", path: input.Verity},
-		{name: "vmlinuz", mediaType: "application/vnd.tart.kernel.v1", path: input.Kernel},
-		{name: "initrd", mediaType: "application/vnd.tart.initrd.v1", path: input.Initrd},
+		{name: "manifest.json", mediaType: ManifestMediaType, path: input.Manifest},
+		{name: "manifest.signature.json", mediaType: ManifestSignatureMediaType, path: input.Signature},
+		{name: "os.img", mediaType: OSFilesystemMediaType, path: input.Image},
+		{name: "os.verity", mediaType: VerityMediaType, path: input.Verity},
+		{name: "vmlinuz", mediaType: KernelMediaType, path: input.Kernel},
+		{name: "initrd", mediaType: InitrdMediaType, path: input.Initrd},
 		{name: "sbom.cdx.json", mediaType: "application/vnd.cyclonedx+json", path: input.SBOM},
 		{name: "provenance.intoto.json", mediaType: "application/vnd.in-toto+json", path: input.Provenance},
 	}

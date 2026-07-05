@@ -80,15 +80,18 @@ func TestSelectRequiredLayersRejectsMissingAndDuplicateLayers(t *testing.T) {
 		testDescriptor([]byte("verity"), artifactoci.VerityMediaType),
 	}
 	tests := []struct {
-		name   string
-		layers []ocispec.Descriptor
+		name      string
+		mediaType string
+		layers    []ocispec.Descriptor
 	}{
-		{name: "missing", layers: required[:3]},
-		{name: "duplicate", layers: append(required, required[2])},
+		{name: "missing", mediaType: ocispec.MediaTypeImageManifest, layers: required[:3]},
+		{name: "duplicate", mediaType: ocispec.MediaTypeImageManifest, layers: append(required, required[2])},
+		{name: "media type", mediaType: ocispec.MediaTypeImageIndex, layers: required},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := selectRequiredLayers(ocispec.Manifest{
+				MediaType:    test.mediaType,
 				ArtifactType: artifactoci.ArtifactType,
 				Layers:       test.layers,
 			}); err == nil {

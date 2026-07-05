@@ -130,10 +130,10 @@ func selectPayloadTargets(plan agentprotocol.ValidatedPlan) (payloadTargets, err
 		allowed[role] = struct{}{}
 	}
 	if _, ok := allowed[expected.os]; !ok {
-		return payloadTargets{}, fmt.Errorf("Plan does not allow target role %q", expected.os)
+		return payloadTargets{}, fmt.Errorf("plan does not allow target role %q", expected.os)
 	}
 	if _, ok := allowed[expected.verity]; !ok {
-		return payloadTargets{}, fmt.Errorf("Plan does not allow target role %q", expected.verity)
+		return payloadTargets{}, fmt.Errorf("plan does not allow target role %q", expected.verity)
 	}
 	return expected, nil
 }

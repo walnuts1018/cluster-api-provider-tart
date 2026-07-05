@@ -106,6 +106,13 @@ func (source *OCI) Fetch(
 		closeErr := reader.Close()
 		return Artifact{}, errors.Join(errors.New("OCI manifest digest does not match pinned reference"), closeErr)
 	}
+	if descriptor.MediaType != ocispec.MediaTypeImageManifest {
+		closeErr := reader.Close()
+		return Artifact{}, errors.Join(
+			fmt.Errorf("unsupported OCI manifest media type: %q", descriptor.MediaType),
+			closeErr,
+		)
+	}
 	manifestData, err := readAndClose(reader, descriptor, maxOCIManifestBytes)
 	if err != nil {
 		return Artifact{}, fmt.Errorf("read OCI manifest: %w", err)
@@ -156,6 +163,9 @@ type requiredLayers struct {
 }
 
 func selectRequiredLayers(manifest ocispec.Manifest) (requiredLayers, error) {
+	if manifest.MediaType != ocispec.MediaTypeImageManifest {
+		return requiredLayers{}, fmt.Errorf("unsupported OCI manifest media type: %q", manifest.MediaType)
+	}
 	if manifest.ArtifactType != artifactoci.ArtifactType {
 		return requiredLayers{}, fmt.Errorf("unsupported OCI artifact type: %q", manifest.ArtifactType)
 	}
@@ -212,7 +222,7 @@ func validateIdentity(
 	case layers.image.Digest.String() != value.Image.Digest || layers.image.Size != value.Image.SizeBytes:
 		return errors.New("OS filesystem layer does not match artifact manifest")
 	case layers.verity.Digest.String() != value.Verity.Digest || layers.verity.Size != value.Verity.SizeBytes:
-		return errors.New("Verity layer does not match artifact manifest")
+		return errors.New("verity layer does not match artifact manifest")
 	}
 	return nil
 }

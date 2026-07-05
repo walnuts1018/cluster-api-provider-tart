@@ -26,8 +26,6 @@ const (
 	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
 	// iPXEBootFileNameARM64 は arm64 用の iPXE ローダのファイル名です。
 	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
-	// iPXEBootFileNameLegacy は Legacy x86 用の iPXE ローダのファイル名です。
-	iPXEBootFileNameLegacy = "undionly.kpxe"
 	// iPXEBootFileNameDefault はデフォルトの iPXE ローダのファイル名です。
 	iPXEBootFileNameDefault = "ipxe.efi"
 )

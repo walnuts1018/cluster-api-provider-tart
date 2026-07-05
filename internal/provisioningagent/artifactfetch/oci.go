@@ -17,6 +17,7 @@ import (
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
+	orasretry "oras.land/oras-go/v2/registry/remote/retry"
 )
 
 const (
@@ -65,6 +66,7 @@ func NewOCI(trustStore artifact.TrustStore, credential auth.CredentialFunc) (*OC
 			}
 			if credential != nil {
 				repo.Client = &auth.Client{
+					Client:     orasretry.DefaultClient,
 					Cache:      auth.NewCache(),
 					Credential: credential,
 				}

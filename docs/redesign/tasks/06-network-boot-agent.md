@@ -79,9 +79,9 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 | 3 | 実装済み | `TestServiceDoesNotWriteWhenDiskSelectionFails`で候補0台/2台時のWriter呼出し0回を確認 |
 | 4 | 実装済み | `TestSelect`でby-id、serial、WWN、size、Agent一時OS保持deviceの不一致を`DiskIdentityMismatch`として確認 |
 | 5 | 実装済み | `TestValidateTargets`と`TestServiceDoesNotWriteUnsafeUpdateTarget`でActive OS/Verity、State、Dataを拒否 |
-| 6 | 一部実装 | Updateの書込み先をInactive Slotへ限定済み。50% failure injectionと再起動後disk状態の確認が残る |
-| 7 | 一部実装 | payload write、fsync、read-back verifyを分離済み。boot target adapter接続後のfailure injectionが残る |
-| 8 | 一部実装 | payload digest不一致を失敗させる。verity root hash検証とboot target非変更testが残る |
+| 6 | 一部実装 | Updateの書込み先をInactive OS/Verity Slotへ限定し、実block device writerへ接続済み。50% failure injectionと再起動後disk状態の確認が残る |
+| 7 | 一部実装 | OCI payloadの1 MiB単位write、fsync、read-back verifyを実block device writerへ接続済み。boot target adapter接続後のfailure injectionが残る |
+| 8 | 一部実装 | OCI descriptor、Manifest payload digest、書込み後read-back digestの不一致を失敗させる。verity root hash検証とboot target非変更testが残る |
 | 9 | 実装済み、切替試験未実施 | DHCP、TFTP、iPXE/HTTPS、Agent APIのRunnableをleader election対象にした。leader切替時listener logの保存が残る |
 | 10 | 実装済み | Agent progressはOperationだけを更新し、TartMachine Readyを変更しない。Node health判定はTask 07 |
 
@@ -94,18 +94,23 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
   Agent一時OS保持deviceを収集
 - `internal/provisioningagent/layout`: `amd64-uefi-ab/v1`の1 MiB alignment付きGPT計画、
   label/type GUID/PARTUUIDによるDisk Role解決、Provisionだけに限定した`sfdisk`実行
+- `internal/provisioningagent/artifactfetch`: digest固定OCI参照からManifest/署名を先に取得し、
+  Ed25519署名、PlanのManifest digest/Artifact Generation、Platform Profile、
+  OS/Verity layer descriptorを検証してからpayload streamを公開
+- `internal/provisioningagent/writer`: ProvisionではOS-A/Verity-A、UpdateではInactive
+  OS/Verity Slotだけを選び、partition容量の事前検証後にpayloadを書込み・read-back検証
 - `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
   Plan digestとEd25519署名をAgent側で検証
 - `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
 - `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
 - `cmd/provisioning-agent`: register、Plan取得、disk選択までを実行する
-  `--preflight-only`診断と、明示的にGPT作成または既存Role検証だけを行う
-  `--prepare-layout-only`診断binary。通常のpayload実行は未接続
+  `--preflight-only`診断、GPT作成または既存Role検証だけを行う`--prepare-layout-only`、
+  Artifact検証とOS/Verity書込みを行う破壊的な`--write-payloads-only`を提供。
+  Registry credentialは任意のDocker互換config fileから読込む
 
 残作業:
 
-- Artifact取得とOS/Verity payload情報のPlan接続、および診断binaryから
-  `internal/provisioningagent.Service`への通常実行接続
+- 10%刻みの書込み進捗をAgent APIへ送信し、Write/Verify完了StepをOperationへ保存
 - Agent Artifactの署名検証、配信、iPXE script生成
 - verity root hash検証、boot trial metadata更新、failure injection
 - 実クラスタでのleader切替試験

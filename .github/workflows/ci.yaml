@@ -78,6 +78,36 @@ jobs:
       - name: build
         run: mise run build
 
+  artifact-build:
+    name: OS Artifact build check
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup tools
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+
+      - name: Setup mkosi
+        uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
+
+      - name: Build OS and Verity payloads
+        run: mise run artifact-build-mkosi
+
+      - name: Upload build metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ubuntu-24.04-amd64-os-artifact-metadata
+          path: |
+            dist/os-artifact/packages.json
+            dist/os-artifact/sbom.cdx.json
+            dist/os-artifact/verity-root-hash
+          if-no-files-found: error
+
   test-e2e:
     name: E2E Test
     runs-on: ubuntu-latest

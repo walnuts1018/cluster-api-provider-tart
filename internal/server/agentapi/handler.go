@@ -176,7 +176,13 @@ func (handler *Handler) plan(writer http.ResponseWriter, request *http.Request) 
 }
 
 func (handler *Handler) progress(writer http.ResponseWriter, request *http.Request) {
-	if !handler.dependenciesAvailable(writer, handler.config.Operations, handler.config.Sessions, handler.config.Progress) {
+	if !handler.dependenciesAvailable(
+		writer,
+		handler.config.Operations,
+		handler.config.Sessions,
+		handler.config.Progress,
+		handler.config.Plans,
+	) {
 		return
 	}
 	key, operation, ok := handler.authorizeOperation(writer, request)
@@ -195,6 +201,25 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 	}
 	if body.CompletedStep == "" {
 		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "completedStep is required")
+		return
+	}
+	signedPlan, err := handler.config.Plans.GetPlan(request.Context(), key)
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	validatedPlan, err := agentprotocol.ValidatePlan(signedPlan.Plan)
+	if err != nil {
+		handler.internalError(writer)
+		return
+	}
+	planDigest, err := validatedPlan.Digest()
+	if err != nil || planDigest.String() != operation.Spec.PlanDigest {
+		handler.notFound(writer)
+		return
+	}
+	if !planContainsStep(signedPlan.Plan, body.CompletedStep) {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "unknown_step", "Completed step is not present in the Plan")
 		return
 	}
 	result, err := handler.config.Progress.Report(
@@ -221,6 +246,15 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 	default:
 		handler.internalError(writer)
 	}
+}
+
+func planContainsStep(plan agentprotocol.Plan, completedStep string) bool {
+	for _, step := range plan.Steps {
+		if step.Name == completedStep {
+			return true
+		}
+	}
+	return false
 }
 
 func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Request) {

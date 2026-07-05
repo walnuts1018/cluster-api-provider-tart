@@ -27,7 +27,26 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-const testPlanDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+var (
+	testSignedPlan = agentprotocol.SignedPlan{Plan: agentprotocol.Plan{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		HostUID:      "host-uid",
+		Deadline:     time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+		RootDevice: agentprotocol.RootDevice{
+			SerialNumber: "disk-serial",
+			MinSizeBytes: 1,
+		},
+		Artifact: agentprotocol.Artifact{
+			Ref:            "oci://registry.test.walnuts.dev/os@sha256:" + strings.Repeat("b", 64),
+			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+			Generation:     1,
+		},
+		AllowedTargetRoles: []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA},
+		Steps:              []agentprotocol.PlanStep{{Name: "WriteImage"}},
+	}}
+	testPlanDigest = mustPlanDigest(testSignedPlan.Plan)
+)
 
 type staticResolver struct {
 	key       client.ObjectKey
@@ -57,6 +76,12 @@ func (allowRegistration) Verify(
 
 type staticBootstrap struct {
 	bundle agentprotocol.BootstrapBundle
+}
+
+type staticPlan struct{}
+
+func (staticPlan) GetPlan(context.Context, client.ObjectKey) (agentprotocol.SignedPlan, error) {
+	return testSignedPlan, nil
 }
 
 func (provider staticBootstrap) GetBootstrapBundle(
@@ -126,6 +151,30 @@ func TestHandlerProgressSequence(t *testing.T) {
 		if response.Code != wantStatuses[index] {
 			t.Fatalf("sequence %d status = %d, want %d; body=%s", sequence, response.Code, wantStatuses[index], response.Body.String())
 		}
+	}
+}
+
+func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	body := agentprotocol.ProgressRequest{
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		PlanDigest:    testPlanDigest,
+		AgentSequence: 1,
+		CompletedStep: "EraseState",
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/progress",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
 	}
 }
 
@@ -358,9 +407,22 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		RegistrationVerifier: allowRegistration{},
 		Sessions:             sessions,
 		Progress:             k8sagentprogress.NewService(k8sClient),
+		Plans:                staticPlan{},
 		Bootstrap:            bootstrap,
 		Now:                  func() time.Time { return now },
 	}), token.BearerValue()
+}
+
+func mustPlanDigest(plan agentprotocol.Plan) string {
+	validated, err := agentprotocol.ValidatePlan(plan)
+	if err != nil {
+		panic(err)
+	}
+	digest, err := validated.Digest()
+	if err != nil {
+		panic(err)
+	}
+	return digest.String()
 }
 
 func performJSONRequest(

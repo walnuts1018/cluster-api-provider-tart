@@ -155,7 +155,9 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 				OperationUID:  "operation-uid",
 				PlanDigest:    testPlanDigest,
 				AgentSequence: 1,
-				CompletedStep: "WriteImage",
+				Step:          "WriteImage",
+				Percent:       100,
+				Completed:     true,
 			},
 		},
 		{
@@ -223,7 +225,9 @@ func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T
 		OperationUID:  "operation-uid",
 		PlanDigest:    testPlanDigest,
 		AgentSequence: 1,
-		CompletedStep: secretValue,
+		Step:          secretValue,
+		Percent:       100,
+		Completed:     true,
 	}
 
 	response := performJSONRequest(
@@ -262,7 +266,9 @@ func TestHandlerProgressSequence(t *testing.T) {
 			OperationUID:  "operation-uid",
 			PlanDigest:    testPlanDigest,
 			AgentSequence: sequence,
-			CompletedStep: "WriteImage",
+			Step:          "WriteImage",
+			Percent:       100,
+			Completed:     true,
 		}
 		response := performJSONRequest(
 			t,
@@ -285,7 +291,9 @@ func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
 		OperationUID:  "operation-uid",
 		PlanDigest:    testPlanDigest,
 		AgentSequence: 1,
-		CompletedStep: "EraseState",
+		Step:          "EraseState",
+		Percent:       100,
+		Completed:     true,
 	}
 
 	response := performJSONRequest(

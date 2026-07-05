@@ -31,7 +31,14 @@ type DeviceOpener interface {
 	Open(string) (SyncReadWriteSeekCloser, error)
 }
 
-type ProgressReporter func(context.Context, agentprotocol.DiskRole, int) error
+type Progress struct {
+	Step      string
+	DiskRole  agentprotocol.DiskRole
+	Percent   int32
+	Completed bool
+}
+
+type ProgressReporter func(context.Context, Progress) error
 
 type Writer struct {
 	layout   LayoutPreparer
@@ -59,6 +66,9 @@ func (writer *Writer) WriteTargets(
 	plan agentprotocol.ValidatedPlan,
 	device disk.Device,
 ) error {
+	if err := validateProgressSteps(plan.Value()); err != nil {
+		return err
+	}
 	targetRoles, err := selectPayloadTargets(plan)
 	if err != nil {
 		return err
@@ -97,6 +107,38 @@ func (writer *Writer) WriteTargets(
 		manifest.Verity.Digest,
 	); err != nil {
 		return err
+	}
+	if err := writer.report(ctx, Progress{
+		Step:      agentprotocol.StepWriteImage,
+		Percent:   100,
+		Completed: true,
+	}); err != nil {
+		return err
+	}
+	if err := writer.report(ctx, Progress{
+		Step:      agentprotocol.StepVerifyImage,
+		Percent:   100,
+		Completed: true,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateProgressSteps(plan agentprotocol.Plan) error {
+	required := map[string]bool{
+		agentprotocol.StepWriteImage:  false,
+		agentprotocol.StepVerifyImage: false,
+	}
+	for _, step := range plan.Steps {
+		if _, ok := required[step.Name]; ok {
+			required[step.Name] = true
+		}
+	}
+	for _, step := range []string{agentprotocol.StepWriteImage, agentprotocol.StepVerifyImage} {
+		if !required[step] {
+			return fmt.Errorf("plan does not contain required progress step %q", step)
+		}
 	}
 	return nil
 }
@@ -226,13 +268,27 @@ func (writer *Writer) writePayload(
 			if writer.progress == nil {
 				return nil
 			}
-			return writer.progress(ctx, role, percent)
+			return writer.report(ctx, Progress{
+				Step:     agentprotocol.StepWriteImage,
+				DiskRole: role,
+				Percent:  int32(percent),
+			})
 		},
 	)
 	sourceCloseErr := sourceReader.Close()
 	targetCloseErr := targetDevice.Close()
 	if err := errors.Join(writeErr, sourceCloseErr, targetCloseErr); err != nil {
 		return fmt.Errorf("write and verify %s payload: %w", role, err)
+	}
+	return nil
+}
+
+func (writer *Writer) report(ctx context.Context, progress Progress) error {
+	if writer.progress == nil {
+		return nil
+	}
+	if err := writer.progress(ctx, progress); err != nil {
+		return fmt.Errorf("report %s progress: %w", progress.Step, err)
 	}
 	return nil
 }

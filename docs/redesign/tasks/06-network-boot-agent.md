@@ -101,16 +101,23 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
   OS/Verity Slotだけを選び、partition容量の事前検証後にpayloadを書込み・read-back検証
 - `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
   Plan digestとEd25519署名をAgent側で検証
+- `internal/provisioningagent/progress`: register responseの保存済みsequenceから再開し、同一requestを
+  再試行可能なAgent progress reporter
 - `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
+- `internal/adapter/k8s/agentprogress`: 10%刻みのstep/role/percent、完了Step、最大sequenceを
+  Operation Statusへ保存し、Writing/Verifying Phaseへ進める
 - `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
 - `cmd/provisioning-agent`: register、Plan取得、disk選択までを実行する
   `--preflight-only`診断、GPT作成または既存Role検証だけを行う`--prepare-layout-only`、
   Artifact検証とOS/Verity書込みを行う破壊的な`--write-payloads-only`を提供。
   Registry credentialは任意のDocker互換config fileから読込む
 
+2026-07-06時点で、10%刻みの書込み進捗をAgent APIへ接続し、最新step/role/percentと
+Write/Verify完了StepをOperationへ保存する処理まで実装した。再登録時はStatusのagentSequenceを
+register responseで返し、Agentが次の番号から再開する。
+
 残作業:
 
-- 10%刻みの書込み進捗をAgent APIへ送信し、Write/Verify完了StepをOperationへ保存
 - Agent Artifactの署名検証、配信、iPXE script生成
 - verity root hash検証、boot trial metadata更新、failure injection
 - 実クラスタでのleader切替試験

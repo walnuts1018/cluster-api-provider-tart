@@ -98,7 +98,8 @@ func (client *Client) Register(
 	if response.APIVersion != agentprotocol.APIVersion ||
 		response.SessionToken == "" ||
 		response.PlanDigest == "" ||
-		response.ExpiresAt.IsZero() {
+		response.ExpiresAt.IsZero() ||
+		response.AgentSequence < 0 {
 		return agentprotocol.RegisterResponse{}, errors.New("register Agent: response is invalid")
 	}
 	return response, nil

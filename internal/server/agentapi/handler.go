@@ -35,7 +35,14 @@ type SessionService interface {
 }
 
 type ProgressService interface {
-	Report(context.Context, client.ObjectKey, string, string, int64, string) (k8sagentprogress.Result, error)
+	Report(
+		context.Context,
+		client.ObjectKey,
+		string,
+		string,
+		int64,
+		agentprogressdomain.Progress,
+	) (k8sagentprogress.Result, error)
 }
 
 type PlanProvider interface {
@@ -142,10 +149,11 @@ func (handler *Handler) register(writer http.ResponseWriter, request *http.Reque
 		return
 	}
 	handler.writeJSON(writer, http.StatusOK, agentprotocol.RegisterResponse{
-		APIVersion:   agentprotocol.APIVersion,
-		SessionToken: token.BearerValue(),
-		ExpiresAt:    expiresAt,
-		PlanDigest:   operation.Spec.PlanDigest,
+		APIVersion:    agentprotocol.APIVersion,
+		SessionToken:  token.BearerValue(),
+		ExpiresAt:     expiresAt,
+		PlanDigest:    operation.Spec.PlanDigest,
+		AgentSequence: operation.Status.AgentSequence,
 	})
 }
 
@@ -193,14 +201,13 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 	if !handler.decodeRequest(writer, request, &body) {
 		return
 	}
-	if body.APIVersion != agentprotocol.APIVersion ||
-		body.OperationUID != operation.Spec.OperationID ||
+	if body.OperationUID != operation.Spec.OperationID ||
 		body.PlanDigest != operation.Spec.PlanDigest {
 		handler.notFound(writer)
 		return
 	}
-	if body.CompletedStep == "" {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "completedStep is required")
+	if err := agentprotocol.ValidateProgressRequest(body); err != nil {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "Progress request is invalid")
 		return
 	}
 	signedPlan, err := handler.config.Plans.GetPlan(request.Context(), key)
@@ -218,8 +225,8 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 		handler.notFound(writer)
 		return
 	}
-	if !planContainsStep(signedPlan.Plan, body.CompletedStep) {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "unknown_step", "Completed step is not present in the Plan")
+	if !planContainsStep(signedPlan.Plan, body.Step) {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "unknown_step", "Progress step is not present in the Plan")
 		return
 	}
 	result, err := handler.config.Progress.Report(
@@ -228,7 +235,12 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 		body.OperationUID,
 		body.PlanDigest,
 		body.AgentSequence,
-		body.CompletedStep,
+		agentprogressdomain.Progress{
+			Step:      body.Step,
+			DiskRole:  string(body.DiskRole),
+			Percent:   body.Percent,
+			Completed: body.Completed,
+		},
 	)
 	if err != nil {
 		if errors.Is(err, k8sagentprogress.ErrOperationNotFound) {
@@ -464,11 +476,19 @@ func bearerToken(header string) (string, bool) {
 }
 
 func progressResponse(result k8sagentprogress.Result) agentprotocol.ProgressResponse {
-	return agentprotocol.ProgressResponse{
+	response := agentprotocol.ProgressResponse{
 		APIVersion:     agentprotocol.APIVersion,
 		AgentSequence:  result.AgentSequence,
 		CompletedSteps: result.CompletedSteps,
 	}
+	if result.Progress != nil {
+		response.Progress = &agentprotocol.ProgressStatus{
+			Step:     result.Progress.Step,
+			DiskRole: agentprotocol.DiskRole(result.Progress.DiskRole),
+			Percent:  result.Progress.Percent,
+		}
+	}
+	return response
 }
 
 var _ http.Handler = (*Handler)(nil)

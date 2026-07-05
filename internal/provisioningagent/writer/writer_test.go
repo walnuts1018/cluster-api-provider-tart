@@ -83,13 +83,13 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 		"os-a":     filepath.Join(targetDirectory, "os-a"),
 		"verity-a": filepath.Join(targetDirectory, "verity-a"),
 	}}
-	var progress []progressEvent
+	var progress []Progress
 	targetWriter := New(
 		layoutPreparer,
 		fetcher,
 		opener,
-		func(_ context.Context, role agentprotocol.DiskRole, percent int) error {
-			progress = append(progress, progressEvent{role: role, percent: percent})
+		func(_ context.Context, event Progress) error {
+			progress = append(progress, event)
 			return nil
 		},
 	)
@@ -107,9 +107,15 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 	if layoutPreparer.calls != 1 || fetcher.calls != 1 {
 		t.Fatalf("calls: layout=%d fetch=%d", layoutPreparer.calls, fetcher.calls)
 	}
-	if len(progress) != 20 ||
-		progress[0] != (progressEvent{role: agentprotocol.DiskRoleOSA, percent: 10}) ||
-		progress[len(progress)-1] != (progressEvent{role: agentprotocol.DiskRoleVerityA, percent: 100}) {
+	if len(progress) != 22 ||
+		progress[0] != (Progress{
+			Step: agentprotocol.StepWriteImage, DiskRole: agentprotocol.DiskRoleOSA, Percent: 10,
+		}) ||
+		progress[19] != (Progress{
+			Step: agentprotocol.StepWriteImage, DiskRole: agentprotocol.DiskRoleVerityA, Percent: 100,
+		}) ||
+		progress[20] != (Progress{Step: agentprotocol.StepWriteImage, Percent: 100, Completed: true}) ||
+		progress[21] != (Progress{Step: agentprotocol.StepVerifyImage, Percent: 100, Completed: true}) {
 		t.Fatalf("progress = %#v", progress)
 	}
 }
@@ -204,11 +210,6 @@ func (fetcher memoryFetcher) Fetch(
 	return io.NopCloser(bytes.NewReader(fetcher[descriptor.Digest])), nil
 }
 
-type progressEvent struct {
-	role    agentprotocol.DiskRole
-	percent int
-}
-
 func testArtifact(
 	t *testing.T,
 	image, verity []byte,
@@ -287,7 +288,10 @@ func testPlan(
 			Generation:     12,
 		},
 		AllowedTargetRoles: roles,
-		Steps:              []agentprotocol.PlanStep{{Name: "write"}},
+		Steps: []agentprotocol.PlanStep{
+			{Name: agentprotocol.StepWriteImage},
+			{Name: agentprotocol.StepVerifyImage},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -14,7 +14,13 @@ WoLのみのPCにはBMCや常設management agentがなく、SSH pushは対象OS�
 - Agentはcontrollerへ外向きTLS接続し、署名済みPlanを取得する。controllerからAgentへの接続開始は禁止する。
 - PlanはOperation UID、Host UID、Plan Digest、deadline、disk serial/WWN/最小size、Artifact digest、許可するtarget Disk Roleを必須fieldとする。
 - AgentはPlanに列挙されていないpartitionまたはDisk Roleへ書き込まない。
-- progress reportはOperation UID、Plan Digest、agentSequence、completedStepを必須とする。
+- progress reportはOperation UID、Plan Digest、agentSequence、step、percent、completedを必須とし、
+  Disk固有の処理ではdiskRoleを含める。percentは0から100までの10刻みとし、completed=trueは
+  percent=100の場合だけ受理する。
+- controllerは最新のstep、diskRole、percentと完了済みstepをOperation Statusへ保存する。
+  同じstepとdiskRoleのpercent後退、agentSequenceの欠落、不正なPlan stepは受理しない。
+- register responseはOperation Statusに保存済みのagentSequenceを返す。Agentは再起動または再登録後、
+  その次のsequenceからreportを再開する。
 - 初期ProvisioningとA/B更新で同じbinaryとProtocol versionを使用する。
 
 ## Consequences

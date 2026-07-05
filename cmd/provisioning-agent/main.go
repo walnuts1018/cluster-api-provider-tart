@@ -20,6 +20,7 @@ import (
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/inventory"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
 	agentplan "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/plan"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
@@ -36,6 +37,7 @@ type config struct {
 	planKeyID     string
 	planKeyFile   string
 	preflight     bool
+	prepareLayout bool
 }
 
 func main() {
@@ -49,11 +51,6 @@ func run(ctx context.Context, args []string) error {
 	cfg, err := parseConfig(args)
 	if err != nil {
 		return err
-	}
-	// TODO: amd64-uefi-ab/v1のpartition/role writer完成後に検証済みPlanをServiceへ渡す。
-	// 現段階のbinaryがdisk書き込み成功を誤報しないよう、明示的な診断モードだけを許可する。
-	if !cfg.preflight {
-		return errors.New("disk execution is not implemented; pass --preflight-only to validate registration, Plan, and disk selection")
 	}
 	systemUUID := cfg.systemUUID
 	if systemUUID == "" {
@@ -112,6 +109,26 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("select root disk: %w", err)
 	}
+	if cfg.prepareLayout {
+		// ProvisionではGPTを作り直す破壊操作なので、署名済みPlanとdisk identity検証後だけ実行する。
+		resolved, err := layout.NewManager(layout.NewLinuxDiskIO()).Prepare(
+			ctx,
+			validatedPlan.Value().OperationType,
+			target,
+		)
+		if err != nil {
+			return fmt.Errorf("prepare amd64 UEFI A/B layout: %w", err)
+		}
+		slog.Info(
+			"Provisioning Agent partition layout prepared",
+			"operation_uid", cfg.operationUID,
+			"target_device", target.Path,
+			"platform_profile", layout.ProfileID,
+			"role_count", len(resolved),
+		)
+		// TODO: Artifact取得とOS/Verity writer完成後、この診断終了をServiceの通常実行へ置き換える。
+		return nil
+	}
 	slog.Info(
 		"Provisioning Agent preflight completed",
 		"operation_uid", cfg.operationUID,
@@ -133,11 +150,20 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&cfg.planKeyID, "plan-key-id", "", "Trusted Plan signing key ID.")
 	flags.StringVar(&cfg.planKeyFile, "plan-key-file", "", "PEM Ed25519 public key used to verify Plans.")
 	flags.BoolVar(&cfg.preflight, "preflight-only", false, "Validate registration, signed Plan, and disk selection without writing.")
+	flags.BoolVar(
+		&cfg.prepareLayout,
+		"prepare-layout-only",
+		false,
+		"Create or validate the amd64 UEFI A/B partition layout, then stop. Provision mode destroys the selected disk.",
+	)
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
 	if flags.NArg() != 0 {
 		return config{}, errors.New("unexpected positional arguments")
+	}
+	if cfg.preflight == cfg.prepareLayout {
+		return config{}, errors.New("exactly one of --preflight-only or --prepare-layout-only is required")
 	}
 	required := map[string]string{
 		"controller-url":   cfg.controllerURL,

@@ -304,7 +304,9 @@ Redfish Virtual MediaはProvisioning Agentのboot transportであり、disk writ
 | State | node identity、PKI、cluster state | RW |
 | Data | runtime、PV data | RW |
 
-これは論理Roleであり、全Platformへ同じpartition数や順序を強制しない。`amd64-uefi-ab/v1`の物理順序、type GUID、初期sizeはTask 01で決定してProfileへ固定する。決定前にpartition番号をAPI fieldとして公開しない。
+これは論理Roleであり、全Platformへ同じpartition数や順序を強制しない。`amd64-uefi-ab/v1`の物理順序、
+type GUID、初期sizeは[Platform Profile文書](platform-profiles/amd64-uefi-ab-v1.md)へ固定する。
+Task 01のQEMU検証完了までは暫定値として扱い、partition番号をAPI fieldとして公開しない。
 
 OS artifactはpartitionへ書けるfilesystem imageであり、whole-disk raw imageではない。初期化時だけagentがpartition tableを作成し、更新時は選択したinactive OS partitionとboot metadata以外を書き換えない。
 

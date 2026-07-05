@@ -67,7 +67,7 @@
 
 ## 実装状況
 
-2026-07-05時点で、誤disk破壊を防ぐ境界、Network Serverの対象制御、Agentがcontrollerへ
+2026-07-06時点で、誤disk破壊を防ぐ境界、Network Serverの対象制御、Agentがcontrollerへ
 接続するまでのruntime境界を先行実装した。
 Plan schemaは未リリースのため互換層を設けず、`operationType`、Update時の`activeSlot`、
 `rootDevice.deviceName`を直接追加した。
@@ -92,17 +92,20 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 - `internal/provisioningagent/payload`: 1 MiB単位write、10%進捗、fsync、read-back digest検証
 - `internal/provisioningagent/inventory`: sysfs、`/dev/disk/by-id`、mountinfoからwhole diskと
   Agent一時OS保持deviceを収集
+- `internal/provisioningagent/layout`: `amd64-uefi-ab/v1`の1 MiB alignment付きGPT計画、
+  label/type GUID/PARTUUIDによるDisk Role解決、Provisionだけに限定した`sfdisk`実行
 - `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
   Plan digestとEd25519署名をAgent側で検証
 - `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
 - `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
 - `cmd/provisioning-agent`: register、Plan取得、disk選択までを実行する
-  `--preflight-only`診断binary。通常のdisk実行は未接続
+  `--preflight-only`診断と、明示的にGPT作成または既存Role検証だけを行う
+  `--prepare-layout-only`診断binary。通常のpayload実行は未接続
 
 残作業:
 
-- `amd64-uefi-ab/v1`のpartition作成とDisk Role解決、および診断binaryから
-  `internal/provisioningagent.Service`への実行接続
+- Artifact取得とOS/Verity payload情報のPlan接続、および診断binaryから
+  `internal/provisioningagent.Service`への通常実行接続
 - Agent Artifactの署名検証、配信、iPXE script生成
 - verity root hash検証、boot trial metadata更新、failure injection
 - 実クラスタでのleader切替試験

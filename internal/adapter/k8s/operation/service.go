@@ -56,7 +56,7 @@ func (s *Service) Start(
 	}
 
 	if existing.Spec.OperationID == candidate.Spec.OperationID {
-		if !apiequality.Semantic.DeepEqual(existing.Spec, candidate.Spec) {
+		if !sameOperationSpec(existing.Spec, candidate.Spec) {
 			return nil, ErrOperationIDConflict
 		}
 		return existing, nil
@@ -102,12 +102,22 @@ func (s *Service) resolveExisting(
 		return nil, fmt.Errorf("get competing TartHostOperation: %w", err)
 	}
 	if current.Spec.OperationID == desired.Spec.OperationID {
-		if !apiequality.Semantic.DeepEqual(current.Spec, desired.Spec) {
+		if !sameOperationSpec(current.Spec, desired.Spec) {
 			return nil, ErrOperationIDConflict
 		}
 		return current, nil
 	}
 	return nil, ErrActiveOperation
+}
+
+// sameOperationSpec は同じOperation IDの再試行で、最初に保存されたdeadlineを正本とする。
+// deadline以外の入力差分は異なるPlanや対象を同じIDで実行する危険があるため拒否する。
+func sameOperationSpec(
+	existing infrastructurev1beta1.TartHostOperationSpec,
+	desired infrastructurev1beta1.TartHostOperationSpec,
+) bool {
+	desired.Deadline = existing.Deadline
+	return apiequality.Semantic.DeepEqual(existing, desired)
 }
 
 func terminal(phase infrastructurev1beta1.TartHostOperationPhase) (bool, error) {

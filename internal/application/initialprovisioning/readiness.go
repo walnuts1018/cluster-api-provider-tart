@@ -1,0 +1,50 @@
+package initialprovisioning
+
+import (
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
+)
+
+// ReadinessResult は初期Provisioningの完了判定を表す。
+type ReadinessResult struct {
+	Ready   bool
+	Reason  string
+	Message string
+}
+
+// EvaluateReadiness はOperation、OS boot、Bootstrap、Nodeの観測結果をまとめて判定する。
+// Agentの書き込み完了やNode ReadyだけをProvisioning完了として扱わない。
+func EvaluateReadiness(
+	operation *infrastructurev1beta1.TartHostOperation,
+	node machinehealthdomain.NodeObservation,
+) ReadinessResult {
+	if operation == nil || operation.Spec.Type != infrastructurev1beta1.OperationTypeProvision {
+		return ReadinessResult{Reason: "InvalidOperation", Message: "A Provision operation is required"}
+	}
+	if operation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
+		return ReadinessResult{Reason: "WaitingForBoot", Message: "Provision operation has not reached the health gate"}
+	}
+	report := operation.Status.LastBootReport
+	if report == nil {
+		return ReadinessResult{Reason: "WaitingForBootReport", Message: "Waiting for an authenticated OS boot report"}
+	}
+	if !report.StateMounted {
+		return ReadinessResult{Reason: "StateNotMounted", Message: "The required State filesystem is not mounted"}
+	}
+	if !report.DataMounted {
+		return ReadinessResult{Reason: "DataNotMounted", Message: "The required Data filesystem is not mounted"}
+	}
+	if !report.BootstrapApplied {
+		return ReadinessResult{Reason: "BootstrapNotApplied", Message: "Bootstrap success marker has not been reported"}
+	}
+
+	health := machinehealthdomain.EvaluateNode(node)
+	if !health.Ready {
+		return ReadinessResult{Reason: string(health.Reason), Message: health.Message}
+	}
+	return ReadinessResult{
+		Ready:   true,
+		Reason:  "Provisioned",
+		Message: "OS boot, Bootstrap application, and Node health gates are complete",
+	}
+}

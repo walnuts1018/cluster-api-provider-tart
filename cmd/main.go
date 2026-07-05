@@ -54,9 +54,7 @@ import (
 	k8sagentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentboot"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
-	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
-	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentapi"
@@ -385,13 +383,12 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineTemplate")
 		os.Exit(1)
 	}
-	tartMachineV1Beta1 := &controller.TartMachineV1Beta1Reconciler{
-		Client:         mgr.GetClient(),
-		HostReferences: k8sallocation.NewService(mgr.GetClient()),
-		NodeHealth:     k8smachinehealth.NewObserver(mgr.GetClient()),
-	}
-	if err := tartMachineV1Beta1.SetupWithManager(mgr); err != nil {
+	if err := reconcilers.TartMachineV1Beta1.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineV1Beta1")
+		os.Exit(1)
+	}
+	if err := reconcilers.TartHostOperation.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartHostOperation")
 		os.Exit(1)
 	}
 

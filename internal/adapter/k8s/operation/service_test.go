@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -83,6 +84,30 @@ func TestServiceStartIsIdempotentForSameOperation(t *testing.T) {
 	}
 	if first.Name != second.Name || first.Spec.OperationID != second.Spec.OperationID {
 		t.Fatalf("idempotent result differs: first=%#v second=%#v", first, second)
+	}
+}
+
+func TestServiceStartKeepsExistingDeadlineForSameOperation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	k8sClient := newFakeClient(t)
+	service := NewService(k8sClient)
+	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
+	firstDeadline := metav1.NewTime(time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC))
+	desired.Spec.Deadline = firstDeadline
+
+	if _, err := service.Start(ctx, desired); err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+	retried := desired.DeepCopy()
+	retried.Spec.Deadline = metav1.NewTime(firstDeadline.Add(time.Hour))
+	got, err := service.Start(ctx, retried)
+	if err != nil {
+		t.Fatalf("retried Start() error = %v", err)
+	}
+	if !got.Spec.Deadline.Equal(&firstDeadline) {
+		t.Fatalf("Deadline = %s, want existing %s", got.Spec.Deadline, firstDeadline)
 	}
 }
 

@@ -23,11 +23,11 @@
 - `internal/adapter/k8s/allocation/service.go`
 - `internal/adapter/k8s/allocation/service_test.go`
 
-- [ ] 予約済みHostを同じMachineが再取得できる失敗テストを追加する。
-- [ ] OperationRefのStatus Patch前にcontrollerが停止しても既存予約からOperation作成を再開するテストを追加する。
-- [ ] `AwaitingHealth`、boot reportのState/Data mount、Bootstrap marker、Node Ready、providerID一致の全条件が揃わない限りProvisionedにならないテストを追加する。
-- [ ] OperationのdeadlineとIDが同じ入力の再実行で変化しない構成へ修正する。
-- [ ] 対象packageのテストを実行し、変更をコミットする。
+- [x] 予約済みHostを同じMachineが再取得できる失敗テストを追加する。
+- [x] OperationRefのStatus Patch前にcontrollerが停止しても既存予約からOperation作成を再開するテストを追加する。
+- [x] `AwaitingHealth`、boot reportのState/Data mount、Bootstrap marker、Node Ready、providerID一致の全条件が揃わない限りProvisionedにならないテストを追加する。
+- [x] OperationのdeadlineとIDが同じ入力の再実行で変化しない構成へ修正する。
+- [x] 対象packageのテストを実行し、変更をコミットする。
 
 ### 作業単位2: 署名済みProvision Planを生成・保存する
 

@@ -78,6 +78,8 @@ func (o *Observer) Observe(
 		MachineProviderID: machine.Spec.ProviderID,
 		NodeProviderID:    node.Spec.ProviderID,
 		NodeReady:         nodeReady(node),
+		ExpectedVersion:   coreMachine.Spec.Version,
+		NodeVersion:       node.Status.NodeInfo.KubeletVersion,
 	}, true, nil
 }
 

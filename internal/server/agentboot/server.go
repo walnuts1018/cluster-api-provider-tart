@@ -1,0 +1,73 @@
+package agentboot
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+type Server struct {
+	address  string
+	certFile string
+	keyFile  string
+	handler  *Handler
+}
+
+func NewServer(address, certFile, keyFile string, handler *Handler) *Server {
+	return &Server{address: address, certFile: certFile, keyFile: keyFile, handler: handler}
+}
+
+func (server *Server) Start(ctx context.Context) error {
+	defer func() {
+		if err := server.handler.artifact.Close(); err != nil {
+			crlog.FromContext(ctx).Error(err, "Failed to close Agent Artifact")
+		}
+	}()
+	certificate, err := tls.LoadX509KeyPair(server.certFile, server.keyFile)
+	if err != nil {
+		return fmt.Errorf("load Agent boot TLS certificate: %w", err)
+	}
+	listener := &http.Server{
+		Addr:              server.address,
+		Handler:           server.handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		TLSConfig: &tls.Config{
+			MinVersion:   tls.VersionTLS13,
+			Certificates: []tls.Certificate{certificate},
+		},
+	}
+	errCh := make(chan error, 1)
+	go func() {
+		crlog.FromContext(ctx).Info("Starting Agent boot HTTPS server", "addr", server.address)
+		errCh <- listener.ListenAndServeTLS("", "")
+	}()
+	select {
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := listener.Shutdown(shutdownCtx); err != nil {
+			crlog.FromContext(ctx).Error(err, "Failed to shut down Agent boot HTTPS server")
+		}
+		if serveErr := <-errCh; serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			return fmt.Errorf("serve Agent boot HTTPS: %w", serveErr)
+		}
+		return nil
+	case serveErr := <-errCh:
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			return fmt.Errorf("serve Agent boot HTTPS: %w", serveErr)
+		}
+		return nil
+	}
+}
+
+func (server *Server) NeedLeaderElection() bool {
+	return true
+}

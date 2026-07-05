@@ -2,27 +2,22 @@ package agentboot
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	agentbootdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentartifact"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	ErrNotFound    = errors.New("Agent boot target not found")
-	ErrAmbiguous   = errors.New("Agent boot target is ambiguous")
-	ErrUnsupported = errors.New("Host does not support the Agent iPXE profile")
+	ErrNotFound    = agentbootdomain.ErrTargetNotFound
+	ErrAmbiguous   = agentbootdomain.ErrTargetAmbiguous
+	ErrUnsupported = agentbootdomain.ErrUnsupportedHost
 )
 
-type Target struct {
-	HostUID         string
-	OperationUID    string
-	BootMACAddress  string
-	PlatformProfile string
-}
+type Target = agentbootdomain.Target
 
 type Resolver struct {
 	client client.Client

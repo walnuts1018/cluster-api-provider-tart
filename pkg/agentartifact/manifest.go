@@ -58,7 +58,7 @@ func Parse(data []byte) (ValidatedManifest, error) {
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return ValidatedManifest{}, errors.New("Agent Artifact manifest must contain exactly one JSON value")
+			return ValidatedManifest{}, errors.New("agent Artifact manifest must contain exactly one JSON value")
 		}
 		return ValidatedManifest{}, fmt.Errorf("decode Agent Artifact manifest trailing data: %w", err)
 	}
@@ -72,7 +72,7 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 	case manifest.MediaType != MediaType:
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact mediaType: %q", manifest.MediaType)
 	case !referencePattern.MatchString(manifest.Reference):
-		return ValidatedManifest{}, errors.New("Agent Artifact reference must be a digest-pinned OCI reference")
+		return ValidatedManifest{}, errors.New("agent Artifact reference must be a digest-pinned OCI reference")
 	case manifest.Architecture != ArchitectureAMD64:
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact architecture: %q", manifest.Architecture)
 	case manifest.Firmware != FirmwareUEFI:

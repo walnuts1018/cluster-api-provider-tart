@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
 	k8sagentapi "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentapi"
+	k8sagentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentboot"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
@@ -58,6 +60,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentapi"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
@@ -98,6 +101,12 @@ func main() {
 	var agentAPICertFile string
 	var agentAPIKeyFile string
 	var agentAPIAllowIsolatedL2 bool
+	var agentAPIURL string
+	var agentArtifactRoot string
+	var agentArtifactKeyID string
+	var agentArtifactBaseURL string
+	var agentBootCertFile string
+	var agentBootKeyFile string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -124,6 +133,12 @@ func main() {
 	flag.StringVar(&agentAPIBindAddress, "agent-api-bind-address", "0", "The HTTPS address the Agent API binds to. Use 0 to disable.")
 	flag.StringVar(&agentAPICertFile, "agent-api-cert-file", "", "The Agent API TLS certificate file.")
 	flag.StringVar(&agentAPIKeyFile, "agent-api-key-file", "", "The Agent API TLS private key file.")
+	flag.StringVar(&agentAPIURL, "agent-api-url", "", "The HTTPS Agent API base URL advertised to the Provisioning Agent.")
+	flag.StringVar(&agentArtifactRoot, "agent-artifact-root", "", "The verified Agent Artifact file root. Empty disables the v1 Agent boot server.")
+	flag.StringVar(&agentArtifactKeyID, "agent-artifact-key-id", "", "The trusted Agent Artifact signing key ID.")
+	flag.StringVar(&agentArtifactBaseURL, "agent-artifact-base-url", "", "The HTTPS base URL used to deliver the Agent Artifact and iPXE script.")
+	flag.StringVar(&agentBootCertFile, "agent-boot-cert-file", "", "The Agent boot HTTPS TLS certificate file.")
+	flag.StringVar(&agentBootKeyFile, "agent-boot-key-file", "", "The Agent boot HTTPS TLS private key file.")
 	flag.BoolVar(
 		&agentAPIAllowIsolatedL2,
 		"agent-api-allow-isolated-l2",
@@ -320,6 +335,30 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	agentArtifactEnabled := agentArtifactRoot != ""
+	if agentArtifactEnabled {
+		required := map[string]string{
+			"agent-api-url":           agentAPIURL,
+			"agent-artifact-key-id":   agentArtifactKeyID,
+			"agent-artifact-base-url": agentArtifactBaseURL,
+			"agent-boot-cert-file":    agentBootCertFile,
+			"agent-boot-key-file":     agentBootKeyFile,
+		}
+		for name, value := range required {
+			if value == "" {
+				setupLog.Error(nil, "Agent Artifact delivery requires a configuration value", "flag", name)
+				os.Exit(1)
+			}
+		}
+		if ipxeBindAddress == "0" {
+			setupLog.Error(nil, "Agent Artifact delivery requires the iPXE listener")
+			os.Exit(1)
+		}
+		if agentAPIBindAddress == "0" {
+			setupLog.Error(nil, "Agent Artifact delivery requires the Agent API")
+			os.Exit(1)
+		}
+	}
 
 	reconcilers, err := wire.InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
 	if err != nil {
@@ -360,7 +399,9 @@ func main() {
 	}
 
 	var baseURL string
-	if ipxeDomain != "" {
+	if agentArtifactEnabled {
+		baseURL = strings.TrimSuffix(agentArtifactBaseURL, "/")
+	} else if ipxeDomain != "" {
 		u := url.URL{
 			Scheme: "http",
 			Host:   ipxeDomain,
@@ -379,9 +420,49 @@ func main() {
 	}
 
 	if ipxeBindAddress != "0" {
-		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot, baseURL)); err != nil {
-			setupLog.Error(err, "Failed to add iPXE server")
-			os.Exit(1)
+		if agentArtifactEnabled {
+			artifact, err := agentboot.LoadArtifact(agentboot.ArtifactFiles{
+				ManifestPath:  filepath.Join(agentArtifactRoot, "manifest.json"),
+				SignaturePath: filepath.Join(agentArtifactRoot, "manifest.signature.json"),
+				KernelPath:    filepath.Join(agentArtifactRoot, "vmlinuz"),
+				InitrdPath:    filepath.Join(agentArtifactRoot, "initrd"),
+				KeyID:         agentArtifactKeyID,
+				PublicKeyPath: filepath.Join(agentArtifactRoot, "public-key.pem"),
+			})
+			if err != nil {
+				setupLog.Error(err, "Failed to verify Agent Artifact")
+				os.Exit(1)
+			}
+			handler, err := agentboot.NewHandler(agentboot.Config{
+				Resolver:        k8sagentboot.NewResolver(mgr.GetClient()),
+				Artifact:        artifact,
+				ArtifactBaseURL: baseURL,
+				AgentAPIURL:     agentAPIURL,
+			})
+			if err != nil {
+				if closeErr := artifact.Close(); closeErr != nil {
+					setupLog.Error(closeErr, "Failed to close Agent Artifact")
+				}
+				setupLog.Error(err, "Failed to create Agent boot handler")
+				os.Exit(1)
+			}
+			if err := mgr.Add(agentboot.NewServer(
+				ipxeBindAddress,
+				agentBootCertFile,
+				agentBootKeyFile,
+				handler,
+			)); err != nil {
+				if closeErr := artifact.Close(); closeErr != nil {
+					setupLog.Error(closeErr, "Failed to close Agent Artifact")
+				}
+				setupLog.Error(err, "Failed to add Agent boot server")
+				os.Exit(1)
+			}
+		} else {
+			if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot, baseURL)); err != nil {
+				setupLog.Error(err, "Failed to add iPXE server")
+				os.Exit(1)
+			}
 		}
 	}
 	if agentAPIBindAddress != "0" {

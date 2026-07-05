@@ -33,13 +33,13 @@ func BuildScript(input ScriptInput) (string, error) {
 	}
 	artifactDigest := digest.Digest(input.ArtifactDigest)
 	if err := artifactDigest.Validate(); err != nil || artifactDigest.Algorithm() != digest.SHA256 {
-		return "", errors.New("Agent Artifact digest must be a canonical SHA-256 digest")
+		return "", errors.New("agent Artifact digest must be a canonical SHA-256 digest")
 	}
 	if !identifierPattern.MatchString(input.HostUID) {
-		return "", errors.New("Host UID is invalid")
+		return "", errors.New("host UID is invalid")
 	}
 	if !identifierPattern.MatchString(input.OperationUID) {
-		return "", errors.New("Operation UID is invalid")
+		return "", errors.New("operation UID is invalid")
 	}
 	mac, err := net.ParseMAC(input.BootMACAddress)
 	if err != nil {

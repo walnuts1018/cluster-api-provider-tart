@@ -44,11 +44,29 @@ type HostReserveService interface {
 // HostPhaseService はTartHostのPhaseを更新するサービスインターフェース。
 type HostPhaseService interface {
 	ReserveForMachine(ctx context.Context, host *infrastructurev1beta1.TartHost, machine *infrastructurev1beta1.TartMachine) error
+	MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 }
 
 // OperationService はTartHostOperationを作成・管理するサービスインターフェース。
 type OperationService interface {
 	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
+	CompleteProvision(ctx context.Context, operation *infrastructurev1beta1.TartHostOperation) error
+}
+
+// CompleteProvisioning はOperationとHostを最終状態へ順に収束させる。
+// Operationを先に完了させ、再試行時はSucceededを冪等に受け入れる。
+func (o *Orchestrator) CompleteProvisioning(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if err := o.operations.CompleteProvision(ctx, operation); err != nil {
+		return fmt.Errorf("complete Provision operation: %w", err)
+	}
+	if err := o.hostPhase.MarkHostProvisioned(ctx, host); err != nil {
+		return fmt.Errorf("mark TartHost provisioned: %w", err)
+	}
+	return nil
 }
 
 // SessionTokenIssuer はOperation用のSession Tokenを発行するインターフェース。
@@ -114,7 +132,17 @@ func (o *Orchestrator) ReserveAndStartOperation(
 	}
 
 	deadline := metav1.NewTime(time.Now().Add(defaultOperationDeadline))
-	objectsDigest, err := desiredObjectsDigest(machine)
+	desiredMachine := machine.DeepCopy()
+	expectedProviderID := fmt.Sprintf("tart://%s", host.Name)
+	if desiredMachine.Spec.ProviderID != "" && desiredMachine.Spec.ProviderID != expectedProviderID {
+		return nil, nil, fmt.Errorf(
+			"TartMachine providerID %q does not match reserved TartHost %q",
+			desiredMachine.Spec.ProviderID,
+			host.Name,
+		)
+	}
+	desiredMachine.Spec.ProviderID = expectedProviderID
+	objectsDigest, err := desiredObjectsDigest(desiredMachine)
 	if err != nil {
 		return nil, nil, fmt.Errorf("build desired objects digest: %w", err)
 	}

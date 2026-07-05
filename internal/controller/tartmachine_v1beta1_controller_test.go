@@ -301,6 +301,9 @@ func TestTartMachineV1Beta1ReconcilerResumesOperationAfterHostReferenceRepair(t 
 	if current.Status.OperationRef == nil || current.Status.OperationRef.UID != operation.UID {
 		t.Fatalf("operationRef = %#v, want %q", current.Status.OperationRef, operation.UID)
 	}
+	if current.Spec.ProviderID != "tart://"+host.Name {
+		t.Fatalf("providerID = %q, want tart://%s", current.Spec.ProviderID, host.Name)
+	}
 }
 
 func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T) {
@@ -315,6 +318,7 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
 		WithObjects(machine, host, operation).
 		Build()
+	provisioner := &provisionOrchestratorStub{}
 	reconciler := &TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
 		HostReferences: k8sallocation.NewService(k8sClient),
@@ -325,6 +329,7 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 			ExpectedVersion:   "v1.35.0",
 			NodeVersion:       "v1.35.0",
 		}},
+		Provisioner: provisioner,
 	}
 
 	if _, err := reconciler.Reconcile(context.Background(), requestFor(machine)); err != nil {
@@ -337,6 +342,9 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 	}
 	if current.Status.Initialization.Provisioned == nil || !*current.Status.Initialization.Provisioned {
 		t.Fatalf("initialization.provisioned = %#v, want true", current.Status.Initialization.Provisioned)
+	}
+	if provisioner.completeCalls != 1 {
+		t.Fatalf("CompleteProvisioning() calls = %d, want 1", provisioner.completeCalls)
 	}
 }
 
@@ -422,9 +430,19 @@ type nodeHealthObserverStub struct {
 }
 
 type provisionOrchestratorStub struct {
-	host      *infrastructurev1beta1.TartHost
-	operation *infrastructurev1beta1.TartHostOperation
-	calls     int
+	host          *infrastructurev1beta1.TartHost
+	operation     *infrastructurev1beta1.TartHostOperation
+	calls         int
+	completeCalls int
+}
+
+func (s *provisionOrchestratorStub) CompleteProvisioning(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+	*infrastructurev1beta1.TartHostOperation,
+) error {
+	s.completeCalls++
+	return nil
 }
 
 func (s *provisionOrchestratorStub) ReserveAndStartOperation(

@@ -132,6 +132,13 @@ func (s hostPhaseStub) ReserveForMachine(
 	return s.err
 }
 
+func (s hostPhaseStub) MarkHostProvisioned(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+) error {
+	return s.err
+}
+
 type operationServiceStub struct {
 	operation *infrastructurev1beta1.TartHostOperation
 	err       error
@@ -142,4 +149,11 @@ func (s operationServiceStub) Start(
 	*infrastructurev1beta1.TartHostOperation,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
 	return s.operation, s.err
+}
+
+func (s operationServiceStub) CompleteProvision(
+	context.Context,
+	*infrastructurev1beta1.TartHostOperation,
+) error {
+	return s.err
 }

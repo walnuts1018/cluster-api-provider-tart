@@ -144,6 +144,38 @@ func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 	}
 }
 
+func TestServiceCompleteProvisionTransitionsAwaitingHealthOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	operation := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
+	name, err := operationdomain.ResourceName(string(operation.Spec.HostRef.UID))
+	if err != nil {
+		t.Fatalf("ResourceName() error = %v", err)
+	}
+	operation.Name = name
+	operation.UID = types.UID("operation-object-uid")
+	operation.ResourceVersion = "1"
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := newFakeClient(t, operation)
+	service := NewService(k8sClient)
+
+	if err := service.CompleteProvision(ctx, operation); err != nil {
+		t.Fatalf("CompleteProvision() error = %v", err)
+	}
+	if err := service.CompleteProvision(ctx, operation); err != nil {
+		t.Fatalf("second CompleteProvision() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseSucceeded {
+		t.Fatalf("Phase = %q, want Succeeded", current.Status.Phase)
+	}
+}
+
 func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()

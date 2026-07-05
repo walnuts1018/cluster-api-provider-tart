@@ -196,6 +196,9 @@ func (s *Service) updatePhase(
 		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
 			return fmt.Errorf("get TartHost for phase update: %w", err)
 		}
+		if current.Status.Phase == target {
+			return nil
+		}
 
 		// ホストフェーズの状態機械による遷移検証
 		currentPhase, err := hostdomain.ParsePhase(string(current.Status.Phase))

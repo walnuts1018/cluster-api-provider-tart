@@ -8,6 +8,7 @@ import (
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -108,6 +109,37 @@ func (s *Service) resolveExisting(
 		return current, nil
 	}
 	return nil, ErrActiveOperation
+}
+
+// CompleteProvision はHealth Gateを通過したProvision Operationを一度だけ完了させる。
+func (s *Service) CompleteProvision(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHostOperation{}
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+			return fmt.Errorf("get TartHostOperation for completion: %w", err)
+		}
+		if current.UID != operation.UID || current.Spec.OperationID != operation.Spec.OperationID {
+			return ErrOperationIDConflict
+		}
+		if current.Status.Phase == infrastructurev1beta1.TartHostOperationPhaseSucceeded {
+			return nil
+		}
+		currentPhase, err := operationdomain.ParsePhase(string(current.Status.Phase))
+		if err != nil {
+			return err
+		}
+		target, err := operationdomain.Transition(currentPhase, operationdomain.PhaseSucceeded)
+		if err != nil {
+			return err
+		}
+		original := current.DeepCopy()
+		current.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(target)
+		current.Status.ObservedGeneration = current.Generation
+		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
 }
 
 // sameOperationSpec は同じOperation IDの再試行で、最初に保存されたdeadlineを正本とする。

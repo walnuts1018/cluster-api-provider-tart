@@ -21,7 +21,8 @@ func EvaluateReadiness(
 	if operation == nil || operation.Spec.Type != infrastructurev1beta1.OperationTypeProvision {
 		return ReadinessResult{Reason: "InvalidOperation", Message: "A Provision operation is required"}
 	}
-	if operation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
+	if operation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth &&
+		operation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseSucceeded {
 		return ReadinessResult{Reason: "WaitingForBoot", Message: "Provision operation has not reached the health gate"}
 	}
 	report := operation.Status.LastBootReport

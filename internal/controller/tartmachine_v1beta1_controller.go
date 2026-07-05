@@ -52,6 +52,11 @@ type ProvisionOrchestrator interface {
 		machine *infrastructurev1beta1.TartMachine,
 		planDigest string,
 	) (*infrastructurev1beta1.TartHost, *infrastructurev1beta1.TartHostOperation, error)
+	CompleteProvisioning(
+		ctx context.Context,
+		host *infrastructurev1beta1.TartHost,
+		operation *infrastructurev1beta1.TartHostOperation,
+	) error
 }
 
 type TartMachineV1Beta1Reconciler struct {
@@ -176,6 +181,9 @@ func (r *TartMachineV1Beta1Reconciler) reconcileProvisionStart(
 	if err != nil {
 		return fmt.Errorf("reserve host and start operation: %w", err)
 	}
+	if err := r.ensureProviderID(ctx, machine, host); err != nil {
+		return err
+	}
 
 	// HostRef/OperationRefをStatusに永続化する
 	original := machine.DeepCopy()
@@ -189,6 +197,30 @@ func (r *TartMachineV1Beta1Reconciler) reconcileProvisionStart(
 		"host", client.ObjectKeyFromObject(host).String(),
 		"operation", client.ObjectKeyFromObject(operation).String(),
 	)
+	return nil
+}
+
+func (r *TartMachineV1Beta1Reconciler) ensureProviderID(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+) error {
+	expected := fmt.Sprintf("tart://%s", host.Name)
+	if machine.Spec.ProviderID == expected {
+		return nil
+	}
+	if machine.Spec.ProviderID != "" {
+		return fmt.Errorf(
+			"TartMachine providerID %q does not match reserved TartHost %q",
+			machine.Spec.ProviderID,
+			host.Name,
+		)
+	}
+	original := machine.DeepCopy()
+	machine.Spec.ProviderID = expected
+	if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("set TartMachine providerID: %w", err)
+	}
 	return nil
 }
 
@@ -304,6 +336,27 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 		}
 		readiness := appprovisioning.EvaluateReadiness(operation, observation)
 		if readiness.Ready {
+			if r.Provisioner == nil {
+				return ctrl.Result{}, fmt.Errorf("complete Provisioning: Provisioner is not configured")
+			}
+			host := &infrastructurev1beta1.TartHost{}
+			hostKey := client.ObjectKey{
+				Namespace: machine.Status.HostRef.Namespace,
+				Name:      machine.Status.HostRef.Name,
+			}
+			if err := r.Get(ctx, hostKey, host); err != nil {
+				return ctrl.Result{}, fmt.Errorf("get TartHost for health gate: %w", err)
+			}
+			if host.UID != machine.Status.HostRef.UID {
+				return ctrl.Result{}, fmt.Errorf(
+					"TartHost UID mismatch for health gate: expected %s, got %s",
+					machine.Status.HostRef.UID,
+					host.UID,
+				)
+			}
+			if err := r.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
+				return ctrl.Result{}, err
+			}
 			machine.Status = appprovisioning.StatusWithProvisioned(machine, machine.Status.Addresses)
 		} else {
 			machine.Status = appprovisioning.StatusWithHealthGatePending(

@@ -272,6 +272,28 @@ spec:
                 - Failed
                 - RecoveryRequired
                 type: string
+              sessionAuthenticationFailures:
+                description: sessionAuthenticationFailures is the number of rejected
+                  authentication attempts.
+                format: int32
+                maximum: 5
+                minimum: 0
+                type: integer
+              sessionTokenConsumed:
+                description: sessionTokenConsumed indicates that Bootstrap delivery
+                  was claimed and may not be replayed.
+                type: boolean
+              sessionTokenExpiresAt:
+                description: sessionTokenExpiresAt is the immutable expiry of the
+                  active Session Token.
+                format: date-time
+                type: string
+              sessionTokenHash:
+                description: |-
+                  sessionTokenHash is the SHA-256 hash of the active Session Token.
+                  The plaintext token is never stored in Kubernetes.
+                pattern: ^[0-9a-f]{64}$
+                type: string
               snapshotRef:
                 description: snapshotRef identifies the snapshot required to recover
                   a state migration.

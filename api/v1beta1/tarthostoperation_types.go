@@ -129,6 +129,26 @@ type TartHostOperationStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	AgentSequence int64 `json:"agentSequence,omitempty"`
 
+	// sessionTokenHash is the SHA-256 hash of the active Session Token.
+	// The plaintext token is never stored in Kubernetes.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^[0-9a-f]{64}$`
+	SessionTokenHash string `json:"sessionTokenHash,omitempty"`
+
+	// sessionTokenExpiresAt is the immutable expiry of the active Session Token.
+	// +optional
+	SessionTokenExpiresAt *metav1.Time `json:"sessionTokenExpiresAt,omitempty"`
+
+	// sessionAuthenticationFailures is the number of rejected authentication attempts.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=5
+	SessionAuthenticationFailures int32 `json:"sessionAuthenticationFailures,omitempty"`
+
+	// sessionTokenConsumed indicates that Bootstrap delivery was claimed and may not be replayed.
+	// +optional
+	SessionTokenConsumed bool `json:"sessionTokenConsumed,omitempty"`
+
 	// conditions represent the current state of the TartHostOperation.
 	// +optional
 	// +listType=map

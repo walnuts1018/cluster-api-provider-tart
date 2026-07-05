@@ -8,7 +8,7 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 
 - Task 02のOperation schema
 - Task 05のManifest schema
-- ADR 0004、0006
+- ADR 0004、0006、0011
 
 ## 入力
 
@@ -72,6 +72,42 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 - sanitized log/trace sample
 - Initial Credential threat model
 
+## 実装状況
+
+2026-07-05時点で、Task 02とTask 05 Manifest schemaに依存するProtocolの縦方向実装を
+先行した。`--agent-api-bind-address`の既定値は`0`であり、TLS certificate/keyと
+`--agent-api-allow-isolated-l2`を明示した場合だけproduction listenerを起動する。
+
+| 受け入れ条件 | 状況 | 証跡または残作業 |
+|---|---|---|
+| 1 | 実装済み | `TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims`でKubernetes StatusのresourceVersion競合を使い100並列中1件だけclaim |
+| 2 | Domain実装済み | Host UID、Operation UID、expiryの拒否を`TestAuthenticateRejectsInvalidBindingsExpiryAndConsumption`で確認。HTTPS endpointを通した組合せtestは残作業 |
+| 3 | 実装済み | `TestServiceLocksAfterFiveFailures` |
+| 4 | 実装済み | token hash、expiry、失敗回数、消費状態を`TartHostOperation.status`へ保存し、`TestServicePersistsAndRestoresSession`でService再生成後の認証を確認 |
+| 5 | 実装済み | `TestHandlerProgressSequence`と`TestServiceAppliesSequenceOneTwoTwoOneFourThree` |
+| 6 | 実装済み | `TestHandlerRejectsRequestLargerThanOneMiB`、`TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap` |
+| 7 | 一部実装 | Agent APIはaccess log middlewareを持たず、固定error bodyだけを返す。Event、Status、traceを含むsanitized sampleの確認は残作業 |
+| 8 | 実装済み | `cloud-config`以外を422で拒否し、Ignition adapterは実装しない |
+| 9 | 実装済み | [ADR 0011](../adr/0011-initial-agent-credential.md)。iPXE-only MVPはInitial secretを配らず隔離L2とTLS pinningを必須にする |
+| 10 | 文書化済み、Status未実装 | ADR 0011へ制約を記録。Platform Profile確定後にTartHost Conditionへ表示する |
+
+実装済みの主な構成:
+
+- `pkg/agentprotocol`: request/response、Plan、Bootstrap Bundle、RFC 8785 canonicalization、Ed25519署名
+- `artifact/schema`: PlanとBootstrap BundleのJSON Schema
+- `internal/domain/agentsession`: 256 bit token、binding、TTL、失敗上限、消費状態
+- `internal/domain/agentprogress`: sequenceの適用、重複、gap判定
+- `internal/adapter/k8s/agentapi`: Operation lookup、署名済みPlan Secret、CABPK Bootstrap Secretの読取り
+- `internal/server/agentapi`: TLS 1.3 listener、rate limiter、`/v1` endpoint
+
+残作業:
+
+- `boot-report`の永続化AdapterとHealth Gateへの接続
+- Plan SecretをOperation作成時に生成するTask 07側の接続
+- `MutualTLS`、`SignedChallenge`、`BMCProtectedMedia`のRegistration Verifier
+- Platform ProfileとTartHost ConditionへのInitial Credential mode表示
+- log、Event、Status、traceの機密値走査test
+
 ## 対象外
 
 - disk処理
@@ -81,5 +117,5 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 
 ## 関連
 
-- ADR 0004、0006
+- ADR 0004、0006、0011
 - Issue #147

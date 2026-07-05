@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cluster-api-provider-tart.test/schema/agent-plan-v1.schema.json",
+  "title": "Tart Agent Plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "operationUID", "hostUID", "deadline", "rootDevice", "artifact", "allowedTargetRoles", "steps"],
+  "properties": {
+    "apiVersion": {"const": "infrastructure.cluster.x-k8s.io/v1"},
+    "operationUID": {"type": "string", "minLength": 1, "maxLength": 128},
+    "hostUID": {"type": "string", "minLength": 1, "maxLength": 128},
+    "deadline": {"type": "string", "format": "date-time"},
+    "rootDevice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minSizeBytes"],
+      "anyOf": [{"required": ["serialNumber"]}, {"required": ["wwn"]}],
+      "properties": {
+        "serialNumber": {"type": "string", "minLength": 1},
+        "wwn": {"type": "string", "minLength": 1},
+        "minSizeBytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "manifestDigest", "generation"],
+      "properties": {
+        "ref": {"type": "string", "minLength": 1},
+        "manifestDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "generation": {"type": "integer", "minimum": 1}
+      }
+    },
+    "allowedTargetRoles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["Boot", "OS-A", "OS-B", "Verity-A", "Verity-B", "State", "Data"]}
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 128}}
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machineUID", "format"],
+      "properties": {
+        "machineUID": {"type": "string", "minLength": 1, "maxLength": 128},
+        "format": {"const": "cloud-config"}
+      }
+    }
+  }
+}

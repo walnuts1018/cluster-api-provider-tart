@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cluster-api-provider-tart.test/schema/bootstrap-bundle-v1.schema.json",
+  "title": "Tart Bootstrap Bundle v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "format", "payload", "payloadDigest", "machineUID", "operationUID"],
+  "properties": {
+    "apiVersion": {"const": "infrastructure.cluster.x-k8s.io/v1"},
+    "format": {"const": "cloud-config"},
+    "payload": {"type": "string", "contentEncoding": "base64", "maxLength": 16773120},
+    "payloadDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "machineUID": {"type": "string", "minLength": 1, "maxLength": 128},
+    "operationUID": {"type": "string", "minLength": 1, "maxLength": 128}
+  }
+}

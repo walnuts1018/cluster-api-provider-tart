@@ -43,7 +43,7 @@ type APIError struct {
 }
 
 func (err *APIError) Error() string {
-	return fmt.Sprintf("Agent API returned status %d (%s)", err.StatusCode, err.Code)
+	return fmt.Sprintf("agent API returned status %d (%s)", err.StatusCode, err.Code)
 }
 
 func New(config Config) (*Client, error) {
@@ -52,16 +52,16 @@ func New(config Config) (*Client, error) {
 		return nil, fmt.Errorf("parse Agent API URL: %w", err)
 	}
 	if baseURL.Scheme != "https" || baseURL.Host == "" {
-		return nil, errors.New("Agent API URL must use HTTPS and include a host")
+		return nil, errors.New("agent API URL must use HTTPS and include a host")
 	}
 	if baseURL.User != nil || baseURL.RawQuery != "" || baseURL.Fragment != "" {
-		return nil, errors.New("Agent API URL must not contain credentials, query, or fragment")
+		return nil, errors.New("agent API URL must not contain credentials, query, or fragment")
 	}
 	if strings.Trim(baseURL.Path, "/") != "" {
-		return nil, errors.New("Agent API URL must not contain a path")
+		return nil, errors.New("agent API URL must not contain a path")
 	}
 	if config.TrustStore == nil {
-		return nil, errors.New("Plan trust store is required")
+		return nil, errors.New("plan trust store is required")
 	}
 
 	httpClient := http.DefaultClient

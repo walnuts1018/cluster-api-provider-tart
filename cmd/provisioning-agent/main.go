@@ -188,7 +188,7 @@ func newHTTPClient(caFile string) (*http.Client, error) {
 			return nil, fmt.Errorf("read Agent API CA bundle: %w", err)
 		}
 		if !roots.AppendCertsFromPEM(data) {
-			return nil, errors.New("Agent API CA bundle contains no certificates")
+			return nil, errors.New("agent API CA bundle contains no certificates")
 		}
 		tlsConfig.RootCAs = roots
 	}

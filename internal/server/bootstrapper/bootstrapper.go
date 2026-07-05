@@ -100,9 +100,9 @@ func (c *combinedBootstrapperImpl) Addr() string {
 	return c.dhcp.Addr()
 }
 
-// NeedLeaderElection はリーダー選挙が必要ないことを返します。
+// NeedLeaderElectionはstandby replicaがnetwork listenerを開始しないようにします。
 func (c *combinedBootstrapperImpl) NeedLeaderElection() bool {
-	return false
+	return true
 }
 
 // DHCPBootFileName は iPXE ブートローダのファイル名を返します。

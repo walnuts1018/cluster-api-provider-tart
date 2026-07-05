@@ -72,8 +72,8 @@ func TestTFTPBootstrapper_NeedLeaderElection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := bs.NeedLeaderElection(); got != false {
-		t.Errorf("expected NeedLeaderElection false, got %v", got)
+	if got := bs.NeedLeaderElection(); got != true {
+		t.Errorf("expected NeedLeaderElection true, got %v", got)
 	}
 }
 

@@ -86,8 +86,8 @@ func TestDHCPBootstrapper_NeedLeaderElection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := bs.NeedLeaderElection(); got != false {
-		t.Errorf("expected NeedLeaderElection false, got %v", got)
+	if got := bs.NeedLeaderElection(); got != true {
+		t.Errorf("expected NeedLeaderElection true, got %v", got)
 	}
 }
 
@@ -416,70 +416,35 @@ func TestDHCPBootstrapper_ProxyMode_SkipsWithServerID(t *testing.T) {
 	})
 }
 
-func TestDHCPBootstrapper_DifferentArchitectures(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	iPXEPath := filepath.Join(tmpDir, iPXEBootFileNameAMD64)
-	if err := os.WriteFile(iPXEPath, []byte("fake ipxe binary"), 0644); err != nil {
-		t.Fatalf("failed to create fake iPXE file: %v", err)
-	}
-
-	ctx := t.Context()
-
-	bs, err := NewDHCPBootstrapper(tmpDir, "127.0.0.1", "127.0.0.1", "http://127.0.0.1:8080")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if err := bs.StartWithContext(ctx); err != nil {
-		t.Fatalf("failed to start DHCP server: %v", err)
-	}
-	defer bs.Stop()
-
-	remoteAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:"+strconv.Itoa(pxePort))
-	conn, err := net.DialUDP("udp4", nil, remoteAddr)
-	if err != nil {
-		t.Fatalf("failed to connect: %v", err)
-	}
-	defer conn.Close()
+func TestAgentBootFileSupportsOnlyUEFIAMD64(t *testing.T) {
+	t.Parallel()
 
 	mac, err := net.ParseMAC("00:00:5e:00:53:15")
 	if err != nil {
-		t.Fatalf("failed to parse MAC: %v", err)
+		t.Fatalf("ParseMAC() error = %v", err)
 	}
-
-	t.Run("arm64 EFI client receives arm64 boot file on Port 4011", func(t *testing.T) {
-		xid := dhcpv4.TransactionID{0x00, 0x00, 0x18, 0x01}
-		pkt, err := dhcpv4.New(
-			dhcpv4.WithMessageType(dhcpv4.MessageTypeRequest),
-			dhcpv4.WithHwAddr(mac),
-			dhcpv4.WithTransactionID(xid),
-			dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
-			dhcpv4.WithOption(dhcpv4.OptClientArch(iana.Arch(uint16(ArchEFIARM64)))),
-		)
-		if err != nil {
-			t.Fatalf("failed to create packet: %v", err)
-		}
-
-		if _, err := conn.Write(pkt.ToBytes()); err != nil {
-			t.Fatalf("failed to send packet: %v", err)
-		}
-
-		resp := make([]byte, 1500)
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		n, _, err := conn.ReadFrom(resp)
-		if err != nil {
-			t.Fatalf("failed to receive response: %v", err)
-		}
-
-		reply, err := dhcpv4.FromBytes(resp[:n])
-		if err != nil {
-			t.Fatalf("failed to parse response: %v", err)
-		}
-
-		bootFile := reply.BootFileName
-		if bootFile != iPXEBootFileNameARM64 {
-			t.Errorf("expected boot file %s for arm64, got %s", iPXEBootFileNameARM64, bootFile)
-		}
-	})
+	tests := []struct {
+		name          string
+		arch          Arch
+		optionPresent bool
+		isIPXE        bool
+		want          string
+		supported     bool
+	}{
+		{name: "UEFI amd64 PXE", arch: ArchEFIx8664, optionPresent: true, want: iPXEBootFileNameAMD64, supported: true},
+		{name: "UEFI amd64 iPXE", arch: ArchEFIx8664, optionPresent: true, isIPXE: true, want: "https://boot.test/ipxe?mac=00%3A00%3A5e%3A00%3A53%3A15", supported: true},
+		{name: "Legacy BIOS", arch: ArchIntelx86PC, optionPresent: true},
+		{name: "UEFI arm64", arch: ArchEFIARM64, optionPresent: true},
+		{name: "未知architecture", arch: Arch(255), optionPresent: true},
+		{name: "Option 93なし", arch: ArchEFIx8664},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, supported := agentBootFile(tt.arch, tt.optionPresent, tt.isIPXE, "https://boot.test", mac)
+			if got != tt.want || supported != tt.supported {
+				t.Fatalf("agentBootFile() = (%q, %v), want (%q, %v)", got, supported, tt.want, tt.supported)
+			}
+		})
+	}
 }

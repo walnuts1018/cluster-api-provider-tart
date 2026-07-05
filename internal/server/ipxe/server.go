@@ -631,5 +631,5 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) NeedLeaderElection() bool {
-	return false
+	return true
 }

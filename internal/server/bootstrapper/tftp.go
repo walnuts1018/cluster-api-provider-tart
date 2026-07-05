@@ -256,9 +256,9 @@ func (b *TFTPBootstrapper) Addr() string {
 	return b.addr
 }
 
-// NeedLeaderElection はリーダー選挙が必要ないことを返します。
+// NeedLeaderElectionはstandby replicaがTFTP listenerを開始しないようにします。
 func (b *TFTPBootstrapper) NeedLeaderElection() bool {
-	return false
+	return true
 }
 
 // Stop はTFTPサーバーを停止します。

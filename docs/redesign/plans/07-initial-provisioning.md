@@ -41,10 +41,10 @@
 - `cmd/wire/wire.go`
 - `cmd/wire/wire_gen.go`
 
-- [ ] TartHost root device、TartMachine image、Operation deadline、Bootstrap formatから`agentprotocol.Plan`を構築する失敗テストを追加する。
-- [ ] Planを検証してRFC 8785 digestを算出し、Ed25519署名する。
-- [ ] Operationと同じ名前空間へowner reference付きSecretをSSAで保存する。
-- [ ] controller再起動後に同じPlan Secretへ収束するテストを追加する。
+- [x] TartHost root device、TartMachine image、Operation deadline、Bootstrap formatから`agentprotocol.Plan`を構築する失敗テストを追加する。
+- [x] Planを検証してRFC 8785 digestを算出し、Ed25519署名する。
+- [x] Operationと同じ名前空間へowner reference付きSecretをSSAで保存する。
+- [x] controller再起動後に同じPlan Secretへ収束するテストを追加する。
 - [ ] Plan署名鍵をArtifact信頼鍵とは別のread-only mountから読み込む起動オプションを追加する。
 - [ ] 対象packageのテストを実行し、変更をコミットする。
 

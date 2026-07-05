@@ -31,6 +31,32 @@ func TestParseConfigRequiresExplicitPreflightInputs(t *testing.T) {
 	}
 }
 
+func TestParseConfigRequiresExactlyOneDiagnosticMode(t *testing.T) {
+	base := []string{
+		"--controller-url=https://controller.test.walnuts.dev",
+		"--operation-uid=operation-uid",
+		"--host-uid=host-uid",
+		"--boot-mac-address=00:11:22:33:44:55",
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+	}
+	if _, err := parseConfig(base); err == nil {
+		t.Fatal("parseConfig() accepted no diagnostic mode")
+	}
+	both := append(base, "--preflight-only", "--prepare-layout-only")
+	if _, err := parseConfig(both); err == nil {
+		t.Fatal("parseConfig() accepted both diagnostic modes")
+	}
+	prepare := append(base, "--prepare-layout-only")
+	cfg, err := parseConfig(prepare)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !cfg.prepareLayout {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+}
+
 func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {
 	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

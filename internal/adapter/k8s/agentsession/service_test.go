@@ -2,7 +2,9 @@ package agentsession
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,6 +33,17 @@ func TestServicePersistsAndRestoresSession(t *testing.T) {
 	}
 	if expiresAt != now.Add(agentsessiondomain.DefaultTTL) {
 		t.Fatalf("expiresAt = %v", expiresAt)
+	}
+	persisted := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(ctx, key, persisted); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	serialized, err := json.Marshal(persisted.Status)
+	if err != nil {
+		t.Fatalf("json.Marshal(status) error = %v", err)
+	}
+	if strings.Contains(string(serialized), token.BearerValue()) {
+		t.Fatal("TartHostOperation status contains the plaintext Session Token")
 	}
 
 	// 新しいService instanceでもKubernetes Statusから認証状態を復元できる。
@@ -92,6 +105,46 @@ func TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims(t *testing.T) {
 	wait.Wait()
 	if got := successes.Load(); got != 1 {
 		t.Fatalf("successful claims = %d, want 1", got)
+	}
+}
+
+func TestServiceAllowsNewSessionWithoutReplayingBootstrap(t *testing.T) {
+	ctx := context.Background()
+	key := client.ObjectKey{Namespace: "default", Name: "operation"}
+	k8sClient := newFakeClient(t, testOperation(key))
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	service := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	first, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
+	if err != nil {
+		t.Fatalf("Issue(first) error = %v", err)
+	}
+	if err := service.ClaimBootstrap(ctx, key, first.BearerValue(), "host-uid", "operation-uid", now); err != nil {
+		t.Fatalf("ClaimBootstrap(first) error = %v", err)
+	}
+
+	second, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Issue(second) error = %v", err)
+	}
+	if err := service.Authenticate(
+		ctx,
+		key,
+		second.BearerValue(),
+		"host-uid",
+		"operation-uid",
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("Authenticate(second) error = %v", err)
+	}
+	if err := service.ClaimBootstrap(
+		ctx,
+		key,
+		second.BearerValue(),
+		"host-uid",
+		"operation-uid",
+		now.Add(time.Minute),
+	); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("ClaimBootstrap(second) error = %v, want ErrUnauthorized", err)
 	}
 }
 

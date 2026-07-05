@@ -235,6 +235,24 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 	return ValidatedPlan{plan: plan}, nil
 }
 
+func ValidateBootReport(report BootReportRequest) error {
+	switch {
+	case report.APIVersion != APIVersion:
+		return fmt.Errorf("unsupported apiVersion: %q", report.APIVersion)
+	case !validUID(report.OperationUID):
+		return errors.New("operationUID is invalid")
+	case !validSHA256Digest(report.PlanDigest):
+		return errors.New("planDigest must be a canonical SHA-256 digest")
+	case !uidPattern.MatchString(report.BootID):
+		return errors.New("bootID is invalid")
+	case report.ActiveSlot != "A" && report.ActiveSlot != "B":
+		return errors.New("activeSlot must be A or B")
+	case report.ArtifactGeneration == 0:
+		return errors.New("artifactGeneration must be greater than zero")
+	}
+	return nil
+}
+
 func (plan ValidatedPlan) Value() Plan {
 	return plan.plan
 }

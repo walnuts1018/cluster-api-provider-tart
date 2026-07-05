@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"golang.org/x/time/rate"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
+	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	agentprogressdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentprogress"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
@@ -45,7 +47,7 @@ type BootstrapProvider interface {
 }
 
 type BootReporter interface {
-	ReportBoot(context.Context, client.ObjectKey, agentprotocol.BootReportRequest) error
+	ReportBoot(context.Context, client.ObjectKey, agentprotocol.BootReportRequest, metav1.Time) error
 }
 
 type Config struct {
@@ -174,7 +176,13 @@ func (handler *Handler) plan(writer http.ResponseWriter, request *http.Request) 
 }
 
 func (handler *Handler) progress(writer http.ResponseWriter, request *http.Request) {
-	if !handler.dependenciesAvailable(writer, handler.config.Operations, handler.config.Sessions, handler.config.Progress) {
+	if !handler.dependenciesAvailable(
+		writer,
+		handler.config.Operations,
+		handler.config.Sessions,
+		handler.config.Progress,
+		handler.config.Plans,
+	) {
 		return
 	}
 	key, operation, ok := handler.authorizeOperation(writer, request)
@@ -193,6 +201,25 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 	}
 	if body.CompletedStep == "" {
 		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "completedStep is required")
+		return
+	}
+	signedPlan, err := handler.config.Plans.GetPlan(request.Context(), key)
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	validatedPlan, err := agentprotocol.ValidatePlan(signedPlan.Plan)
+	if err != nil {
+		handler.internalError(writer)
+		return
+	}
+	planDigest, err := validatedPlan.Digest()
+	if err != nil || planDigest.String() != operation.Spec.PlanDigest {
+		handler.notFound(writer)
+		return
+	}
+	if !planContainsStep(signedPlan.Plan, body.CompletedStep) {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "unknown_step", "Completed step is not present in the Plan")
 		return
 	}
 	result, err := handler.config.Progress.Report(
@@ -219,6 +246,15 @@ func (handler *Handler) progress(writer http.ResponseWriter, request *http.Reque
 	default:
 		handler.internalError(writer)
 	}
+}
+
+func planContainsStep(plan agentprotocol.Plan, completedStep string) bool {
+	for _, step := range plan.Steps {
+		if step.Name == completedStep {
+			return true
+		}
+	}
+	return false
 }
 
 func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Request) {
@@ -296,11 +332,24 @@ func (handler *Handler) bootReport(writer http.ResponseWriter, request *http.Req
 		handler.notFound(writer)
 		return
 	}
-	if body.BootID == "" {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "bootID is required")
+	if err := agentprotocol.ValidateBootReport(body); err != nil {
+		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "Boot report is invalid")
 		return
 	}
-	if err := handler.config.BootReports.ReportBoot(request.Context(), key, body); err != nil {
+	if err := handler.config.BootReports.ReportBoot(
+		request.Context(),
+		key,
+		body,
+		metav1.NewTime(handler.config.Now()),
+	); err != nil {
+		if errors.Is(err, k8sbootreport.ErrOperationNotFound) {
+			handler.notFound(writer)
+			return
+		}
+		if errors.Is(err, k8sbootreport.ErrReportConflict) {
+			handler.writeError(writer, http.StatusConflict, "boot_report_conflict", "Boot report conflicts with operation state")
+			return
+		}
 		handler.internalError(writer)
 		return
 	}

@@ -22,11 +22,31 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
+	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-const testPlanDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+var (
+	testSignedPlan = agentprotocol.SignedPlan{Plan: agentprotocol.Plan{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		HostUID:      "host-uid",
+		Deadline:     time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+		RootDevice: agentprotocol.RootDevice{
+			SerialNumber: "disk-serial",
+			MinSizeBytes: 1,
+		},
+		Artifact: agentprotocol.Artifact{
+			Ref:            "oci://registry.test.walnuts.dev/os@sha256:" + strings.Repeat("b", 64),
+			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
+			Generation:     1,
+		},
+		AllowedTargetRoles: []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA},
+		Steps:              []agentprotocol.PlanStep{{Name: "WriteImage"}},
+	}}
+	testPlanDigest = mustPlanDigest(testSignedPlan.Plan)
+)
 
 type staticResolver struct {
 	key       client.ObjectKey
@@ -58,11 +78,32 @@ type staticBootstrap struct {
 	bundle agentprotocol.BootstrapBundle
 }
 
+type staticPlan struct{}
+
+func (staticPlan) GetPlan(context.Context, client.ObjectKey) (agentprotocol.SignedPlan, error) {
+	return testSignedPlan, nil
+}
+
 func (provider staticBootstrap) GetBootstrapBundle(
 	context.Context,
 	client.ObjectKey,
 ) (agentprotocol.BootstrapBundle, error) {
 	return provider.bundle, nil
+}
+
+type recordingBootReporter struct {
+	request agentprotocol.BootReportRequest
+	err     error
+}
+
+func (reporter *recordingBootReporter) ReportBoot(
+	_ context.Context,
+	_ client.ObjectKey,
+	request agentprotocol.BootReportRequest,
+	_ metav1.Time,
+) error {
+	reporter.request = request
+	return reporter.err
 }
 
 func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
@@ -77,6 +118,128 @@ func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
 	}
 	if location := response.Header().Get("Location"); location != "" {
 		t.Fatalf("Location = %q, want empty", location)
+	}
+}
+
+func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
+	payload := []byte("#cloud-config\n")
+	bootstrap := staticBootstrap{bundle: agentprotocol.BootstrapBundle{
+		APIVersion:    agentprotocol.APIVersion,
+		Format:        agentprotocol.BootstrapFormatCloud,
+		Payload:       payload,
+		PayloadDigest: digest.FromBytes(payload).String(),
+		MachineUID:    "machine-uid",
+		OperationUID:  "operation-uid",
+	}}
+	handler, _ := newAuthenticatedHandler(t, bootstrap)
+	handler.config.BootReports = &recordingBootReporter{}
+	requests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{
+			name:   "plan",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/plan",
+		},
+		{
+			name:   "progress",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/progress",
+			body: agentprotocol.ProgressRequest{
+				APIVersion:    agentprotocol.APIVersion,
+				OperationUID:  "operation-uid",
+				PlanDigest:    testPlanDigest,
+				AgentSequence: 1,
+				CompletedStep: "WriteImage",
+			},
+		},
+		{
+			name:   "bootstrap",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/bootstrap",
+		},
+		{
+			name:   "boot report",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/boot-report",
+			body: agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				PlanDigest:         testPlanDigest,
+				BootID:             "boot-id",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+			},
+		},
+	}
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			response := performJSONRequest(
+				t,
+				handler,
+				request.method,
+				request.path,
+				"token-for-another-host-or-operation",
+				request.body,
+			)
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandlerRejectsExpiredSession(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler.config.Now = func() time.Time {
+		return time.Date(2026, 7, 5, 12, 11, 0, 0, time.UTC)
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/plan",
+		sessionToken,
+		nil,
+	)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+}
+
+func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T) {
+	handler, _ := newAuthenticatedHandler(t, nil)
+	credential := "credential-that-must-not-be-reflected"
+	secretValue := "request-value-that-must-not-be-reflected"
+	body := agentprotocol.ProgressRequest{
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		PlanDigest:    testPlanDigest,
+		AgentSequence: 1,
+		CompletedStep: secretValue,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/progress",
+		credential,
+		body,
+	)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+	for _, sensitive := range []string{credential, secretValue} {
+		if strings.Contains(response.Body.String(), sensitive) {
+			t.Fatalf("error response contains sensitive value %q", sensitive)
+		}
 	}
 }
 
@@ -110,6 +273,115 @@ func TestHandlerProgressSequence(t *testing.T) {
 		if response.Code != wantStatuses[index] {
 			t.Fatalf("sequence %d status = %d, want %d; body=%s", sequence, response.Code, wantStatuses[index], response.Body.String())
 		}
+	}
+}
+
+func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	body := agentprotocol.ProgressRequest{
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		PlanDigest:    testPlanDigest,
+		AgentSequence: 1,
+		CompletedStep: "EraseState",
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/progress",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnprocessableEntity, response.Body.String())
+	}
+}
+
+func TestHandlerAcceptsValidBootReport(t *testing.T) {
+	reporter := &recordingBootReporter{}
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler.config.BootReports = reporter
+	body := agentprotocol.BootReportRequest{
+		APIVersion:         agentprotocol.APIVersion,
+		OperationUID:       "operation-uid",
+		PlanDigest:         testPlanDigest,
+		BootID:             "boot-id",
+		ActiveSlot:         "A",
+		ArtifactGeneration: 1,
+		StateMounted:       true,
+		DataMounted:        true,
+		BootstrapApplied:   true,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/boot-report",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	if reporter.request.BootID != body.BootID {
+		t.Fatalf("reported boot ID = %q, want %q", reporter.request.BootID, body.BootID)
+	}
+}
+
+func TestHandlerRejectsInvalidAndConflictingBootReports(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*agentprotocol.BootReportRequest)
+		reportErr  error
+		wantStatus int
+	}{
+		{
+			name: "invalid active slot",
+			mutate: func(report *agentprotocol.BootReportRequest) {
+				report.ActiveSlot = "C"
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "operation phase conflict",
+			mutate:     func(*agentprotocol.BootReportRequest) {},
+			reportErr:  k8sbootreport.ErrReportConflict,
+			wantStatus: http.StatusConflict,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reporter := &recordingBootReporter{err: test.reportErr}
+			handler, sessionToken := newAuthenticatedHandler(t, nil)
+			handler.config.BootReports = reporter
+			body := agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				PlanDigest:         testPlanDigest,
+				BootID:             "boot-id",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+			}
+			test.mutate(&body)
+
+			response := performJSONRequest(
+				t,
+				handler,
+				http.MethodPost,
+				"/v1/operations/operation-uid/boot-report",
+				sessionToken,
+				body,
+			)
+
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, test.wantStatus, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -257,9 +529,22 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		RegistrationVerifier: allowRegistration{},
 		Sessions:             sessions,
 		Progress:             k8sagentprogress.NewService(k8sClient),
+		Plans:                staticPlan{},
 		Bootstrap:            bootstrap,
 		Now:                  func() time.Time { return now },
 	}), token.BearerValue()
+}
+
+func mustPlanDigest(plan agentprotocol.Plan) string {
+	validated, err := agentprotocol.ValidatePlan(plan)
+	if err != nil {
+		panic(err)
+	}
+	digest, err := validated.Digest()
+	if err != nil {
+		panic(err)
+	}
+	return digest.String()
 }
 
 func performJSONRequest(

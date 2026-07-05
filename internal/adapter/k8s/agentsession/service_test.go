@@ -108,6 +108,46 @@ func TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims(t *testing.T) {
 	}
 }
 
+func TestServiceAllowsNewSessionWithoutReplayingBootstrap(t *testing.T) {
+	ctx := context.Background()
+	key := client.ObjectKey{Namespace: "default", Name: "operation"}
+	k8sClient := newFakeClient(t, testOperation(key))
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+	service := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	first, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
+	if err != nil {
+		t.Fatalf("Issue(first) error = %v", err)
+	}
+	if err := service.ClaimBootstrap(ctx, key, first.BearerValue(), "host-uid", "operation-uid", now); err != nil {
+		t.Fatalf("ClaimBootstrap(first) error = %v", err)
+	}
+
+	second, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Issue(second) error = %v", err)
+	}
+	if err := service.Authenticate(
+		ctx,
+		key,
+		second.BearerValue(),
+		"host-uid",
+		"operation-uid",
+		now.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("Authenticate(second) error = %v", err)
+	}
+	if err := service.ClaimBootstrap(
+		ctx,
+		key,
+		second.BearerValue(),
+		"host-uid",
+		"operation-uid",
+		now.Add(time.Minute),
+	); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("ClaimBootstrap(second) error = %v, want ErrUnauthorized", err)
+	}
+}
+
 func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()

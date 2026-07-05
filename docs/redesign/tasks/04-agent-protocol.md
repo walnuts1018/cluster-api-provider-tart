@@ -106,6 +106,9 @@ boot reportは失敗したmount結果も`status.lastBootReport`へ保存する�
 Artifact Generation、State/Data mount、Bootstrap成功markerが全て一致した場合だけ
 `AwaitingHealth`へ進む。同一reportの再送はStatusを更新せず、完了後に異なるboot IDまたは
 内容を送った場合は409を返す。Node Ready等のHealth Gate判定はTask 07が引き継ぐ。
+OS health serviceは再起動後にregisterを再実行して新しいSession Tokenを取得する。
+Bootstrap claimで以前のTokenは失効するが、`status.bootstrapDelivered`はOperation単位で
+保持するため、新Sessionを使ったBootstrap Dataの再取得は拒否する。
 
 progress endpointは署名済みPlanを再読込みし、Plan Digestと`completedStep`の所属を検証する。
 PlanにないStep名はStatusへ保存せず422を返す。

@@ -149,6 +149,11 @@ type TartHostOperationStatus struct {
 	// +optional
 	SessionTokenConsumed bool `json:"sessionTokenConsumed,omitempty"`
 
+	// bootstrapDelivered indicates that Bootstrap Data was claimed once for this operation.
+	// Issuing a new Session Token does not clear this operation-level replay guard.
+	// +optional
+	BootstrapDelivered bool `json:"bootstrapDelivered,omitempty"`
+
 	// lastBootReport is the latest authenticated OS boot observation.
 	// +optional
 	LastBootReport *BootReportStatus `json:"lastBootReport,omitempty"`

@@ -102,6 +102,9 @@ func (service *Service) authenticate(
 		if !operationMatches(operation, hostUID, operationUID) {
 			return ErrUnauthorized
 		}
+		if consume && operation.Status.BootstrapDelivered {
+			return ErrUnauthorized
+		}
 		session, err := sessionFromOperation(operation)
 		if err != nil {
 			return ErrUnauthorized
@@ -116,6 +119,10 @@ func (service *Service) authenticate(
 		if statusChanged {
 			operation.Status.SessionAuthenticationFailures = int32(updated.AuthenticationFailures)
 			operation.Status.SessionTokenConsumed = updated.Consumed
+			if result == agentsessiondomain.AuthenticationAccepted && consume {
+				// Bootstrap配信済み状態はOperation単位で保持し、再登録後の新Sessionでも再配信しない。
+				operation.Status.BootstrapDelivered = true
+			}
 			if err := service.client.Status().Update(ctx, operation); err != nil {
 				return err
 			}

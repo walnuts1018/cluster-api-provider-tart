@@ -92,16 +92,27 @@ func readLock(path string) (lockFile, error) {
 	if err := decoder.Decode(&lock); err != nil {
 		return lockFile{}, fmt.Errorf("decode lock file: %w", err)
 	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err == nil {
+		return lockFile{}, errors.New("lock file must contain exactly one JSON value")
+	} else if !errors.Is(err, io.EOF) {
+		return lockFile{}, fmt.Errorf("decode trailing lock data: %w", err)
+	}
 	if lock.SchemaVersion != 1 {
 		return lockFile{}, fmt.Errorf("unsupported lock schemaVersion: %d", lock.SchemaVersion)
 	}
 	if len(lock.Files) == 0 {
 		return lockFile{}, errors.New("lock file contains no files")
 	}
+	names := make(map[string]struct{}, len(lock.Files))
 	for _, item := range lock.Files {
 		if err := validateLockedFile(item); err != nil {
 			return lockFile{}, fmt.Errorf("invalid locked file %q: %w", item.Name, err)
 		}
+		if _, exists := names[item.Name]; exists {
+			return lockFile{}, fmt.Errorf("locked file name is duplicated: %q", item.Name)
+		}
+		names[item.Name] = struct{}{}
 	}
 	return lock, nil
 }

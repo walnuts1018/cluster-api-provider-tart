@@ -71,18 +71,61 @@ func TestRunRejectsDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestReadLockRejectsAmbiguousInput(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	item := lockedFile{
+		Name:      "package.deb",
+		URL:       "https://packages.sample.walnuts.dev/package.deb",
+		SizeBytes: 1,
+		SHA256:    digest([]byte("x")),
+	}
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "trailing JSON",
+			data: append(marshalLock(t, item), []byte(`{}`)...),
+		},
+		{
+			name: "duplicate destination",
+			data: marshalLock(t, item, item),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(root, tt.name+".json")
+			if err := os.WriteFile(path, tt.data, 0o644); err != nil {
+				t.Fatalf("os.WriteFile() error = %v", err)
+			}
+			if _, err := readLock(path); err == nil {
+				t.Fatal("readLock() error = nil, want error")
+			}
+		})
+	}
+}
+
 func writeLock(t *testing.T, dir string, item lockedFile) string {
 	t.Helper()
 
-	data, err := json.Marshal(lockFile{SchemaVersion: 1, Files: []lockedFile{item}})
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
+	data := marshalLock(t, item)
 	path := filepath.Join(dir, "lock.json")
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 	return path
+}
+
+func marshalLock(t *testing.T, items ...lockedFile) []byte {
+	t.Helper()
+
+	data, err := json.Marshal(lockFile{SchemaVersion: 1, Files: items})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	return data
 }
 
 func digest(data []byte) string {

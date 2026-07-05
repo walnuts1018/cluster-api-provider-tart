@@ -49,9 +49,14 @@ import (
 	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
+	k8sagentapi "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentapi"
+	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
+	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
+	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentapi"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
@@ -88,6 +93,10 @@ func main() {
 	var tftpBindAddress string
 	var assetsRoot string
 	var tftpRoot string
+	var agentAPIBindAddress string
+	var agentAPICertFile string
+	var agentAPIKeyFile string
+	var agentAPIAllowIsolatedL2 bool
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -111,6 +120,15 @@ func main() {
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", ":69", "The address the TFTP server binds to.")
 	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
+	flag.StringVar(&agentAPIBindAddress, "agent-api-bind-address", "0", "The HTTPS address the Agent API binds to. Use 0 to disable.")
+	flag.StringVar(&agentAPICertFile, "agent-api-cert-file", "", "The Agent API TLS certificate file.")
+	flag.StringVar(&agentAPIKeyFile, "agent-api-key-file", "", "The Agent API TLS private key file.")
+	flag.BoolVar(
+		&agentAPIAllowIsolatedL2,
+		"agent-api-allow-isolated-l2",
+		false,
+		"Allow unauthenticated initial registration from an isolated provisioning L2.",
+	)
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -282,6 +300,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	if agentAPIBindAddress != "0" {
+		if agentAPICertFile == "" || agentAPIKeyFile == "" {
+			setupLog.Error(nil, "Agent API TLS certificate and key are required")
+			os.Exit(1)
+		}
+		if !agentAPIAllowIsolatedL2 {
+			setupLog.Error(nil, "Agent API requires an explicitly selected initial credential mode")
+			os.Exit(1)
+		}
+		if err := mgr.GetFieldIndexer().IndexField(
+			context.Background(),
+			&infrastructurev1beta1.TartHostOperation{},
+			k8sagentapi.OperationIDField,
+			k8sagentapi.OperationIDIndex,
+		); err != nil {
+			setupLog.Error(err, "Failed to create index for TartHostOperation operation ID")
+			os.Exit(1)
+		}
+	}
+
 	reconcilers, err := wire.InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize reconcilers")
@@ -342,6 +380,29 @@ func main() {
 	if ipxeBindAddress != "0" {
 		if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot, baseURL)); err != nil {
 			setupLog.Error(err, "Failed to add iPXE server")
+			os.Exit(1)
+		}
+	}
+	if agentAPIBindAddress != "0" {
+		provider := k8sagentapi.NewProvider(mgr.GetClient())
+		handler := agentapi.NewHandler(agentapi.Config{
+			Operations:           provider,
+			RegistrationVerifier: agentapi.IsolatedL2RegistrationVerifier{},
+			Sessions: k8sagentsession.NewService(
+				mgr.GetClient(),
+				agentsessiondomain.DefaultTTL,
+			),
+			Progress:  k8sagentprogress.NewService(mgr.GetClient()),
+			Plans:     provider,
+			Bootstrap: provider,
+		})
+		if err := mgr.Add(agentapi.NewServer(
+			agentAPIBindAddress,
+			agentAPICertFile,
+			agentAPIKeyFile,
+			handler,
+		)); err != nil {
+			setupLog.Error(err, "Failed to add Agent API server")
 			os.Exit(1)
 		}
 	}

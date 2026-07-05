@@ -8,7 +8,7 @@
   "properties": {
     "apiVersion": {"const": "infrastructure.cluster.x-k8s.io/v1"},
     "format": {"const": "cloud-config"},
-    "payload": {"type": "string", "contentEncoding": "base64", "maxLength": 22369624},
+    "payload": {"type": "string", "contentEncoding": "base64", "maxLength": 16773120},
     "payloadDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
     "machineUID": {"type": "string", "minLength": 1, "maxLength": 128},
     "operationUID": {"type": "string", "minLength": 1, "maxLength": 128}

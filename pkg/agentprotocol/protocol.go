@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	APIVersion             = "infrastructure.cluster.x-k8s.io/v1"
-	BootstrapFormatCloud   = "cloud-config"
-	MaxRequestBodyBytes    = 1 << 20
-	MaxBootstrapBodyBytes  = 16 << 20
-	SignatureAlgorithm     = "Ed25519"
-	MinimumTokenEntropyBit = 256
+	APIVersion               = "infrastructure.cluster.x-k8s.io/v1"
+	BootstrapFormatCloud     = "cloud-config"
+	MaxRequestBodyBytes      = 1 << 20
+	MaxBootstrapBodyBytes    = 16 << 20
+	MaxBootstrapPayloadBytes = (MaxBootstrapBodyBytes - 4096) * 3 / 4
+	SignatureAlgorithm       = "Ed25519"
+	MinimumTokenEntropyBit   = 256
 )
 
 var (
@@ -263,8 +264,8 @@ func ValidateBootstrapBundle(bundle BootstrapBundle) error {
 		return fmt.Errorf("unsupported bootstrap format: %q", bundle.Format)
 	case len(bundle.Payload) == 0:
 		return errors.New("payload must not be empty")
-	case len(bundle.Payload) > MaxBootstrapBodyBytes:
-		return errors.New("payload exceeds the 16 MiB limit")
+	case len(bundle.Payload) > MaxBootstrapPayloadBytes:
+		return errors.New("payload is too large for a 16 MiB Bootstrap response")
 	case !validSHA256Digest(bundle.PayloadDigest):
 		return errors.New("payloadDigest must be a canonical SHA-256 digest")
 	case digest.FromBytes(bundle.Payload).String() != bundle.PayloadDigest:

@@ -178,6 +178,10 @@ status:
     - Snapshot
   attempt: 1
   agentSequence: 8
+  agentProgress:
+    step: WriteImage
+    diskRole: OS-B
+    percent: 60
   conditions: []
 ```
 
@@ -393,7 +397,12 @@ Agentは一時OS内で実行し、controllerからhostへ入るSSHを必要と�
 9. 起動後のhealth confirmation unitがcontrollerへslot、image digest、node identityを報告する。
 10. controllerがNode Ready、providerID、期待versionを確認してslotを確定する。Plan deadlineまでに3条件が成立しなければ旧slotへ戻す。
 
-Agent APIはOperation IDとPlan Digestをidempotency keyとする。進捗は`TartHostOperation.status.completedSteps`と`agentSequence`へ保存する。`agentSequence`は1から開始する単調増加整数とし、保存済み値以下のreportは状態を変更せず200を返す。
+Agent APIはOperation IDとPlan Digestをidempotency keyとする。進捗は
+`TartHostOperation.status.agentProgress`、`completedSteps`、`agentSequence`へ保存する。
+`agentSequence`は1から開始する単調増加整数とし、保存済み値以下のreportは状態を変更せず200を返す。
+再登録時はregister responseで保存済み値を返し、Agentは次のsequenceから再開する。
+書き込み進捗はDisk Roleごとに10%刻みで送り、`WriteImage`と`VerifyImage`はpercent=100かつ
+completed=trueのreportで完了させる。
 
 ### Initial credential
 

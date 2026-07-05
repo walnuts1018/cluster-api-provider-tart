@@ -31,6 +31,8 @@ type Service struct {
 	plans  PlanProvider
 }
 
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthostoperations/status,verbs=get;update;patch
+
 func NewService(k8sClient client.Client, plans PlanProvider) *Service {
 	return &Service{client: k8sClient, plans: plans}
 }

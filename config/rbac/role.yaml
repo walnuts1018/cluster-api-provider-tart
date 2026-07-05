@@ -53,6 +53,7 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - tartclusters/status
+  - tarthostoperations/status
   - tarthosts/status
   - tartmachines/status
   - tartmachinetemplates/status

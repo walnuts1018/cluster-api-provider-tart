@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentbootdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var ErrTargetNotFound = agentbootdomain.ErrTargetNotFound
@@ -93,6 +94,7 @@ func (handler *Handler) handleIPXE(response http.ResponseWriter, request *http.R
 			_, _ = response.Write([]byte("#!ipxe\nexit\n"))
 			return
 		}
+		crlog.FromContext(request.Context()).Error(err, "Failed to resolve Agent boot target")
 		http.Error(response, "failed to resolve Agent boot target", http.StatusInternalServerError)
 		return
 	}
@@ -111,6 +113,7 @@ func (handler *Handler) handleIPXE(response http.ResponseWriter, request *http.R
 		BootMACAddress:  target.BootMACAddress,
 	})
 	if err != nil {
+		crlog.FromContext(request.Context()).Error(err, "Failed to generate Agent iPXE script")
 		http.Error(response, "failed to generate Agent iPXE script", http.StatusInternalServerError)
 		return
 	}
@@ -146,6 +149,7 @@ func (handler *Handler) serveFile(
 ) {
 	file, size, err := handler.artifact.payload(name)
 	if err != nil {
+		crlog.FromContext(request.Context()).Error(err, "Agent Artifact payload is unavailable", "payload", name)
 		http.Error(response, "Agent Artifact payload is unavailable", http.StatusServiceUnavailable)
 		return
 	}

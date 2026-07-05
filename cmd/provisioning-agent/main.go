@@ -26,6 +26,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/inventory"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
 	agentplan "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/plan"
+	agentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/progress"
 	agentwriter "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/writer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
@@ -158,19 +159,36 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		progressReporter, err := agentprogress.New(
+			apiClient,
+			registration.SessionToken,
+			cfg.operationUID,
+			registration.PlanDigest,
+			registration.AgentSequence,
+		)
+		if err != nil {
+			return err
+		}
 		targetWriter := agentwriter.New(
 			layout.NewManager(layout.NewLinuxDiskIO()),
 			source,
 			agentwriter.LinuxDeviceOpener{},
-			func(_ context.Context, role agentprotocol.DiskRole, percent int) error {
-				// TODO: Agent APIへpercent fieldを追加した時点で、同じ10%刻みをOperation Statusへ送信する。
+			func(ctx context.Context, progress agentwriter.Progress) error {
 				slog.Info(
 					"Provisioning Agent payload write progress",
 					"operation_uid", cfg.operationUID,
-					"role", role,
-					"percent", percent,
+					"step", progress.Step,
+					"role", progress.DiskRole,
+					"percent", progress.Percent,
+					"completed", progress.Completed,
 				)
-				return nil
+				return progressReporter.Report(
+					ctx,
+					progress.Step,
+					progress.DiskRole,
+					progress.Percent,
+					progress.Completed,
+				)
 			},
 		)
 		if err := provisioningagent.NewService(targetWriter).Execute(operationContext, validatedPlan, devices); err != nil {

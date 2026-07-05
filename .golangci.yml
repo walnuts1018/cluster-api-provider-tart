@@ -39,6 +39,7 @@ linters:
     - unparam
     - unused
     - usestdlibvars
+    - usetesting
   settings:
     revive:
       rules:

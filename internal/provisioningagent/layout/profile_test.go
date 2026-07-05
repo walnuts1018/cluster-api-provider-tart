@@ -91,6 +91,7 @@ func TestResolveRejectsAmbiguousOrModifiedLayout(t *testing.T) {
 		mutate func(*ObservedLayout)
 	}{
 		{name: "GPT以外", mutate: func(layout *ObservedLayout) { layout.TableType = "dos" }},
+		{name: "未対応sector size", mutate: func(layout *ObservedLayout) { layout.SectorSize = 1024 }},
 		{name: "partition不足", mutate: func(layout *ObservedLayout) {
 			layout.Partitions = layout.Partitions[:len(layout.Partitions)-1]
 		}},
@@ -105,6 +106,9 @@ func TestResolveRejectsAmbiguousOrModifiedLayout(t *testing.T) {
 		}},
 		{name: "物理順序不一致", mutate: func(layout *ObservedLayout) {
 			layout.Partitions[2].StartSector = layout.Partitions[0].StartSector
+		}},
+		{name: "partition間gap", mutate: func(layout *ObservedLayout) {
+			layout.Partitions[2].StartSector += 2048
 		}},
 		{name: "PARTUUID欠落", mutate: func(layout *ObservedLayout) {
 			layout.Partitions[0].PARTUUID = ""

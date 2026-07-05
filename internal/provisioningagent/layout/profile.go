@@ -126,8 +126,8 @@ func Resolve(observed ObservedLayout) (map[agentprotocol.DiskRole]RoleDevice, er
 	if !strings.EqualFold(observed.TableType, "gpt") {
 		return nil, fmt.Errorf("%w: partition table is %q, want GPT", ErrInvalidLayout, observed.TableType)
 	}
-	if observed.SectorSize <= 0 {
-		return nil, fmt.Errorf("%w: sector size must be greater than zero", ErrInvalidLayout)
+	if observed.SectorSize != 512 && observed.SectorSize != 4096 {
+		return nil, fmt.Errorf("%w: unsupported logical sector size %d", ErrInvalidLayout, observed.SectorSize)
 	}
 	if len(observed.Partitions) != len(profileDefinitions) {
 		return nil, fmt.Errorf("%w: found %d partitions, want %d", ErrInvalidLayout, len(observed.Partitions), len(profileDefinitions))
@@ -164,7 +164,7 @@ func Resolve(observed ObservedLayout) (map[agentprotocol.DiskRole]RoleDevice, er
 	}
 
 	resolved := make(map[agentprotocol.DiskRole]RoleDevice, len(profileDefinitions))
-	var previousEnd int64
+	expectedStart := alignmentBytes / observed.SectorSize
 	for _, definition := range profileDefinitions {
 		partition, ok := byLabel[definition.Label]
 		if !ok {
@@ -173,8 +173,14 @@ func Resolve(observed ObservedLayout) (map[agentprotocol.DiskRole]RoleDevice, er
 		if !strings.EqualFold(partition.TypeGUID, definition.TypeGUID) {
 			return nil, fmt.Errorf("%w: %s has type GUID %q, want %q", ErrInvalidLayout, definition.Role, partition.TypeGUID, definition.TypeGUID)
 		}
-		if partition.StartSector < previousEnd {
-			return nil, fmt.Errorf("%w: %s overlaps or is out of physical order", ErrInvalidLayout, definition.Role)
+		if partition.StartSector != expectedStart {
+			return nil, fmt.Errorf(
+				"%w: %s starts at sector %d, want %d",
+				ErrInvalidLayout,
+				definition.Role,
+				partition.StartSector,
+				expectedStart,
+			)
 		}
 		sizeBytes := partition.SizeSectors * observed.SectorSize
 		if sizeBytes < definition.MinimumSizeBytes {
@@ -190,7 +196,7 @@ func Resolve(observed ObservedLayout) (map[agentprotocol.DiskRole]RoleDevice, er
 			StartByte:  partition.StartSector * observed.SectorSize,
 			SizeBytes:  sizeBytes,
 		}
-		previousEnd = partition.StartSector + partition.SizeSectors
+		expectedStart = partition.StartSector + partition.SizeSectors
 	}
 	return resolved, nil
 }

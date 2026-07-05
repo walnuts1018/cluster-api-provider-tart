@@ -104,6 +104,7 @@ func main() {
 	var agentAPIURL string
 	var agentArtifactRoot string
 	var agentArtifactKeyID string
+	var agentArtifactPublicKeyFile string
 	var agentArtifactBaseURL string
 	var agentBootCertFile string
 	var agentBootKeyFile string
@@ -136,6 +137,7 @@ func main() {
 	flag.StringVar(&agentAPIURL, "agent-api-url", "", "The HTTPS Agent API base URL advertised to the Provisioning Agent.")
 	flag.StringVar(&agentArtifactRoot, "agent-artifact-root", "", "The verified Agent Artifact file root. Empty disables the v1 Agent boot server.")
 	flag.StringVar(&agentArtifactKeyID, "agent-artifact-key-id", "", "The trusted Agent Artifact signing key ID.")
+	flag.StringVar(&agentArtifactPublicKeyFile, "agent-artifact-public-key-file", "", "The trusted Agent Artifact Ed25519 public key file, mounted separately from the Artifact.")
 	flag.StringVar(&agentArtifactBaseURL, "agent-artifact-base-url", "", "The HTTPS base URL used to deliver the Agent Artifact and iPXE script.")
 	flag.StringVar(&agentBootCertFile, "agent-boot-cert-file", "", "The Agent boot HTTPS TLS certificate file.")
 	flag.StringVar(&agentBootKeyFile, "agent-boot-key-file", "", "The Agent boot HTTPS TLS private key file.")
@@ -338,11 +340,12 @@ func main() {
 	agentArtifactEnabled := agentArtifactRoot != ""
 	if agentArtifactEnabled {
 		required := map[string]string{
-			"agent-api-url":           agentAPIURL,
-			"agent-artifact-key-id":   agentArtifactKeyID,
-			"agent-artifact-base-url": agentArtifactBaseURL,
-			"agent-boot-cert-file":    agentBootCertFile,
-			"agent-boot-key-file":     agentBootKeyFile,
+			"agent-api-url":                  agentAPIURL,
+			"agent-artifact-key-id":          agentArtifactKeyID,
+			"agent-artifact-public-key-file": agentArtifactPublicKeyFile,
+			"agent-artifact-base-url":        agentArtifactBaseURL,
+			"agent-boot-cert-file":           agentBootCertFile,
+			"agent-boot-key-file":            agentBootKeyFile,
 		}
 		for name, value := range required {
 			if value == "" {
@@ -427,7 +430,7 @@ func main() {
 				KernelPath:    filepath.Join(agentArtifactRoot, "vmlinuz"),
 				InitrdPath:    filepath.Join(agentArtifactRoot, "initrd"),
 				KeyID:         agentArtifactKeyID,
-				PublicKeyPath: filepath.Join(agentArtifactRoot, "public-key.pem"),
+				PublicKeyPath: agentArtifactPublicKeyFile,
 			})
 			if err != nil {
 				setupLog.Error(err, "Failed to verify Agent Artifact")

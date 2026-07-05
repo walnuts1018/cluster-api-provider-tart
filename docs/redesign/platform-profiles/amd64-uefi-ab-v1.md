@@ -53,7 +53,8 @@ A/Bの区別は一意なGPT labelで行い、OS起動時のmountはAgentが報�
   `architecture=amd64`、`firmware=UEFI`、`platformProfile=amd64-uefi-ab/v1`、
   kernel/initrdのSHA-256 digestとsizeを署名対象へ含める。
 - controllerへmountするAgent Artifact directoryは`manifest.json`、
-  `manifest.signature.json`、`vmlinuz`、`initrd`、`public-key.pem`を持つ。
+  `manifest.signature.json`、`vmlinuz`、`initrd`を持つ。信頼する公開鍵はArtifactとは
+  別のread-only mountからcontrollerへ渡す。
 - iPXE scriptは`controller-url`、Host UID、Operation UID、boot MACだけを
   `tart.agent.*` kernel parameterとして渡す。Initial Credential、Session Token、
   Bootstrap Dataをscriptまたはkernel command lineへ含めない。

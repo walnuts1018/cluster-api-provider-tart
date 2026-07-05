@@ -126,11 +126,13 @@ register responseで返し、Agentが次の番号から再開する。
 
 同日、Agent Artifactの署名・kernel/initrd digest/size検証、固定digest URLによるHTTPS配信、
 v1beta1 Host/OperationからのiPXE script生成を実装した。`--agent-artifact-root`を指定すると、
-同directoryの`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`、
-`public-key.pem`をcontroller起動時に検証する。検証に成功したfile descriptorを保持するため、
+同directoryの`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`を
+controller起動時に検証する。信頼する公開鍵はArtifactと別のread-only mountに置き、
+`--agent-artifact-public-key-file`で指定する。検証に成功したfile descriptorを保持するため、
 検証後のpath差し替えを配信しない。Agent Artifact配信を有効にする場合は
-`--agent-artifact-key-id`、`--agent-artifact-base-url`、`--agent-api-url`、
-`--agent-boot-cert-file`、`--agent-boot-key-file`も必須とする。
+`--agent-artifact-key-id`、`--agent-artifact-public-key-file`、
+`--agent-artifact-base-url`、`--agent-api-url`、`--agent-boot-cert-file`、
+`--agent-boot-key-file`も必須とする。
 
 残作業:
 

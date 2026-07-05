@@ -16,6 +16,8 @@ import (
 const (
 	APIVersion               = "infrastructure.cluster.x-k8s.io/v1"
 	BootstrapFormatCloud     = "cloud-config"
+	StepWriteImage           = "WriteImage"
+	StepVerifyImage          = "VerifyImage"
 	MaxRequestBodyBytes      = 1 << 20
 	MaxBootstrapBodyBytes    = 16 << 20
 	MaxBootstrapPayloadBytes = (MaxBootstrapBodyBytes - 4096) * 3 / 4
@@ -134,24 +136,35 @@ type DiskInventory struct {
 }
 
 type RegisterResponse struct {
-	APIVersion   string    `json:"apiVersion"`
-	SessionToken string    `json:"sessionToken"`
-	ExpiresAt    time.Time `json:"expiresAt"`
-	PlanDigest   string    `json:"planDigest"`
+	APIVersion    string    `json:"apiVersion"`
+	SessionToken  string    `json:"sessionToken"`
+	ExpiresAt     time.Time `json:"expiresAt"`
+	PlanDigest    string    `json:"planDigest"`
+	AgentSequence int64     `json:"agentSequence"`
 }
 
 type ProgressRequest struct {
-	APIVersion    string `json:"apiVersion"`
-	OperationUID  string `json:"operationUID"`
-	PlanDigest    string `json:"planDigest"`
-	AgentSequence int64  `json:"agentSequence"`
-	CompletedStep string `json:"completedStep"`
+	APIVersion    string   `json:"apiVersion"`
+	OperationUID  string   `json:"operationUID"`
+	PlanDigest    string   `json:"planDigest"`
+	AgentSequence int64    `json:"agentSequence"`
+	Step          string   `json:"step"`
+	DiskRole      DiskRole `json:"diskRole,omitempty"`
+	Percent       int32    `json:"percent"`
+	Completed     bool     `json:"completed"`
 }
 
 type ProgressResponse struct {
-	APIVersion     string   `json:"apiVersion"`
-	AgentSequence  int64    `json:"agentSequence"`
-	CompletedSteps []string `json:"completedSteps"`
+	APIVersion     string          `json:"apiVersion"`
+	AgentSequence  int64           `json:"agentSequence"`
+	Progress       *ProgressStatus `json:"progress,omitempty"`
+	CompletedSteps []string        `json:"completedSteps"`
+}
+
+type ProgressStatus struct {
+	Step     string   `json:"step"`
+	DiskRole DiskRole `json:"diskRole,omitempty"`
+	Percent  int32    `json:"percent"`
 }
 
 type BootstrapBundle struct {
@@ -270,6 +283,33 @@ func ValidateBootReport(report BootReportRequest) error {
 		return errors.New("activeSlot must be A or B")
 	case report.ArtifactGeneration == 0:
 		return errors.New("artifactGeneration must be greater than zero")
+	}
+	return nil
+}
+
+func ValidateProgressRequest(report ProgressRequest) error {
+	switch {
+	case report.APIVersion != APIVersion:
+		return fmt.Errorf("unsupported apiVersion: %q", report.APIVersion)
+	case !validUID(report.OperationUID):
+		return errors.New("operationUID is invalid")
+	case !validSHA256Digest(report.PlanDigest):
+		return errors.New("planDigest must be a canonical SHA-256 digest")
+	case report.AgentSequence <= 0:
+		return errors.New("agentSequence must be greater than zero")
+	case !uidPattern.MatchString(report.Step):
+		return errors.New("step is invalid")
+	}
+	if report.DiskRole != "" {
+		if _, ok := diskRoleValues[report.DiskRole]; !ok {
+			return errors.New("diskRole is invalid")
+		}
+	}
+	switch {
+	case report.Percent < 0 || report.Percent > 100 || report.Percent%10 != 0:
+		return errors.New("percent must be between 0 and 100 in increments of 10")
+	case report.Completed && report.Percent != 100:
+		return errors.New("completed progress must be 100 percent")
 	}
 	return nil
 }

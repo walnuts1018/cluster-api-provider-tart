@@ -129,6 +129,10 @@ type TartHostOperationStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	AgentSequence int64 `json:"agentSequence,omitempty"`
 
+	// agentProgress is the latest accepted progress observation from the Agent.
+	// +optional
+	AgentProgress *AgentProgressStatus `json:"agentProgress,omitempty"`
+
 	// sessionTokenHash is the SHA-256 hash of the active Session Token.
 	// The plaintext token is never stored in Kubernetes.
 	// +optional
@@ -167,6 +171,25 @@ type TartHostOperationStatus struct {
 	// observedGeneration is the last spec generation reconciled into status.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+type AgentProgressStatus struct {
+	// step identifies the Plan step currently reported by the Agent.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	Step string `json:"step"`
+
+	// diskRole identifies the payload target when the progress is disk-specific.
+	// +optional
+	// +kubebuilder:validation:Enum=Boot;OS-A;OS-B;Verity-A;Verity-B;State;Data
+	DiskRole string `json:"diskRole,omitempty"`
+
+	// percent is the completion percentage for the current step and disk role.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=100
+	Percent int32 `json:"percent"`
 }
 
 type BootReportStatus struct {

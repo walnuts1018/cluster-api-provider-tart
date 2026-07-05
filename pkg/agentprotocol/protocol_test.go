@@ -125,6 +125,43 @@ func TestValidateBootstrapBundle(t *testing.T) {
 	}
 }
 
+func TestValidateProgressRequest(t *testing.T) {
+	valid := ProgressRequest{
+		APIVersion:    APIVersion,
+		OperationUID:  "operation-uid",
+		PlanDigest:    "sha256:" + strings.Repeat("a", 64),
+		AgentSequence: 1,
+		Step:          StepWriteImage,
+		DiskRole:      DiskRoleOSA,
+		Percent:       10,
+	}
+	if err := ValidateProgressRequest(valid); err != nil {
+		t.Fatalf("ValidateProgressRequest() error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ProgressRequest)
+	}{
+		{name: "zero sequence", mutate: func(request *ProgressRequest) { request.AgentSequence = 0 }},
+		{name: "unknown disk role", mutate: func(request *ProgressRequest) { request.DiskRole = "Unknown" }},
+		{name: "non ten percent increment", mutate: func(request *ProgressRequest) { request.Percent = 15 }},
+		{name: "completed below 100 percent", mutate: func(request *ProgressRequest) {
+			request.Percent = 90
+			request.Completed = true
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := valid
+			test.mutate(&request)
+			if err := ValidateProgressRequest(request); err == nil {
+				t.Fatal("ValidateProgressRequest() accepted invalid progress")
+			}
+		})
+	}
+}
+
 func TestDecodeRequestEnforcesLimitAndStrictJSON(t *testing.T) {
 	var request ProgressRequest
 	if err := DecodeRequest(bytes.NewBufferString(`{"unknown":true}`), &request); err == nil {

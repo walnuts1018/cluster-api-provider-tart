@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/util/retry"
@@ -19,6 +18,7 @@ var ErrOperationNotFound = errors.New("operation or plan not found")
 type Result struct {
 	Decision       agentprogressdomain.Decision
 	AgentSequence  int64
+	Progress       *agentprogressdomain.Progress
 	CompletedSteps []string
 }
 
@@ -35,7 +35,7 @@ func (service *Service) Report(
 	key client.ObjectKey,
 	operationUID, planDigest string,
 	sequence int64,
-	completedStep string,
+	progress agentprogressdomain.Progress,
 ) (Result, error) {
 	var result Result
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -50,21 +50,29 @@ func (service *Service) Report(
 			return ErrOperationNotFound
 		}
 
-		decision := agentprogressdomain.EvaluateSequence(operation.Status.AgentSequence, sequence)
-		switch decision {
+		evaluation := agentprogressdomain.Evaluate(statusState(operation), sequence, progress)
+		switch evaluation.Decision {
 		case agentprogressdomain.DecisionDuplicate, agentprogressdomain.DecisionGap, agentprogressdomain.DecisionInvalid:
-			result = statusResult(operation, decision)
+			result = statusResult(operation, evaluation.Decision)
 			return nil
 		case agentprogressdomain.DecisionApply:
-			operation.Status.AgentSequence = sequence
-			operation.Status.CompletedSteps = appendStep(operation.Status.CompletedSteps, completedStep)
+			operation.Status.AgentSequence = evaluation.State.Sequence
+			operation.Status.CompletedSteps = evaluation.State.CompletedSteps
+			operation.Status.AgentProgress = &infrastructurev1beta1.AgentProgressStatus{
+				Step:     progress.Step,
+				DiskRole: progress.DiskRole,
+				Percent:  progress.Percent,
+			}
+			operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(
+				agentprogressdomain.NextPhase(string(operation.Status.Phase), progress),
+			)
 			if err := service.client.Status().Update(ctx, operation); err != nil {
 				return err
 			}
-			result = statusResult(operation, decision)
+			result = statusResult(operation, evaluation.Decision)
 			return nil
 		}
-		return fmt.Errorf("unsupported progress decision: %q", decision)
+		return fmt.Errorf("unsupported progress decision: %q", evaluation.Decision)
 	})
 	if err != nil {
 		return Result{}, fmt.Errorf("record agent progress: %w", err)
@@ -72,20 +80,36 @@ func (service *Service) Report(
 	return result, nil
 }
 
-func appendStep(steps []string, step string) []string {
-	if slices.Contains(steps, step) {
-		return steps
+func statusState(operation *infrastructurev1beta1.TartHostOperation) agentprogressdomain.State {
+	state := agentprogressdomain.State{
+		Sequence:       operation.Status.AgentSequence,
+		CompletedSteps: operation.Status.CompletedSteps,
 	}
-	return append(steps, step)
+	if operation.Status.AgentProgress != nil {
+		state.Progress = &agentprogressdomain.Progress{
+			Step:     operation.Status.AgentProgress.Step,
+			DiskRole: operation.Status.AgentProgress.DiskRole,
+			Percent:  operation.Status.AgentProgress.Percent,
+		}
+	}
+	return state
 }
 
 func statusResult(
 	operation *infrastructurev1beta1.TartHostOperation,
 	decision agentprogressdomain.Decision,
 ) Result {
-	return Result{
+	result := Result{
 		Decision:       decision,
 		AgentSequence:  operation.Status.AgentSequence,
 		CompletedSteps: append([]string(nil), operation.Status.CompletedSteps...),
 	}
+	if operation.Status.AgentProgress != nil {
+		result.Progress = &agentprogressdomain.Progress{
+			Step:     operation.Status.AgentProgress.Step,
+			DiskRole: operation.Status.AgentProgress.DiskRole,
+			Percent:  operation.Status.AgentProgress.Percent,
+		}
+	}
+	return result
 }

@@ -33,6 +33,9 @@ func TestServiceAppliesSequenceOneTwoTwoOneFourThree(t *testing.T) {
 				UID:       types.UID("host-uid"),
 			},
 		},
+		Status: infrastructurev1beta1.TartHostOperationStatus{
+			Phase: infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
+		},
 	}
 	k8sClient := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -57,7 +60,12 @@ func TestServiceAppliesSequenceOneTwoTwoOneFourThree(t *testing.T) {
 			"operation-uid",
 			operation.Spec.PlanDigest,
 			sequence,
-			"step",
+			agentprogressdomain.Progress{
+				Step:      "WriteImage",
+				DiskRole:  "OS-A",
+				Percent:   100,
+				Completed: sequence == 3,
+			},
 		)
 		if err != nil {
 			t.Fatalf("Report(sequence=%d) error = %v", sequence, err)
@@ -74,7 +82,16 @@ func TestServiceAppliesSequenceOneTwoTwoOneFourThree(t *testing.T) {
 	if persisted.Status.AgentSequence != 3 {
 		t.Fatalf("AgentSequence = %d, want 3", persisted.Status.AgentSequence)
 	}
-	if len(persisted.Status.CompletedSteps) != 1 {
-		t.Fatalf("CompletedSteps = %#v, want one unique step", persisted.Status.CompletedSteps)
+	if len(persisted.Status.CompletedSteps) != 1 || persisted.Status.CompletedSteps[0] != "WriteImage" {
+		t.Fatalf("CompletedSteps = %#v, want WriteImage", persisted.Status.CompletedSteps)
+	}
+	if persisted.Status.AgentProgress == nil ||
+		persisted.Status.AgentProgress.Step != "WriteImage" ||
+		persisted.Status.AgentProgress.DiskRole != "OS-A" ||
+		persisted.Status.AgentProgress.Percent != 100 {
+		t.Fatalf("AgentProgress = %#v", persisted.Status.AgentProgress)
+	}
+	if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseVerifying {
+		t.Fatalf("Phase = %q, want Verifying", persisted.Status.Phase)
 	}
 }

@@ -162,6 +162,39 @@ spec:
             type: object
           status:
             properties:
+              agentProgress:
+                description: agentProgress is the latest accepted progress observation
+                  from the Agent.
+                properties:
+                  diskRole:
+                    description: diskRole identifies the payload target when the progress
+                      is disk-specific.
+                    enum:
+                    - Boot
+                    - OS-A
+                    - OS-B
+                    - Verity-A
+                    - Verity-B
+                    - State
+                    - Data
+                    type: string
+                  percent:
+                    description: percent is the completion percentage for the current
+                      step and disk role.
+                    format: int32
+                    maximum: 100
+                    minimum: 0
+                    type: integer
+                  step:
+                    description: step identifies the Plan step currently reported
+                      by the Agent.
+                    maxLength: 128
+                    minLength: 1
+                    type: string
+                required:
+                - percent
+                - step
+                type: object
               agentSequence:
                 description: agentSequence is the largest accepted monotonically increasing
                   Agent report sequence.

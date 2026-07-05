@@ -121,6 +121,128 @@ func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
+	payload := []byte("#cloud-config\n")
+	bootstrap := staticBootstrap{bundle: agentprotocol.BootstrapBundle{
+		APIVersion:    agentprotocol.APIVersion,
+		Format:        agentprotocol.BootstrapFormatCloud,
+		Payload:       payload,
+		PayloadDigest: digest.FromBytes(payload).String(),
+		MachineUID:    "machine-uid",
+		OperationUID:  "operation-uid",
+	}}
+	handler, _ := newAuthenticatedHandler(t, bootstrap)
+	handler.config.BootReports = &recordingBootReporter{}
+	requests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{
+			name:   "plan",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/plan",
+		},
+		{
+			name:   "progress",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/progress",
+			body: agentprotocol.ProgressRequest{
+				APIVersion:    agentprotocol.APIVersion,
+				OperationUID:  "operation-uid",
+				PlanDigest:    testPlanDigest,
+				AgentSequence: 1,
+				CompletedStep: "WriteImage",
+			},
+		},
+		{
+			name:   "bootstrap",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/bootstrap",
+		},
+		{
+			name:   "boot report",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/boot-report",
+			body: agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				PlanDigest:         testPlanDigest,
+				BootID:             "boot-id",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+			},
+		},
+	}
+	for _, request := range requests {
+		t.Run(request.name, func(t *testing.T) {
+			response := performJSONRequest(
+				t,
+				handler,
+				request.method,
+				request.path,
+				"token-for-another-host-or-operation",
+				request.body,
+			)
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandlerRejectsExpiredSession(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler.config.Now = func() time.Time {
+		return time.Date(2026, 7, 5, 12, 11, 0, 0, time.UTC)
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/plan",
+		sessionToken,
+		nil,
+	)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+}
+
+func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T) {
+	handler, _ := newAuthenticatedHandler(t, nil)
+	credential := "credential-that-must-not-be-reflected"
+	secretValue := "request-value-that-must-not-be-reflected"
+	body := agentprotocol.ProgressRequest{
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		PlanDigest:    testPlanDigest,
+		AgentSequence: 1,
+		CompletedStep: secretValue,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/progress",
+		credential,
+		body,
+	)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnauthorized)
+	}
+	for _, sensitive := range []string{credential, secretValue} {
+		if strings.Contains(response.Body.String(), sensitive) {
+			t.Fatalf("error response contains sensitive value %q", sensitive)
+		}
+	}
+}
+
 func TestHandlerProgressSequence(t *testing.T) {
 	handler, sessionToken := newAuthenticatedHandler(t, nil)
 	sequences := []int64{1, 2, 2, 1, 4, 3}

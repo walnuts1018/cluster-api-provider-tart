@@ -81,12 +81,12 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 | 受け入れ条件 | 状況 | 証跡または残作業 |
 |---|---|---|
 | 1 | 実装済み | `TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims`でKubernetes StatusのresourceVersion競合を使い100並列中1件だけclaim |
-| 2 | Domain実装済み | Host UID、Operation UID、expiryの拒否を`TestAuthenticateRejectsInvalidBindingsExpiryAndConsumption`で確認。HTTPS endpointを通した組合せtestは残作業 |
+| 2 | 実装済み | Host UID、Operation UID、expiryの拒否をDomain testで確認し、`TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint`と`TestHandlerRejectsExpiredSession`でHTTPS endpoint境界も確認 |
 | 3 | 実装済み | `TestServiceLocksAfterFiveFailures` |
 | 4 | 実装済み | token hash、expiry、失敗回数、消費状態を`TartHostOperation.status`へ保存し、`TestServicePersistsAndRestoresSession`でService再生成後の認証を確認 |
 | 5 | 実装済み | `TestHandlerProgressSequence`と`TestServiceAppliesSequenceOneTwoTwoOneFourThree` |
 | 6 | 実装済み | `TestHandlerRejectsRequestLargerThanOneMiB`、`TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap` |
-| 7 | 一部実装 | Agent APIはaccess log middlewareを持たず、固定error bodyだけを返す。Event、Status、traceを含むsanitized sampleの確認は残作業 |
+| 7 | 実装済み | Agent APIはaccess log middleware、Event、独自trace attributeを生成しない。`TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue`と`TestServicePersistsAndRestoresSession`でerror responseとStatusに平文Token/request値がないことを確認 |
 | 8 | 実装済み | `cloud-config`以外を422で拒否し、Ignition adapterは実装しない |
 | 9 | 実装済み | [ADR 0011](../adr/0011-initial-agent-credential.md)。iPXE-only MVPはInitial secretを配らず隔離L2とTLS pinningを必須にする |
 | 10 | 文書化済み、Status未実装 | ADR 0011へ制約を記録。Platform Profile確定後にTartHost Conditionへ表示する |
@@ -98,15 +98,23 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 - `internal/domain/agentsession`: 256 bit token、binding、TTL、失敗上限、消費状態
 - `internal/domain/agentprogress`: sequenceの適用、重複、gap判定
 - `internal/adapter/k8s/agentapi`: Operation lookup、署名済みPlan Secret、CABPK Bootstrap Secretの読取り
+- `internal/domain/bootreport`: boot完了条件と冪等なPhase遷移の純粋判定
+- `internal/adapter/k8s/bootreport`: 最新boot reportのStatus永続化と`BootTrial`から`AwaitingHealth`への遷移
 - `internal/server/agentapi`: TLS 1.3 listener、rate limiter、`/v1` endpoint
+
+boot reportは失敗したmount結果も`status.lastBootReport`へ保存する。Planが対象にするOS slot、
+Artifact Generation、State/Data mount、Bootstrap成功markerが全て一致した場合だけ
+`AwaitingHealth`へ進む。同一reportの再送はStatusを更新せず、完了後に異なるboot IDまたは
+内容を送った場合は409を返す。Node Ready等のHealth Gate判定はTask 07が引き継ぐ。
+
+progress endpointは署名済みPlanを再読込みし、Plan Digestと`completedStep`の所属を検証する。
+PlanにないStep名はStatusへ保存せず422を返す。
 
 残作業:
 
-- `boot-report`の永続化AdapterとHealth Gateへの接続
 - Plan SecretをOperation作成時に生成するTask 07側の接続
 - `MutualTLS`、`SignedChallenge`、`BMCProtectedMedia`のRegistration Verifier
 - Platform ProfileとTartHost ConditionへのInitial Credential mode表示
-- log、Event、Status、traceの機密値走査test
 
 ## 対象外
 

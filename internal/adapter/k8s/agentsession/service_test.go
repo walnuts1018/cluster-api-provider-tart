@@ -2,7 +2,9 @@ package agentsession
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -31,6 +33,17 @@ func TestServicePersistsAndRestoresSession(t *testing.T) {
 	}
 	if expiresAt != now.Add(agentsessiondomain.DefaultTTL) {
 		t.Fatalf("expiresAt = %v", expiresAt)
+	}
+	persisted := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(ctx, key, persisted); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	serialized, err := json.Marshal(persisted.Status)
+	if err != nil {
+		t.Fatalf("json.Marshal(status) error = %v", err)
+	}
+	if strings.Contains(string(serialized), token.BearerValue()) {
+		t.Fatal("TartHostOperation status contains the plaintext Session Token")
 	}
 
 	// 新しいService instanceでもKubernetes Statusから認証状態を復元できる。

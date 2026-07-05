@@ -16,28 +16,38 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"oras.land/oras-go/v2/registry/remote/auth"
+	"oras.land/oras-go/v2/registry/remote/credentials"
 
+	provisioningagent "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/inventory"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
 	agentplan "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/plan"
+	agentwriter "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/writer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
 const defaultSystemUUIDPath = "/sys/class/dmi/id/product_uuid"
 
 type config struct {
-	controllerURL string
-	operationUID  string
-	hostUID       string
-	systemUUID    string
-	bootMAC       string
-	tlsCAFile     string
-	planKeyID     string
-	planKeyFile   string
-	preflight     bool
-	prepareLayout bool
+	controllerURL   string
+	operationUID    string
+	hostUID         string
+	systemUUID      string
+	bootMAC         string
+	tlsCAFile       string
+	planKeyID       string
+	planKeyFile     string
+	artifactKeyID   string
+	artifactKeyFile string
+	registryConfig  string
+	preflight       bool
+	prepareLayout   bool
+	writePayloads   bool
 }
 
 func main() {
@@ -60,7 +70,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		systemUUID = strings.TrimSpace(string(value))
 	}
-	publicKey, err := loadPlanPublicKey(cfg.planKeyFile)
+	publicKey, err := loadPublicKey(cfg.planKeyFile, "Plan")
 	if err != nil {
 		return err
 	}
@@ -102,6 +112,9 @@ func run(ctx context.Context, args []string) error {
 	if !time.Now().Before(validatedPlan.Value().Deadline) {
 		return errors.New("plan deadline has expired")
 	}
+	// 破壊的処理とRegistry通信が署名済みPlanの期限を越えて継続しないよう、以後のI/Oへdeadlineを伝播する。
+	operationContext, cancelOperation := context.WithDeadline(ctx, validatedPlan.Value().Deadline)
+	defer cancelOperation()
 	if err := agentplan.ValidateTargets(validatedPlan); err != nil {
 		return fmt.Errorf("validate Plan targets: %w", err)
 	}
@@ -112,7 +125,7 @@ func run(ctx context.Context, args []string) error {
 	if cfg.prepareLayout {
 		// ProvisionではGPTを作り直す破壊操作なので、署名済みPlanとdisk identity検証後だけ実行する。
 		resolved, err := layout.NewManager(layout.NewLinuxDiskIO()).Prepare(
-			ctx,
+			operationContext,
 			validatedPlan.Value().OperationType,
 			target,
 		)
@@ -126,7 +139,50 @@ func run(ctx context.Context, args []string) error {
 			"platform_profile", layout.ProfileID,
 			"role_count", len(resolved),
 		)
-		// TODO: Artifact取得とOS/Verity writer完成後、この診断終了をServiceの通常実行へ置き換える。
+		// TODO: boot trial metadata更新後、このlayout専用診断を通常Agent実行へ統合する。
+		return nil
+	}
+	if cfg.writePayloads {
+		artifactPublicKey, err := loadPublicKey(cfg.artifactKeyFile, "artifact")
+		if err != nil {
+			return err
+		}
+		credential, err := registryCredential(cfg.registryConfig)
+		if err != nil {
+			return err
+		}
+		source, err := artifactfetch.NewOCI(
+			artifact.StaticTrustStore{cfg.artifactKeyID: artifactPublicKey},
+			credential,
+		)
+		if err != nil {
+			return err
+		}
+		targetWriter := agentwriter.New(
+			layout.NewManager(layout.NewLinuxDiskIO()),
+			source,
+			agentwriter.LinuxDeviceOpener{},
+			func(_ context.Context, role agentprotocol.DiskRole, percent int) error {
+				// TODO: Agent APIへpercent fieldを追加した時点で、同じ10%刻みをOperation Statusへ送信する。
+				slog.Info(
+					"Provisioning Agent payload write progress",
+					"operation_uid", cfg.operationUID,
+					"role", role,
+					"percent", percent,
+				)
+				return nil
+			},
+		)
+		if err := provisioningagent.NewService(targetWriter).Execute(operationContext, validatedPlan, devices); err != nil {
+			return err
+		}
+		slog.Info(
+			"Provisioning Agent payloads written and verified",
+			"operation_uid", cfg.operationUID,
+			"target_device", target.Path,
+			"artifact_generation", validatedPlan.Value().Artifact.Generation,
+		)
+		// TODO: verity root hashとboot trial metadataの検証・更新後に通常Agent実行へ昇格する。
 		return nil
 	}
 	slog.Info(
@@ -149,6 +205,9 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", "", "PEM CA bundle used to verify the Agent API.")
 	flags.StringVar(&cfg.planKeyID, "plan-key-id", "", "Trusted Plan signing key ID.")
 	flags.StringVar(&cfg.planKeyFile, "plan-key-file", "", "PEM Ed25519 public key used to verify Plans.")
+	flags.StringVar(&cfg.artifactKeyID, "artifact-key-id", "", "Trusted OS Artifact signing key ID.")
+	flags.StringVar(&cfg.artifactKeyFile, "artifact-key-file", "", "PEM Ed25519 public key used to verify OS Artifacts.")
+	flags.StringVar(&cfg.registryConfig, "registry-config", "", "Optional Docker-compatible registry credential file.")
 	flags.BoolVar(&cfg.preflight, "preflight-only", false, "Validate registration, signed Plan, and disk selection without writing.")
 	flags.BoolVar(
 		&cfg.prepareLayout,
@@ -156,14 +215,26 @@ func parseConfig(args []string) (config, error) {
 		false,
 		"Create or validate the amd64 UEFI A/B partition layout, then stop. Provision mode destroys the selected disk.",
 	)
+	flags.BoolVar(
+		&cfg.writePayloads,
+		"write-payloads-only",
+		false,
+		"Verify the signed OS Artifact, prepare the layout, write OS/Verity payloads, and read them back. Provision mode destroys the selected disk.",
+	)
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
 	if flags.NArg() != 0 {
 		return config{}, errors.New("unexpected positional arguments")
 	}
-	if cfg.preflight == cfg.prepareLayout {
-		return config{}, errors.New("exactly one of --preflight-only or --prepare-layout-only is required")
+	modeCount := 0
+	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads} {
+		if enabled {
+			modeCount++
+		}
+	}
+	if modeCount != 1 {
+		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, or --write-payloads-only is required")
 	}
 	required := map[string]string{
 		"controller-url":   cfg.controllerURL,
@@ -178,27 +249,46 @@ func parseConfig(args []string) (config, error) {
 			return config{}, fmt.Errorf("--%s is required", name)
 		}
 	}
+	if cfg.writePayloads {
+		switch {
+		case cfg.artifactKeyID == "":
+			return config{}, errors.New("--artifact-key-id is required with --write-payloads-only")
+		case cfg.artifactKeyFile == "":
+			return config{}, errors.New("--artifact-key-file is required with --write-payloads-only")
+		}
+	}
 	return cfg, nil
 }
 
-func loadPlanPublicKey(path string) (ed25519.PublicKey, error) {
+func loadPublicKey(path, purpose string) (ed25519.PublicKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read Plan public key: %w", err)
+		return nil, fmt.Errorf("read %s public key: %w", purpose, err)
 	}
 	block, rest := pem.Decode(data)
 	if block == nil || len(strings.TrimSpace(string(rest))) != 0 {
-		return nil, errors.New("plan public key file must contain exactly one PEM block")
+		return nil, fmt.Errorf("%s public key file must contain exactly one PEM block", purpose)
 	}
 	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("parse Plan public key: %w", err)
+		return nil, fmt.Errorf("parse %s public key: %w", purpose, err)
 	}
 	publicKey, ok := parsed.(ed25519.PublicKey)
 	if !ok {
-		return nil, errors.New("plan public key must be Ed25519")
+		return nil, fmt.Errorf("%s public key must be Ed25519", purpose)
 	}
 	return publicKey, nil
+}
+
+func registryCredential(configPath string) (auth.CredentialFunc, error) {
+	if configPath == "" {
+		return nil, nil
+	}
+	store, err := credentials.NewStore(configPath, credentials.StoreOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("load registry credential file: %w", err)
+	}
+	return credentials.Credential(store), nil
 }
 
 func newHTTPClient(caFile string) (*http.Client, error) {

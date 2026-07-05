@@ -31,7 +31,7 @@ func TestParseConfigRequiresExplicitPreflightInputs(t *testing.T) {
 	}
 }
 
-func TestParseConfigRequiresExactlyOneDiagnosticMode(t *testing.T) {
+func TestParseConfigRequiresExactlyOneMode(t *testing.T) {
 	base := []string{
 		"--controller-url=https://controller.test.walnuts.dev",
 		"--operation-uid=operation-uid",
@@ -55,6 +55,23 @@ func TestParseConfigRequiresExactlyOneDiagnosticMode(t *testing.T) {
 	if !cfg.prepareLayout {
 		t.Fatalf("parseConfig() = %#v", cfg)
 	}
+	write := append(
+		base,
+		"--write-payloads-only",
+		"--artifact-key-id=artifact-key",
+		"--artifact-key-file=/trust/artifact.pem",
+	)
+	cfg, err = parseConfig(write)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !cfg.writePayloads || cfg.artifactKeyID != "artifact-key" {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+	missingArtifactTrust := append(base, "--write-payloads-only")
+	if _, err := parseConfig(missingArtifactTrust); err == nil {
+		t.Fatal("parseConfig() accepted payload mode without Artifact trust inputs")
+	}
 }
 
 func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {
@@ -70,11 +87,11 @@ func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {
 	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadPlanPublicKey(path)
+	got, err := loadPublicKey(path, "Plan")
 	if err != nil {
-		t.Fatalf("loadPlanPublicKey() error = %v", err)
+		t.Fatalf("loadPublicKey() error = %v", err)
 	}
 	if !publicKey.Equal(got) {
-		t.Fatal("loadPlanPublicKey() returned another key")
+		t.Fatal("loadPublicKey() returned another key")
 	}
 }

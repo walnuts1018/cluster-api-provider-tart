@@ -26,8 +26,6 @@ const (
 	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
 	// iPXEBootFileNameARM64 は arm64 用の iPXE ローダのファイル名です。
 	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
-	// iPXEBootFileNameLegacy は Legacy x86 用の iPXE ローダのファイル名です。
-	iPXEBootFileNameLegacy = "undionly.kpxe"
 	// iPXEBootFileNameDefault はデフォルトの iPXE ローダのファイル名です。
 	iPXEBootFileNameDefault = "ipxe.efi"
 )
@@ -226,37 +224,19 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 			}
 		}
 
-		// クライアントのアーキテクチャを取得 (Option 93)
-		arch := ArchEFIx8664 // Default
-		if opt := m.GetOneOption(dhcpv4.OptionClientSystemArchitectureType); opt != nil {
-			if len(opt) >= 2 {
-				arch = Arch(uint16(opt[0])<<8 | uint16(opt[1]))
-			}
-		}
+		// Option 93がないrequestをamd64と推測すると、対象外HostへAgentを配信してしまう。
+		arch, hasArchitecture := clientArchitecture(m)
 
 		// User-Class (Option 77) を確認して iPXE かどうかを判定
 		isIPXE := slices.Contains(m.UserClass(), "iPXE")
-
-		var bootFile string
-		if isIPXE {
-			// iPXE からのリクエスト: HTTP URL を直接返す（二段階ブート）
-			macParam := url.QueryEscape(m.ClientHWAddr.String())
-			httpURL := fmt.Sprintf("%s/ipxe?mac=%s", b.baseURL, macParam)
-			bootFile = httpURL
-			lg.Info("iPXE client detected, providing HTTP URL", "client_mac", m.ClientHWAddr.String(), "url", httpURL)
-		} else {
-			// 通常の PXE クライアント: TFTP で取得する iPXE ローダを返す
-			switch arch {
-			case ArchIntelx86PC:
-				bootFile = iPXEBootFileNameLegacy
-			case ArchEFIx8664:
-				bootFile = iPXEBootFileNameAMD64
-			case ArchEFIARM64:
-				bootFile = iPXEBootFileNameARM64
-			default:
-				lg.Info("Unknown architecture, using default boot file", "arch", arch)
-				bootFile = iPXEBootFileNameDefault
-			}
+		bootFile, supported := agentBootFile(arch, hasArchitecture, isIPXE, b.baseURL, m.ClientHWAddr)
+		if !supported {
+			lg.Info("Ignoring unsupported PXE architecture", "arch", arch, "option93Present", hasArchitecture)
+			span.SetAttributes(
+				attribute.Int("dhcp.arch", int(arch)),
+				attribute.Bool("dhcp.supported", false),
+			)
+			return
 		}
 
 		// 新しいDHCPv4レスポンスを作成
@@ -314,14 +294,33 @@ func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handle
 	}
 }
 
+func clientArchitecture(request *dhcpv4.DHCPv4) (Arch, bool) {
+	option := request.GetOneOption(dhcpv4.OptionClientSystemArchitectureType)
+	if len(option) < 2 {
+		return 0, false
+	}
+	return Arch(uint16(option[0])<<8 | uint16(option[1])), true
+}
+
+func agentBootFile(arch Arch, optionPresent, isIPXE bool, baseURL string, mac net.HardwareAddr) (string, bool) {
+	if !optionPresent || arch != ArchEFIx8664 {
+		return "", false
+	}
+	if !isIPXE {
+		return iPXEBootFileNameAMD64, true
+	}
+	macParam := url.QueryEscape(mac.String())
+	return fmt.Sprintf("%s/ipxe?mac=%s", baseURL, macParam), true
+}
+
 // Addr はサーバーのアドレスを返します。
 func (b *DHCPBootstrapper) Addr() string {
 	return b.bindIP
 }
 
-// NeedLeaderElection はリーダー選挙が必要ないことを返します。
+// NeedLeaderElectionはstandby replicaがDHCP listenerを開始しないようにします。
 func (b *DHCPBootstrapper) NeedLeaderElection() bool {
-	return false
+	return true
 }
 
 // Stop はDHCPサーバーを停止します。

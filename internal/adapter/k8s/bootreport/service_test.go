@@ -106,11 +106,14 @@ func newTestService(
 ) (*Service, client.Client, client.ObjectKey, string) {
 	t.Helper()
 	plan := agentprotocol.Plan{
-		APIVersion:   agentprotocol.APIVersion,
-		OperationUID: "operation-uid",
-		HostUID:      "host-uid",
-		Deadline:     time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		HostUID:       "host-uid",
+		OperationType: agentprotocol.OperationTypeUpdate,
+		ActiveSlot:    "A",
+		Deadline:      time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
 		RootDevice: agentprotocol.RootDevice{
+			DeviceName:   "/dev/disk/by-id/wwn-disk",
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 1,
 		},

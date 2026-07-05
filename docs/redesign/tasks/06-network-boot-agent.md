@@ -65,6 +65,41 @@
 - failure injectionごとの最終partition/boot状態
 - leader切替時のlistener log
 
+## 実装状況
+
+2026-07-05時点で、誤disk破壊を防ぐ境界とNetwork Serverの対象制御を先行実装した。
+Plan schemaは未リリースのため互換層を設けず、`operationType`、Update時の`activeSlot`、
+`rootDevice.deviceName`を直接追加した。
+
+| 受け入れ条件 | 状況 | 証跡または残作業 |
+|---|---|---|
+| 1 | 実装済み | `TestAgentBootFileSupportsOnlyUEFIAMD64`。Option 93のUEFI amd64だけへx86_64 iPXEまたは二段目script URLを返す |
+| 2 | 実装済み | 同testでLegacy BIOS、UEFI arm64、未知値、Option 93欠落を対象外として確認 |
+| 3 | 実装済み | `TestServiceDoesNotWriteWhenDiskSelectionFails`で候補0台/2台時のWriter呼出し0回を確認 |
+| 4 | 実装済み | `TestSelect`でby-id、serial、WWN、size、Agent一時OS保持deviceの不一致を`DiskIdentityMismatch`として確認 |
+| 5 | 実装済み | `TestValidateTargets`と`TestServiceDoesNotWriteUnsafeUpdateTarget`でActive OS/Verity、State、Dataを拒否 |
+| 6 | 一部実装 | Updateの書込み先をInactive Slotへ限定済み。50% failure injectionと再起動後disk状態の確認が残る |
+| 7 | 一部実装 | payload write、fsync、read-back verifyを分離済み。boot target adapter接続後のfailure injectionが残る |
+| 8 | 一部実装 | payload digest不一致を失敗させる。verity root hash検証とboot target非変更testが残る |
+| 9 | 実装済み、切替試験未実施 | DHCP、TFTP、iPXE/HTTPS、Agent APIのRunnableをleader election対象にした。leader切替時listener logの保存が残る |
+| 10 | 実装済み | Agent progressはOperationだけを更新し、TartMachine Readyを変更しない。Node health判定はTask 07 |
+
+実装済みの主な構成:
+
+- `internal/provisioningagent/disk`: 複数identityを全て満たす唯一diskの選択
+- `internal/provisioningagent/plan`: Provision/Update別の書込み可能Disk Role検証
+- `internal/provisioningagent/payload`: 1 MiB単位write、10%進捗、fsync、read-back digest検証
+- `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
+- `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
+
+残作業:
+
+- Linux inventory収集とAgent API client/binary
+- `amd64-uefi-ab/v1`のpartition作成とDisk Role解決
+- Agent Artifactの署名検証、配信、iPXE script生成
+- verity root hash検証、boot trial metadata更新、failure injection
+- 実クラスタでのleader切替試験
+
 ## 対象外
 
 - Bootstrap適用

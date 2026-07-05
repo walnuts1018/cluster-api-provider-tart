@@ -14,11 +14,13 @@ import (
 
 func validPlan() Plan {
 	return Plan{
-		APIVersion:   APIVersion,
-		OperationUID: "operation-uid",
-		HostUID:      "host-uid",
-		Deadline:     time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC),
+		APIVersion:    APIVersion,
+		OperationUID:  "operation-uid",
+		HostUID:       "host-uid",
+		OperationType: OperationTypeProvision,
+		Deadline:      time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC),
 		RootDevice: RootDevice{
+			DeviceName:   "/dev/disk/by-id/wwn-disk",
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 64 << 30,
 		},
@@ -85,6 +87,8 @@ func TestValidatePlanRejectsUnsafePlans(t *testing.T) {
 		name   string
 		mutate func(*Plan)
 	}{
+		{name: "missing operation type", mutate: func(plan *Plan) { plan.OperationType = "" }},
+		{name: "unstable device name", mutate: func(plan *Plan) { plan.RootDevice.DeviceName = "/dev/sda" }},
 		{name: "missing disk identity", mutate: func(plan *Plan) { plan.RootDevice.SerialNumber = "" }},
 		{name: "unknown role", mutate: func(plan *Plan) { plan.AllowedTargetRoles = []DiskRole{"Unknown"} }},
 		{name: "duplicate role", mutate: func(plan *Plan) { plan.AllowedTargetRoles = []DiskRole{DiskRoleOSA, DiskRoleOSA} }},

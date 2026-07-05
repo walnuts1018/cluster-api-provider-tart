@@ -4,18 +4,21 @@
   "title": "Tart Agent Plan v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "operationUID", "hostUID", "deadline", "rootDevice", "artifact", "allowedTargetRoles", "steps"],
+  "required": ["apiVersion", "operationUID", "hostUID", "operationType", "deadline", "rootDevice", "artifact", "allowedTargetRoles", "steps"],
   "properties": {
     "apiVersion": {"const": "infrastructure.cluster.x-k8s.io/v1"},
     "operationUID": {"type": "string", "minLength": 1, "maxLength": 128},
     "hostUID": {"type": "string", "minLength": 1, "maxLength": 128},
+    "operationType": {"enum": ["Provision", "Update"]},
+    "activeSlot": {"enum": ["A", "B"]},
     "deadline": {"type": "string", "format": "date-time"},
     "rootDevice": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["minSizeBytes"],
+      "required": ["deviceName", "minSizeBytes"],
       "anyOf": [{"required": ["serialNumber"]}, {"required": ["wwn"]}],
       "properties": {
+        "deviceName": {"type": "string", "pattern": "^/dev/disk/by-id/.+$"},
         "serialNumber": {"type": "string", "minLength": 1},
         "wwn": {"type": "string", "minLength": 1},
         "minSizeBytes": {"type": "integer", "minimum": 1}
@@ -56,5 +59,15 @@
         "format": {"const": "cloud-config"}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operationType": {"const": "Update"}}},
+      "then": {"required": ["activeSlot"]}
+    },
+    {
+      "if": {"properties": {"operationType": {"const": "Provision"}}},
+      "then": {"not": {"required": ["activeSlot"]}}
+    }
+  ]
 }

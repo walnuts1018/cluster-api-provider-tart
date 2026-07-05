@@ -1167,7 +1167,7 @@ func TestHandlerServesHealthEndpoints(t *testing.T) {
 	}
 }
 
-func TestNewServerDisablesLeaderElection(t *testing.T) {
+func TestNewServerRequiresLeaderElection(t *testing.T) {
 	cl := setupFakeClient(t, setupScheme(t))
 	svc := setupBootstrapTokenService(t, cl)
 	server := ipxe.NewServer(cl, svc, ":8082", "", "http://192.168.1.100")
@@ -1175,7 +1175,7 @@ func TestNewServerDisablesLeaderElection(t *testing.T) {
 	if server.Addr() != ":8082" {
 		t.Fatalf("Addr = %q, want %q", server.Addr(), ":8082")
 	}
-	if server.NeedLeaderElection() {
-		t.Fatal("NeedLeaderElection = true, want false")
+	if !server.NeedLeaderElection() {
+		t.Fatal("NeedLeaderElection = false, want true")
 	}
 }

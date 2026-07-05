@@ -113,6 +113,10 @@ Bootstrap claimで以前のTokenは失効するが、`status.bootstrapDelivered`
 progress endpointは署名済みPlanを再読込みし、Plan Digestと`completedStep`の所属を検証する。
 PlanにないStep名はStatusへ保存せず422を返す。
 
+Task 06のdisk安全判定に必要なため、Planは`operationType`、Update時の`activeSlot`、
+`rootDevice.deviceName`を必須入力として持つ。`deviceName`は`/dev/disk/by-id/`だけを受理し、
+これらを含むCanonical JSONを署名・digest対象にする。
+
 残作業:
 
 - Plan SecretをOperation作成時に生成するTask 07側の接続

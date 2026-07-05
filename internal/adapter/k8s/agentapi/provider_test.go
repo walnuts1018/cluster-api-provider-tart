@@ -158,11 +158,13 @@ func testOperation() *infrastructurev1beta1.TartHostOperation {
 
 func testPlan() agentprotocol.Plan {
 	return agentprotocol.Plan{
-		APIVersion:   agentprotocol.APIVersion,
-		OperationUID: "operation-uid",
-		HostUID:      "host-uid",
-		Deadline:     time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC),
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		HostUID:       "host-uid",
+		OperationType: agentprotocol.OperationTypeProvision,
+		Deadline:      time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC),
 		RootDevice: agentprotocol.RootDevice{
+			DeviceName:   "/dev/disk/by-id/wwn-disk",
 			SerialNumber: "disk",
 			MinSizeBytes: 1,
 		},

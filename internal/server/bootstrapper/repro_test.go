@@ -20,7 +20,7 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 
 	handler := bs.createDHCPHandler(context.Background())
 
-	t.Run("Arch 0 (Legacy) on Port 67 should not receive boot file", func(t *testing.T) {
+	t.Run("Arch 0 (Legacy) on Port 67 is ignored", func(t *testing.T) {
 		m, _ := dhcpv4.NewDiscovery(net.HardwareAddr{0x18, 0x03, 0x73, 0xe4, 0xb9, 0xe7})
 		m.UpdateOption(dhcpv4.OptClientArch(iana.Arch(ArchIntelx86PC)))
 
@@ -36,16 +36,8 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 
 		handler(fakeConn, &net.UDPAddr{IP: net.IPv4zero, Port: 68}, m)
 
-		if response == nil {
-			t.Fatal("expected a response")
-		}
-
-		if response.BootFileName != "" {
-			t.Errorf("expected no boot file on port %d, got %s", dhcpPort, response.BootFileName)
-		}
-
-		if response.YourIPAddr.String() != "0.0.0.0" {
-			t.Errorf("expected zero YourIPAddr (yiaddr), got %s", response.YourIPAddr)
+		if response != nil {
+			t.Fatalf("unexpected ProxyDHCP response for unsupported architecture: %v", response)
 		}
 	})
 }

@@ -59,7 +59,6 @@ func TestValidateManifest(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -98,7 +97,6 @@ func TestParseRejectsUnknownAndTrailingData(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if _, err := Parse([]byte(tt.data)); err == nil {

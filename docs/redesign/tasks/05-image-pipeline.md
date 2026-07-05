@@ -103,7 +103,9 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 
 未検証・未実装:
 
-- mkosi案のLinux build結果、成果物名、2回buildの一致はGitHub Actionsで検証中。
+- mkosi案の初回Linux buildは、全Ubuntu snapshot timestampで`503 Service Unavailable`となり、
+  filesystem生成前に停止した。入力固定を外して通常mirrorへfallbackせず、snapshot endpointの
+  1秒/2秒backoff付き事前検査を追加した。成果物名と2回buildの一致はservice復旧後に再検証する。
 - dm-verity block改変検出、read-only root boot、x86-64-v1 QEMU bootはTask 01の保留に伴い未検証。
 - State/Data bind mount契約とbootloader方式はTask 01の測定結果がないため確定していない。
 - Image Builder raw変換案とAnsible role再利用案の比較は未実施で、ADR 0009は`Proposed`のままとする。

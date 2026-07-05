@@ -295,6 +295,24 @@ fi
 lock="${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}"
 snapshot="$(jq -er '.ubuntuSnapshot' "$lock")"
 source_date_epoch="$(jq -er '.sourceDateEpoch' "$lock")"
+snapshot_base="https://snapshot.ubuntu.com/ubuntu/$snapshot/dists"
+for suite in noble noble-updates noble-security; do
+  available=0
+  for delay in 0 1 2; do
+    if [ "$delay" -gt 0 ]; then
+      sleep "$delay"
+    fi
+    if curl --fail --silent --show-error --head --location --max-time 30 \
+      "$snapshot_base/$suite/InRelease" >/dev/null; then
+      available=1
+      break
+    fi
+  done
+  if [ "$available" -ne 1 ]; then
+    echo "Ubuntu snapshot is unavailable: $snapshot_base/$suite/InRelease" >&2
+    exit 1
+  fi
+done
 mkosi \
   --directory artifact/mkosi \
   --snapshot "$snapshot" \

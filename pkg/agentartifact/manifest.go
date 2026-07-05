@@ -1,0 +1,128 @@
+package agentartifact
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"regexp"
+
+	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
+	"github.com/opencontainers/go-digest"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
+)
+
+const (
+	SchemaVersion                = 1
+	MediaType                    = "application/vnd.tart.provisioning-agent.v1"
+	ArchitectureAMD64            = "amd64"
+	FirmwareUEFI                 = "UEFI"
+	PlatformProfileAMD64UEFIABV1 = "amd64-uefi-ab/v1"
+	SignatureAlgorithmEd25519    = "Ed25519"
+)
+
+var referencePattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
+
+type Manifest struct {
+	SchemaVersion   int        `json:"schemaVersion"`
+	MediaType       string     `json:"mediaType"`
+	Reference       string     `json:"reference"`
+	Architecture    string     `json:"architecture"`
+	Firmware        string     `json:"firmware"`
+	PlatformProfile string     `json:"platformProfile"`
+	Kernel          Descriptor `json:"kernel"`
+	Initrd          Descriptor `json:"initrd"`
+}
+
+type Descriptor struct {
+	Digest    string `json:"digest"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
+type ValidatedManifest struct {
+	manifest Manifest
+}
+
+func DescriptorFromBytes(data []byte) Descriptor {
+	return Descriptor{Digest: digest.FromBytes(data).String(), SizeBytes: int64(len(data))}
+}
+
+func Parse(data []byte) (ValidatedManifest, error) {
+	var manifest Manifest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		return ValidatedManifest{}, fmt.Errorf("decode Agent Artifact manifest: %w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return ValidatedManifest{}, errors.New("Agent Artifact manifest must contain exactly one JSON value")
+		}
+		return ValidatedManifest{}, fmt.Errorf("decode Agent Artifact manifest trailing data: %w", err)
+	}
+	return Validate(manifest)
+}
+
+func Validate(manifest Manifest) (ValidatedManifest, error) {
+	switch {
+	case manifest.SchemaVersion != SchemaVersion:
+		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact schemaVersion: %d", manifest.SchemaVersion)
+	case manifest.MediaType != MediaType:
+		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact mediaType: %q", manifest.MediaType)
+	case !referencePattern.MatchString(manifest.Reference):
+		return ValidatedManifest{}, errors.New("Agent Artifact reference must be a digest-pinned OCI reference")
+	case manifest.Architecture != ArchitectureAMD64:
+		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact architecture: %q", manifest.Architecture)
+	case manifest.Firmware != FirmwareUEFI:
+		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact firmware: %q", manifest.Firmware)
+	case manifest.PlatformProfile != PlatformProfileAMD64UEFIABV1:
+		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact platformProfile: %q", manifest.PlatformProfile)
+	}
+	if err := validateDescriptor("kernel", manifest.Kernel); err != nil {
+		return ValidatedManifest{}, err
+	}
+	if err := validateDescriptor("initrd", manifest.Initrd); err != nil {
+		return ValidatedManifest{}, err
+	}
+	return ValidatedManifest{manifest: manifest}, nil
+}
+
+func validateDescriptor(name string, descriptor Descriptor) error {
+	if err := digest.Digest(descriptor.Digest).Validate(); err != nil ||
+		digest.Digest(descriptor.Digest).Algorithm() != digest.SHA256 {
+		return fmt.Errorf("%s digest must be a canonical SHA-256 digest", name)
+	}
+	if descriptor.SizeBytes <= 0 {
+		return fmt.Errorf("%s sizeBytes must be greater than zero", name)
+	}
+	return nil
+}
+
+func (manifest ValidatedManifest) Value() Manifest {
+	return manifest.manifest
+}
+
+func (manifest ValidatedManifest) CanonicalJSON() ([]byte, error) {
+	data, err := json.Marshal(manifest.manifest)
+	if err != nil {
+		return nil, fmt.Errorf("encode Agent Artifact manifest: %w", err)
+	}
+	canonical, err := jsoncanonicalizer.Transform(data)
+	if err != nil {
+		return nil, fmt.Errorf("canonicalize Agent Artifact manifest: %w", err)
+	}
+	return canonical, nil
+}
+
+func VerifyPayloads(manifest ValidatedManifest, kernel, initrd io.Reader) error {
+	value := manifest.Value()
+	if err := artifact.VerifyPayload(kernel, value.Kernel.Digest, value.Kernel.SizeBytes); err != nil {
+		return fmt.Errorf("verify Agent Artifact kernel: %w", err)
+	}
+	if err := artifact.VerifyPayload(initrd, value.Initrd.Digest, value.Initrd.SizeBytes); err != nil {
+		return fmt.Errorf("verify Agent Artifact initrd: %w", err)
+	}
+	return nil
+}

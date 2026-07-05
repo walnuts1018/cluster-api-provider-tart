@@ -39,6 +39,22 @@ func TestEvaluate(t *testing.T) {
 			incoming: Progress{Step: "WriteImage", DiskRole: "Verity-A", Percent: 10},
 			want:     DecisionApply,
 		},
+		{
+			name: "completed step cannot regress",
+			saved: State{
+				Sequence:       1,
+				CompletedSteps: []string{"WriteImage"},
+			},
+			sequence: 2,
+			incoming: Progress{Step: "WriteImage", DiskRole: "OS-A", Percent: 10},
+			want:     DecisionInvalid,
+		},
+		{
+			name:     "verify requires completed write",
+			sequence: 1,
+			incoming: Progress{Step: "VerifyImage", Percent: 100, Completed: true},
+			want:     DecisionInvalid,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

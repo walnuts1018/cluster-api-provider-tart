@@ -64,11 +64,15 @@ func Evaluate(saved State, sequence int64, incoming Progress) Evaluation {
 	if decision != DecisionApply {
 		return Evaluation{Decision: decision, State: cloneState(saved)}
 	}
+	stepCompleted := slices.Contains(saved.CompletedSteps, incoming.Step)
 	if incoming.Step == "" ||
 		incoming.Percent < 0 ||
 		incoming.Percent > 100 ||
 		incoming.Percent%10 != 0 ||
-		(incoming.Completed && incoming.Percent != 100) {
+		(incoming.Completed && incoming.Percent != 100) ||
+		(stepCompleted && !incoming.Completed) ||
+		(incoming.Step == agentprotocol.StepVerifyImage &&
+			!slices.Contains(saved.CompletedSteps, agentprotocol.StepWriteImage)) {
 		return Evaluation{Decision: DecisionInvalid, State: cloneState(saved)}
 	}
 	if saved.Progress != nil &&

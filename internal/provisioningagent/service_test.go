@@ -41,7 +41,7 @@ func TestServiceDoesNotWriteWhenDiskSelectionFails(t *testing.T) {
 			t.Parallel()
 			writer := &recordingWriter{}
 			service := NewService(writer)
-			err := service.Execute(context.Background(), validatedPlan(t, agentprotocol.OperationTypeProvision, "", []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA}), tt.devices)
+			err := service.Execute(t.Context(), validatedPlan(t, agentprotocol.OperationTypeProvision, "", []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA}), tt.devices)
 			if err == nil {
 				t.Fatal("Execute() accepted unsafe disk selection")
 			}
@@ -58,7 +58,7 @@ func TestServiceDoesNotWriteUnsafeUpdateTarget(t *testing.T) {
 	writer := &recordingWriter{}
 	service := NewService(writer)
 	err := service.Execute(
-		context.Background(),
+		t.Context(),
 		validatedPlan(t, agentprotocol.OperationTypeUpdate, "A", []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA}),
 		[]disk.Device{matchingDisk("/dev/sda")},
 	)
@@ -76,7 +76,7 @@ func TestServiceWritesAfterEverySafetyCheckPasses(t *testing.T) {
 	writer := &recordingWriter{}
 	service := NewService(writer)
 	if err := service.Execute(
-		context.Background(),
+		t.Context(),
 		validatedPlan(t, agentprotocol.OperationTypeUpdate, "A", []agentprotocol.DiskRole{agentprotocol.DiskRoleOSB}),
 		[]disk.Device{matchingDisk("/dev/sda")},
 	); err != nil {

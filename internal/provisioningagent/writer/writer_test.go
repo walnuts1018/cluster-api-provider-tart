@@ -99,7 +99,7 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 		"",
 		[]agentprotocol.DiskRole{agentprotocol.DiskRoleOSA, agentprotocol.DiskRoleVerityA},
 	)
-	if err := targetWriter.WriteTargets(context.Background(), plan, disk.Device{Path: "/dev/test", SizeBytes: 64 << 30}); err != nil {
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 64 << 30}); err != nil {
 		t.Fatalf("WriteTargets() error = %v", err)
 	}
 	assertFilePrefix(t, opener.paths["os-a"], image)
@@ -131,7 +131,7 @@ func TestWriterVerifiesArtifactBeforeDestructiveLayout(t *testing.T) {
 		"",
 		[]agentprotocol.DiskRole{agentprotocol.DiskRoleOSA, agentprotocol.DiskRoleVerityA},
 	)
-	if err := targetWriter.WriteTargets(context.Background(), plan, disk.Device{}); err == nil {
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{}); err == nil {
 		t.Fatal("WriteTargets() accepted an untrusted Artifact")
 	}
 	if layoutPreparer.calls != 0 {
@@ -151,7 +151,7 @@ func TestWriterRejectsOversizedPayloadBeforeDestructiveLayout(t *testing.T) {
 		"",
 		[]agentprotocol.DiskRole{agentprotocol.DiskRoleOSA, agentprotocol.DiskRoleVerityA},
 	)
-	if err := targetWriter.WriteTargets(context.Background(), plan, disk.Device{}); err == nil {
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{}); err == nil {
 		t.Fatal("WriteTargets() accepted an oversized OS payload")
 	}
 	if layoutPreparer.calls != 0 {

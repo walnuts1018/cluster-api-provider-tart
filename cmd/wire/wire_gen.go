@@ -8,11 +8,16 @@ package wire
 
 import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	bootstraptoken2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	host2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -39,7 +44,14 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineReconciler := provideTartMachineReconciler(k8sClient, scheme, service, bootstraptokenService, provisioningService)
 	tartClusterReconciler := provideTartClusterReconciler(k8sClient, scheme)
 	tartMachineTemplateReconciler := provideTartMachineTemplateReconciler(k8sClient, scheme)
-	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler)
+	allocationService := allocation.NewService(k8sClient)
+	observer := machinehealth.NewObserver(k8sClient)
+	v1beta1hostService := v1beta1host.NewService(k8sClient)
+	operationService := operation.NewService(k8sClient)
+	orchestrator := initialprovisioning.NewOrchestrator(allocationService, v1beta1hostService, operationService)
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, v1beta1hostService)
+	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
 	return reconcilers, nil
 }
 
@@ -50,6 +62,8 @@ type Reconcilers struct {
 	TartMachine         *controller.TartMachineReconciler
 	TartCluster         *controller.TartClusterReconciler
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
+	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
+	TartHostOperation   *controller.TartHostOperationReconciler
 }
 
 func provideDriverRegistry(wolDriver *wol.Adapter) (*driver.Registry, error) {
@@ -98,16 +112,48 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 	}
 }
 
+func provideTartMachineV1Beta1Reconciler(
+	k8sClient client.Client,
+	hostReferences controller.HostReferenceService,
+	nodeHealth controller.NodeHealthObserver,
+	provisioner controller.ProvisionOrchestrator,
+) *controller.TartMachineV1Beta1Reconciler {
+	return &controller.TartMachineV1Beta1Reconciler{
+		Client:         k8sClient,
+		HostReferences: hostReferences,
+		NodeHealth:     nodeHealth,
+		Provisioner:    provisioner,
+	}
+}
+
+func provideTartHostOperationReconciler(
+	k8sClient client.Client,
+	scheme *runtime.Scheme,
+	powerOn controller.OperationPowerOnService,
+	hostPhase controller.OperationHostPhaseService,
+) *controller.TartHostOperationReconciler {
+	return &controller.TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   powerOn,
+		HostPhase: hostPhase,
+	}
+}
+
 func provideReconcilers(
 	tartHost *controller.TartHostReconciler,
 	tartMachine *controller.TartMachineReconciler,
 	tartCluster *controller.TartClusterReconciler,
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
+	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
+	tartHostOperation *controller.TartHostOperationReconciler,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
 		TartMachine:         tartMachine,
 		TartCluster:         tartCluster,
 		TartMachineTemplate: tartMachineTemplate,
+		TartMachineV1Beta1:  tartMachineV1Beta1,
+		TartHostOperation:   tartHostOperation,
 	}
 }

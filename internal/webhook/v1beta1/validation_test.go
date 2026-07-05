@@ -1,7 +1,6 @@
 package v1beta1
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -52,14 +51,14 @@ func TestTartClusterValidator(t *testing.T) {
 			},
 		},
 	}
-	if _, err := validator.ValidateCreate(context.Background(), valid); err != nil {
+	if _, err := validator.ValidateCreate(t.Context(), valid); err != nil {
 		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 
 	for _, registries := range [][]string{nil, {}, {"*.sample.walnuts.dev"}, {"registry.sample.walnuts.dev/team"}} {
 		invalid := valid.DeepCopy()
 		invalid.Spec.ArtifactPolicy.AllowedRegistries = registries
-		if _, err := validator.ValidateCreate(context.Background(), invalid); err == nil {
+		if _, err := validator.ValidateCreate(t.Context(), invalid); err == nil {
 			t.Fatalf("ValidateCreate() registries = %v, want error", registries)
 		}
 	}
@@ -77,12 +76,12 @@ func TestTartHostValidatorRejectsUnstableRootDeviceHint(t *testing.T) {
 			},
 		},
 	}
-	if _, err := validator.ValidateCreate(context.Background(), host); err == nil {
+	if _, err := validator.ValidateCreate(t.Context(), host); err == nil {
 		t.Fatal("ValidateCreate() error = nil, want unstable device path rejection")
 	}
 
 	host.Spec.RootDeviceHints.DeviceName = "/dev/disk/by-id/wwn-0x5000000000000001"
-	if _, err := validator.ValidateCreate(context.Background(), host); err != nil {
+	if _, err := validator.ValidateCreate(t.Context(), host); err != nil {
 		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 }
@@ -97,18 +96,18 @@ func TestMachineDefaultingAndValidation(t *testing.T) {
 			},
 		},
 	}
-	if err := (&TartMachineCustomDefaulter{}).Default(context.Background(), machine); err != nil {
+	if err := (&TartMachineCustomDefaulter{}).Default(t.Context(), machine); err != nil {
 		t.Fatalf("Default() error = %v", err)
 	}
 	if machine.Spec.UpdatePolicy.Mode != infrastructurev1beta1.UpdateModeReplace {
 		t.Fatalf("update mode = %q, want %q", machine.Spec.UpdatePolicy.Mode, infrastructurev1beta1.UpdateModeReplace)
 	}
-	if _, err := (&TartMachineCustomValidator{}).ValidateCreate(context.Background(), machine); err != nil {
+	if _, err := (&TartMachineCustomValidator{}).ValidateCreate(t.Context(), machine); err != nil {
 		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 
 	machine.Spec.Image.Ref = "oci://registry.sample.walnuts.dev/tart/ubuntu:latest"
-	if _, err := (&TartMachineCustomValidator{}).ValidateCreate(context.Background(), machine); err == nil {
+	if _, err := (&TartMachineCustomValidator{}).ValidateCreate(t.Context(), machine); err == nil {
 		t.Fatal("ValidateCreate() error = nil, want mutable tag rejection")
 	}
 }
@@ -123,7 +122,7 @@ func TestTartMachineProvisionedIsMonotonic(t *testing.T) {
 	newMachine := oldMachine.DeepCopy()
 	newMachine.Status.Initialization.Provisioned = &notProvisioned
 
-	if _, err := (&TartMachineCustomValidator{}).ValidateUpdate(context.Background(), oldMachine, newMachine); err == nil {
+	if _, err := (&TartMachineCustomValidator{}).ValidateUpdate(t.Context(), oldMachine, newMachine); err == nil {
 		t.Fatal("ValidateUpdate() error = nil, want monotonic provisioned rejection")
 	}
 }
@@ -158,7 +157,7 @@ func TestTartHostOperationValidation(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(operation)
 			}
-			_, err := (&TartHostOperationCustomValidator{}).ValidateCreate(context.Background(), operation)
+			_, err := (&TartHostOperationCustomValidator{}).ValidateCreate(t.Context(), operation)
 			if tt.mutate == nil && err != nil {
 				t.Fatalf("ValidateCreate() error = %v", err)
 			}
@@ -174,7 +173,7 @@ func TestTartHostOperationRequiresDeterministicActiveName(t *testing.T) {
 
 	operation := validOperation()
 	operation.Name = "arbitrary-name"
-	if _, err := (&TartHostOperationCustomValidator{}).ValidateCreate(context.Background(), operation); err == nil {
+	if _, err := (&TartHostOperationCustomValidator{}).ValidateCreate(t.Context(), operation); err == nil {
 		t.Fatal("ValidateCreate() error = nil, want deterministic name error")
 	}
 }

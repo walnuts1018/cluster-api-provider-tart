@@ -62,6 +62,31 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 - 3削除Policy後のpartition/Host Status
 - GitHub Actions上の`mise run test-provisioning-e2e`結果
 
+## 実装状況
+
+2026-07-06時点で、初期Provisioning controllerの最初の縦方向スライスを実装した。
+
+| 受け入れ条件 | 状況 | 証跡または残作業 |
+|---|---|---|
+| 1 | 一部実装 | Host予約、Provision Operation作成、WoL、Health Gate判定をcontrollerへ接続。OS Artifact Manifest取得とPlan Secret生成の接続、実機bootは未実装 |
+| 2 | 一部実装 | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録以降の4再起動pointは未検証 |
+| 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。Bootstrap Adapterの実機側成功marker処理は未実装 |
+| 4 | 実装済み | `EvaluateReadiness`とTartMachine controllerの単体テストでproviderID不一致時にProvisionedへ遷移しないことを確認 |
+| 5-7 | 未実装 | cloud-config Adapter、payload原本削除、Session Token Secret削除の統合が必要 |
+| 8-10 | 未実装 | Cleaning PlanとAgent側disk処理の実装が必要 |
+| 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
+| 12 | 一部実装 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eは未検証 |
+| 13 | 未検証 | Runtime Extension無効時のCAPI Machine置換E2Eが必要 |
+| 14-15 | 未実装 | 手動WipeAllとdisk容量別deadlineの実装が必要 |
+
+実装済みの補助機能:
+
+- TartHost/TartMachine/OS Artifact Manifestから署名済みProvision Planを生成する純粋関数
+- RFC 8785 Plan digestとEd25519署名
+- Operation所有のimmutable Plan SecretをSSAで保存するKubernetes adapter
+- OS boot report、State/Data mount、Bootstrap marker、Node Ready、providerID、Kubernetes versionの完了Gate
+- Gate通過後のOperation=`Succeeded`、Host=`Provisioned`、TartMachine=`Provisioned`への再試行可能な収束
+
 ## 対象外
 
 - A/B更新

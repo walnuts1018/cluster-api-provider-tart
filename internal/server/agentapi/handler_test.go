@@ -530,7 +530,7 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		Build()
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	sessions := k8sagentsession.NewService(k8sClient, agentsessiondomain.DefaultTTL)
-	token, _, err := sessions.Issue(context.Background(), key, "host-uid", "operation-uid", now)
+	token, _, err := sessions.Issue(t.Context(), key, "host-uid", "operation-uid", now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}

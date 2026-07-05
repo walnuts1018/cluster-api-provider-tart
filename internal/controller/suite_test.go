@@ -17,7 +17,6 @@ limitations under the License.
 package controller
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,8 +51,6 @@ const (
 )
 
 var (
-	ctx        context.Context
-	cancel     context.CancelFunc
 	testEnv    *envtest.Environment
 	cfg        *rest.Config
 	k8sClient  client.Client
@@ -68,8 +65,6 @@ func TestControllers(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
-
-	ctx, cancel = context.WithCancel(context.TODO())
 
 	var err error
 	err = infrastructurev1alpha1.AddToScheme(scheme.Scheme)
@@ -113,7 +108,6 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	cancel()
 	if capiCRDDir != "" {
 		os.RemoveAll(capiCRDDir)
 	}

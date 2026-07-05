@@ -1,7 +1,6 @@
 package bootstrapper
 
 import (
-	"context"
 	"net"
 	"testing"
 
@@ -18,7 +17,7 @@ func TestDHCPHandler_ProxyDHCP_Logic(t *testing.T) {
 		t.Fatalf("failed to create bootstrapper: %v", err)
 	}
 
-	handler := bs.createDHCPHandler(context.Background())
+	handler := bs.createDHCPHandler(t.Context())
 
 	t.Run("Arch 0 (Legacy) on Port 67 is ignored", func(t *testing.T) {
 		m, _ := dhcpv4.NewDiscovery(net.HardwareAddr{0x18, 0x03, 0x73, 0xe4, 0xb9, 0xe7})

@@ -41,7 +41,7 @@ func TestServiceRetriesTemporaryErrorAtDefinedIntervals(t *testing.T) {
 		t.Fatalf("NewServiceForTest() error = %v", err)
 	}
 
-	err = service.PowerOn(context.Background(), "fake", testTarget(t), testOperationID(t), Invocation{})
+	err = service.PowerOn(t.Context(), "fake", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorTemporary) {
 		t.Fatalf("PowerOn() error = %v, want Temporary", err)
 	}
@@ -72,7 +72,7 @@ func TestServiceDoesNotRetryAuthenticationFailure(t *testing.T) {
 		t.Fatalf("NewServiceForTest() error = %v", err)
 	}
 
-	err = service.PowerOn(context.Background(), "fake", testTarget(t), testOperationID(t), Invocation{})
+	err = service.PowerOn(t.Context(), "fake", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
 		t.Fatalf("PowerOn() error = %v, want AuthenticationFailed", err)
 	}
@@ -96,7 +96,7 @@ func TestServiceDeadlineDoesNotLeaveDriverWorkRunning(t *testing.T) {
 		t.Fatalf("NewServiceForTest() error = %v", err)
 	}
 
-	err = service.PowerOn(context.Background(), "deadline", testTarget(t), testOperationID(t), Invocation{})
+	err = service.PowerOn(t.Context(), "deadline", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorDeadlineExceeded) {
 		t.Fatalf("PowerOn() error = %v, want DeadlineExceeded", err)
 	}
@@ -118,7 +118,7 @@ func TestServiceDoesNotCallUnsupportedDriver(t *testing.T) {
 		t.Fatalf("NewServiceForTest() error = %v", err)
 	}
 
-	err = service.PowerOn(context.Background(), "missing", testTarget(t), testOperationID(t), Invocation{})
+	err = service.PowerOn(t.Context(), "missing", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
 		t.Fatalf("PowerOn() error = %v, want Unsupported", err)
 	}
@@ -143,7 +143,7 @@ func TestServiceMetricUsesOnlyAllowedLabels(t *testing.T) {
 	telemetry.Meter = provider.Meter("driver-service-test")
 	t.Cleanup(func() {
 		telemetry.Meter = originalMeter
-		if err := provider.Shutdown(context.Background()); err != nil {
+		if err := provider.Shutdown(t.Context()); err != nil {
 			t.Errorf("shutdown MeterProvider: %v", err)
 		}
 	})
@@ -162,7 +162,7 @@ func TestServiceMetricUsesOnlyAllowedLabels(t *testing.T) {
 		t.Fatalf("NewServiceForTest() error = %v", err)
 	}
 	if err := service.PowerOn(
-		context.Background(),
+		t.Context(),
 		"fake",
 		testTarget(t),
 		testOperationID(t),
@@ -176,7 +176,7 @@ func TestServiceMetricUsesOnlyAllowedLabels(t *testing.T) {
 	}
 
 	var metrics metricdata.ResourceMetrics
-	if err := reader.Collect(context.Background(), &metrics); err != nil {
+	if err := reader.Collect(t.Context(), &metrics); err != nil {
 		t.Fatalf("Collect() error = %v", err)
 	}
 	if len(metrics.ScopeMetrics) != 1 || len(metrics.ScopeMetrics[0].Metrics) != 1 {

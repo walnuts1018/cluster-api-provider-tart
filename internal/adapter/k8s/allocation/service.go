@@ -2,7 +2,6 @@ package allocation
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -15,7 +14,7 @@ import (
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
-var ErrNoMatchingHost = errors.New("no matching TartHost")
+var ErrNoMatchingHost = allocationdomain.ErrNoMatchingHost
 var ErrAllocationConflict = allocationdomain.ErrConflict
 
 type ReferenceResult = allocationdomain.ReferenceResult
@@ -49,6 +48,16 @@ func (s *Service) Reserve(
 
 	for i := range hosts.Items {
 		candidate := &hosts.Items[i]
+		if consumerMatchesMachine(candidate.Spec.ConsumerRef, machine) {
+			matches, err := matchesClaimedRequirements(requirements, candidate)
+			if err != nil {
+				return nil, fmt.Errorf("evaluate claimed TartHost %s/%s: %w", candidate.Namespace, candidate.Name, err)
+			}
+			if matches {
+				return candidate.DeepCopy(), nil
+			}
+			continue
+		}
 		matches, err := matchesRequirements(requirements, candidate)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate TartHost %s/%s: %w", candidate.Namespace, candidate.Name, err)
@@ -175,9 +184,41 @@ func matchesRequirements(requirements allocationdomain.Requirements, host *infra
 		return false, err
 	}
 
-	candidate := allocationdomain.Candidate{
+	return allocationdomain.Match(requirements, candidateForHost(host, phase, host.Spec.ConsumerRef != nil, capabilities)) ==
+		allocationdomain.MismatchNone, nil
+}
+
+func matchesClaimedRequirements(
+	requirements allocationdomain.Requirements,
+	host *infrastructurev1beta1.TartHost,
+) (bool, error) {
+	hostCapabilities := make([]capability.Capability, 0, len(host.Status.Capabilities))
+	for _, value := range host.Status.Capabilities {
+		parsed, err := capability.Parse(string(value))
+		if err != nil {
+			return false, err
+		}
+		hostCapabilities = append(hostCapabilities, parsed)
+	}
+	capabilities, err := capability.NewSet(hostCapabilities...)
+	if err != nil {
+		return false, err
+	}
+	return allocationdomain.Match(
+		requirements,
+		candidateForHost(host, hostdomain.PhaseAvailable, false, capabilities),
+	) == allocationdomain.MismatchNone, nil
+}
+
+func candidateForHost(
+	host *infrastructurev1beta1.TartHost,
+	phase hostdomain.Phase,
+	assigned bool,
+	capabilities capability.Set,
+) allocationdomain.Candidate {
+	return allocationdomain.Candidate{
 		Phase:             phase,
-		Assigned:          host.Spec.ConsumerRef != nil,
+		Assigned:          assigned,
 		Architecture:      string(host.Spec.Architecture),
 		Firmware:          string(host.Spec.Firmware),
 		PlatformProfile:   host.Spec.PlatformProfile,
@@ -185,7 +226,6 @@ func matchesRequirements(requirements allocationdomain.Requirements, host *infra
 		Capabilities:      capabilities,
 		Labels:            host.Labels,
 	}
-	return allocationdomain.Match(requirements, candidate) == allocationdomain.MismatchNone, nil
 }
 
 func consumerMatchesMachine(

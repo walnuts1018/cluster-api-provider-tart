@@ -16,7 +16,7 @@ func TestReporterContinuesFromRegisteredSequence(t *testing.T) {
 	}
 
 	if err := reporter.Report(
-		context.Background(),
+		t.Context(),
 		agentprotocol.StepWriteImage,
 		agentprotocol.DiskRoleOSA,
 		10,
@@ -37,10 +37,10 @@ func TestReporterDoesNotAdvanceSequenceAfterFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := reporter.Report(context.Background(), "WriteImage", "", 10, false); !errors.Is(err, reportError) {
+	if err := reporter.Report(t.Context(), "WriteImage", "", 10, false); !errors.Is(err, reportError) {
 		t.Fatalf("first Report() error = %v, want %v", err, reportError)
 	}
-	if err := reporter.Report(context.Background(), "WriteImage", "", 10, false); err != nil {
+	if err := reporter.Report(t.Context(), "WriteImage", "", 10, false); err != nil {
 		t.Fatalf("second Report() error = %v", err)
 	}
 	if client.requests[0].AgentSequence != 1 || client.requests[1].AgentSequence != 1 {

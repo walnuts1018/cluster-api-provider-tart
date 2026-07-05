@@ -21,7 +21,7 @@ import (
 func TestServiceReserveAvailableContinuesOnConflict(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := scheme.AddToScheme(testScheme); err != nil {
 		t.Fatalf("failed to add core scheme: %v", err)
@@ -150,7 +150,7 @@ func (w *conflictOnFirstHostStatusWriter) Patch(ctx context.Context, obj client.
 func TestServiceMarkProvisioned(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := scheme.AddToScheme(testScheme); err != nil {
 		t.Fatalf("failed to add core scheme: %v", err)

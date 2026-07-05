@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -30,7 +29,7 @@ func TestRunDownloadsAndVerifiesLockedFile(t *testing.T) {
 	})
 	outputDir := filepath.Join(root, "packages")
 
-	if err := run(context.Background(), lockPath, outputDir, client); err != nil {
+	if err := run(t.Context(), lockPath, outputDir, client); err != nil {
 		t.Fatalf("run() error = %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(outputDir, "package.deb"))
@@ -41,7 +40,7 @@ func TestRunDownloadsAndVerifiesLockedFile(t *testing.T) {
 		t.Fatalf("downloaded payload = %q, want %q", got, payload)
 	}
 
-	if err := run(context.Background(), lockPath, outputDir, client); err != nil {
+	if err := run(t.Context(), lockPath, outputDir, client); err != nil {
 		t.Fatalf("run() with existing file error = %v", err)
 	}
 }
@@ -63,7 +62,7 @@ func TestRunRejectsDigestMismatch(t *testing.T) {
 	})
 	outputDir := filepath.Join(root, "packages")
 
-	if err := run(context.Background(), lockPath, outputDir, client); err == nil {
+	if err := run(t.Context(), lockPath, outputDir, client); err == nil {
 		t.Fatal("run() error = nil, want digest mismatch")
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "package.deb")); !os.IsNotExist(err) {

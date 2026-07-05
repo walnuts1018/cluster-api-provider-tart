@@ -1,7 +1,6 @@
 package agentboot
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -22,7 +21,7 @@ func TestResolverはMACに対応するActiveOperationを返す(t *testing.T) {
 	operation := testOperation(host)
 	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(host, operation).Build())
 
-	target, err := resolver.Resolve(context.Background(), "00-00-5e-00-53-01")
+	target, err := resolver.Resolve(t.Context(), "00-00-5e-00-53-01")
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -65,7 +64,7 @@ func TestResolverは対象外HostとOperationを拒否する(t *testing.T) {
 			operation := testOperation(host)
 			test.mutate(host, operation)
 			resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(host, operation).Build())
-			_, err := resolver.Resolve(context.Background(), "00:00:5e:00:53:01")
+			_, err := resolver.Resolve(t.Context(), "00:00:5e:00:53:01")
 			if !errors.Is(err, test.wantError) {
 				t.Fatalf("Resolve() error = %v, want %v", err, test.wantError)
 			}

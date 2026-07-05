@@ -17,9 +17,22 @@ func TestEvaluateNode(t *testing.T) {
 				MachineProviderID: "tart://host-a",
 				NodeProviderID:    "tart://host-a",
 				NodeReady:         true,
+				ExpectedVersion:   "v1.35.0",
+				NodeVersion:       "v1.35.0",
 			},
 			wantReady:  true,
 			wantReason: ReasonProvisioned,
+		},
+		{
+			name: "Kubernetes version不一致",
+			observation: NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-a",
+				NodeReady:         true,
+				ExpectedVersion:   "v1.35.0",
+				NodeVersion:       "v1.34.0",
+			},
+			wantReason: ReasonKubernetesVersionMismatch,
 		},
 		{
 			name: "providerID不一致",

@@ -84,7 +84,7 @@ func TestObserverReadsWorkloadNode(t *testing.T) {
 		return workloadClient, nil
 	}
 
-	observation, observed, err := observer.Observe(context.Background(), machine)
+	observation, observed, err := observer.Observe(t.Context(), machine)
 	if err != nil {
 		t.Fatalf("Observe() error = %v", err)
 	}
@@ -126,7 +126,7 @@ func TestObserverSkipsMachineWithoutNodeReference(t *testing.T) {
 		WithObjects(coreMachine).
 		Build()
 
-	_, observed, err := NewObserver(managementClient).Observe(context.Background(), machine)
+	_, observed, err := NewObserver(managementClient).Observe(t.Context(), machine)
 	if err != nil {
 		t.Fatalf("Observe() error = %v", err)
 	}

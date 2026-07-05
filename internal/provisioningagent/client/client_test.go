@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
@@ -62,7 +61,7 @@ func TestRegisterDoesNotPutCredentialInURLOrAuthorization(t *testing.T) {
 		AgentInstanceID: "agent-instance",
 		Inventory:       agentprotocol.Inventory{Disks: []agentprotocol.DiskInventory{}},
 	}
-	response, err := client.Register(context.Background(), request)
+	response, err := client.Register(t.Context(), request)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -97,18 +96,18 @@ func TestFetchPlanVerifiesDigestSignatureAndAuthorization(t *testing.T) {
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, agentprotocol.StaticTrustStore{"test-key": publicKey})
-	got, err := client.FetchPlan(context.Background(), plan.OperationUID, "session-secret", planDigest.String())
+	got, err := client.FetchPlan(t.Context(), plan.OperationUID, "session-secret", planDigest.String())
 	if err != nil {
 		t.Fatalf("FetchPlan() error = %v", err)
 	}
 	if got.Value().Artifact.Ref != plan.Artifact.Ref {
 		t.Fatalf("FetchPlan() = %#v", got.Value())
 	}
-	if _, err := client.FetchPlan(context.Background(), plan.OperationUID, "session-secret", digest.FromString("other").String()); err == nil {
+	if _, err := client.FetchPlan(t.Context(), plan.OperationUID, "session-secret", digest.FromString("other").String()); err == nil {
 		t.Fatal("FetchPlan() accepted a mismatched digest")
 	}
 	untrustedClient := newTestClient(t, server, agentprotocol.StaticTrustStore{"other-key": publicKey})
-	if _, err := untrustedClient.FetchPlan(context.Background(), plan.OperationUID, "session-secret", planDigest.String()); err == nil {
+	if _, err := untrustedClient.FetchPlan(t.Context(), plan.OperationUID, "session-secret", planDigest.String()); err == nil {
 		t.Fatal("FetchPlan() accepted an untrusted signature key")
 	}
 }
@@ -137,14 +136,14 @@ func TestFetchBootstrapAndReportBootUseBoundSession(t *testing.T) {
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, nil)
-	bundle, err := client.FetchBootstrap(context.Background(), "operation-uid", "session-secret")
+	bundle, err := client.FetchBootstrap(t.Context(), "operation-uid", "session-secret")
 	if err != nil {
 		t.Fatalf("FetchBootstrap() error = %v", err)
 	}
 	if string(bundle.Payload) != string(payload) {
 		t.Fatalf("FetchBootstrap() payload = %q", bundle.Payload)
 	}
-	err = client.ReportBoot(context.Background(), "session-secret", agentprotocol.BootReportRequest{
+	err = client.ReportBoot(t.Context(), "session-secret", agentprotocol.BootReportRequest{
 		APIVersion:         agentprotocol.APIVersion,
 		OperationUID:       "operation-uid",
 		PlanDigest:         "sha256:" + strings.Repeat("a", 64),
@@ -174,7 +173,7 @@ func TestClientRetriesTemporaryStatusAtMostThreeTimes(t *testing.T) {
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, nil)
-	if _, err := client.Register(context.Background(), agentprotocol.RegisterRequest{}); err != nil {
+	if _, err := client.Register(t.Context(), agentprotocol.RegisterRequest{}); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 	if got := attempts.Load(); got != 3 {
@@ -193,7 +192,7 @@ func TestClientRejectsRedirectWithoutForwardingToken(t *testing.T) {
 	}))
 	defer server.Close()
 	client := newTestClient(t, server, nil)
-	_, err := client.ReportProgress(context.Background(), "session-secret", agentprotocol.ProgressRequest{
+	_, err := client.ReportProgress(t.Context(), "session-secret", agentprotocol.ProgressRequest{
 		OperationUID: "operation-uid",
 	})
 	if err == nil {

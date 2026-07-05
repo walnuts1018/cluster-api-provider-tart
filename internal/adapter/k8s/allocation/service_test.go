@@ -1,7 +1,6 @@
 package allocation
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -19,7 +18,7 @@ import (
 )
 
 func TestServiceReserveAllowsOneOfOneHundredConcurrentMachines(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -83,7 +82,7 @@ func concurrentMachine(index int) *infrastructurev1beta1.TartMachine {
 func TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -126,10 +125,40 @@ func TestServiceEnsureMachineHostReferenceRepairsFromConsumerRef(t *testing.T) {
 	}
 }
 
+func TestServiceReserveReturnsHostAlreadyClaimedBySameMachine(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	testScheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	machine := concurrentMachine(1)
+	host := matchingHost()
+	host.Spec.ConsumerRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	host.Status.Phase = infrastructurev1beta1.TartHostPhaseReserved
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithObjects(host).
+		Build()
+
+	got, err := NewService(k8sClient).Reserve(ctx, machine, matchingRequirements(t))
+	if err != nil {
+		t.Fatalf("Reserve() error = %v", err)
+	}
+	if got.UID != host.UID {
+		t.Fatalf("Reserve() UID = %q, want %q", got.UID, host.UID)
+	}
+}
+
 func TestServiceEnsureMachineHostReferenceRejectsDifferentConsumerUID(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	testScheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)

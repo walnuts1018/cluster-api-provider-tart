@@ -1,12 +1,12 @@
 package operation
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -19,7 +19,7 @@ import (
 )
 
 func TestServiceStartAllowsOneConcurrentOperationPerHost(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient := newFakeClient(t)
 	service := NewService(k8sClient)
 
@@ -68,7 +68,7 @@ func TestServiceStartAllowsOneConcurrentOperationPerHost(t *testing.T) {
 func TestServiceStartIsIdempotentForSameOperation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	k8sClient := newFakeClient(t)
 	service := NewService(k8sClient)
 	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
@@ -86,10 +86,34 @@ func TestServiceStartIsIdempotentForSameOperation(t *testing.T) {
 	}
 }
 
+func TestServiceStartKeepsExistingDeadlineForSameOperation(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	k8sClient := newFakeClient(t)
+	service := NewService(k8sClient)
+	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
+	firstDeadline := metav1.NewTime(time.Date(2026, 7, 6, 9, 0, 0, 0, time.UTC))
+	desired.Spec.Deadline = firstDeadline
+
+	if _, err := service.Start(ctx, desired); err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+	retried := desired.DeepCopy()
+	retried.Spec.Deadline = metav1.NewTime(firstDeadline.Add(time.Hour))
+	got, err := service.Start(ctx, retried)
+	if err != nil {
+		t.Fatalf("retried Start() error = %v", err)
+	}
+	if !got.Spec.Deadline.Equal(&firstDeadline) {
+		t.Fatalf("Deadline = %s, want existing %s", got.Spec.Deadline, firstDeadline)
+	}
+}
+
 func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	old := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
 	name, err := operationdomain.ResourceName(string(old.Spec.HostRef.UID))
 	if err != nil {
@@ -116,6 +140,38 @@ func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 	}
 	if current.Spec.OperationID != desired.Spec.OperationID {
 		t.Fatalf("persisted operationID = %q, want %q", current.Spec.OperationID, desired.Spec.OperationID)
+	}
+}
+
+func TestServiceCompleteProvisionTransitionsAwaitingHealthOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	operation := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
+	name, err := operationdomain.ResourceName(string(operation.Spec.HostRef.UID))
+	if err != nil {
+		t.Fatalf("ResourceName() error = %v", err)
+	}
+	operation.Name = name
+	operation.UID = types.UID("operation-object-uid")
+	operation.ResourceVersion = "1"
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := newFakeClient(t, operation)
+	service := NewService(k8sClient)
+
+	if err := service.CompleteProvision(ctx, operation); err != nil {
+		t.Fatalf("CompleteProvision() error = %v", err)
+	}
+	if err := service.CompleteProvision(ctx, operation); err != nil {
+		t.Fatalf("second CompleteProvision() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseSucceeded {
+		t.Fatalf("Phase = %q, want Succeeded", current.Status.Phase)
 	}
 }
 

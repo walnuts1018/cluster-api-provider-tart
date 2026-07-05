@@ -47,7 +47,7 @@ func TestManagerCreatesPartitionTableOnlyForProvision(t *testing.T) {
 			t.Parallel()
 			diskIO := &recordingDiskIO{observed: observedFromPlan(t)}
 			manager := NewManager(diskIO)
-			resolved, err := manager.Prepare(context.Background(), tt.operation, disk.Device{
+			resolved, err := manager.Prepare(t.Context(), tt.operation, disk.Device{
 				Path:      "/dev/test",
 				SizeBytes: MinimumDiskSizeBytes,
 			})

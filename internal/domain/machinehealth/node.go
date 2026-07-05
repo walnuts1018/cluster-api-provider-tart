@@ -3,16 +3,19 @@ package machinehealth
 type Reason string
 
 const (
-	ReasonProvisioned        Reason = "Provisioned"
-	ReasonNodeNotReady       Reason = "NodeNotReady"
-	ReasonProviderIDMissing  Reason = "ProviderIDMissing"
-	ReasonProviderIDMismatch Reason = "ProviderIDMismatch"
+	ReasonProvisioned               Reason = "Provisioned"
+	ReasonNodeNotReady              Reason = "NodeNotReady"
+	ReasonProviderIDMissing         Reason = "ProviderIDMissing"
+	ReasonProviderIDMismatch        Reason = "ProviderIDMismatch"
+	ReasonKubernetesVersionMismatch Reason = "KubernetesVersionMismatch"
 )
 
 type NodeObservation struct {
 	MachineProviderID string
 	NodeProviderID    string
 	NodeReady         bool
+	ExpectedVersion   string
+	NodeVersion       string
 }
 
 type Result struct {
@@ -42,6 +45,11 @@ func EvaluateNode(observation NodeObservation) Result {
 		return Result{
 			Reason:  ReasonNodeNotReady,
 			Message: "Workload Node is not Ready",
+		}
+	case observation.ExpectedVersion != "" && observation.NodeVersion != observation.ExpectedVersion:
+		return Result{
+			Reason:  ReasonKubernetesVersionMismatch,
+			Message: "Workload Node Kubernetes version does not match the expected version",
 		}
 	case observation.NodeReady:
 		return Result{

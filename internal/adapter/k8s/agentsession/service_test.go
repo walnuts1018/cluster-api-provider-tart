@@ -1,7 +1,6 @@
 package agentsession
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -21,7 +20,7 @@ import (
 )
 
 func TestServicePersistsAndRestoresSession(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
@@ -54,7 +53,7 @@ func TestServicePersistsAndRestoresSession(t *testing.T) {
 }
 
 func TestServiceLocksAfterFiveFailures(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
@@ -74,7 +73,7 @@ func TestServiceLocksAfterFiveFailures(t *testing.T) {
 }
 
 func TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
@@ -109,7 +108,7 @@ func TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims(t *testing.T) {
 }
 
 func TestServiceAllowsNewSessionWithoutReplayingBootstrap(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)

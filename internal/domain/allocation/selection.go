@@ -1,12 +1,16 @@
 package allocation
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
+
+// ErrNoMatchingHost は割当要件を満たす未割当Hostが存在しないことを表す。
+var ErrNoMatchingHost = errors.New("no matching TartHost")
 
 type Requirements struct {
 	Architecture     string

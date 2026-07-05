@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"testing"
 )
 
@@ -16,7 +15,7 @@ func TestNormalizeTracerProviderConfigDefaultsServiceName(t *testing.T) {
 func TestNewTelemetryResourceUsesStandardSDKName(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
-	res, err := newTelemetryResource(context.Background(), TracerProviderConfig{
+	res, err := newTelemetryResource(t.Context(), TracerProviderConfig{
 		ServiceName:    "tart-test",
 		ServiceVersion: "test",
 	})

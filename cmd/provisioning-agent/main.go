@@ -103,7 +103,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	if !time.Now().Before(validatedPlan.Value().Deadline) {
-		return errors.New("Plan deadline has expired")
+		return errors.New("plan deadline has expired")
 	}
 	if err := agentplan.ValidateTargets(validatedPlan); err != nil {
 		return fmt.Errorf("validate Plan targets: %w", err)
@@ -162,7 +162,7 @@ func loadPlanPublicKey(path string) (ed25519.PublicKey, error) {
 	}
 	block, rest := pem.Decode(data)
 	if block == nil || len(strings.TrimSpace(string(rest))) != 0 {
-		return nil, errors.New("Plan public key file must contain exactly one PEM block")
+		return nil, errors.New("plan public key file must contain exactly one PEM block")
 	}
 	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
@@ -170,7 +170,7 @@ func loadPlanPublicKey(path string) (ed25519.PublicKey, error) {
 	}
 	publicKey, ok := parsed.(ed25519.PublicKey)
 	if !ok {
-		return nil, errors.New("Plan public key must be Ed25519")
+		return nil, errors.New("plan public key must be Ed25519")
 	}
 	return publicKey, nil
 }

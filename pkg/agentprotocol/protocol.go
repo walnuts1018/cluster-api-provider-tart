@@ -26,6 +26,7 @@ const (
 var (
 	uidPattern         = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`)
 	artifactRefPattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
+	deviceByIDPattern  = regexp.MustCompile(`^/dev/disk/by-id/.+$`)
 	diskRoleValues     = map[DiskRole]struct{}{
 		DiskRoleBoot:    {},
 		DiskRoleOSA:     {},
@@ -51,10 +52,19 @@ const (
 	DiskRoleData    DiskRole = "Data"
 )
 
+type OperationType string
+
+const (
+	OperationTypeProvision OperationType = "Provision"
+	OperationTypeUpdate    OperationType = "Update"
+)
+
 type Plan struct {
 	APIVersion         string           `json:"apiVersion"`
 	OperationUID       string           `json:"operationUID"`
 	HostUID            string           `json:"hostUID"`
+	OperationType      OperationType    `json:"operationType"`
+	ActiveSlot         string           `json:"activeSlot,omitempty"`
 	Deadline           time.Time        `json:"deadline"`
 	RootDevice         RootDevice       `json:"rootDevice"`
 	Artifact           Artifact         `json:"artifact"`
@@ -64,6 +74,7 @@ type Plan struct {
 }
 
 type RootDevice struct {
+	DeviceName   string `json:"deviceName"`
 	SerialNumber string `json:"serialNumber,omitempty"`
 	WWN          string `json:"wwn,omitempty"`
 	MinSizeBytes int64  `json:"minSizeBytes"`
@@ -184,8 +195,16 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 		return ValidatedPlan{}, errors.New("operationUID is invalid")
 	case !validUID(plan.HostUID):
 		return ValidatedPlan{}, errors.New("hostUID is invalid")
+	case plan.OperationType != OperationTypeProvision && plan.OperationType != OperationTypeUpdate:
+		return ValidatedPlan{}, fmt.Errorf("unsupported operationType: %q", plan.OperationType)
+	case plan.OperationType == OperationTypeProvision && plan.ActiveSlot != "":
+		return ValidatedPlan{}, errors.New("activeSlot must be empty for Provision")
+	case plan.OperationType == OperationTypeUpdate && plan.ActiveSlot != "A" && plan.ActiveSlot != "B":
+		return ValidatedPlan{}, errors.New("activeSlot must be A or B for Update")
 	case plan.Deadline.IsZero():
 		return ValidatedPlan{}, errors.New("deadline is required")
+	case !deviceByIDPattern.MatchString(plan.RootDevice.DeviceName):
+		return ValidatedPlan{}, errors.New("rootDevice.deviceName must use a /dev/disk/by-id path")
 	case plan.RootDevice.MinSizeBytes <= 0:
 		return ValidatedPlan{}, errors.New("rootDevice.minSizeBytes must be greater than zero")
 	case plan.RootDevice.SerialNumber == "" && plan.RootDevice.WWN == "":

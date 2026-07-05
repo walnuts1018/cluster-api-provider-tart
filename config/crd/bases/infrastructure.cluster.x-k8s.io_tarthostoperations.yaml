@@ -242,6 +242,54 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastBootReport:
+                description: lastBootReport is the latest authenticated OS boot observation.
+                properties:
+                  activeSlot:
+                    description: activeSlot is the slot observed by the operating
+                      system.
+                    enum:
+                    - A
+                    - B
+                    type: string
+                  artifactGeneration:
+                    description: artifactGeneration is the generation observed in
+                      the active slot.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                  bootID:
+                    description: bootID identifies one boot of the installed operating
+                      system.
+                    maxLength: 128
+                    minLength: 1
+                    type: string
+                  bootstrapApplied:
+                    description: bootstrapApplied indicates that the Bootstrap success
+                      marker exists in State.
+                    type: boolean
+                  dataMounted:
+                    description: dataMounted indicates that the required Data filesystem
+                      is mounted.
+                    type: boolean
+                  reportedAt:
+                    description: reportedAt is the controller receipt time and is
+                      not supplied by the Agent.
+                    format: date-time
+                    type: string
+                  stateMounted:
+                    description: stateMounted indicates that the required State filesystem
+                      is mounted.
+                    type: boolean
+                required:
+                - activeSlot
+                - artifactGeneration
+                - bootID
+                - bootstrapApplied
+                - dataMounted
+                - reportedAt
+                - stateMounted
+                type: object
               lifecyclePhase:
                 description: lifecyclePhase identifies the current typed distribution
                   lifecycle step.

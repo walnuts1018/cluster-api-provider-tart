@@ -149,6 +149,10 @@ type TartHostOperationStatus struct {
 	// +optional
 	SessionTokenConsumed bool `json:"sessionTokenConsumed,omitempty"`
 
+	// lastBootReport is the latest authenticated OS boot observation.
+	// +optional
+	LastBootReport *BootReportStatus `json:"lastBootReport,omitempty"`
+
 	// conditions represent the current state of the TartHostOperation.
 	// +optional
 	// +listType=map
@@ -158,6 +162,40 @@ type TartHostOperationStatus struct {
 	// observedGeneration is the last spec generation reconciled into status.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+type BootReportStatus struct {
+	// bootID identifies one boot of the installed operating system.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	BootID string `json:"bootID"`
+
+	// activeSlot is the slot observed by the operating system.
+	// +required
+	// +kubebuilder:validation:Enum=A;B
+	ActiveSlot OSSlot `json:"activeSlot"`
+
+	// artifactGeneration is the generation observed in the active slot.
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	ArtifactGeneration int64 `json:"artifactGeneration"`
+
+	// stateMounted indicates that the required State filesystem is mounted.
+	// +required
+	StateMounted bool `json:"stateMounted"`
+
+	// dataMounted indicates that the required Data filesystem is mounted.
+	// +required
+	DataMounted bool `json:"dataMounted"`
+
+	// bootstrapApplied indicates that the Bootstrap success marker exists in State.
+	// +required
+	BootstrapApplied bool `json:"bootstrapApplied"`
+
+	// reportedAt is the controller receipt time and is not supplied by the Agent.
+	// +required
+	ReportedAt metav1.Time `json:"reportedAt"`
 }
 
 type TartHostOperationPhase string

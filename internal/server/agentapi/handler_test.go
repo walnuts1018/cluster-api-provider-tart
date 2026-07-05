@@ -22,6 +22,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
+	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
@@ -63,6 +64,21 @@ func (provider staticBootstrap) GetBootstrapBundle(
 	client.ObjectKey,
 ) (agentprotocol.BootstrapBundle, error) {
 	return provider.bundle, nil
+}
+
+type recordingBootReporter struct {
+	request agentprotocol.BootReportRequest
+	err     error
+}
+
+func (reporter *recordingBootReporter) ReportBoot(
+	_ context.Context,
+	_ client.ObjectKey,
+	request agentprotocol.BootReportRequest,
+	_ metav1.Time,
+) error {
+	reporter.request = request
+	return reporter.err
 }
 
 func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
@@ -110,6 +126,91 @@ func TestHandlerProgressSequence(t *testing.T) {
 		if response.Code != wantStatuses[index] {
 			t.Fatalf("sequence %d status = %d, want %d; body=%s", sequence, response.Code, wantStatuses[index], response.Body.String())
 		}
+	}
+}
+
+func TestHandlerAcceptsValidBootReport(t *testing.T) {
+	reporter := &recordingBootReporter{}
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler.config.BootReports = reporter
+	body := agentprotocol.BootReportRequest{
+		APIVersion:         agentprotocol.APIVersion,
+		OperationUID:       "operation-uid",
+		PlanDigest:         testPlanDigest,
+		BootID:             "boot-id",
+		ActiveSlot:         "A",
+		ArtifactGeneration: 1,
+		StateMounted:       true,
+		DataMounted:        true,
+		BootstrapApplied:   true,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/boot-report",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	if reporter.request.BootID != body.BootID {
+		t.Fatalf("reported boot ID = %q, want %q", reporter.request.BootID, body.BootID)
+	}
+}
+
+func TestHandlerRejectsInvalidAndConflictingBootReports(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*agentprotocol.BootReportRequest)
+		reportErr  error
+		wantStatus int
+	}{
+		{
+			name: "invalid active slot",
+			mutate: func(report *agentprotocol.BootReportRequest) {
+				report.ActiveSlot = "C"
+			},
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "operation phase conflict",
+			mutate:     func(*agentprotocol.BootReportRequest) {},
+			reportErr:  k8sbootreport.ErrReportConflict,
+			wantStatus: http.StatusConflict,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reporter := &recordingBootReporter{err: test.reportErr}
+			handler, sessionToken := newAuthenticatedHandler(t, nil)
+			handler.config.BootReports = reporter
+			body := agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				PlanDigest:         testPlanDigest,
+				BootID:             "boot-id",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+			}
+			test.mutate(&body)
+
+			response := performJSONRequest(
+				t,
+				handler,
+				http.MethodPost,
+				"/v1/operations/operation-uid/boot-report",
+				sessionToken,
+				body,
+			)
+
+			if response.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", response.Code, test.wantStatus, response.Body.String())
+			}
+		})
 	}
 }
 

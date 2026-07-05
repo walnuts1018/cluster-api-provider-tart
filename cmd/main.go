@@ -53,6 +53,7 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
+	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
@@ -395,6 +396,10 @@ func main() {
 			Progress:  k8sagentprogress.NewService(mgr.GetClient()),
 			Plans:     provider,
 			Bootstrap: provider,
+			BootReports: k8sbootreport.NewService(
+				mgr.GetClient(),
+				provider,
+			),
 		})
 		if err := mgr.Add(agentapi.NewServer(
 			agentAPIBindAddress,

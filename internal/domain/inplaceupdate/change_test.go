@@ -16,6 +16,7 @@ package inplaceupdate
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -211,9 +212,9 @@ func artifactRef(fill string) string {
 }
 
 func repeat(value string, count int) string {
-	result := ""
+	var result strings.Builder
 	for range count {
-		result += value
+		result.WriteString(value)
 	}
-	return result
+	return result.String()
 }

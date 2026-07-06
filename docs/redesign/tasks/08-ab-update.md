@@ -115,6 +115,35 @@ Host=`Provisioned`、TartMachine Ready=`true`へ収束させる。旧slotのHeal
 - StateMigration
 - Firmware更新
 
+## 実装状況（2026-07-06）
+
+Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判断と安全境界を先行実装した。
+
+実装済み:
+
+- CAPI Machine、v1beta1 TartMachine、BootstrapConfigのcurrent/desired差分を分類し、
+  `image.ref`と`updatePolicy`以外を拒否する純粋なOSOnly allowlist
+- `CanUpdateMachine`と`CanUpdateMachineSet`のv1beta1対応。拒否差分はpatchなしで返し、
+  CAPIの通常置換へfallbackさせる
+- desired object、target image digest、Artifact Generationから決定的なOperation IDと
+  Desired Objects Digestを生成する処理
+- 同じ更新開始要求100回を同じOperation IDへ収束させるapplication test
+- Inactive SlotのOS/Verity roleだけを許可するEd25519署名済みUpdate Plan
+- ManifestのPlatform Profile、architecture、Kubernetes version、generation、image digestを
+  disk書込み前に照合する処理
+- write、verify、boot、mount、Node health失敗からRollbackへ進む純粋な状態機械
+- boot試行3回上限、Rollback成功時の`Failed`/`Provisioned`/Ready維持、
+  旧slot不健全時の`RecoveryRequired`収束
+
+未実装・未検証:
+
+- `UpdateMachine` HookからKubernetes上のOperationとPlan Secretを作成するadapter接続
+- Hostを`Updating`へ移す処理、boot trial metadataを操作するDriver adapter
+- boot reportとNode healthから状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
+- Condition、Event、Metric、Traceの更新失敗観測情報
+- worker、複数control plane、単一control planeの段階的feature gate
+- QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証
+
 ## 関連
 
 - ADR 0002、0003

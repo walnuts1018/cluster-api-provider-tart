@@ -142,7 +142,7 @@ git commit --signoff -m "feat: OSOnly更新をRuntime Hookで受理する"
 - Modify: `internal/server/extension/server.go`
 - Modify: `cmd/main.go`
 
-- [ ] **Step 1: 同じrequestを100回処理してOperationが1つになる失敗テストを書く**
+- [x] **Step 1: 同じrequestを100回処理してOperationが1つになる失敗テストを書く**
 
 desired objects digestから決定的Operation IDを作り、同じMachine UIDとdigestなら同じOperationを返す。異なるdigestのactive Operationは`ErrActivePlanConflict`を返す。
 
@@ -156,13 +156,13 @@ for range 100 {
 require.Len(t, list.Items, 1)
 ```
 
-- [ ] **Step 2: 未実装でFAILすることを確認する**
+- [x] **Step 2: 未実装でFAILすることを確認する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate -v`
 
 Expected: 未定義symbolでFAIL。
 
-- [ ] **Step 3: digestとOperation入力を生成する**
+- [x] **Step 3: digestとOperation入力を生成する**
 
 ```go
 type StartInput struct {
@@ -205,17 +205,17 @@ git commit --signoff -m "feat: Update Operationを冪等に開始する"
 - Modify: `cmd/wire/wire.go`
 - Modify: `cmd/wire/wire_gen.go`
 
-- [ ] **Step 1: slot選択と危険target拒否の失敗テストを書く**
+- [x] **Step 1: slot選択と危険target拒否の失敗テストを書く**
 
 Active Aなら`OS-B`,`Verity-B`だけ、Active Bなら`OS-A`,`Verity-A`だけを許可する。State、Data、active OS/Verity、非OSOnly UpdateClass、manifest generation不一致を拒否する。
 
-- [ ] **Step 2: 未実装でFAILすることを確認する**
+- [x] **Step 2: 未実装でFAILすることを確認する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate -run 'TestBuildUpdatePlan' -v`
 
 Expected: `BuildUpdatePlan`未定義でFAIL。
 
-- [ ] **Step 3: Update Plan builderを実装する**
+- [x] **Step 3: Update Plan builderを実装する**
 
 ```go
 func BuildUpdatePlan(input UpdatePlanInput, keyID string, privateKey ed25519.PrivateKey) (SignedUpdatePlan, error)
@@ -223,7 +223,7 @@ func BuildUpdatePlan(input UpdatePlanInput, keyID string, privateKey ed25519.Pri
 
 Planは`OperationTypeUpdate`、現在の`ActiveSlot`、inactive OS/Verity roles、`WriteImage`、`VerifyImage`を持ち、Bootstrap targetを持たない。既存PlanWriterでimmutable Secretへ保存する。
 
-- [ ] **Step 4: targeted testを通してコミットする**
+- [x] **Step 4: targeted testを通してコミットする**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/agentapi -v`
 
@@ -244,17 +244,17 @@ git commit --signoff -m "feat: Inactive Slot向け更新Planを生成する"
 - Modify: `internal/adapter/k8s/v1beta1host/service.go`
 - Modify: `internal/controller/tartmachine_v1beta1_controller.go`
 
-- [ ] **Step 1: 5種類の失敗とboot試行上限の状態遷移テストを書く**
+- [x] **Step 1: 5種類の失敗とboot試行上限の状態遷移テストを書く**
 
 write、verify、boot、mount、Node health失敗は`RollingBack`へ進む。target boot失敗は最大3回で、4回目は旧slotを選ぶ。旧slot Health Gate成功はOperation Failed、Host Provisioned、Machine Ready trueへ収束し、更新失敗Conditionを残す。旧slotも失敗すればRecoveryRequiredへ進む。
 
-- [ ] **Step 2: state reducer未実装でFAILすることを確認する**
+- [x] **Step 2: state reducer未実装でFAILすることを確認する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -run 'TestTransition' -v`
 
 Expected: 未定義symbolでFAIL。
 
-- [ ] **Step 3: 純粋な状態reducerを実装する**
+- [x] **Step 3: 純粋な状態reducerを実装する**
 
 ```go
 func Transition(state State, event Event) (Decision, error)

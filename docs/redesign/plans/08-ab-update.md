@@ -85,7 +85,7 @@ git commit --signoff -m "feat: OSOnly更新差分を分類する"
 - Create: `internal/server/extension/canupdatemachine_test.go`
 - Create: `internal/server/extension/canupdatemachineset_test.go`
 
-- [ ] **Step 1: 6 patch allow/deny tableのHook失敗テストを書く**
+- [x] **Step 1: 6 patch allow/deny tableのHook失敗テストを書く**
 
 Machine、InfraMachine、BootstrapConfigのcurrent/desired RawExtensionを組み立て、許可差分だけを対応するJSON Merge Patchで覆い、拒否差分がある場合はpatchを返さないことを検証する。
 
@@ -99,13 +99,13 @@ if wantPatch {
 }
 ```
 
-- [ ] **Step 2: 旧実装に対して失敗することを確認する**
+- [x] **Step 2: 旧実装に対して失敗することを確認する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/server/extension -run 'TestHandleCanUpdate' -v`
 
 Expected: v1beta1 decodeまたはpatch期待値不一致でFAIL。
 
-- [ ] **Step 3: Adapterをv1beta1とdomain分類へ接続する**
+- [x] **Step 3: Adapterをv1beta1とdomain分類へ接続する**
 
 Hookはdecode失敗だけ`Failure`を返す。非OSOnly差分は`Success`かつpatchなしとしてCAPIの通常置換へfallbackさせ、OSOnly差分は`spec.image.ref`と`spec.updatePolicy`だけをJSON Merge Patchで返す。
 
@@ -122,7 +122,7 @@ if !classification.CanUpdateInPlace() {
 resp.InfrastructureMachinePatch = buildInfraMachinePatch(desired)
 ```
 
-- [ ] **Step 4: extension testを通してコミットする**
+- [x] **Step 4: extension testを通してコミットする**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/server/extension -v`
 

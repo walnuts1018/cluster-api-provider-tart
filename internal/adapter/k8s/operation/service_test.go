@@ -124,6 +124,29 @@ func TestServiceStartKeepsExistingDeadlineForSameOperation(t *testing.T) {
 	}
 }
 
+func TestServiceStartKeepsExistingPlanDigestForSameOperation(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	k8sClient := newFakeClient(t)
+	service := NewService(k8sClient)
+	desired := desiredOperation("0197d640-8d00-7a65-b67f-3f7c42a6935f")
+	desired.Spec.PlanDigest = "sha256:" + repeat("a", 64)
+
+	if _, err := service.Start(ctx, desired); err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+	retried := desired.DeepCopy()
+	retried.Spec.PlanDigest = "sha256:" + repeat("b", 64)
+	got, err := service.Start(ctx, retried)
+	if err != nil {
+		t.Fatalf("retried Start() error = %v", err)
+	}
+	if got.Spec.PlanDigest != desired.Spec.PlanDigest {
+		t.Fatalf("PlanDigest = %q, want existing %q", got.Spec.PlanDigest, desired.Spec.PlanDigest)
+	}
+}
+
 func TestServiceStartReplacesTerminalOperation(t *testing.T) {
 	t.Parallel()
 
@@ -214,4 +237,12 @@ func desiredOperation(operationID string) *infrastructurev1beta1.TartHostOperati
 			},
 		},
 	}
+}
+
+func repeat(value string, count int) string {
+	result := ""
+	for range count {
+		result += value
+	}
+	return result
 }

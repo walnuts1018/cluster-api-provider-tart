@@ -82,10 +82,22 @@ func (orchestrator *Orchestrator) Start(
 
 // BuildOperationは検証済み入力からOSOnly Update Operationを構築する。
 func BuildOperation(input StartInput) (*infrastructurev1beta1.TartHostOperation, error) {
-	if err := validateStartInput(input); err != nil {
+	if err := validateStartInput(input, true); err != nil {
 		return nil, err
 	}
+	return buildOperation(input)
+}
 
+// BuildOperationDraftはPlan生成に必要な決定的IDとdeadlineを先に構築する。
+// PlanDigestは署名済みPlanの生成後に設定する。
+func BuildOperationDraft(input StartInput) (*infrastructurev1beta1.TartHostOperation, error) {
+	if err := validateStartInput(input, false); err != nil {
+		return nil, err
+	}
+	return buildOperation(input)
+}
+
+func buildOperation(input StartInput) (*infrastructurev1beta1.TartHostOperation, error) {
 	active, err := slotdomain.Parse(string(input.TartMachine.Status.ActiveSlot))
 	if err != nil {
 		return nil, fmt.Errorf("parse active slot: %w", err)
@@ -135,7 +147,7 @@ func BuildOperation(input StartInput) (*infrastructurev1beta1.TartHostOperation,
 	}, nil
 }
 
-func validateStartInput(input StartInput) error {
+func validateStartInput(input StartInput, requirePlanDigest bool) error {
 	switch {
 	case input.Machine == nil:
 		return fmt.Errorf("CAPI Machine is required")
@@ -162,8 +174,10 @@ func validateStartInput(input StartInput) error {
 	case input.TargetArtifactGeneration == 0 || input.TargetArtifactGeneration > math.MaxInt64:
 		return fmt.Errorf("target Artifact generation must fit a positive int64")
 	}
-	if err := validateDigest("plan", input.PlanDigest); err != nil {
-		return err
+	if requirePlanDigest {
+		if err := validateDigest("plan", input.PlanDigest); err != nil {
+			return err
+		}
 	}
 	if err := validateDigest("target image", input.TargetImageDigest); err != nil {
 		return err

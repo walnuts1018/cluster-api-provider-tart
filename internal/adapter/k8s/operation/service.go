@@ -156,13 +156,15 @@ func (s *Service) CompleteProvision(
 	})
 }
 
-// sameOperationSpec は同じOperation IDの再試行で、最初に保存されたdeadlineを正本とする。
-// deadline以外の入力差分は異なるPlanや対象を同じIDで実行する危険があるため拒否する。
+// sameOperationSpec は同じOperation IDの再試行で、最初に保存されたdeadlineとPlan digestを正本とする。
+// Planは保存済みdeadlineから再生成してdigestを照合するため、候補Planの時刻由来の差分だけは無視する。
+// それ以外の入力差分は異なる対象を同じIDで実行する危険があるため拒否する。
 func sameOperationSpec(
 	existing infrastructurev1beta1.TartHostOperationSpec,
 	desired infrastructurev1beta1.TartHostOperationSpec,
 ) bool {
 	desired.Deadline = existing.Deadline
+	desired.PlanDigest = existing.PlanDigest
 	return apiequality.Semantic.DeepEqual(existing, desired)
 }
 

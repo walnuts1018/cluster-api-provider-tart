@@ -1,0 +1,158 @@
+// Copyright 2026.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package inplaceupdate
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"fmt"
+	"testing"
+	"time"
+
+	"k8s.io/apimachinery/pkg/types"
+
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+)
+
+func TestWorkflowはOperation作成後に一致する署名済みPlanを保存する(t *testing.T) {
+	input := workflowInput(t)
+	starter := &workflowOperationStarter{}
+	writer := &recordingPlanWriter{}
+	workflow := NewWorkflow(starter, writer, testPlanSigner(t))
+
+	started, err := workflow.Start(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if started.UID == "" {
+		t.Fatal("started Operation UID is empty")
+	}
+	if writer.operation == nil || writer.operation.UID != started.UID {
+		t.Fatalf("written Operation UID = %v, want %q", writer.operation, started.UID)
+	}
+	if writer.plan.Value().OperationUID != started.Spec.OperationID {
+		t.Fatalf("Plan OperationUID = %q, want %q", writer.plan.Value().OperationUID, started.Spec.OperationID)
+	}
+	digest, err := writer.plan.Digest()
+	if err != nil {
+		t.Fatalf("Plan.Digest() error = %v", err)
+	}
+	if digest.String() != started.Spec.PlanDigest {
+		t.Fatalf("Plan digest = %q, want %q", digest, started.Spec.PlanDigest)
+	}
+}
+
+func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生成する(t *testing.T) {
+	input := workflowInput(t)
+	starter := &workflowOperationStarter{}
+	writer := &recordingPlanWriter{}
+	workflow := NewWorkflow(starter, writer, testPlanSigner(t))
+
+	first, err := workflow.Start(t.Context(), input)
+	if err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+	firstPlanDigest := writer.planDigest(t)
+
+	input.Now = input.Now.Add(time.Hour)
+	second, err := workflow.Start(t.Context(), input)
+	if err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+
+	if first.UID != second.UID {
+		t.Fatalf("Operation UID = %q, want existing %q", second.UID, first.UID)
+	}
+	if got := writer.planDigest(t); got != firstPlanDigest {
+		t.Fatalf("retried Plan digest = %q, want %q", got, firstPlanDigest)
+	}
+}
+
+func workflowInput(t *testing.T) WorkflowInput {
+	t.Helper()
+	input := updateInput()
+	input.PlanDigest = ""
+	input.Host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
+	input.Host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+	input.Host.Spec.RootDeviceHints.DeviceName = "/dev/disk/by-id/test-root"
+	input.Host.Spec.RootDeviceHints.SerialNumber = "SERIAL-1"
+	input.Host.Spec.RootDeviceHints.MinSizeBytes = 64 << 30
+	manifest := updateManifest(t)
+	input.TargetImageDigest = manifest.Value().Image.Digest
+	input.TargetArtifactGeneration = manifest.Value().Generation
+	return WorkflowInput{
+		StartInput: input,
+		Manifest:   manifest,
+	}
+}
+
+func testPlanSigner(t *testing.T) PlanSigner {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+	return PlanSigner{KeyID: "plan-key", PrivateKey: privateKey}
+}
+
+type workflowOperationStarter struct {
+	current *infrastructurev1beta1.TartHostOperation
+}
+
+func (starter *workflowOperationStarter) Start(
+	_ context.Context,
+	desired *infrastructurev1beta1.TartHostOperation,
+) (*infrastructurev1beta1.TartHostOperation, error) {
+	if starter.current != nil {
+		if starter.current.Spec.OperationID != desired.Spec.OperationID {
+			return nil, fmt.Errorf("another operation is active")
+		}
+		return starter.current.DeepCopy(), nil
+	}
+	starter.current = desired.DeepCopy()
+	starter.current.Name = "tarthostoperation-host-a"
+	starter.current.UID = types.UID("operation-object-uid")
+	return starter.current.DeepCopy(), nil
+}
+
+type recordingPlanWriter struct {
+	operation *infrastructurev1beta1.TartHostOperation
+	plan      agentprotocol.ValidatedPlan
+	signature agentprotocol.Signature
+}
+
+func (writer *recordingPlanWriter) Write(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	plan agentprotocol.ValidatedPlan,
+	signature agentprotocol.Signature,
+) error {
+	writer.operation = operation.DeepCopy()
+	writer.plan = plan
+	writer.signature = signature
+	return nil
+}
+
+func (writer *recordingPlanWriter) planDigest(t *testing.T) string {
+	t.Helper()
+	digest, err := writer.plan.Digest()
+	if err != nil {
+		t.Fatalf("Plan.Digest() error = %v", err)
+	}
+	return digest.String()
+}

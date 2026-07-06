@@ -50,6 +50,22 @@ func TestOCIFetchVerifiesMetadataBeforeReturningPayloads(t *testing.T) {
 	}
 }
 
+func TestOCIResolveManifestはPayloadを取得せず署名とDescriptorを検証する(t *testing.T) {
+	t.Parallel()
+
+	source, request, repo, _, _ := newTestSource(t)
+	resolved, err := source.ResolveManifest(t.Context(), request.Ref)
+	if err != nil {
+		t.Fatalf("ResolveManifest() error = %v", err)
+	}
+	if resolved.Value().Generation != request.Generation {
+		t.Fatalf("ResolveManifest() generation = %d, want %d", resolved.Value().Generation, request.Generation)
+	}
+	if repo.payloadFetchCount != 0 {
+		t.Fatalf("payload fetch count = %d, want 0", repo.payloadFetchCount)
+	}
+}
+
 func TestOCIFetchRejectsPlanIdentityMismatchBeforePayloadFetch(t *testing.T) {
 	t.Parallel()
 

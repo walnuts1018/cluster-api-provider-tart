@@ -104,68 +104,101 @@ func (source *OCI) Fetch(
 	request agentprotocol.Artifact,
 	platformProfile string,
 ) (Artifact, error) {
-	ref, err := parseReference(request.Ref)
+	resolved, err := source.resolve(ctx, request.Ref)
 	if err != nil {
 		return Artifact{}, err
 	}
+	if err := validateIdentity(request, platformProfile, resolved.manifest, resolved.layers); err != nil {
+		return Artifact{}, err
+	}
+	return Artifact{
+		Manifest: resolved.manifest,
+		Image:    Payload{descriptor: resolved.layers.image, fetcher: resolved.repository},
+		Verity:   Payload{descriptor: resolved.layers.verity, fetcher: resolved.repository},
+	}, nil
+}
+
+// ResolveManifestはpayload本体を取得せず、署名とOCI layer descriptorを検証したManifestを返す。
+func (source *OCI) ResolveManifest(
+	ctx context.Context,
+	reference string,
+) (artifact.ValidatedManifest, error) {
+	resolved, err := source.resolve(ctx, reference)
+	if err != nil {
+		return artifact.ValidatedManifest{}, err
+	}
+	return resolved.manifest, nil
+}
+
+type resolvedArtifact struct {
+	manifest   artifact.ValidatedManifest
+	layers     requiredLayers
+	repository repository
+}
+
+func (source *OCI) resolve(ctx context.Context, reference string) (resolvedArtifact, error) {
+	ref, err := parseReference(reference)
+	if err != nil {
+		return resolvedArtifact{}, err
+	}
 	repo, err := source.newRepository(ref.Registry + "/" + ref.Repository)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("create OCI repository client: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("create OCI repository client: %w", err)
 	}
 	descriptor, reader, err := repo.FetchReference(ctx, ref.Reference)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("fetch OCI manifest: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("fetch OCI manifest: %w", err)
 	}
 	if descriptor.Digest.String() != ref.Reference {
 		closeErr := reader.Close()
-		return Artifact{}, errors.Join(errors.New("OCI manifest digest does not match pinned reference"), closeErr)
+		return resolvedArtifact{}, errors.Join(errors.New("OCI manifest digest does not match pinned reference"), closeErr)
 	}
 	if descriptor.MediaType != ocispec.MediaTypeImageManifest {
 		closeErr := reader.Close()
-		return Artifact{}, errors.Join(
+		return resolvedArtifact{}, errors.Join(
 			fmt.Errorf("unsupported OCI manifest media type: %q", descriptor.MediaType),
 			closeErr,
 		)
 	}
 	manifestData, err := readAndClose(reader, descriptor, maxOCIManifestBytes)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("read OCI manifest: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("read OCI manifest: %w", err)
 	}
 	var ociManifest ocispec.Manifest
 	if err := decodeStrict(manifestData, &ociManifest); err != nil {
-		return Artifact{}, fmt.Errorf("decode OCI manifest: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("decode OCI manifest: %w", err)
 	}
 	layers, err := selectRequiredLayers(ociManifest)
 	if err != nil {
-		return Artifact{}, err
+		return resolvedArtifact{}, err
 	}
 
 	artifactManifestData, err := fetchSmall(ctx, repo, layers.manifest, maxArtifactManifestBytes)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("fetch artifact manifest: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("fetch artifact manifest: %w", err)
 	}
 	validatedManifest, err := artifact.Parse(artifactManifestData)
 	if err != nil {
-		return Artifact{}, err
+		return resolvedArtifact{}, err
 	}
 	signatureData, err := fetchSmall(ctx, repo, layers.signature, maxSignatureBytes)
 	if err != nil {
-		return Artifact{}, fmt.Errorf("fetch artifact manifest signature: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("fetch artifact manifest signature: %w", err)
 	}
 	var signature artifact.Signature
 	if err := decodeStrict(signatureData, &signature); err != nil {
-		return Artifact{}, fmt.Errorf("decode artifact manifest signature: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("decode artifact manifest signature: %w", err)
 	}
 	if err := artifact.VerifySignature(validatedManifest, signature, source.trustStore); err != nil {
-		return Artifact{}, fmt.Errorf("verify artifact manifest signature: %w", err)
+		return resolvedArtifact{}, fmt.Errorf("verify artifact manifest signature: %w", err)
 	}
-	if err := validateIdentity(request, platformProfile, validatedManifest, layers); err != nil {
-		return Artifact{}, err
+	if err := validatePayloadDescriptors(validatedManifest, layers); err != nil {
+		return resolvedArtifact{}, err
 	}
-	return Artifact{
-		Manifest: validatedManifest,
-		Image:    Payload{descriptor: layers.image, fetcher: repo},
-		Verity:   Payload{descriptor: layers.verity, fetcher: repo},
+	return resolvedArtifact{
+		manifest:   validatedManifest,
+		layers:     layers,
+		repository: repo,
 	}, nil
 }
 
@@ -233,12 +266,20 @@ func validateIdentity(
 		return errors.New("artifact generation does not match Plan")
 	case value.PlatformProfile != platformProfile:
 		return fmt.Errorf("artifact platform profile %q does not match %q", value.PlatformProfile, platformProfile)
+	}
+	return validatePayloadDescriptors(manifest, layers)
+}
+
+func validatePayloadDescriptors(manifest artifact.ValidatedManifest, layers requiredLayers) error {
+	value := manifest.Value()
+	switch {
 	case layers.image.Digest.String() != value.Image.Digest || layers.image.Size != value.Image.SizeBytes:
 		return errors.New("OS filesystem layer does not match artifact manifest")
 	case layers.verity.Digest.String() != value.Verity.Digest || layers.verity.Size != value.Verity.SizeBytes:
 		return errors.New("verity layer does not match artifact manifest")
+	default:
+		return nil
 	}
-	return nil
 }
 
 func parseReference(value string) (registry.Reference, error) {

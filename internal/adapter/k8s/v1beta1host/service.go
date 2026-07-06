@@ -46,6 +46,12 @@ func (s *Service) MarkHostProvisioning(ctx context.Context, host *infrastructure
 		"Host is provisioning a TartMachine after Wake-on-LAN")
 }
 
+// MarkHostUpdating はHostをUpdatingフェーズに遷移させる。
+func (s *Service) MarkHostUpdating(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
+	return s.updatePhase(ctx, host, infrastructurev1beta1.TartHostPhaseUpdating, "Updating",
+		"Host is applying an in-place OS update")
+}
+
 // MarkHostProvisioned はHostをProvisionedフェーズに遷移させる。
 func (s *Service) MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
 	return s.updatePhase(ctx, host, infrastructurev1beta1.TartHostPhaseProvisioned, "Provisioned",

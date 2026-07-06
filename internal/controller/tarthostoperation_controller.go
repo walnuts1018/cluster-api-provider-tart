@@ -64,6 +64,8 @@ type OperationPowerOnService interface {
 type OperationHostPhaseService interface {
 	// MarkHostProvisioning はHostをProvisioningフェーズに移行する。
 	MarkHostProvisioning(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+	// MarkHostUpdating はHostをUpdatingフェーズに移行する。
+	MarkHostUpdating(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostProvisioned はHostをProvisionedフェーズに移行する。
 	MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostAvailable はHostをAvailableに戻す（ConsumerRefを除去）。
@@ -121,7 +123,7 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, r.transitionPhase(ctx, &operation, infrastructurev1beta1.TartHostOperationPhasePending)
 
 	case infrastructurev1beta1.TartHostOperationPhasePending:
-		// Pending → PreparingBoot: WoLを発火してHostをProvisioningに移行
+		// Pending → PreparingBoot: WoLを発火してHostをOperation種別に対応するPhaseへ移行
 		return ctrl.Result{}, r.handlePending(ctx, &operation)
 
 	case infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
@@ -195,10 +197,19 @@ func (r *TartHostOperationReconciler) handlePending(
 		return fmt.Errorf("power on TartHost: %w", err)
 	}
 
-	// Hostのフェーズ更新とOperation Phase遷移を行う
-	if err := r.HostPhase.MarkHostProvisioning(ctx, host); err != nil {
-		log.Error(err, "Failed to mark TartHost as Provisioning",
+	// Hostのフェーズ更新とOperation Phase遷移を行う。
+	var markHostPhase func(context.Context, *infrastructurev1beta1.TartHost) error
+	targetHostPhase := infrastructurev1beta1.TartHostPhaseProvisioning
+	if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
+		markHostPhase = r.HostPhase.MarkHostUpdating
+		targetHostPhase = infrastructurev1beta1.TartHostPhaseUpdating
+	} else {
+		markHostPhase = r.HostPhase.MarkHostProvisioning
+	}
+	if err := markHostPhase(ctx, host); err != nil {
+		log.Error(err, "Failed to mark TartHost for Operation",
 			"host", client.ObjectKeyFromObject(host).String(),
+			"phase", targetHostPhase,
 		)
 		return err
 	}

@@ -17,7 +17,7 @@
 - Test: `internal/domain/inplaceupdate/change_test.go`
 - Delete: `internal/server/extension/patch_test.go`
 
-- [ ] **Step 1: 許可・拒否差分の失敗テストを書く**
+- [x] **Step 1: 許可・拒否差分の失敗テストを書く**
 
 `ChangeSet`へcurrent/desiredのMachine、TartMachine、BootstrapConfigを渡し、次の表をtable testにする。
 
@@ -39,13 +39,13 @@ tests := []struct {
 }
 ```
 
-- [ ] **Step 2: テストが未実装で失敗することを確認する**
+- [x] **Step 2: テストが未実装で失敗することを確認する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -run TestClassify -v`
 
 Expected: `package .../internal/domain/inplaceupdate is not in std`または未定義symbolでFAIL。
 
-- [ ] **Step 3: 閉じたFieldPathと分類結果を実装する**
+- [x] **Step 3: 閉じたFieldPathと分類結果を実装する**
 
 ```go
 type Classification struct {
@@ -63,13 +63,13 @@ func Classify(current, desired ChangeSet) Classification
 
 `reflect.DeepEqual`ではなくKubernetes semantic equalityを使い、BootstrapConfigはCanonical JSON化した`spec`だけを比較する。metadata/status差分は分類対象に含めない。
 
-- [ ] **Step 4: domain testを通す**
+- [x] **Step 4: domain testを通す**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -v`
 
 Expected: PASS。
 
-- [ ] **Step 5: 旧v1alpha1差分テストを削除してコミットする**
+- [x] **Step 5: 旧v1alpha1差分テストを削除してコミットする**
 
 ```bash
 git add internal/domain/inplaceupdate internal/server/extension/patch_test.go

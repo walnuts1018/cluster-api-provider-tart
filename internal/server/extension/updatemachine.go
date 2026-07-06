@@ -16,27 +16,87 @@ package extension
 
 import (
 	"context"
+	"fmt"
 
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
-// HandleUpdateMachine handles the UpdateMachine hook.
-// Since cluster-api-provider-tart only manages OS provisioning via iPXE,
-// it does not perform any in-place OS updates. This hook simply acknowledges
-// the update request and returns success immediately.
-func HandleUpdateMachine(ctx context.Context, req *runtimehooksv1.UpdateMachineRequest, resp *runtimehooksv1.UpdateMachineResponse) {
-	log := ctrllog.FromContext(ctx)
+const updateMachineRetryAfterSeconds int32 = 10
 
-	log.Info("UpdateMachine called - no action required for Tart provider",
-		"machine", req.Desired.Machine.Name,
-	)
+// UpdateStarterはUpdateMachine requestを永続Operationへ接続する境界である。
+type UpdateStarter interface {
+	Start(
+		context.Context,
+		*runtimehooksv1.UpdateMachineRequest,
+	) (*infrastructurev1beta1.TartHostOperation, error)
+}
 
-	// Tart provider does not manage OS-level changes.
-	// The infrastructure machine (TartMachine) does not need any update
-	// as it only tracks provisioning configuration (Image, Initrd, KernelParams).
-	// Any actual in-place updates are handled by the bootstrap provider (e.g., Talos).
-	resp.SetStatus(runtimehooksv1.ResponseStatusSuccess)
-	resp.SetMessage("no in-place update required for Tart infrastructure machine")
-	resp.SetRetryAfterSeconds(0)
+// UpdateMachineHandlerはUpdate開始とRuntime Hook responseの変換を担当する。
+type UpdateMachineHandler struct {
+	starter UpdateStarter
+}
+
+// NewUpdateMachineHandlerはUpdateMachine handlerを生成する。
+func NewUpdateMachineHandler(starter UpdateStarter) *UpdateMachineHandler {
+	return &UpdateMachineHandler{starter: starter}
+}
+
+// HandleはOperationを開始または再取得し、永続化済みphaseをCAPIへ返す。
+func (handler *UpdateMachineHandler) Handle(
+	ctx context.Context,
+	request *runtimehooksv1.UpdateMachineRequest,
+	response *runtimehooksv1.UpdateMachineResponse,
+) {
+	operation, err := handler.starter.Start(ctx, request)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to start in-place update")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage(fmt.Sprintf("failed to start in-place update: %v", err))
+		response.SetRetryAfterSeconds(0)
+		return
+	}
+	if operation == nil {
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to start in-place update: operation is missing")
+		response.SetRetryAfterSeconds(0)
+		return
+	}
+	mapUpdateOperationResponse(operation, response)
+}
+
+func mapUpdateOperationResponse(
+	operation *infrastructurev1beta1.TartHostOperation,
+	response *runtimehooksv1.UpdateMachineResponse,
+) {
+	switch operation.Status.Phase {
+	case "",
+		infrastructurev1beta1.TartHostOperationPhasePending,
+		infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
+		infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
+		infrastructurev1beta1.TartHostOperationPhaseWriting,
+		infrastructurev1beta1.TartHostOperationPhaseVerifying,
+		infrastructurev1beta1.TartHostOperationPhaseBootTrial,
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		infrastructurev1beta1.TartHostOperationPhaseRollingBack:
+		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
+		response.SetMessage("in-place update is in progress")
+		response.SetRetryAfterSeconds(updateMachineRetryAfterSeconds)
+	case infrastructurev1beta1.TartHostOperationPhaseSucceeded:
+		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
+		response.SetMessage("in-place update completed")
+		response.SetRetryAfterSeconds(0)
+	case infrastructurev1beta1.TartHostOperationPhaseFailed,
+		infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired:
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage(fmt.Sprintf("in-place update ended in phase %s", operation.Status.Phase))
+		response.SetRetryAfterSeconds(0)
+	default:
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage(fmt.Sprintf("in-place update has unsupported phase %q", operation.Status.Phase))
+		response.SetRetryAfterSeconds(0)
+	}
 }

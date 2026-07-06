@@ -179,7 +179,7 @@ type Starter interface {
 
 Machine version、Bootstrap spec、Platform Profile等を含むdesired objects digestをCanonical JSONから算出し、Operation IDをMachine UIDとdigestから決定的に生成する。terminal Failedかつ同じdigestのOperationは再作成せず、前回失敗を返す。
 
-- [ ] **Step 4: UpdateMachine responseへOperation phaseを写像する**
+- [x] **Step 4: UpdateMachine responseへOperation phaseを写像する**
 
 `Pending`から`RollingBack`までは`Success + RetryAfterSeconds=10`、`Succeeded`は`Success + 0`、`Failed`と`RecoveryRequired`は`Failure`にする。Handlerへclient依存を注入し、global stateを持たない。
 
@@ -187,7 +187,7 @@ Machine version、Bootstrap spec、Platform Profile等を含むdesired objects d
 
 `InPlaceUpdates`を親gateとし、`InPlaceUpdatesWorker`、`InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`を独立にparseする。親gate無効時はRuntime Extension managerを生成しない。
 
-- [ ] **Step 6: targeted testを通してコミットする**
+- [x] **Step 6: targeted testを通してコミットする**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate ./internal/server/extension ./cmd -v`
 

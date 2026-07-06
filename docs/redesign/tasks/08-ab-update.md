@@ -134,14 +134,20 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - write、verify、boot、mount、Node health失敗からRollbackへ進む純粋な状態機械
 - boot試行3回上限、Rollback成功時の`Failed`/`Provisioned`/Ready維持、
   旧slot不健全時の`RecoveryRequired`収束
+- `UpdateMachine` Hookからlive TartMachine/TartHostを取得し、署名検証済みOCI Artifact
+  Manifestを使ってOperationとimmutable Plan Secretを作成するadapter接続
+- 保存済みOperationのdeadlineとPlan digestを正本にする、Hook再試行時のPlan再生成
+- Operationの進行中、成功、失敗phaseからCAPI Runtime Hook retry responseへの写像
+- OS Artifact検証鍵とAgent Plan署名鍵を分離したcontroller起動設定
 
 未実装・未検証:
 
-- `UpdateMachine` HookからKubernetes上のOperationとPlan Secretを作成するadapter接続
 - Hostを`Updating`へ移す処理、boot trial metadataを操作するDriver adapter
 - boot reportとNode healthから状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
 - worker、複数control plane、単一control planeの段階的feature gate
+- controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は
+  digest固定参照と署名検証を必須とし、匿名Registryに限定する
 - QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証
 
 ## 関連

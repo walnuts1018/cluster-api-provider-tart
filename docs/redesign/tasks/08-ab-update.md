@@ -139,10 +139,11 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - 保存済みOperationのdeadlineとPlan digestを正本にする、Hook再試行時のPlan再生成
 - Operationの進行中、成功、失敗phaseからCAPI Runtime Hook retry responseへの写像
 - OS Artifact検証鍵とAgent Plan署名鍵を分離したcontroller起動設定
+- Update Operation開始時にHostを`Provisioned`から`Updating`へ移すcontroller接続
 
 未実装・未検証:
 
-- Hostを`Updating`へ移す処理、boot trial metadataを操作するDriver adapter
+- boot trial metadataを操作するDriver adapter
 - boot reportとNode healthから状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
 - worker、複数control plane、単一control planeの段階的feature gate

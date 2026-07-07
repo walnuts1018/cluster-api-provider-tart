@@ -66,6 +66,39 @@ func TestTartHostOperationReconcilerはUpdate開始時にHostをUpdatingへ移�
 	}
 }
 
+func TestTartHostOperationReconcilerはRollback成功時にHostをProvisionedへ戻す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Status.Phase = infrastructurev1beta1.TartHostPhaseUpdating
+	operation := operationTestUpdate(host)
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseFailed
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: hostPhase,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.provisioned {
+		t.Fatal("MarkHostProvisioned() was not called")
+	}
+}
+
 type successfulOperationPowerOn struct{}
 
 func (successfulOperationPowerOn) PowerOn(
@@ -81,6 +114,8 @@ func (successfulOperationPowerOn) PowerOn(
 type recordingOperationHostPhase struct {
 	provisioning bool
 	updating     bool
+	provisioned  bool
+	recovery     bool
 }
 
 func (phase *recordingOperationHostPhase) MarkHostProvisioning(
@@ -99,10 +134,19 @@ func (phase *recordingOperationHostPhase) MarkHostUpdating(
 	return nil
 }
 
-func (*recordingOperationHostPhase) MarkHostProvisioned(
+func (phase *recordingOperationHostPhase) MarkHostProvisioned(
 	context.Context,
 	*infrastructurev1beta1.TartHost,
 ) error {
+	phase.provisioned = true
+	return nil
+}
+
+func (phase *recordingOperationHostPhase) MarkHostRecoveryRequired(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+) error {
+	phase.recovery = true
 	return nil
 }
 

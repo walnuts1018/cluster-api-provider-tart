@@ -31,6 +31,7 @@ func TestEvaluate(t *testing.T) {
 		BootstrapApplied:   true,
 	}
 	expected := ExpectedBoot{ActiveSlot: "B", ArtifactGeneration: 2}
+	rollbackExpected := ExpectedBoot{ActiveSlot: "B", ArtifactGeneration: 2, RollbackSlot: "A"}
 
 	tests := []struct {
 		name         string
@@ -49,11 +50,11 @@ func TestEvaluate(t *testing.T) {
 			wantPhase:    operationdomain.PhaseAwaitingHealth,
 		},
 		{
-			name:         "failed mount remains observable without advancing",
+			name:         "failed mount starts rollback",
 			phase:        operationdomain.PhaseBootTrial,
 			incoming:     Report{BootID: "boot-id", ActiveSlot: "B", ArtifactGeneration: 2},
-			wantDecision: DecisionRecorded,
-			wantPhase:    operationdomain.PhaseBootTrial,
+			wantDecision: DecisionRollbackRequired,
+			wantPhase:    operationdomain.PhaseRollingBack,
 		},
 		{
 			name:         "unexpected slot remains observable without advancing",
@@ -69,6 +70,20 @@ func TestEvaluate(t *testing.T) {
 			incoming:     complete,
 			wantDecision: DecisionDuplicate,
 			wantPhase:    operationdomain.PhaseAwaitingHealth,
+		},
+		{
+			name:         "rollback boot report marks operation failed",
+			phase:        operationdomain.PhaseRollingBack,
+			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true, DataMounted: true, BootstrapApplied: true},
+			wantDecision: DecisionRollbackCompleted,
+			wantPhase:    operationdomain.PhaseFailed,
+		},
+		{
+			name:         "rollback mount failure requires recovery",
+			phase:        operationdomain.PhaseRollingBack,
+			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true},
+			wantDecision: DecisionRecoveryRequired,
+			wantPhase:    operationdomain.PhaseRecoveryRequired,
 		},
 		{
 			name:     "completed trial rejects a different report",
@@ -87,7 +102,11 @@ func TestEvaluate(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := Evaluate(test.phase, test.current, test.incoming, expected)
+			want := expected
+			if test.phase == operationdomain.PhaseRollingBack {
+				want = rollbackExpected
+			}
+			got, err := Evaluate(test.phase, test.current, test.incoming, want)
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("Evaluate() error = %v, want %v", err, test.wantErr)
 			}

@@ -42,7 +42,7 @@ func (provider staticPlanProvider) GetPlan(
 	return provider.plan, nil
 }
 
-func TestServiceRecordsIncompleteBootAndAdvancesWhenComplete(t *testing.T) {
+func TestServiceStartsRollbackWhenBootReportShowsMountFailure(t *testing.T) {
 	ctx := t.Context()
 	service, k8sClient, key, planDigest := newTestService(t)
 	firstTime := metav1.NewTime(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
@@ -59,34 +59,46 @@ func TestServiceRecordsIncompleteBootAndAdvancesWhenComplete(t *testing.T) {
 		t.Fatalf("ReportBoot(incomplete) error = %v", err)
 	}
 	persisted := getOperation(t, ctx, k8sClient, key)
-	if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseBootTrial {
-		t.Fatalf("phase after incomplete report = %q, want BootTrial", persisted.Status.Phase)
+	if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		t.Fatalf("phase after incomplete report = %q, want RollingBack", persisted.Status.Phase)
 	}
 	if persisted.Status.LastBootReport == nil || persisted.Status.LastBootReport.DataMounted {
 		t.Fatalf("lastBootReport = %#v, want persisted incomplete report", persisted.Status.LastBootReport)
 	}
+}
 
-	complete := incomplete
-	complete.DataMounted = true
-	complete.BootstrapApplied = true
-	secondTime := metav1.NewTime(firstTime.Add(time.Minute))
-	if err := service.ReportBoot(ctx, key, complete, secondTime); err != nil {
+func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
+	ctx := t.Context()
+	service, k8sClient, key, planDigest := newTestService(t)
+	firstTime := metav1.NewTime(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
+	complete := agentprotocol.BootReportRequest{
+		APIVersion:         agentprotocol.APIVersion,
+		OperationUID:       "operation-uid",
+		PlanDigest:         planDigest,
+		BootID:             "boot-id",
+		ActiveSlot:         "B",
+		ArtifactGeneration: 2,
+		StateMounted:       true,
+		DataMounted:        true,
+		BootstrapApplied:   true,
+	}
+	if err := service.ReportBoot(ctx, key, complete, firstTime); err != nil {
 		t.Fatalf("ReportBoot(complete) error = %v", err)
 	}
-	persisted = getOperation(t, ctx, k8sClient, key)
+	persisted := getOperation(t, ctx, k8sClient, key)
 	if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
 		t.Fatalf("phase after complete report = %q, want AwaitingHealth", persisted.Status.Phase)
 	}
-	if !persisted.Status.LastBootReport.ReportedAt.Equal(&secondTime) {
-		t.Fatalf("reportedAt = %v, want %v", persisted.Status.LastBootReport.ReportedAt, secondTime)
+	if !persisted.Status.LastBootReport.ReportedAt.Equal(&firstTime) {
+		t.Fatalf("reportedAt = %v, want %v", persisted.Status.LastBootReport.ReportedAt, firstTime)
 	}
 
-	duplicateTime := metav1.NewTime(secondTime.Add(time.Minute))
+	duplicateTime := metav1.NewTime(firstTime.Add(time.Minute))
 	if err := service.ReportBoot(ctx, key, complete, duplicateTime); err != nil {
 		t.Fatalf("ReportBoot(duplicate) error = %v", err)
 	}
 	persisted = getOperation(t, ctx, k8sClient, key)
-	if !persisted.Status.LastBootReport.ReportedAt.Equal(&secondTime) {
+	if !persisted.Status.LastBootReport.ReportedAt.Equal(&firstTime) {
 		t.Fatalf("duplicate changed reportedAt to %v", persisted.Status.LastBootReport.ReportedAt)
 	}
 }
@@ -112,6 +124,61 @@ func TestServiceRejectsConflictingReportAfterBootCompletion(t *testing.T) {
 	report.BootID = "different-boot"
 	if err := service.ReportBoot(ctx, key, report, now); !errors.Is(err, ErrReportConflict) {
 		t.Fatalf("ReportBoot(conflict) error = %v, want ErrReportConflict", err)
+	}
+}
+
+func TestServiceRecordsRollbackBootResult(t *testing.T) {
+	tests := []struct {
+		name      string
+		report    agentprotocol.BootReportRequest
+		wantPhase infrastructurev1beta1.TartHostOperationPhase
+	}{
+		{
+			name: "旧slot健全",
+			report: agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				BootID:             "rollback-boot",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+				StateMounted:       true,
+				DataMounted:        true,
+				BootstrapApplied:   true,
+			},
+			wantPhase: infrastructurev1beta1.TartHostOperationPhaseFailed,
+		},
+		{
+			name: "旧slotも不健全",
+			report: agentprotocol.BootReportRequest{
+				APIVersion:         agentprotocol.APIVersion,
+				OperationUID:       "operation-uid",
+				BootID:             "rollback-boot",
+				ActiveSlot:         "A",
+				ArtifactGeneration: 1,
+				StateMounted:       true,
+			},
+			wantPhase: infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			service, k8sClient, key, planDigest := newTestService(t)
+			operation := getOperation(t, ctx, k8sClient, key)
+			operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseRollingBack
+			if err := k8sClient.Status().Update(ctx, operation); err != nil {
+				t.Fatalf("update operation status: %v", err)
+			}
+			tt.report.PlanDigest = planDigest
+			if err := service.ReportBoot(ctx, key, tt.report, metav1.Now()); err != nil {
+				t.Fatalf("ReportBoot() error = %v", err)
+			}
+			persisted := getOperation(t, ctx, k8sClient, key)
+			if persisted.Status.Phase != tt.wantPhase {
+				t.Fatalf("phase = %q, want %q", persisted.Status.Phase, tt.wantPhase)
+			}
+		})
 	}
 }
 

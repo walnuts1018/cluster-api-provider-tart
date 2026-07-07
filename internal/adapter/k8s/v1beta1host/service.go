@@ -58,6 +58,12 @@ func (s *Service) MarkHostProvisioned(ctx context.Context, host *infrastructurev
 		"Host has been provisioned successfully")
 }
 
+// MarkHostRecoveryRequired はHostをRecoveryRequiredフェーズに遷移させる。
+func (s *Service) MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
+	return s.updatePhase(ctx, host, infrastructurev1beta1.TartHostPhaseRecoveryRequired, "RecoveryRequired",
+		"Host requires operator recovery after an in-place OS update failure")
+}
+
 // MarkHostAvailable はHostをAvailableに戻す。ConsumerRefも除去する。
 func (s *Service) MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {

@@ -68,6 +68,8 @@ type OperationHostPhaseService interface {
 	MarkHostUpdating(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostProvisioned はHostをProvisionedフェーズに移行する。
 	MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+	// MarkHostRecoveryRequired はHostをRecoveryRequiredフェーズに移行する。
+	MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostAvailable はHostをAvailableに戻す（ConsumerRefを除去）。
 	MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 }
@@ -105,6 +107,9 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	// terminal Phaseは変更しない
 	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
 	if err == nil && phase.Terminal() {
+		if err := r.handleTerminal(ctx, &operation, phase); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{}, nil
 	}
 
@@ -151,6 +156,28 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *TartHostOperationReconciler) handleTerminal(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	phase operationdomain.Phase,
+) error {
+	if operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
+		return nil
+	}
+	host, err := r.getHost(ctx, operation)
+	if err != nil {
+		return err
+	}
+	switch phase {
+	case operationdomain.PhaseSucceeded, operationdomain.PhaseFailed:
+		return r.HostPhase.MarkHostProvisioned(ctx, host)
+	case operationdomain.PhaseRecoveryRequired:
+		return r.HostPhase.MarkHostRecoveryRequired(ctx, host)
+	default:
+		return nil
+	}
 }
 
 func (r *TartHostOperationReconciler) handlePending(

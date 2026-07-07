@@ -140,11 +140,16 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Operationの進行中、成功、失敗phaseからCAPI Runtime Hook retry responseへの写像
 - OS Artifact検証鍵とAgent Plan署名鍵を分離したcontroller起動設定
 - Update Operation開始時にHostを`Provisioned`から`Updating`へ移すcontroller接続
+- boot reportからtarget slotのmount失敗を検出し、Update Operationを`RollingBack`へ遷移する処理
+- Rollback boot reportから旧slot健全時はOperation=`Failed`、旧slot不健全時は
+  Operation=`RecoveryRequired`へ遷移する処理
+- Update Operationのterminal phaseをTartHost phaseとTartMachine Ready conditionへ反映する処理
 
 未実装・未検証:
 
 - boot trial metadataを操作するDriver adapter
-- boot reportとNode healthから状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
+- boot report未着やtarget slot以外での起動をboot失敗試行として数え、3回後にRollbackへ切り替える処理
+- Node health失敗から状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
 - worker、複数control plane、単一control planeの段階的feature gate
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は

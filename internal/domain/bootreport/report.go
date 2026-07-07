@@ -37,14 +37,18 @@ type Report struct {
 type ExpectedBoot struct {
 	ActiveSlot         string
 	ArtifactGeneration uint64
+	RollbackSlot       string
 }
 
 type Decision string
 
 const (
-	DecisionRecorded  Decision = "Recorded"
-	DecisionCompleted Decision = "Completed"
-	DecisionDuplicate Decision = "Duplicate"
+	DecisionRecorded          Decision = "Recorded"
+	DecisionCompleted         Decision = "Completed"
+	DecisionRollbackRequired  Decision = "RollbackRequired"
+	DecisionRollbackCompleted Decision = "RollbackCompleted"
+	DecisionRecoveryRequired  Decision = "RecoveryRequired"
+	DecisionDuplicate         Decision = "Duplicate"
 )
 
 type Result struct {
@@ -70,19 +74,46 @@ func Evaluate(
 			}
 			return Result{Decision: DecisionCompleted, NextPhase: next}, nil
 		}
+		if incoming.ActiveSlot == expected.ActiveSlot &&
+			incoming.ArtifactGeneration == expected.ArtifactGeneration &&
+			(!incoming.StateMounted || !incoming.DataMounted || !incoming.BootstrapApplied) {
+			next, err := operationdomain.Transition(phase, operationdomain.PhaseRollingBack)
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{Decision: DecisionRollbackRequired, NextPhase: next}, nil
+		}
 		return Result{Decision: DecisionRecorded, NextPhase: phase}, nil
 	case operationdomain.PhaseAwaitingHealth:
 		if current != nil && equal(*current, incoming) {
 			return Result{Decision: DecisionDuplicate, NextPhase: phase}, nil
 		}
 		return Result{}, ErrConflictingCompleted
+	case operationdomain.PhaseRollingBack:
+		if current != nil && equal(*current, incoming) {
+			return Result{Decision: DecisionDuplicate, NextPhase: phase}, nil
+		}
+		if rollbackCompleted(incoming, expected) {
+			next, err := operationdomain.Transition(phase, operationdomain.PhaseFailed)
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{Decision: DecisionRollbackCompleted, NextPhase: next}, nil
+		}
+		if incoming.ActiveSlot == expected.RollbackSlot {
+			next, err := operationdomain.Transition(phase, operationdomain.PhaseRecoveryRequired)
+			if err != nil {
+				return Result{}, err
+			}
+			return Result{Decision: DecisionRecoveryRequired, NextPhase: next}, nil
+		}
+		return Result{Decision: DecisionRecorded, NextPhase: phase}, nil
 	case operationdomain.PhasePending,
 		operationdomain.PhasePreparingBoot,
 		operationdomain.PhaseWaitingForAgent,
 		operationdomain.PhaseWriting,
 		operationdomain.PhaseVerifying,
 		operationdomain.PhaseDistributionUpdating,
-		operationdomain.PhaseRollingBack,
 		operationdomain.PhaseSucceeded,
 		operationdomain.PhaseFailed,
 		operationdomain.PhaseRecoveryRequired:
@@ -96,6 +127,13 @@ func Evaluate(
 func bootCompleted(report Report, expected ExpectedBoot) bool {
 	return report.ActiveSlot == expected.ActiveSlot &&
 		report.ArtifactGeneration == expected.ArtifactGeneration &&
+		report.StateMounted &&
+		report.DataMounted &&
+		report.BootstrapApplied
+}
+
+func rollbackCompleted(report Report, expected ExpectedBoot) bool {
+	return report.ActiveSlot == expected.RollbackSlot &&
 		report.StateMounted &&
 		report.DataMounted &&
 		report.BootstrapApplied

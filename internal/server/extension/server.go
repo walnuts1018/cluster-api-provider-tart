@@ -31,7 +31,7 @@ type Manager struct {
 }
 
 // NewManager creates a new Runtime Extension server manager.
-func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
+func NewManager(catalog *runtimecatalog.Catalog, updateStarter UpdateStarter) (*Manager, error) {
 	s, err := server.New(server.Options{
 		Catalog:  catalog,
 		Port:     9443,
@@ -64,7 +64,7 @@ func NewManager(catalog *runtimecatalog.Catalog) (*Manager, error) {
 
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
 		Hook:           runtimehooksv1.UpdateMachine,
-		HandlerFunc:    HandleUpdateMachine,
+		HandlerFunc:    NewUpdateMachineHandler(updateStarter).Handle,
 		Name:           "update-machine",
 		TimeoutSeconds: new(int32(10)),
 	}); err != nil {

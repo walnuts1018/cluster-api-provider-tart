@@ -53,14 +53,20 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
+	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
+	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
+	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentapi"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/signingkey"
 	webhookv1beta1 "github.com/walnuts1018/cluster-api-provider-tart/internal/webhook/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/pkg/logger"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	// +kubebuilder:scaffold:imports
@@ -104,6 +110,10 @@ func main() {
 	var agentArtifactBaseURL string
 	var agentBootCertFile string
 	var agentBootKeyFile string
+	var osArtifactKeyID string
+	var osArtifactPublicKeyFile string
+	var agentPlanKeyID string
+	var agentPlanPrivateKeyFile string
 	var probeAddr string
 	var secureMetrics bool
 	var enableHTTP2 bool
@@ -137,6 +147,10 @@ func main() {
 	flag.StringVar(&agentArtifactBaseURL, "agent-artifact-base-url", "", "The HTTPS base URL used to deliver the Agent Artifact and iPXE script.")
 	flag.StringVar(&agentBootCertFile, "agent-boot-cert-file", "", "The Agent boot HTTPS TLS certificate file.")
 	flag.StringVar(&agentBootKeyFile, "agent-boot-key-file", "", "The Agent boot HTTPS TLS private key file.")
+	flag.StringVar(&osArtifactKeyID, "os-artifact-key-id", "", "The trusted OS Artifact signing key ID used by in-place updates.")
+	flag.StringVar(&osArtifactPublicKeyFile, "os-artifact-public-key-file", "", "The trusted OS Artifact Ed25519 public key file used by in-place updates.")
+	flag.StringVar(&agentPlanKeyID, "agent-plan-key-id", "", "The Agent Plan signing key ID used by in-place updates.")
+	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file used by in-place updates.")
 	flag.BoolVar(
 		&agentAPIAllowIsolatedL2,
 		"agent-api-allow-isolated-l2",
@@ -503,13 +517,56 @@ func main() {
 	}
 
 	if featureGates["InPlaceUpdates"] {
-		// Start Runtime Extension webhook server for in-place update hooks.
+		required := map[string]string{
+			"os-artifact-key-id":          osArtifactKeyID,
+			"os-artifact-public-key-file": osArtifactPublicKeyFile,
+			"agent-plan-key-id":           agentPlanKeyID,
+			"agent-plan-private-key-file": agentPlanPrivateKeyFile,
+		}
+		for name, value := range required {
+			if value == "" {
+				setupLog.Error(nil, "In-place updates require a configuration value", "flag", name)
+				os.Exit(1)
+			}
+		}
+		artifactPublicKey, err := signingkey.LoadPublic(osArtifactPublicKeyFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load OS Artifact verification key")
+			os.Exit(1)
+		}
+		planPrivateKey, err := signingkey.LoadPrivate(agentPlanPrivateKeyFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load Agent Plan signing key")
+			os.Exit(1)
+		}
+		// TODO: private Registry credentialをcontroller設定へ追加した時点で匿名credentialを置き換える。
+		manifestResolver, err := artifactfetch.NewOCI(
+			artifact.StaticTrustStore{osArtifactKeyID: artifactPublicKey},
+			nil,
+		)
+		if err != nil {
+			setupLog.Error(err, "Failed to create OS Artifact Manifest resolver")
+			os.Exit(1)
+		}
+		updateWorkflow := applicationinplaceupdate.NewWorkflow(
+			k8soperation.NewService(mgr.GetClient()),
+			k8sagentapi.NewPlanWriter(mgr.GetClient()),
+			applicationinplaceupdate.PlanSigner{
+				KeyID:      agentPlanKeyID,
+				PrivateKey: planPrivateKey,
+			},
+		)
+		updateService := k8sinplaceupdate.NewService(
+			mgr.GetClient(),
+			manifestResolver,
+			updateWorkflow,
+		)
 		extCatalog, err := extension.NewCatalog()
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension catalog")
 			os.Exit(1)
 		}
-		extManager, err := extension.NewManager(extCatalog)
+		extManager, err := extension.NewManager(extCatalog, updateService)
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension manager")
 			os.Exit(1)

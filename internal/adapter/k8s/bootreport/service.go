@@ -90,7 +90,11 @@ func (service *Service) ReportBoot(
 		switch result.Decision {
 		case bootreportdomain.DecisionDuplicate:
 			return nil
-		case bootreportdomain.DecisionRecorded, bootreportdomain.DecisionCompleted:
+		case bootreportdomain.DecisionRecorded,
+			bootreportdomain.DecisionCompleted,
+			bootreportdomain.DecisionRollbackRequired,
+			bootreportdomain.DecisionRollbackCompleted,
+			bootreportdomain.DecisionRecoveryRequired:
 			operation.Status.LastBootReport = &infrastructurev1beta1.BootReportStatus{
 				BootID:             request.BootID,
 				ActiveSlot:         infrastructurev1beta1.OSSlot(request.ActiveSlot),
@@ -135,6 +139,7 @@ func (service *Service) expectedBoot(
 	return bootreportdomain.ExpectedBoot{
 		ActiveSlot:         slot,
 		ArtifactGeneration: signedPlan.Plan.Artifact.Generation,
+		RollbackSlot:       signedPlan.Plan.ActiveSlot,
 	}, nil
 }
 

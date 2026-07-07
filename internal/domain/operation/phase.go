@@ -130,9 +130,9 @@ func allowedTransition(current, target Phase) bool {
 	case PhaseWaitingForAgent:
 		return target == PhaseWriting || target == PhaseFailed
 	case PhaseWriting:
-		return target == PhaseVerifying || target == PhaseFailed
+		return target == PhaseVerifying || target == PhaseRollingBack || target == PhaseFailed
 	case PhaseVerifying:
-		return target == PhaseBootTrial || target == PhaseFailed
+		return target == PhaseBootTrial || target == PhaseRollingBack || target == PhaseFailed
 	case PhaseBootTrial:
 		return target == PhaseAwaitingHealth || target == PhaseRollingBack
 	case PhaseAwaitingHealth:

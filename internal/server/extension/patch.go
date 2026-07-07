@@ -18,183 +18,172 @@ import (
 	"encoding/json"
 	"fmt"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
+
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 )
 
-// CanUpdateInPlace determines whether the given TartMachine change can be handled in-place.
-// It returns true if none of the rolling-update-required fields have changed.
-func CanUpdateInPlace(current, desired *infrastructurev1alpha1.TartMachine) bool {
-	if current == nil || desired == nil {
-		return true
+func decodeTartMachine(raw runtime.RawExtension) (infrastructurev1beta1.TartMachine, error) {
+	var machine infrastructurev1beta1.TartMachine
+	if err := json.Unmarshal(raw.Raw, &machine); err != nil {
+		return infrastructurev1beta1.TartMachine{}, fmt.Errorf("decode TartMachine: %w", err)
 	}
-	return !hasRollingUpdateRequiredChanges(current.Spec, desired.Spec)
+	return machine, nil
 }
 
-// hasRollingUpdateRequiredChanges returns true if any spec field that requires a rolling
-// update has changed between current and desired.
-func hasRollingUpdateRequiredChanges(current, desired infrastructurev1alpha1.TartMachineSpec) bool {
-	if current.Image != desired.Image {
-		return true
+func decodeTartMachineTemplate(raw runtime.RawExtension) (infrastructurev1beta1.TartMachineTemplate, error) {
+	var template infrastructurev1beta1.TartMachineTemplate
+	if err := json.Unmarshal(raw.Raw, &template); err != nil {
+		return infrastructurev1beta1.TartMachineTemplate{}, fmt.Errorf("decode TartMachineTemplate: %w", err)
 	}
-	if current.Initrd != desired.Initrd {
-		return true
-	}
-	if len(current.KernelParams) != len(desired.KernelParams) {
-		return true
-	}
-	for i := range current.KernelParams {
-		if current.KernelParams[i] != desired.KernelParams[i] {
-			return true
-		}
-	}
-	return false
+	return template, nil
 }
 
-// patchTartMachineSpec creates a JSONMergePatch from the current spec to the desired spec,
-// excluding fields that require a rolling update. If any rolling-update-required fields differ,
-// an empty patch is returned to signal that a rolling update is needed.
-func patchTartMachineSpec(current, desired *infrastructurev1alpha1.TartMachine) (*infrastructurev1alpha1.TartMachine, error) {
-	currentBytes, err := json.Marshal(current)
+func classifyMachineRequest(
+	request *runtimehooksv1.CanUpdateMachineRequest,
+) (inplaceupdate.Classification, infrastructurev1beta1.TartMachine, error) {
+	current, err := decodeTartMachine(request.Current.InfrastructureMachine)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal current TartMachine: %w", err)
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
-
-	desiredBytes, err := json.Marshal(desired)
+	desired, err := decodeTartMachine(request.Desired.InfrastructureMachine)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal desired TartMachine: %w", err)
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
-
-	patch, err := generateJSONMergePatch(currentBytes, desiredBytes)
+	classification, err := inplaceupdate.Classify(inplaceupdate.ChangeSet{
+		CurrentMachine:         request.Current.Machine,
+		DesiredMachine:         request.Desired.Machine,
+		CurrentTartMachine:     current,
+		DesiredTartMachine:     desired,
+		CurrentBootstrapConfig: request.Current.BootstrapConfig,
+		DesiredBootstrapConfig: request.Desired.BootstrapConfig,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate patch: %w", err)
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
-
-	// If rolling-update-required fields changed, return empty patch to signal rolling update.
-	if !CanUpdateInPlace(current, desired) {
-		return &infrastructurev1alpha1.TartMachine{}, nil
-	}
-
-	// If there is no actual patch, return nil to indicate no changes needed.
-	if len(patch) == 0 || string(patch) == "{}" {
-		return nil, nil
-	}
-
-	// Apply the patch to the current object to produce the patched result.
-	var patched infrastructurev1alpha1.TartMachine
-	if err := json.Unmarshal(patch, &patched); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal patch: %w", err)
-	}
-
-	return &patched, nil
+	return classification, desired, nil
 }
 
-// generateJSONMergePatch generates a JSON merge patch (RFC 7386) from current to desired.
-func generateJSONMergePatch(current, desired []byte) ([]byte, error) {
-	var currentMap map[string]any
-	var desiredMap map[string]any
-
-	if err := json.Unmarshal(current, &currentMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal current: %w", err)
-	}
-	if err := json.Unmarshal(desired, &desiredMap); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal desired: %w", err)
-	}
-
-	patch := jsonMergePatch(currentMap, desiredMap)
-	return json.Marshal(patch)
-}
-
-// jsonMergePatch recursively computes a JSON merge patch.
-func jsonMergePatch(current, desired map[string]any) map[string]any {
-	patch := map[string]any{}
-
-	for key, desiredVal := range desired {
-		currentVal, exists := current[key]
-		if !exists {
-			patch[key] = desiredVal
-			continue
-		}
-
-		desiredMap, desiredIsMap := desiredVal.(map[string]any)
-		currentMap, currentIsMap := currentVal.(map[string]any)
-
-		if desiredIsMap && currentIsMap {
-			subPatch := jsonMergePatch(currentMap, desiredMap)
-			if len(subPatch) > 0 {
-				patch[key] = subPatch
-			}
-			continue
-		}
-
-		if !jsonEqual(currentVal, desiredVal) {
-			patch[key] = desiredVal
-		}
-	}
-
-	return patch
-}
-
-// jsonEqual compares two JSON values for equality.
-func jsonEqual(a, b any) bool {
-	switch av := a.(type) {
-	case map[string]any:
-		bv, ok := b.(map[string]any)
-		if !ok {
-			return false
-		}
-		return mapsEqual(av, bv)
-	case []any:
-		bv, ok := b.([]any)
-		if !ok {
-			return false
-		}
-		return slicesEqual(av, bv)
-	case string, float64, bool, nil:
-		return a == b
-	default:
-		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
-	}
-}
-
-func mapsEqual(a, b map[string]any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, av := range a {
-		bv, ok := b[k]
-		if !ok || !jsonEqual(av, bv) {
-			return false
-		}
-	}
-	return true
-}
-
-func slicesEqual(a, b []any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !jsonEqual(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// createPatch creates a Patch object for the given response field.
-func createPatch(obj *infrastructurev1alpha1.TartMachine) *runtimehooksv1.Patch {
-	if obj == nil {
-		return nil
-	}
-
-	data, err := json.Marshal(obj)
+func classifyMachineSetRequest(
+	request *runtimehooksv1.CanUpdateMachineSetRequest,
+) (inplaceupdate.Classification, infrastructurev1beta1.TartMachineTemplateResourceSpec, error) {
+	current, err := decodeTartMachineTemplate(request.Current.InfrastructureMachineTemplate)
 	if err != nil {
-		return nil
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
+	desired, err := decodeTartMachineTemplate(request.Desired.InfrastructureMachineTemplate)
+	if err != nil {
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+	}
+	currentBootstrap, err := templateSpec(request.Current.BootstrapConfigTemplate)
+	if err != nil {
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+	}
+	desiredBootstrap, err := templateSpec(request.Desired.BootstrapConfigTemplate)
+	if err != nil {
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+	}
+	currentMachine := clusterv1.Machine{Spec: request.Current.MachineSet.Spec.Template.Spec}
+	desiredMachine := clusterv1.Machine{Spec: request.Desired.MachineSet.Spec.Template.Spec}
+	classification, err := inplaceupdate.Classify(inplaceupdate.ChangeSet{
+		CurrentMachine:         currentMachine,
+		DesiredMachine:         desiredMachine,
+		CurrentTartMachine:     tartMachineFromTemplate(current.Spec.Template.Spec),
+		DesiredTartMachine:     tartMachineFromTemplate(desired.Spec.Template.Spec),
+		CurrentBootstrapConfig: currentBootstrap,
+		DesiredBootstrapConfig: desiredBootstrap,
+	})
+	if err != nil {
+		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+	}
+	return classification, desired.Spec.Template.Spec, nil
+}
 
-	return &runtimehooksv1.Patch{
+func tartMachineFromTemplate(spec infrastructurev1beta1.TartMachineTemplateResourceSpec) infrastructurev1beta1.TartMachine {
+	return infrastructurev1beta1.TartMachine{
+		Spec: infrastructurev1beta1.TartMachineSpec{
+			Image:           spec.Image,
+			PlatformProfile: spec.PlatformProfile,
+			HostSelector:    spec.HostSelector,
+			UpdatePolicy:    spec.UpdatePolicy,
+			DeletionPolicy:  spec.DeletionPolicy,
+		},
+	}
+}
+
+func templateSpec(raw runtime.RawExtension) (runtime.RawExtension, error) {
+	if len(raw.Raw) == 0 && raw.Object == nil {
+		return runtime.RawExtension{}, nil
+	}
+	var object struct {
+		Spec struct {
+			Template struct {
+				Spec json.RawMessage `json:"spec"`
+			} `json:"template"`
+		} `json:"spec"`
+	}
+	if err := json.Unmarshal(raw.Raw, &object); err != nil {
+		return runtime.RawExtension{}, fmt.Errorf("decode BootstrapConfigTemplate: %w", err)
+	}
+	if len(object.Spec.Template.Spec) == 0 {
+		return runtime.RawExtension{}, fmt.Errorf("decode BootstrapConfigTemplate: spec.template.spec is required")
+	}
+	wrapped, err := json.Marshal(map[string]json.RawMessage{"spec": object.Spec.Template.Spec})
+	if err != nil {
+		return runtime.RawExtension{}, fmt.Errorf("encode BootstrapConfig spec: %w", err)
+	}
+	return runtime.RawExtension{Raw: wrapped}, nil
+}
+
+func machinePatch(
+	classification inplaceupdate.Classification,
+	desired infrastructurev1beta1.TartMachineSpec,
+) (runtimehooksv1.Patch, error) {
+	spec := osOnlySpecPatch(classification, desired.Image, desired.UpdatePolicy)
+	return jsonMergePatch(map[string]any{"spec": spec})
+}
+
+func machineTemplatePatch(
+	classification inplaceupdate.Classification,
+	desired infrastructurev1beta1.TartMachineTemplateResourceSpec,
+) (runtimehooksv1.Patch, error) {
+	spec := osOnlySpecPatch(classification, desired.Image, desired.UpdatePolicy)
+	return jsonMergePatch(map[string]any{
+		"spec": map[string]any{
+			"template": map[string]any{
+				"spec": spec,
+			},
+		},
+	})
+}
+
+func osOnlySpecPatch(
+	classification inplaceupdate.Classification,
+	image infrastructurev1beta1.ImageSpec,
+	updatePolicy infrastructurev1beta1.UpdatePolicy,
+) map[string]any {
+	spec := map[string]any{}
+	for _, path := range classification.Allowed {
+		switch path {
+		case inplaceupdate.FieldTartMachineImageRef:
+			spec["image"] = map[string]any{"ref": image.Ref}
+		case inplaceupdate.FieldTartMachineUpdatePolicy:
+			spec["updatePolicy"] = map[string]any{"mode": updatePolicy.Mode}
+		}
+	}
+	return spec
+}
+
+func jsonMergePatch(value map[string]any) (runtimehooksv1.Patch, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return runtimehooksv1.Patch{}, fmt.Errorf("encode JSON Merge Patch: %w", err)
+	}
+	return runtimehooksv1.Patch{
 		PatchType: runtimehooksv1.JSONMergePatchType,
 		Patch:     data,
-	}
+	}, nil
 }

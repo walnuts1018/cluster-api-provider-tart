@@ -108,19 +108,26 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - minor versionを2つ以上進める更新、downgrade、major version更新、不正なversionを拒否する判定
 - worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
 - StateMigrationでSnapshotRefなしにLifecycle stepを開始しない判定
+- Snapshot作成前にもcontrol plane Planを生成し、`KubeadmApplied`直前にSnapshotRefを必須にする判定
 - 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
+- Status上の`completedSteps`がPlan順序と異なる場合に拒否するapplication層の検証
 - workerではSnapshotなし、control planeではSnapshotを`KubeadmApplied`前に含める
   Distribution Lifecycle Plan順序の純粋生成
 - `DistributionLifecycleDriver` Portと、Preflight/Snapshot/Apply/Verifyを任意commandではなく
   型付きStepとしてdispatchするapplication service
 - Snapshot作成結果でrestore test成功を必須にし、失敗したSnapshotRefを使用しない判定
+- `TartHostOperation.status.completedSteps`、`lifecyclePhase`、`snapshotRef`へLifecycle Step結果を保存する
+  Kubernetes adapter
+- StateMigration失敗時に`RecoveryRequired`へ遷移し、既存`SnapshotRef`を保持するStatus更新
+- Node Ready、期待version、static Pod、etcd quorum、API healthをCommit前に評価するHealth Gate純粋判定
+- `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
+  `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver
+- Distribution Lifecycle用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
 
 未実装・未検証:
 
-- kubeadm Adapter
 - 署名済みPlanだけを実行するNode Lifecycle Service
-- worker/control plane別Plan生成とTartHostOperationへの接続
-- SnapshotRefのTartHostOperation Status永続化
+- worker/control plane別Plan生成とTartHostOperation controllerへの接続
 - 7つの各Step直後のcontrollerまたはNode再起動検証
-- control plane component、etcd quorum、API healthのHealth Gate
+- control plane component、etcd quorum、API healthの実観測Runtime
 - Recovery Runbookと実機/E2E検証

@@ -150,11 +150,12 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Update Operationの`BootTrial`/`AwaitingHealth` deadline超過を`RollingBack`へ切り替え、
   `RollingBack`自体のdeadline超過を`RecoveryRequired`へ切り替える処理
 - Update Operationの`AwaitingHealth`でNode healthが不健全な場合に`RollingBack`へ切り替える処理
+- boot report未着とtarget slot以外での起動をboot失敗試行として数え、
+  3回目で`RollingBack`へ切り替える処理
 
 未実装・未検証:
 
 - boot trial metadataを操作するDriver adapter
-- boot report未着やtarget slot以外での起動をboot失敗試行として数え、3回後にRollbackへ切り替える処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
 - worker、複数control plane、単一control planeの段階的feature gate
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は

@@ -136,6 +136,53 @@ func TestTartHostOperationReconcilerはUpdateのHealthGateDeadline超過をRollb
 	}
 }
 
+func TestTartHostOperationReconcilerはBootReport未着をBoot失敗試行として数える(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	operation := operationTestUpdate(host)
+	operation.Spec.Deadline = metav1.NewTime(time.Now().Add(-time.Minute))
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseBootTrial
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: &recordingOperationHostPhase{},
+	}
+
+	for attempt := int32(1); attempt <= 3; attempt++ {
+		_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(operation),
+		})
+		if err != nil {
+			t.Fatalf("attempt %d Reconcile() error = %v", attempt, err)
+		}
+		current := &infrastructurev1beta1.TartHostOperation{}
+		if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+			t.Fatalf("get TartHostOperation: %v", err)
+		}
+		if current.Status.Attempt != attempt {
+			t.Fatalf("attempt %d status.attempt = %d", attempt, current.Status.Attempt)
+		}
+		if attempt < 3 {
+			if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseBootTrial {
+				t.Fatalf("attempt %d phase = %q, want BootTrial", attempt, current.Status.Phase)
+			}
+			continue
+		}
+		if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+			t.Fatalf("attempt %d phase = %q, want RollingBack", attempt, current.Status.Phase)
+		}
+	}
+}
+
 type successfulOperationPowerOn struct{}
 
 func (successfulOperationPowerOn) PowerOn(
@@ -228,6 +275,7 @@ func operationTestUpdate(
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
 			OperationID: "0197d640-8d00-7a65-b67f-3f7c42a6935f",
 			Type:        infrastructurev1beta1.OperationTypeUpdate,
+			TargetSlot:  infrastructurev1beta1.OSSlotB,
 			HostRef: infrastructurev1beta1.ResourceReference{
 				Namespace: host.Namespace,
 				Name:      host.Name,

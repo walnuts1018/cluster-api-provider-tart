@@ -103,6 +103,41 @@ func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
 	}
 }
 
+func TestServiceCountsWrongSlotBootReportAsBootFailureAttempt(t *testing.T) {
+	ctx := t.Context()
+	service, k8sClient, key, planDigest := newTestService(t)
+
+	for attempt := int32(1); attempt <= 3; attempt++ {
+		report := agentprotocol.BootReportRequest{
+			APIVersion:         agentprotocol.APIVersion,
+			OperationUID:       "operation-uid",
+			PlanDigest:         planDigest,
+			BootID:             "wrong-slot-boot-" + string(rune('0'+attempt)),
+			ActiveSlot:         "A",
+			ArtifactGeneration: 1,
+			StateMounted:       true,
+			DataMounted:        true,
+			BootstrapApplied:   true,
+		}
+		if err := service.ReportBoot(ctx, key, report, metav1.Now()); err != nil {
+			t.Fatalf("attempt %d ReportBoot() error = %v", attempt, err)
+		}
+		persisted := getOperation(t, ctx, k8sClient, key)
+		if persisted.Status.Attempt != attempt {
+			t.Fatalf("attempt %d persisted attempt = %d", attempt, persisted.Status.Attempt)
+		}
+		if attempt < 3 {
+			if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseBootTrial {
+				t.Fatalf("attempt %d phase = %q, want BootTrial", attempt, persisted.Status.Phase)
+			}
+			continue
+		}
+		if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+			t.Fatalf("attempt %d phase = %q, want RollingBack", attempt, persisted.Status.Phase)
+		}
+	}
+}
+
 func TestServiceRejectsConflictingReportAfterBootCompletion(t *testing.T) {
 	ctx := t.Context()
 	service, _, key, planDigest := newTestService(t)
@@ -222,6 +257,7 @@ func newTestService(
 		ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
 			OperationID: "operation-uid",
+			Type:        infrastructurev1beta1.OperationTypeUpdate,
 			PlanDigest:  digest.String(),
 			HostRef: infrastructurev1beta1.ResourceReference{
 				Namespace: "default",

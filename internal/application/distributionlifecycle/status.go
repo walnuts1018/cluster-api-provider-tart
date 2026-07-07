@@ -39,10 +39,18 @@ func RecordCompletedStep(
 
 func parseCompletedSteps(completed []string, planSteps []domain.Step) ([]domain.Step, error) {
 	parsed := make([]domain.Step, 0, len(completed))
-	for _, value := range completed {
+	seen := make(map[domain.Step]struct{}, len(completed))
+	for index, value := range completed {
 		step := domain.Step(value)
 		if !stepInPlan(step, planSteps) {
 			return nil, fmt.Errorf("completed lifecycle step %q is not part of this plan", value)
+		}
+		if _, ok := seen[step]; ok {
+			return nil, fmt.Errorf("completed lifecycle step %q is duplicated", value)
+		}
+		seen[step] = struct{}{}
+		if index >= len(planSteps) || planSteps[index] != step {
+			return nil, fmt.Errorf("completed lifecycle step %q is out of order", value)
 		}
 		parsed = append(parsed, step)
 	}

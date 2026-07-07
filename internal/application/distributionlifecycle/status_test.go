@@ -55,6 +55,19 @@ func TestRecordCompletedStepは不正なStatus文字列を拒否する(t *testin
 	}
 }
 
+func TestRecordCompletedStepは順序が壊れたStatusを拒否する(t *testing.T) {
+	plan := workerPlan(t)
+
+	_, _, err := RecordCompletedStep(
+		[]string{string(domain.StepTargetSlotWritten)},
+		domain.StepTargetSlotWritten,
+		plan,
+	)
+	if err == nil {
+		t.Fatal("RecordCompletedStep() error = nil, want invalid order error")
+	}
+}
+
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{

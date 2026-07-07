@@ -95,3 +95,27 @@ A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapsh
 ## 関連
 
 - ADR 0002、0008
+
+## 実装状況（2026-07-08）
+
+Task08の実機/E2E未検証前提を維持したまま、Distribution LifecycleのI/Oへ依存しない
+判定ロジックから先行実装を開始した。
+
+実装済み:
+
+- `internal/domain/distributionlifecycle`に、KubernetesBinary/StateMigration向けの
+  Preflight純粋判定を追加
+- minor versionを2つ以上進める更新、downgrade、major version更新、不正なversionを拒否する判定
+- worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
+- StateMigrationでSnapshotRefなしにLifecycle stepを開始しない判定
+- 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
+
+未実装・未検証:
+
+- `DistributionLifecycleDriver` Portとkubeadm Adapter
+- 署名済みPlanだけを実行するNode Lifecycle Service
+- worker/control plane別Plan生成とTartHostOperationへの接続
+- Snapshot作成後のrestore testとSnapshotRef永続化
+- 7つの各Step直後のcontrollerまたはNode再起動検証
+- control plane component、etcd quorum、API healthのHealth Gate
+- Recovery Runbookと実機/E2E検証

@@ -57,6 +57,40 @@ func TestResolveUpdateFeatureGates(t *testing.T) {
 				SingleControlPlane: true,
 			},
 		},
+		{
+			name: "DistributionLifecycleはworkerから順に有効化する",
+			input: map[string]bool{
+				"InPlaceUpdates":                          true,
+				"DistributionLifecycle":                   true,
+				"DistributionLifecycleWorker":             true,
+				"DistributionLifecycleMultiControlPlane":  true,
+				"DistributionLifecycleSingleControlPlane": true,
+			},
+			want: updateFeatureGates{
+				InPlaceUpdates: true,
+				DistributionLifecycle: updateDistributionLifecycleFeatureGates{
+					Enabled:            true,
+					Worker:             true,
+					MultiControlPlane:  true,
+					SingleControlPlane: true,
+				},
+			},
+		},
+		{
+			name: "DistributionLifecycleは前段階なしに後段階を有効化しない",
+			input: map[string]bool{
+				"InPlaceUpdates":                          true,
+				"DistributionLifecycle":                   true,
+				"DistributionLifecycleMultiControlPlane":  true,
+				"DistributionLifecycleSingleControlPlane": true,
+			},
+			want: updateFeatureGates{
+				InPlaceUpdates: true,
+				DistributionLifecycle: updateDistributionLifecycleFeatureGates{
+					Enabled: true,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {

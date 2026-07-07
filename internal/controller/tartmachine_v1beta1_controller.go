@@ -89,10 +89,14 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, fmt.Errorf("get TartMachine: %w", err)
 	}
 
-	// すでにProvisioned済みの場合はNodeHealthのみ観察する
+	// すでにProvisioned済みの場合はUpdate Operationを先に反映し、必要ならNodeHealthを観察する。
 	if isProvisioned(machine) {
-		if err := r.reconcileUpdateOperation(ctx, machine); err != nil {
+		updateHandled, err := r.reconcileUpdateOperation(ctx, machine)
+		if err != nil {
 			return ctrl.Result{}, err
+		}
+		if updateHandled {
+			return ctrl.Result{}, nil
 		}
 		return r.reconcileNodeHealth(ctx, machine)
 	}
@@ -133,9 +137,9 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) error {
+) (bool, error) {
 	if machine.Status.OperationRef == nil {
-		return nil
+		return false, nil
 	}
 	operation := &infrastructurev1beta1.TartHostOperation{}
 	key := client.ObjectKey{
@@ -144,21 +148,21 @@ func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(
 	}
 	if err := r.Get(ctx, key, operation); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("get Update TartHostOperation: %w", err)
+		return false, fmt.Errorf("get Update TartHostOperation: %w", err)
 	}
 	if operation.UID != machine.Status.OperationRef.UID ||
 		operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-		return nil
+		return false, nil
 	}
 
 	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
 	if err != nil {
-		return fmt.Errorf("parse Update TartHostOperation phase: %w", err)
+		return false, fmt.Errorf("parse Update TartHostOperation phase: %w", err)
 	}
 	if !phase.Terminal() {
-		return nil
+		return false, nil
 	}
 
 	original := machine.DeepCopy()
@@ -171,9 +175,9 @@ func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(
 		machine.Status = appupdate.StatusWithUpdateRecoveryRequired(machine)
 	}
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("set TartMachine Update status: %w", err)
+		return false, fmt.Errorf("set TartMachine Update status: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // isProvisioned はTartMachineがすでにProvisioned済みかどうかを返す。
@@ -442,6 +446,13 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 				}
 				machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
 			} else {
+				if err := r.transitionOperationPhase(
+					ctx,
+					operation,
+					infrastructurev1beta1.TartHostOperationPhaseRollingBack,
+				); err != nil {
+					return ctrl.Result{}, err
+				}
 				machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
 			}
 		} else {

@@ -99,6 +99,43 @@ func TestTartHostOperationReconcilerはRollback成功時にHostをProvisionedへ
 	}
 }
 
+func TestTartHostOperationReconcilerはUpdateのHealthGateDeadline超過をRollbackへ切り替える(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	operation := operationTestUpdate(host)
+	operation.Spec.Deadline = metav1.NewTime(time.Now().Add(-time.Minute))
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: &recordingOperationHostPhase{},
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		t.Fatalf("phase = %q, want RollingBack", current.Status.Phase)
+	}
+}
+
 type successfulOperationPowerOn struct{}
 
 func (successfulOperationPowerOn) PowerOn(

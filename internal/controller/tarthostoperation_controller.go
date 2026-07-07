@@ -113,13 +113,14 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	// Deadline超過時はFailed遷移を試みる
+	// Deadline超過時はOperation種別とphaseに応じて失敗状態へ遷移する。
 	if !operation.Spec.Deadline.IsZero() && time.Now().After(operation.Spec.Deadline.Time) {
-		log.Info("TartHostOperation deadline exceeded, marking as Failed",
+		log.Info("TartHostOperation deadline exceeded",
 			"operation", req.String(),
 			"deadline", operation.Spec.Deadline.Time,
+			"phase", operation.Status.Phase,
 		)
-		return ctrl.Result{}, r.markFailed(ctx, &operation)
+		return ctrl.Result{}, r.handleDeadlineExceeded(ctx, &operation)
 	}
 
 	switch operation.Status.Phase {
@@ -302,6 +303,25 @@ func (r *TartHostOperationReconciler) markFailed(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseFailed)
+}
+
+func (r *TartHostOperationReconciler) handleDeadlineExceeded(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
+		return r.markFailed(ctx, operation)
+	}
+
+	switch operation.Status.Phase {
+	case infrastructurev1beta1.TartHostOperationPhaseBootTrial,
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
+		return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseRollingBack)
+	case infrastructurev1beta1.TartHostOperationPhaseRollingBack:
+		return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired)
+	default:
+		return r.markFailed(ctx, operation)
+	}
 }
 
 func (r *TartHostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {

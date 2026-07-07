@@ -631,7 +631,15 @@ func main() {
 }
 
 type updateFeatureGates struct {
-	InPlaceUpdates     bool
+	InPlaceUpdates        bool
+	Worker                bool
+	MultiControlPlane     bool
+	SingleControlPlane    bool
+	DistributionLifecycle updateDistributionLifecycleFeatureGates
+}
+
+type updateDistributionLifecycleFeatureGates struct {
+	Enabled            bool
 	Worker             bool
 	MultiControlPlane  bool
 	SingleControlPlane bool
@@ -642,10 +650,26 @@ func resolveUpdateFeatureGates(gates map[string]bool) updateFeatureGates {
 		return updateFeatureGates{}
 	}
 	return updateFeatureGates{
-		InPlaceUpdates:     true,
-		Worker:             gates["InPlaceUpdatesWorker"],
-		MultiControlPlane:  gates["InPlaceUpdatesMultiControlPlane"],
-		SingleControlPlane: gates["InPlaceUpdatesSingleControlPlane"],
+		InPlaceUpdates:        true,
+		Worker:                gates["InPlaceUpdatesWorker"],
+		MultiControlPlane:     gates["InPlaceUpdatesMultiControlPlane"],
+		SingleControlPlane:    gates["InPlaceUpdatesSingleControlPlane"],
+		DistributionLifecycle: resolveDistributionLifecycleFeatureGates(gates),
+	}
+}
+
+func resolveDistributionLifecycleFeatureGates(gates map[string]bool) updateDistributionLifecycleFeatureGates {
+	if !gates["DistributionLifecycle"] {
+		return updateDistributionLifecycleFeatureGates{}
+	}
+	worker := gates["DistributionLifecycleWorker"]
+	multiControlPlane := worker && gates["DistributionLifecycleMultiControlPlane"]
+	singleControlPlane := multiControlPlane && gates["DistributionLifecycleSingleControlPlane"]
+	return updateDistributionLifecycleFeatureGates{
+		Enabled:            true,
+		Worker:             worker,
+		MultiControlPlane:  multiControlPlane,
+		SingleControlPlane: singleControlPlane,
 	}
 }
 

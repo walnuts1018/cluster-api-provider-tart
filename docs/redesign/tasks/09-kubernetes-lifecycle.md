@@ -111,13 +111,16 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
 - workerではSnapshotなし、control planeではSnapshotを`KubeadmApplied`前に含める
   Distribution Lifecycle Plan順序の純粋生成
+- `DistributionLifecycleDriver` Portと、Preflight/Snapshot/Apply/Verifyを任意commandではなく
+  型付きStepとしてdispatchするapplication service
+- Snapshot作成結果でrestore test成功を必須にし、失敗したSnapshotRefを使用しない判定
 
 未実装・未検証:
 
-- `DistributionLifecycleDriver` Portとkubeadm Adapter
+- kubeadm Adapter
 - 署名済みPlanだけを実行するNode Lifecycle Service
 - worker/control plane別Plan生成とTartHostOperationへの接続
-- Snapshot作成後のrestore testとSnapshotRef永続化
+- SnapshotRefのTartHostOperation Status永続化
 - 7つの各Step直後のcontrollerまたはNode再起動検証
 - control plane component、etcd quorum、API healthのHealth Gate
 - Recovery Runbookと実機/E2E検証

@@ -152,12 +152,15 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Update Operationの`AwaitingHealth`でNode healthが不健全な場合に`RollingBack`へ切り替える処理
 - boot report未着とtarget slot以外での起動をboot失敗試行として数え、
   3回目で`RollingBack`へ切り替える処理
+- `InPlaceUpdates`親gateと`InPlaceUpdatesWorker`、
+  `InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`子gateのparse。
+  親gate無効時はRuntime Extension managerを生成しない
 
 未実装・未検証:
 
 - boot trial metadataを操作するDriver adapter
 - Condition、Event、Metric、Traceの更新失敗観測情報
-- worker、複数control plane、単一control planeの段階的feature gate
+- worker、複数control plane、単一control planeの子gateを実際の対象Machine種別判定へ接続する処理
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は
   digest固定参照と署名検証を必須とし、匿名Registryに限定する
 - QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証

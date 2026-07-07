@@ -180,6 +180,7 @@ func main() {
 		setupLog.Error(err, "Failed to parse feature gates")
 		os.Exit(1)
 	}
+	updateFeatureGates := resolveUpdateFeatureGates(featureGates)
 
 	if diagnosticsAddr != "" {
 		metricsAddr = diagnosticsAddr
@@ -516,7 +517,7 @@ func main() {
 		}
 	}
 
-	if featureGates["InPlaceUpdates"] {
+	if updateFeatureGates.InPlaceUpdates {
 		required := map[string]string{
 			"os-artifact-key-id":          osArtifactKeyID,
 			"os-artifact-public-key-file": osArtifactPublicKeyFile,
@@ -626,6 +627,25 @@ func main() {
 	if startErr != nil {
 		setupLog.Error(startErr, "Failed to run manager")
 		os.Exit(1)
+	}
+}
+
+type updateFeatureGates struct {
+	InPlaceUpdates     bool
+	Worker             bool
+	MultiControlPlane  bool
+	SingleControlPlane bool
+}
+
+func resolveUpdateFeatureGates(gates map[string]bool) updateFeatureGates {
+	if !gates["InPlaceUpdates"] {
+		return updateFeatureGates{}
+	}
+	return updateFeatureGates{
+		InPlaceUpdates:     true,
+		Worker:             gates["InPlaceUpdatesWorker"],
+		MultiControlPlane:  gates["InPlaceUpdatesMultiControlPlane"],
+		SingleControlPlane: gates["InPlaceUpdatesSingleControlPlane"],
 	}
 }
 

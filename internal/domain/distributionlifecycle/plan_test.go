@@ -53,7 +53,6 @@ func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *tes
 		TargetVersion:  "v1.35.0",
 		UpdateClass:    UpdateClassKubernetesBinary,
 		NodeRole:       NodeRoleControlPlane,
-		SnapshotRef:    "etcd-snapshot-1",
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -69,6 +68,27 @@ func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *tes
 	}
 	if !slices.Equal(plan.Steps, want) {
 		t.Fatalf("control plane plan steps = %v, want %v", plan.Steps, want)
+	}
+}
+
+func TestPlanReadyForStepはKubeadmApply前にSnapshotRefを要求する(t *testing.T) {
+	plan, err := BuildPlan(PlanInput{
+		OperationID:    "operation-1",
+		CurrentVersion: "v1.34.0",
+		TargetVersion:  "v1.35.0",
+		UpdateClass:    UpdateClassKubernetesBinary,
+		NodeRole:       NodeRoleControlPlane,
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+
+	if err := ReadyForStep(plan, StepKubeadmApplied); err == nil {
+		t.Fatal("ReadyForStep(KubeadmApplied) error = nil, want SnapshotRef required")
+	}
+	plan.SnapshotRef = "etcd-snapshot-1"
+	if err := ReadyForStep(plan, StepKubeadmApplied); err != nil {
+		t.Fatalf("ReadyForStep(KubeadmApplied) error = %v", err)
 	}
 }
 

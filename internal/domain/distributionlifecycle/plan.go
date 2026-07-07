@@ -50,9 +50,6 @@ func BuildPlan(input PlanInput) (Plan, error) {
 		NodeRole:       input.NodeRole,
 		SnapshotRef:    input.SnapshotRef,
 	}
-	if input.NodeRole == NodeRoleControlPlane && input.SnapshotRef == "" {
-		return Plan{}, fmt.Errorf("control plane lifecycle plan requires SnapshotRef")
-	}
 	if err := Preflight(preflight); err != nil {
 		return Plan{}, err
 	}
@@ -80,6 +77,19 @@ func BuildPlan(input PlanInput) (Plan, error) {
 		SnapshotRef:    input.SnapshotRef,
 		Steps:          steps,
 	}, nil
+}
+
+// ReadyForStepはStep実行直前に満たすべきPlan内の依存を検証する。
+func ReadyForStep(plan Plan, step Step) error {
+	if indexOfStep(plan.Steps, step) < 0 {
+		return fmt.Errorf("lifecycle step %q is not part of this plan", step)
+	}
+	if step == StepKubeadmApplied &&
+		(plan.NodeRole == NodeRoleControlPlane || plan.UpdateClass == UpdateClassStateMigration) &&
+		plan.SnapshotRef == "" {
+		return fmt.Errorf("SnapshotRef is required before kubeadm apply")
+	}
+	return nil
 }
 
 // RecordPlanStepはPlanが許可するStep順序に従い、完了済みStepを1回だけ追加する。

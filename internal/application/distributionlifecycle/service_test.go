@@ -63,6 +63,19 @@ func TestServiceはRestoreTestに失敗したSnapshotを拒否する(t *testing.
 	}
 }
 
+func TestServiceはSnapshotRefなしにKubeadmApplyを実行しない(t *testing.T) {
+	driver := &recordingDriver{snapshot: SnapshotResult{Ref: "etcd-snapshot-1", RestoreVerified: true}}
+	service := NewService(driver)
+	plan := controlPlanePlanWithoutSnapshot(t)
+
+	if _, err := service.RunStep(t.Context(), plan, domain.StepKubeadmApplied); err == nil {
+		t.Fatal("RunStep(KubeadmApplied) error = nil, want SnapshotRef required")
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("driver calls = %v, want no calls", driver.calls)
+	}
+}
+
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
@@ -72,6 +85,21 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleControlPlane,
 		SnapshotRef:    "etcd-snapshot-1",
+	})
+	if err != nil {
+		t.Fatalf("BuildPlan() error = %v", err)
+	}
+	return plan
+}
+
+func controlPlanePlanWithoutSnapshot(t *testing.T) domain.Plan {
+	t.Helper()
+	plan, err := domain.BuildPlan(domain.PlanInput{
+		OperationID:    "operation-1",
+		CurrentVersion: "v1.34.0",
+		TargetVersion:  "v1.35.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)

@@ -62,6 +62,9 @@ func (service *Service) RunStep(
 	if !stepInPlan(step, plan.Steps) {
 		return StepResult{}, fmt.Errorf("lifecycle step %q is not part of this plan", step)
 	}
+	if err := domain.ReadyForStep(plan, step); err != nil {
+		return StepResult{}, err
+	}
 
 	switch step {
 	case domain.StepPreflightCompleted:

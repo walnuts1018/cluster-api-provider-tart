@@ -27,7 +27,9 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	bootreportdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/bootreport"
+	inplaceupdatedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	slotdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/slot"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -105,6 +107,13 @@ func (service *Service) ReportBoot(
 				ReportedAt:         now,
 			}
 			operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(result.NextPhase)
+			if result.Decision == bootreportdomain.DecisionRecorded &&
+				phase == operationdomain.PhaseBootTrial &&
+				operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
+				if err := applyBootFailureAttempt(operation, expected); err != nil {
+					return fmt.Errorf("%w: %v", ErrReportConflict, err)
+				}
+			}
 			return service.client.Status().Update(ctx, operation)
 		}
 		return fmt.Errorf("unsupported boot report decision: %q", result.Decision)
@@ -168,6 +177,32 @@ func targetSlot(roles []agentprotocol.DiskRole) (string, error) {
 		return "", errors.New("plan does not target an OS slot")
 	}
 	return slot, nil
+}
+
+func applyBootFailureAttempt(
+	operation *infrastructurev1beta1.TartHostOperation,
+	expected bootreportdomain.ExpectedBoot,
+) error {
+	activeSlot, err := slotdomain.Parse(expected.RollbackSlot)
+	if err != nil {
+		return err
+	}
+	targetSlot, err := slotdomain.Parse(expected.ActiveSlot)
+	if err != nil {
+		return err
+	}
+	decision, err := inplaceupdatedomain.Transition(inplaceupdatedomain.State{
+		Phase:      operationdomain.PhaseBootTrial,
+		ActiveSlot: activeSlot,
+		TargetSlot: targetSlot,
+		Attempt:    operation.Status.Attempt,
+	}, inplaceupdatedomain.EventBootFailed)
+	if err != nil {
+		return err
+	}
+	operation.Status.Attempt = decision.Attempt
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(decision.Phase)
+	return nil
 }
 
 func requestReport(request agentprotocol.BootReportRequest) bootreportdomain.Report {

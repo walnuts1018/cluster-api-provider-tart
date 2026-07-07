@@ -422,6 +422,74 @@ func TestTartMachineV1Beta1ReconcilerKeepsReadyAfterUpdateRollback(t *testing.T)
 	}
 }
 
+func TestTartMachineV1Beta1ReconcilerDoesNotOverwriteRollbackConditionWithNodeHealth(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	provisioned := true
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-update-rollback-health",
+			Namespace:  "default",
+			UID:        types.UID("machine-update-rollback-health-uid"),
+			Generation: 4,
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-update"},
+		Status: infrastructurev1beta1.TartMachineStatus{
+			Initialization: infrastructurev1beta1.TartMachineInitializationStatus{Provisioned: &provisioned},
+			ActiveSlot:     infrastructurev1beta1.OSSlotA,
+			OperationRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: "default",
+				Name:      "operation-update-rollback-health",
+				UID:       types.UID("operation-update-rollback-health-uid"),
+			},
+		},
+	}
+	operation := &infrastructurev1beta1.TartHostOperation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "operation-update-rollback-health",
+			Namespace: machine.Namespace,
+			UID:       types.UID("operation-update-rollback-health-uid"),
+		},
+		Spec: infrastructurev1beta1.TartHostOperationSpec{
+			Type: infrastructurev1beta1.OperationTypeUpdate,
+		},
+		Status: infrastructurev1beta1.TartHostOperationStatus{
+			Phase: infrastructurev1beta1.TartHostOperationPhaseFailed,
+		},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(machine, operation).
+		Build()
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client: k8sClient,
+		NodeHealth: nodeHealthObserverStub{observation: machinehealthdomain.NodeObservation{
+			MachineProviderID: machine.Spec.ProviderID,
+			NodeProviderID:    machine.Spec.ProviderID,
+			NodeReady:         true,
+			ExpectedVersion:   "v1.35.0",
+			NodeVersion:       "v1.35.0",
+		}},
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartMachine{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), current); err != nil {
+		t.Fatalf("get TartMachine: %v", err)
+	}
+	condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
+	if condition == nil ||
+		condition.Status != metav1.ConditionTrue ||
+		condition.Reason != "UpdateRolledBack" {
+		t.Fatalf("Ready condition = %#v", condition)
+	}
+}
+
 func TestTartMachineV1Beta1ReconcilerCompletesUpdateAfterNodeHealth(t *testing.T) {
 	t.Parallel()
 
@@ -494,6 +562,73 @@ func TestTartMachineV1Beta1ReconcilerCompletesUpdateAfterNodeHealth(t *testing.T
 	if currentMachine.Status.ActiveSlot != infrastructurev1beta1.OSSlotB ||
 		currentMachine.Status.InstalledImageDigest != operation.Spec.TargetImageDigest {
 		t.Fatalf("machine status = %#v, want updated slot and digest", currentMachine.Status)
+	}
+}
+
+func TestTartMachineV1Beta1ReconcilerRollsBackUpdateWhenNodeHealthFails(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	provisioned := true
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-update-unhealthy",
+			Namespace:  "default",
+			UID:        types.UID("machine-update-unhealthy-uid"),
+			Generation: 5,
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-update"},
+		Status: infrastructurev1beta1.TartMachineStatus{
+			Initialization: infrastructurev1beta1.TartMachineInitializationStatus{Provisioned: &provisioned},
+			ActiveSlot:     infrastructurev1beta1.OSSlotA,
+			OperationRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: "default",
+				Name:      "operation-update-unhealthy",
+				UID:       types.UID("operation-update-unhealthy-uid"),
+			},
+		},
+	}
+	operation := &infrastructurev1beta1.TartHostOperation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "operation-update-unhealthy",
+			Namespace: machine.Namespace,
+			UID:       types.UID("operation-update-unhealthy-uid"),
+		},
+		Spec: infrastructurev1beta1.TartHostOperationSpec{
+			Type:              infrastructurev1beta1.OperationTypeUpdate,
+			TargetSlot:        infrastructurev1beta1.OSSlotB,
+			TargetImageDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		},
+		Status: infrastructurev1beta1.TartHostOperationStatus{
+			Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(machine, operation).
+		Build()
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client: k8sClient,
+		NodeHealth: nodeHealthObserverStub{observation: machinehealthdomain.NodeObservation{
+			MachineProviderID: machine.Spec.ProviderID,
+			NodeProviderID:    machine.Spec.ProviderID,
+			NodeReady:         false,
+			ExpectedVersion:   "v1.35.0",
+			NodeVersion:       "v1.35.0",
+		}},
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	currentOperation := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), currentOperation); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if currentOperation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		t.Fatalf("operation phase = %q, want RollingBack", currentOperation.Status.Phase)
 	}
 }
 

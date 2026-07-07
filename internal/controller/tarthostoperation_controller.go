@@ -35,7 +35,9 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
+	inplaceupdatedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	slotdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/slot"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -113,13 +115,14 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, nil
 	}
 
-	// Deadline超過時はFailed遷移を試みる
+	// Deadline超過時はOperation種別とphaseに応じて失敗状態へ遷移する。
 	if !operation.Spec.Deadline.IsZero() && time.Now().After(operation.Spec.Deadline.Time) {
-		log.Info("TartHostOperation deadline exceeded, marking as Failed",
+		log.Info("TartHostOperation deadline exceeded",
 			"operation", req.String(),
 			"deadline", operation.Spec.Deadline.Time,
+			"phase", operation.Status.Phase,
 		)
-		return ctrl.Result{}, r.markFailed(ctx, &operation)
+		return ctrl.Result{}, r.handleDeadlineExceeded(ctx, &operation)
 	}
 
 	switch operation.Status.Phase {
@@ -302,6 +305,62 @@ func (r *TartHostOperationReconciler) markFailed(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseFailed)
+}
+
+func (r *TartHostOperationReconciler) handleDeadlineExceeded(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
+		return r.markFailed(ctx, operation)
+	}
+
+	switch operation.Status.Phase {
+	case infrastructurev1beta1.TartHostOperationPhaseBootTrial:
+		return r.handleBootTrialDeadlineExceeded(ctx, operation)
+	case infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
+		return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseRollingBack)
+	case infrastructurev1beta1.TartHostOperationPhaseRollingBack:
+		return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired)
+	default:
+		return r.markFailed(ctx, operation)
+	}
+}
+
+func (r *TartHostOperationReconciler) handleBootTrialDeadlineExceeded(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	targetSlot, err := slotdomain.Parse(string(operation.Spec.TargetSlot))
+	if err != nil {
+		return err
+	}
+	activeSlot, err := targetSlot.Inactive()
+	if err != nil {
+		return err
+	}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHostOperation{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+			return err
+		}
+		decision, err := inplaceupdatedomain.Transition(inplaceupdatedomain.State{
+			Phase:      operationdomain.PhaseBootTrial,
+			ActiveSlot: activeSlot,
+			TargetSlot: targetSlot,
+			Attempt:    current.Status.Attempt,
+		}, inplaceupdatedomain.EventBootFailed)
+		if err != nil {
+			return err
+		}
+		original := current.DeepCopy()
+		current.Status.Attempt = decision.Attempt
+		current.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(decision.Phase)
+		if current.Status.ObservedGeneration < current.Generation {
+			current.Status.ObservedGeneration = current.Generation
+		}
+		return r.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
 }
 
 func (r *TartHostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {

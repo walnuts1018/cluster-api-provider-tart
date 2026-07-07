@@ -146,14 +146,21 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Update Operationのterminal phaseをTartHost phaseとTartMachine Ready conditionへ反映する処理
 - Update Operationが`AwaitingHealth`に到達した後、Node health成功を確認して
   Operation=`Succeeded`、TartMachineのActive Slot/Image Digest更新へ反映する処理
+- Rollback成功後のTartMachine Ready conditionを、後続のNode health観察で上書きしない処理
+- Update Operationの`BootTrial`/`AwaitingHealth` deadline超過を`RollingBack`へ切り替え、
+  `RollingBack`自体のdeadline超過を`RecoveryRequired`へ切り替える処理
+- Update Operationの`AwaitingHealth`でNode healthが不健全な場合に`RollingBack`へ切り替える処理
+- boot report未着とtarget slot以外での起動をboot失敗試行として数え、
+  3回目で`RollingBack`へ切り替える処理
+- `InPlaceUpdates`親gateと`InPlaceUpdatesWorker`、
+  `InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`子gateのparse。
+  親gate無効時はRuntime Extension managerを生成しない
 
 未実装・未検証:
 
 - boot trial metadataを操作するDriver adapter
-- boot report未着やtarget slot以外での起動をboot失敗試行として数え、3回後にRollbackへ切り替える処理
-- Node health失敗またはdeadline超過からRollbackへ切り替える処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
-- worker、複数control plane、単一control planeの段階的feature gate
+- worker、複数control plane、単一control planeの子gateを実際の対象Machine種別判定へ接続する処理
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は
   digest固定参照と署名検証を必須とし、匿名Registryに限定する
 - QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証

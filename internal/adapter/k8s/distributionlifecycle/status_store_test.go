@@ -152,6 +152,41 @@ func TestStatusStoreは永続化済みSnapshotRefでKubeadmAppliedを記録す�
 	}
 }
 
+func TestStatusStoreはStateMigration失敗時にRecoveryRequiredへ遷移しSnapshotRefを保持する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	operation := testOperation()
+	operation.Spec.UpdateClass = infrastructurev1beta1.UpdateClassStateMigration
+	operation.Status.SnapshotRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: operation.Namespace,
+		Name:      "etcd-snapshot-1",
+		UID:       types.UID("snapshot-uid"),
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(operation).
+		Build()
+	store := NewStatusStore(k8sClient)
+
+	if err := store.MarkRecoveryRequired(t.Context(), operation); err != nil {
+		t.Fatalf("MarkRecoveryRequired() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired {
+		t.Fatalf("phase = %q, want RecoveryRequired", current.Status.Phase)
+	}
+	if current.Status.SnapshotRef == nil || current.Status.SnapshotRef.Name != "etcd-snapshot-1" {
+		t.Fatalf("snapshotRef = %#v, want retained", current.Status.SnapshotRef)
+	}
+}
+
 func testOperation() *infrastructurev1beta1.TartHostOperation {
 	return &infrastructurev1beta1.TartHostOperation{
 		ObjectMeta: metav1.ObjectMeta{

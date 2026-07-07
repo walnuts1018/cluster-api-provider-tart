@@ -104,6 +104,32 @@ func (store *StatusStore) RecordStep(
 	})
 }
 
+// MarkRecoveryRequiredはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する。
+func (store *StatusStore) MarkRecoveryRequired(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if store.client == nil {
+		return fmt.Errorf("Kubernetes client is required")
+	}
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHostOperation{}
+		if err := store.client.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+			return fmt.Errorf("get TartHostOperation for recovery status: %w", err)
+		}
+		if current.UID != operation.UID || current.Spec.OperationID != operation.Spec.OperationID {
+			return fmt.Errorf("TartHostOperation identity changed while recording recovery status")
+		}
+		if current.Spec.UpdateClass == infrastructurev1beta1.UpdateClassStateMigration && current.Status.SnapshotRef == nil {
+			return fmt.Errorf("SnapshotRef is required before marking StateMigration recovery")
+		}
+		original := current.DeepCopy()
+		current.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired
+		current.Status.ObservedGeneration = current.Generation
+		return store.client.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
+}
+
 func phaseForStep(step domain.Step) LifecyclePhase {
 	switch step {
 	case domain.StepPreflightCompleted:

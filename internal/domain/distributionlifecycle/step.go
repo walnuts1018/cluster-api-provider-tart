@@ -51,21 +51,10 @@ func LifecycleSteps() []Step {
 
 // RecordStepは完了済みStep集合へ新しいStepを順序通りに追加する。
 func RecordStep(completed []Step, step Step) ([]Step, StepDecision, error) {
-	stepIndex := stepOrder(step)
-	if stepIndex < 0 {
+	if stepOrder(step) < 0 {
 		return nil, StepDecision{}, fmt.Errorf("unknown lifecycle step %q", step)
 	}
-	for _, existing := range completed {
-		if existing == step {
-			return append([]Step(nil), completed...), StepDecision{AlreadyCompleted: true}, nil
-		}
-	}
-	if stepIndex != len(completed) {
-		return nil, StepDecision{}, fmt.Errorf("lifecycle step %q cannot be recorded before %q", step, lifecycleSteps[len(completed)])
-	}
-	next := append([]Step(nil), completed...)
-	next = append(next, step)
-	return next, StepDecision{}, nil
+	return RecordPlanStep(completed, step, lifecycleSteps)
 }
 
 // AllStepsCompletedは共通Lifecycle Stepがすべて順序通り完了済みかを返す。

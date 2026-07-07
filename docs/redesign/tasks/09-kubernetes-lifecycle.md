@@ -109,6 +109,8 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
 - StateMigrationでSnapshotRefなしにLifecycle stepを開始しない判定
 - 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
+- workerではSnapshotなし、control planeではSnapshotを`KubeadmApplied`前に含める
+  Distribution Lifecycle Plan順序の純粋生成
 
 未実装・未検証:
 

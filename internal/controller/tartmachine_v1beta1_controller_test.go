@@ -422,6 +422,81 @@ func TestTartMachineV1Beta1ReconcilerKeepsReadyAfterUpdateRollback(t *testing.T)
 	}
 }
 
+func TestTartMachineV1Beta1ReconcilerCompletesUpdateAfterNodeHealth(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	provisioned := true
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-update-ready",
+			Namespace:  "default",
+			UID:        types.UID("machine-update-ready-uid"),
+			Generation: 5,
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-update"},
+		Status: infrastructurev1beta1.TartMachineStatus{
+			Initialization: infrastructurev1beta1.TartMachineInitializationStatus{Provisioned: &provisioned},
+			ActiveSlot:     infrastructurev1beta1.OSSlotA,
+			OperationRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: "default",
+				Name:      "operation-update-ready",
+				UID:       types.UID("operation-update-ready-uid"),
+			},
+		},
+	}
+	operation := &infrastructurev1beta1.TartHostOperation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "operation-update-ready",
+			Namespace: machine.Namespace,
+			UID:       types.UID("operation-update-ready-uid"),
+		},
+		Spec: infrastructurev1beta1.TartHostOperationSpec{
+			Type:              infrastructurev1beta1.OperationTypeUpdate,
+			TargetSlot:        infrastructurev1beta1.OSSlotB,
+			TargetImageDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		},
+		Status: infrastructurev1beta1.TartHostOperationStatus{
+			Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(machine, operation).
+		Build()
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client: k8sClient,
+		NodeHealth: nodeHealthObserverStub{observation: machinehealthdomain.NodeObservation{
+			MachineProviderID: machine.Spec.ProviderID,
+			NodeProviderID:    machine.Spec.ProviderID,
+			NodeReady:         true,
+			ExpectedVersion:   "v1.35.0",
+			NodeVersion:       "v1.35.0",
+		}},
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	currentOperation := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), currentOperation); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if currentOperation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseSucceeded {
+		t.Fatalf("operation phase = %q, want Succeeded", currentOperation.Status.Phase)
+	}
+	currentMachine := &infrastructurev1beta1.TartMachine{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), currentMachine); err != nil {
+		t.Fatalf("get TartMachine: %v", err)
+	}
+	if currentMachine.Status.ActiveSlot != infrastructurev1beta1.OSSlotB ||
+		currentMachine.Status.InstalledImageDigest != operation.Spec.TargetImageDigest {
+		t.Fatalf("machine status = %#v, want updated slot and digest", currentMachine.Status)
+	}
+}
+
 func provisioningGateObjects(
 	phase infrastructurev1beta1.TartHostOperationPhase,
 ) (*infrastructurev1beta1.TartMachine, *infrastructurev1beta1.TartHost, *infrastructurev1beta1.TartHostOperation) {

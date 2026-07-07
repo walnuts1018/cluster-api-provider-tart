@@ -413,6 +413,40 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 				readiness.Message,
 			)
 		}
+	} else if isProvisioned(machine) && machine.Status.OperationRef != nil {
+		operation := &infrastructurev1beta1.TartHostOperation{}
+		key := client.ObjectKey{
+			Namespace: machine.Status.OperationRef.Namespace,
+			Name:      machine.Status.OperationRef.Name,
+		}
+		if err := r.Get(ctx, key, operation); err != nil {
+			return ctrl.Result{}, fmt.Errorf("get Update TartHostOperation for health gate: %w", err)
+		}
+		if operation.UID != machine.Status.OperationRef.UID {
+			return ctrl.Result{}, fmt.Errorf(
+				"TartHostOperation UID mismatch for update health gate: expected %s, got %s",
+				machine.Status.OperationRef.UID,
+				operation.UID,
+			)
+		}
+		if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate &&
+			operation.Status.Phase == infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
+			health := machinehealthdomain.EvaluateNode(observation)
+			if health.Ready {
+				if err := r.transitionOperationPhase(
+					ctx,
+					operation,
+					infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+				); err != nil {
+					return ctrl.Result{}, err
+				}
+				machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
+			} else {
+				machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+			}
+		} else {
+			machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+		}
 	} else {
 		// 既存のStatusにNodeHealth Conditionを反映する
 		machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
@@ -422,6 +456,22 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 		return ctrl.Result{}, fmt.Errorf("set TartMachine Node health condition: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+func (r *TartMachineV1Beta1Reconciler) transitionOperationPhase(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	target infrastructurev1beta1.TartHostOperationPhase,
+) error {
+	original := operation.DeepCopy()
+	operation.Status.Phase = target
+	if operation.Status.ObservedGeneration < operation.Generation {
+		operation.Status.ObservedGeneration = operation.Generation
+	}
+	if err := r.Status().Patch(ctx, operation, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("set TartHostOperation phase: %w", err)
+	}
+	return nil
 }
 
 // isBootstrapReady はCAPIのBootstrap Secretが利用可能かどうかを確認する。

@@ -144,12 +144,14 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Rollback boot reportから旧slot健全時はOperation=`Failed`、旧slot不健全時は
   Operation=`RecoveryRequired`へ遷移する処理
 - Update Operationのterminal phaseをTartHost phaseとTartMachine Ready conditionへ反映する処理
+- Update Operationが`AwaitingHealth`に到達した後、Node health成功を確認して
+  Operation=`Succeeded`、TartMachineのActive Slot/Image Digest更新へ反映する処理
 
 未実装・未検証:
 
 - boot trial metadataを操作するDriver adapter
 - boot report未着やtarget slot以外での起動をboot失敗試行として数え、3回後にRollbackへ切り替える処理
-- Node health失敗から状態機械eventを生成し、Operation、Host、TartMachineへPatchする処理
+- Node health失敗またはdeadline超過からRollbackへ切り替える処理
 - Condition、Event、Metric、Traceの更新失敗観測情報
 - worker、複数control plane、単一control planeの段階的feature gate
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は

@@ -15,9 +15,11 @@
 package nodelifecycle
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"time"
 
@@ -51,6 +53,14 @@ type SignedPlan struct {
 
 type ValidatedPlan struct {
 	plan Plan
+}
+
+func ParsePlan(data []byte) (ValidatedPlan, error) {
+	var plan Plan
+	if err := decodeStrict(data, &plan); err != nil {
+		return ValidatedPlan{}, fmt.Errorf("decode lifecycle plan: %w", err)
+	}
+	return ValidatePlan(plan)
 }
 
 func ValidatePlan(plan Plan) (ValidatedPlan, error) {
@@ -166,4 +176,21 @@ func knownStep(step domain.Step) bool {
 		}
 	}
 	return false
+}
+
+func decodeStrict(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	err := decoder.Decode(&trailing)
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return errors.New("body must contain exactly one JSON value")
 }

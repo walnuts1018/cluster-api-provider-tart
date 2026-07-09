@@ -87,6 +87,27 @@ func TestPlanWriterはOperationDigest不一致を拒否する(t *testing.T) {
 	}
 }
 
+func TestProviderは保存済みNodeLifecyclePlanを読む(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	operation, plan, signature := planWriterFixture(t)
+	k8sClient := newPlanWriterClient(t, operation)
+	if err := NewPlanWriter(k8sClient).Write(ctx, operation, plan, signature); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	signed, err := NewProvider(k8sClient).GetPlan(ctx, client.ObjectKeyFromObject(operation))
+	if err != nil {
+		t.Fatalf("GetPlan() error = %v", err)
+	}
+	if signed.Plan.OperationID != plan.Value().OperationID ||
+		signed.Plan.TargetVersion != plan.Value().TargetVersion ||
+		signed.Signature != signature {
+		t.Fatalf("GetPlan() = %#v, want saved signed plan", signed)
+	}
+}
+
 func planWriterFixture(
 	t *testing.T,
 ) (*infrastructurev1beta1.TartHostOperation, application.ValidatedPlan, agentprotocol.Signature) {

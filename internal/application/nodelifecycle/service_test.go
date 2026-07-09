@@ -125,6 +125,45 @@ func TestServiceはSnapshotRefなしにKubeadmAppliedを実行しない(t *testi
 	}
 }
 
+func TestBuildSignedPlanはDomainPlanから署名とDigestを生成する(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	deadline := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
+	domainPlan := domain.Plan{
+		OperationID:    "operation-1",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleWorker,
+		Steps:          []domain.Step{domain.StepPreflightCompleted, domain.StepKubeadmApplied},
+	}
+
+	built, err := BuildSignedPlan(domainPlan, deadline, "lifecycle-key", privateKey)
+	if err != nil {
+		t.Fatalf("BuildSignedPlan() error = %v", err)
+	}
+	if err := VerifySignature(built.Plan, built.Signature, agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}); err != nil {
+		t.Fatalf("VerifySignature() error = %v", err)
+	}
+	digest, err := built.Plan.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	if built.Digest != digest {
+		t.Fatalf("digest = %q, want %q", built.Digest, digest)
+	}
+
+	next, err := BuildSignedPlan(domainPlan, deadline.Add(time.Minute), "lifecycle-key", privateKey)
+	if err != nil {
+		t.Fatalf("BuildSignedPlan(changed deadline) error = %v", err)
+	}
+	if next.Digest == built.Digest {
+		t.Fatal("BuildSignedPlan() digest did not change after deadline changed")
+	}
+}
+
 func TestValidatePlanは署名対象Planの危険な入力を拒否する(t *testing.T) {
 	tests := []struct {
 		name   string

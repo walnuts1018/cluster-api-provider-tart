@@ -19,9 +19,44 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/opencontainers/go-digest"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
+
+// BuiltPlanは永続化する署名済みPlanとCanonical JSON digestをまとめる。
+type BuiltPlan struct {
+	Plan      ValidatedPlan
+	Signature agentprotocol.Signature
+	Digest    digest.Digest
+}
+
+func BuildSignedPlan(
+	plan domain.Plan,
+	deadline time.Time,
+	keyID string,
+	privateKey ed25519.PrivateKey,
+) (BuiltPlan, error) {
+	validated, err := FromDomainPlan(plan, deadline)
+	if err != nil {
+		return BuiltPlan{}, fmt.Errorf("validate Node Lifecycle Plan: %w", err)
+	}
+	signature, err := Sign(validated, keyID, privateKey)
+	if err != nil {
+		return BuiltPlan{}, fmt.Errorf("sign Node Lifecycle Plan: %w", err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		return BuiltPlan{}, fmt.Errorf("calculate Node Lifecycle Plan digest: %w", err)
+	}
+	return BuiltPlan{
+		Plan:      validated,
+		Signature: signature,
+		Digest:    planDigest,
+	}, nil
+}
 
 func Sign(plan ValidatedPlan, keyID string, privateKey ed25519.PrivateKey) (agentprotocol.Signature, error) {
 	if keyID == "" {

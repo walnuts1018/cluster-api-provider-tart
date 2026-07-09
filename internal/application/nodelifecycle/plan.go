@@ -79,6 +79,20 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 	return ValidatedPlan{plan: plan}, nil
 }
 
+func FromDomainPlan(plan domain.Plan, deadline time.Time) (ValidatedPlan, error) {
+	return ValidatePlan(Plan{
+		APIVersion:     APIVersion,
+		OperationID:    plan.OperationID,
+		CurrentVersion: plan.CurrentVersion,
+		TargetVersion:  plan.TargetVersion,
+		UpdateClass:    plan.UpdateClass,
+		NodeRole:       plan.NodeRole,
+		SnapshotRef:    plan.SnapshotRef,
+		Deadline:       deadline.UTC(),
+		Steps:          append([]domain.Step(nil), plan.Steps...),
+	})
+}
+
 func ToDomainPlan(plan Plan) (domain.Plan, error) {
 	domainPlan := domain.Plan{
 		OperationID:    plan.OperationID,

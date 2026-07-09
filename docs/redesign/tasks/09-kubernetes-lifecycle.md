@@ -123,11 +123,13 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
   `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver
 - Distribution Lifecycle用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
+- Node Lifecycle Service境界で受け取るPlanをEd25519署名対象のCanonical JSONとし、
+  未署名・改ざん済みPlanを既存のDistribution Lifecycle Step runnerへ渡さない検証
 
 未実装・未検証:
 
-- 署名済みPlanだけを実行するNode Lifecycle Service
-- worker/control plane別Plan生成とTartHostOperation controllerへの接続
+- Node Lifecycle Serviceのprocess化とcontrollerからの署名済みPlan配信
+- worker/control plane別Plan生成のTartHostOperation controllerへの接続
 - 7つの各Step直後のcontrollerまたはNode再起動検証
 - control plane component、etcd quorum、API healthの実観測Runtime
 - Recovery Runbookと実機/E2E検証

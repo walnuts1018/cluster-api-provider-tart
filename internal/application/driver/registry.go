@@ -29,6 +29,7 @@ type Registry struct {
 	powerStateObservers map[driverdomain.Name]PowerStateObserver
 	bootOverride        map[driverdomain.Name]BootOverrideDriver
 	virtualMedia        map[driverdomain.Name]VirtualMediaDriver
+	discoverers         map[driverdomain.Name]CapabilityDiscoverer
 }
 
 func NewRegistry() *Registry {
@@ -38,6 +39,7 @@ func NewRegistry() *Registry {
 		powerStateObservers: make(map[driverdomain.Name]PowerStateObserver),
 		bootOverride:        make(map[driverdomain.Name]BootOverrideDriver),
 		virtualMedia:        make(map[driverdomain.Name]VirtualMediaDriver),
+		discoverers:         make(map[driverdomain.Name]CapabilityDiscoverer),
 	}
 }
 
@@ -106,6 +108,19 @@ func (registry *Registry) RegisterVirtualMedia(name driverdomain.Name, implement
 	return nil
 }
 
+func (registry *Registry) RegisterCapabilityDiscoverer(name driverdomain.Name, implementation CapabilityDiscoverer) error {
+	if implementation == nil {
+		return fmt.Errorf("register capability discoverer %q: implementation must not be nil", name)
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if _, exists := registry.discoverers[name]; exists {
+		return fmt.Errorf("register capability discoverer %q: already registered", name)
+	}
+	registry.discoverers[name] = implementation
+	return nil
+}
+
 func (registry *Registry) PowerOn(name driverdomain.Name) (PowerOnDriver, error) {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
@@ -161,6 +176,13 @@ func unsupported(name driverdomain.Name, capability capabilitydomain.Capability)
 		driverdomain.ErrorUnsupported,
 		fmt.Errorf("driver %q does not provide %s", name, capability),
 	)
+}
+
+func (registry *Registry) CapabilityDiscoverer(name driverdomain.Name) (CapabilityDiscoverer, bool) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.discoverers[name]
+	return implementation, exists
 }
 
 func (registry *Registry) Capabilities(name driverdomain.Name) capabilitydomain.Set {

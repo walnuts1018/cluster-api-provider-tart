@@ -88,12 +88,13 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `internal/adapter/driver/redfish` に Power、ObservePowerState、one-time BootOverride、Virtual Media mount/unmount、Capability discovery を行う Redfish adapter を追加した。
 - `TartHost.spec.management.redfish` に endpoint、CA bundle Secret参照、SPKI pin、preferred boot transport を追加し、CRDへ反映した。
 - `internal/adapter/k8s/drivertarget` に `TartHost` と Secret から `driverdomain.HostTarget` / `RedfishAccess` を構築する adapter を追加し、`TartHostOperation` controller から利用する接続点を作った。
+- `internal/application/driver` に host-aware capability discovery port を追加し、Redfish discovery結果またはregistryの静的capabilityを retry付きで取得できるようにした。
+- `internal/adapter/k8s/drivercapability` と `internal/adapter/k8s/v1beta1host` に、driver discovery結果を `TartHost Status.capabilities` へ保存する adapter を追加し、`TartHostOperation` controller から PowerOn 前に実行するよう接続した。
 - Redfish adapter で session authentication を優先し、SessionService 未対応時だけ basic authentication へ fallback する挙動を unit test で固定した。
 - CA/SPKI pin 検証、Capability discovery、same Operation ID の idempotent mount、異なる mount 要求の `Conflict`、one-time BootOverride を unit test で固定した。
 
 ### 未実装
 
-- `TartHost Status` への discovery 結果の保存
 - HTTPBoot / VirtualMedia / PXE の各 Transport から Provisioning Agent を起動する controller 統合
 - controller 再起動後の BMC 再観測と Status 修正
 - Redfish simulator の外部 contract test と実機検証記録

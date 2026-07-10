@@ -17,6 +17,7 @@ package driver
 import (
 	"context"
 
+	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
@@ -40,4 +41,13 @@ type BootOverrideDriver interface {
 type VirtualMediaDriver interface {
 	Mount(context.Context, driverdomain.HostTarget, driverdomain.Artifact, operationdomain.ID) error
 	Unmount(context.Context, driverdomain.HostTarget, operationdomain.ID) error
+}
+
+type CapabilityDiscoverer interface {
+	DiscoverCapabilities(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		Invocation,
+	) (capabilitydomain.Set, error)
 }

@@ -46,10 +46,11 @@ import (
 // このControllerはPreparingBootへの遷移とAwaitingHealth判定に集中する。
 type TartHostOperationReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	PowerOn   OperationPowerOnService
-	HostPhase OperationHostPhaseService
-	Targets   OperationDriverTargetBuilder
+	Scheme             *runtime.Scheme
+	PowerOn            OperationPowerOnService
+	HostPhase          OperationHostPhaseService
+	Targets            OperationDriverTargetBuilder
+	DriverCapabilities OperationDriverCapabilityObserver
 }
 
 // OperationPowerOnService はOperationのPreparingBootフェーズでWoLを発火する。
@@ -80,6 +81,17 @@ type OperationHostPhaseService interface {
 // OperationDriverTargetBuilder はTartHostからdriver呼び出し対象を構築する。
 type OperationDriverTargetBuilder interface {
 	Build(context.Context, *infrastructurev1beta1.TartHost) (driverdomain.HostTarget, error)
+}
+
+// OperationDriverCapabilityObserver はHostごとのdriver capabilityを観測しStatusへ反映する。
+type OperationDriverCapabilityObserver interface {
+	ObserveAndPersist(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		*infrastructurev1beta1.TartHost,
+		applicationdriver.Invocation,
+	) error
 }
 
 const (
@@ -214,17 +226,25 @@ func (r *TartHostOperationReconciler) handlePending(
 	if err != nil {
 		return fmt.Errorf("parse power driver name: %w", err)
 	}
+	invocation := applicationdriver.Invocation{
+		OperationType: string(operation.Spec.Type),
+		Phase:         "PreparingBoot",
+		Rollback:      false,
+	}
+	if err := r.observeDriverCapabilities(ctx, host, powerDriverName, target, invocation); err != nil {
+		log.Error(err, "Failed to observe TartHost driver capabilities",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", powerDriverName,
+		)
+		return fmt.Errorf("observe TartHost driver capabilities: %w", err)
+	}
 
 	if err := r.PowerOn.PowerOn(
 		ctx,
 		powerDriverName,
 		target,
 		operationID,
-		applicationdriver.Invocation{
-			OperationType: string(operation.Spec.Type),
-			Phase:         "PreparingBoot",
-			Rollback:      false,
-		},
+		invocation,
 	); err != nil {
 		log.Error(err, "Failed to power on TartHost for Operation",
 			"operation", client.ObjectKeyFromObject(operation).String(),
@@ -266,6 +286,19 @@ func (r *TartHostOperationReconciler) driverTarget(
 		return driverdomain.HostTarget{}, fmt.Errorf("parse TartHost boot MAC address: %w", err)
 	}
 	return driverdomain.NewHostTarget(bootMAC), nil
+}
+
+func (r *TartHostOperationReconciler) observeDriverCapabilities(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.DriverCapabilities == nil {
+		return nil
+	}
+	return r.DriverCapabilities.ObserveAndPersist(ctx, driverName, target, host, invocation)
 }
 
 func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(

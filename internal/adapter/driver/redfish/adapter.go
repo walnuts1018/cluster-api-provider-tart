@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"strings"
 
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -50,7 +51,9 @@ func NewWithTransport(transport http.RoundTripper) *Adapter {
 
 func (adapter *Adapter) DiscoverCapabilities(
 	ctx context.Context,
+	_ driverdomain.Name,
 	target driverdomain.HostTarget,
+	_ applicationdriver.Invocation,
 ) (capabilitydomain.Set, error) {
 	client, session, err := adapter.newSession(ctx, target)
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
+	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
@@ -139,6 +140,57 @@ func (service *Service) PowerOn(
 		}
 	}
 	return fmt.Errorf("unreachable PowerOn retry state")
+}
+
+func (service *Service) DiscoverCapabilities(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation Invocation,
+) (capabilitydomain.Set, error) {
+	if discoverer, ok := service.registry.CapabilityDiscoverer(name); ok {
+		callCtx, cancel := context.WithTimeout(ctx, service.timeout)
+		defer cancel()
+
+		for attempt := range defaultAttempts {
+			capabilities, err := discoverer.DiscoverCapabilities(callCtx, name, target, invocation)
+			if err == nil {
+				service.record(ctx, name, invocation, "success")
+				return capabilities, nil
+			}
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+				service.record(ctx, name, invocation, "deadline_exceeded")
+				return capabilitydomain.Set{}, driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+			}
+			if !driverdomain.IsErrorKind(err, driverdomain.ErrorTemporary) {
+				service.record(ctx, name, invocation, errorResult(err))
+				return capabilitydomain.Set{}, err
+			}
+			if attempt == defaultAttempts-1 {
+				service.record(ctx, name, invocation, "temporary")
+				return capabilitydomain.Set{}, err
+			}
+			delay := service.jitter(time.Duration(attempt+1) * time.Second)
+			ctrllog.FromContext(ctx).Error(err, "Retrying temporary driver discovery failure",
+				"driver", name,
+				"attempt", attempt+2,
+				"maxAttempts", defaultAttempts,
+				"retryAfter", delay,
+			)
+			if err := service.sleep(callCtx, delay); err != nil {
+				service.record(ctx, name, invocation, errorResult(err))
+				if errors.Is(err, context.DeadlineExceeded) {
+					return capabilitydomain.Set{}, driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+				}
+				return capabilitydomain.Set{}, err
+			}
+		}
+		return capabilitydomain.Set{}, fmt.Errorf("unreachable DiscoverCapabilities retry state")
+	}
+
+	capabilities := service.registry.Capabilities(name)
+	service.record(ctx, name, invocation, "success")
+	return capabilities, nil
 }
 
 func (service *Service) record(

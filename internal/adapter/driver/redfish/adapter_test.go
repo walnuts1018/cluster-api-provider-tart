@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -42,7 +43,7 @@ func TestAdapterDiscoversCapabilitiesWithSessionAuthentication(t *testing.T) {
 	fixture := &redfishFixture{}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	got, err := adapter.DiscoverCapabilities(context.Background(), target)
+	got, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{})
 	if err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
@@ -71,7 +72,7 @@ func TestAdapterFallsBackToBasicAuthenticationOnlyWhenSessionIsUnsupported(t *te
 	fixture := &redfishFixture{sessionUnsupported: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	if _, err := adapter.DiscoverCapabilities(context.Background(), target); err != nil {
+	if _, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{}); err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
 	if !fixture.usedBasicAuth {
@@ -85,7 +86,7 @@ func TestAdapterRejectsAuthenticationFailureWithoutBasicFallback(t *testing.T) {
 	fixture := &redfishFixture{sessionAuthFails: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	if _, err := adapter.DiscoverCapabilities(context.Background(), target); !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
+	if _, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{}); !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
 		t.Fatalf("DiscoverCapabilities() error = %v, want AuthenticationFailed", err)
 	}
 	if fixture.usedBasicAuth {

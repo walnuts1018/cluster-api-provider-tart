@@ -193,6 +193,99 @@ func (service *Service) DiscoverCapabilities(
 	return capabilities, nil
 }
 
+func (service *Service) PrepareBoot(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	operationID operationdomain.ID,
+	preferred *driverdomain.BootTarget,
+	invocation Invocation,
+) (driverdomain.BootTarget, error) {
+	if preferred != nil {
+		if *preferred == driverdomain.BootTargetVirtualMedia {
+			return "", driverdomain.NewError(
+				driverdomain.ErrorUnsupported,
+				errors.New("VirtualMedia boot requires Agent Artifact delivery integration"),
+			)
+		}
+		if err := service.setNextBoot(ctx, name, target, *preferred, operationID, invocation); err != nil {
+			return "", err
+		}
+		return *preferred, nil
+	}
+
+	candidates := []driverdomain.BootTarget{
+		driverdomain.BootTargetHTTP,
+		driverdomain.BootTargetPXE,
+	}
+	for _, candidate := range candidates {
+		if err := service.setNextBoot(ctx, name, target, candidate, operationID, invocation); err != nil {
+			if driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
+				continue
+			}
+			return "", err
+		}
+		return candidate, nil
+	}
+	return "", driverdomain.NewError(
+		driverdomain.ErrorUnsupported,
+		errors.New("no supported Redfish network boot transport is available"),
+	)
+}
+
+func (service *Service) setNextBoot(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	bootTarget driverdomain.BootTarget,
+	operationID operationdomain.ID,
+	invocation Invocation,
+) error {
+	implementation, err := service.registry.BootOverride(name)
+	if err != nil {
+		service.record(ctx, name, invocation, "unsupported")
+		return err
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, service.timeout)
+	defer cancel()
+
+	for attempt := range defaultAttempts {
+		err = implementation.SetNextBoot(callCtx, target, bootTarget, operationID)
+		if err == nil {
+			service.record(ctx, name, invocation, "success")
+			return nil
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			service.record(ctx, name, invocation, "deadline_exceeded")
+			return driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+		}
+		if !driverdomain.IsErrorKind(err, driverdomain.ErrorTemporary) {
+			service.record(ctx, name, invocation, errorResult(err))
+			return err
+		}
+		if attempt == defaultAttempts-1 {
+			service.record(ctx, name, invocation, "temporary")
+			return err
+		}
+		delay := service.jitter(time.Duration(attempt+1) * time.Second)
+		ctrllog.FromContext(ctx).Error(err, "Retrying temporary boot override failure",
+			"driver", name,
+			"attempt", attempt+2,
+			"maxAttempts", defaultAttempts,
+			"retryAfter", delay,
+		)
+		if err := service.sleep(callCtx, delay); err != nil {
+			service.record(ctx, name, invocation, errorResult(err))
+			if errors.Is(err, context.DeadlineExceeded) {
+				return driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+			}
+			return err
+		}
+	}
+	return fmt.Errorf("unreachable SetNextBoot retry state")
+}
+
 func (service *Service) record(
 	ctx context.Context,
 	name driverdomain.Name,

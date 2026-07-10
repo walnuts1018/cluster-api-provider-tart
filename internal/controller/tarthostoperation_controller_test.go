@@ -50,6 +50,7 @@ func TestTartHostOperationReconcilerはUpdate開始時にHostをUpdatingへ移�
 		Client:             k8sClient,
 		Scheme:             scheme,
 		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
 		HostPhase:          hostPhase,
 		DriverCapabilities: &recordingOperationDriverCapabilities{},
 	}
@@ -85,6 +86,7 @@ func TestTartHostOperationReconcilerはPowerOn前にDriverCapabilitiesを観測�
 		Client:             k8sClient,
 		Scheme:             scheme,
 		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
 		HostPhase:          &recordingOperationHostPhase{},
 		DriverCapabilities: observer,
 	}
@@ -100,6 +102,48 @@ func TestTartHostOperationReconcilerはPowerOn前にDriverCapabilitiesを観測�
 	}
 	if observer.driver != driverdomain.WoL {
 		t.Fatalf("driver = %q, want %q", observer.driver, driverdomain.WoL)
+	}
+}
+
+func TestTartHostOperationReconcilerはRedfishPreferredBootTransportをPrepareBootへ渡す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Spec.Management.PowerDriver = "redfish"
+	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
+		Endpoint:               "https://bmc.example.test",
+		PreferredBootTransport: infrastructurev1beta1.BootTransportRedfishPXE,
+	}
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	preparation := &recordingOperationBootPreparation{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        preparation,
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if preparation.calls != 1 {
+		t.Fatalf("PrepareBoot() calls = %d, want 1", preparation.calls)
+	}
+	if preparation.preferred == nil || *preparation.preferred != driverdomain.BootTargetPXE {
+		t.Fatalf("preferred = %v, want PXE", preparation.preferred)
 	}
 }
 
@@ -244,6 +288,11 @@ type recordingOperationDriverCapabilities struct {
 	driver driverdomain.Name
 }
 
+type recordingOperationBootPreparation struct {
+	calls     int
+	preferred *driverdomain.BootTarget
+}
+
 func (observer *recordingOperationDriverCapabilities) ObserveAndPersist(
 	_ context.Context,
 	driver driverdomain.Name,
@@ -255,6 +304,22 @@ func (observer *recordingOperationDriverCapabilities) ObserveAndPersist(
 	observer.driver = driver
 	_, _ = capabilitydomain.NewSet(capabilitydomain.PowerOn)
 	return nil
+}
+
+func (preparation *recordingOperationBootPreparation) PrepareBoot(
+	_ context.Context,
+	_ driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ operationdomain.ID,
+	preferred *driverdomain.BootTarget,
+	_ applicationdriver.Invocation,
+) (driverdomain.BootTarget, error) {
+	preparation.calls++
+	preparation.preferred = preferred
+	if preferred != nil {
+		return *preferred, nil
+	}
+	return driverdomain.BootTargetHTTP, nil
 }
 
 func (phase *recordingOperationHostPhase) MarkHostProvisioning(

@@ -195,6 +195,69 @@ func TestServiceDiscoverCapabilitiesDoesNotRetryAuthenticationFailure(t *testing
 	}
 }
 
+func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
+	t.Parallel()
+
+	implementation := &recordingBootOverrideDriver{
+		errorsByTarget: map[driverdomain.BootTarget][]error{
+			driverdomain.BootTargetHTTP: {
+				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
+			},
+		},
+	}
+	registry := NewRegistry()
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, implementation); err != nil {
+		t.Fatalf("RegisterBootOverride() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	target, err := service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		nil,
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("PrepareBoot() error = %v", err)
+	}
+	if target != driverdomain.BootTargetPXE {
+		t.Fatalf("PrepareBoot() target = %q, want PXE", target)
+	}
+	if got := implementation.calls; len(got) != 2 || got[0] != driverdomain.BootTargetHTTP || got[1] != driverdomain.BootTargetPXE {
+		t.Fatalf("SetNextBoot calls = %v, want [HTTP PXE]", got)
+	}
+}
+
+func TestServicePrepareBootRejectsVirtualMediaPreferenceWithoutArtifactProvider(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewServiceForTest(NewRegistry(), time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	preferred := driverdomain.BootTargetVirtualMedia
+	_, err = service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		&preferred,
+		Invocation{},
+	)
+	if !driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
+		t.Fatalf("PrepareBoot() error = %v, want Unsupported", err)
+	}
+}
+
 func TestProductionJitterStaysWithinTwentyPercent(t *testing.T) {
 	t.Parallel()
 
@@ -323,6 +386,27 @@ func driverdomainToCapability(name driverdomain.Name) capabilitydomain.Capabilit
 type recordingCapabilityDiscoverer struct {
 	calls  int
 	errors []error
+}
+
+type recordingBootOverrideDriver struct {
+	calls          []driverdomain.BootTarget
+	errorsByTarget map[driverdomain.BootTarget][]error
+}
+
+func (driver *recordingBootOverrideDriver) SetNextBoot(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	target driverdomain.BootTarget,
+	_ operationdomain.ID,
+) error {
+	driver.calls = append(driver.calls, target)
+	errors := driver.errorsByTarget[target]
+	if len(errors) == 0 {
+		return nil
+	}
+	err := errors[0]
+	driver.errorsByTarget[target] = errors[1:]
+	return err
 }
 
 func (discoverer *recordingCapabilityDiscoverer) DiscoverCapabilities(

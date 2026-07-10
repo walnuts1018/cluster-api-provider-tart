@@ -56,7 +56,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
 	return reconcilers, nil
 }
@@ -157,6 +157,7 @@ func provideTartHostOperationReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
 	powerOn controller.OperationPowerOnService,
+	prepareBoot controller.OperationBootPreparationService,
 	hostPhase controller.OperationHostPhaseService,
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
@@ -165,6 +166,7 @@ func provideTartHostOperationReconciler(
 		Client:             k8sClient,
 		Scheme:             scheme,
 		PowerOn:            powerOn,
+		PrepareBoot:        prepareBoot,
 		HostPhase:          hostPhase,
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,

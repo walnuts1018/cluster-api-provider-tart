@@ -48,6 +48,7 @@ type TartHostOperationReconciler struct {
 	client.Client
 	Scheme             *runtime.Scheme
 	PowerOn            OperationPowerOnService
+	PrepareBoot        OperationBootPreparationService
 	HostPhase          OperationHostPhaseService
 	Targets            OperationDriverTargetBuilder
 	DriverCapabilities OperationDriverCapabilityObserver
@@ -62,6 +63,18 @@ type OperationPowerOnService interface {
 		operationdomain.ID,
 		applicationdriver.Invocation,
 	) error
+}
+
+// OperationBootPreparationService はPowerOn前に利用するboot transportを準備する。
+type OperationBootPreparationService interface {
+	PrepareBoot(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		operationdomain.ID,
+		*driverdomain.BootTarget,
+		applicationdriver.Invocation,
+	) (driverdomain.BootTarget, error)
 }
 
 // OperationHostPhaseService はTartHostのPhaseをOperation結果に応じて更新する。
@@ -238,6 +251,13 @@ func (r *TartHostOperationReconciler) handlePending(
 		)
 		return fmt.Errorf("observe TartHost driver capabilities: %w", err)
 	}
+	if err := r.prepareBoot(ctx, host, powerDriverName, target, operationID, invocation); err != nil {
+		log.Error(err, "Failed to prepare TartHost boot transport",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", powerDriverName,
+		)
+		return fmt.Errorf("prepare TartHost boot transport: %w", err)
+	}
 
 	if err := r.PowerOn.PowerOn(
 		ctx,
@@ -272,6 +292,46 @@ func (r *TartHostOperationReconciler) handlePending(
 	}
 
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+}
+
+func (r *TartHostOperationReconciler) prepareBoot(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	operationID operationdomain.ID,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.PrepareBoot == nil || host.Spec.Management.BootDriver != "redfish" {
+		return nil
+	}
+	preferred, err := preferredBootTarget(host)
+	if err != nil {
+		return err
+	}
+	_, err = r.PrepareBoot.PrepareBoot(ctx, driverName, target, operationID, preferred, invocation)
+	return err
+}
+
+func preferredBootTarget(host *infrastructurev1beta1.TartHost) (*driverdomain.BootTarget, error) {
+	if host.Spec.Management.Redfish == nil {
+		return nil, nil
+	}
+	switch host.Spec.Management.Redfish.PreferredBootTransport {
+	case "":
+		return nil, nil
+	case infrastructurev1beta1.BootTransportRedfishHTTPBoot:
+		target := driverdomain.BootTargetHTTP
+		return &target, nil
+	case infrastructurev1beta1.BootTransportRedfishPXE:
+		target := driverdomain.BootTargetPXE
+		return &target, nil
+	case infrastructurev1beta1.BootTransportRedfishVirtualMedia:
+		target := driverdomain.BootTargetVirtualMedia
+		return &target, nil
+	default:
+		return nil, fmt.Errorf("unsupported Redfish preferred boot transport %q", host.Spec.Management.Redfish.PreferredBootTransport)
+	}
 }
 
 func (r *TartHostOperationReconciler) driverTarget(

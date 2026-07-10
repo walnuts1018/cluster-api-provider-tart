@@ -46,9 +46,12 @@ import (
 // このControllerはPreparingBootへの遷移とAwaitingHealth判定に集中する。
 type TartHostOperationReconciler struct {
 	client.Client
-	Scheme    *runtime.Scheme
-	PowerOn   OperationPowerOnService
-	HostPhase OperationHostPhaseService
+	Scheme             *runtime.Scheme
+	PowerOn            OperationPowerOnService
+	PrepareBoot        OperationBootPreparationService
+	HostPhase          OperationHostPhaseService
+	Targets            OperationDriverTargetBuilder
+	DriverCapabilities OperationDriverCapabilityObserver
 }
 
 // OperationPowerOnService はOperationのPreparingBootフェーズでWoLを発火する。
@@ -60,6 +63,18 @@ type OperationPowerOnService interface {
 		operationdomain.ID,
 		applicationdriver.Invocation,
 	) error
+}
+
+// OperationBootPreparationService はPowerOn前に利用するboot transportを準備する。
+type OperationBootPreparationService interface {
+	PrepareBoot(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		operationdomain.ID,
+		*driverdomain.BootTarget,
+		applicationdriver.Invocation,
+	) (driverdomain.BootTarget, error)
 }
 
 // OperationHostPhaseService はTartHostのPhaseをOperation結果に応じて更新する。
@@ -74,6 +89,22 @@ type OperationHostPhaseService interface {
 	MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostAvailable はHostをAvailableに戻す（ConsumerRefを除去）。
 	MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+}
+
+// OperationDriverTargetBuilder はTartHostからdriver呼び出し対象を構築する。
+type OperationDriverTargetBuilder interface {
+	Build(context.Context, *infrastructurev1beta1.TartHost) (driverdomain.HostTarget, error)
+}
+
+// OperationDriverCapabilityObserver はHostごとのdriver capabilityを観測しStatusへ反映する。
+type OperationDriverCapabilityObserver interface {
+	ObserveAndPersist(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		*infrastructurev1beta1.TartHost,
+		applicationdriver.Invocation,
+	) error
 }
 
 const (
@@ -194,30 +225,46 @@ func (r *TartHostOperationReconciler) handlePending(
 		return err
 	}
 
-	bootMAC, err := driverdomain.ParseMACAddress(host.Spec.Identifiers.BootMACAddress)
-	if err != nil {
-		return fmt.Errorf("parse TartHost boot MAC address: %w", err)
-	}
 	operationID, err := operationdomain.ParseID(operation.Spec.OperationID)
 	if err != nil {
 		return fmt.Errorf("parse operation ID: %w", err)
+	}
+
+	target, err := r.driverTarget(ctx, host)
+	if err != nil {
+		return err
 	}
 
 	powerDriverName, err := driverdomain.ParseName(host.Spec.Management.PowerDriver)
 	if err != nil {
 		return fmt.Errorf("parse power driver name: %w", err)
 	}
+	invocation := applicationdriver.Invocation{
+		OperationType: string(operation.Spec.Type),
+		Phase:         "PreparingBoot",
+		Rollback:      false,
+	}
+	if err := r.observeDriverCapabilities(ctx, host, powerDriverName, target, invocation); err != nil {
+		log.Error(err, "Failed to observe TartHost driver capabilities",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", powerDriverName,
+		)
+		return fmt.Errorf("observe TartHost driver capabilities: %w", err)
+	}
+	if err := r.prepareBoot(ctx, host, powerDriverName, target, operationID, invocation); err != nil {
+		log.Error(err, "Failed to prepare TartHost boot transport",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", powerDriverName,
+		)
+		return fmt.Errorf("prepare TartHost boot transport: %w", err)
+	}
 
 	if err := r.PowerOn.PowerOn(
 		ctx,
 		powerDriverName,
-		driverdomain.NewHostTarget(bootMAC),
+		target,
 		operationID,
-		applicationdriver.Invocation{
-			OperationType: string(operation.Spec.Type),
-			Phase:         "PreparingBoot",
-			Rollback:      false,
-		},
+		invocation,
 	); err != nil {
 		log.Error(err, "Failed to power on TartHost for Operation",
 			"operation", client.ObjectKeyFromObject(operation).String(),
@@ -245,6 +292,73 @@ func (r *TartHostOperationReconciler) handlePending(
 	}
 
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+}
+
+func (r *TartHostOperationReconciler) prepareBoot(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	operationID operationdomain.ID,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.PrepareBoot == nil || host.Spec.Management.BootDriver != "redfish" {
+		return nil
+	}
+	preferred, err := preferredBootTarget(host)
+	if err != nil {
+		return err
+	}
+	_, err = r.PrepareBoot.PrepareBoot(ctx, driverName, target, operationID, preferred, invocation)
+	return err
+}
+
+func preferredBootTarget(host *infrastructurev1beta1.TartHost) (*driverdomain.BootTarget, error) {
+	if host.Spec.Management.Redfish == nil {
+		return nil, nil
+	}
+	switch host.Spec.Management.Redfish.PreferredBootTransport {
+	case "":
+		return nil, nil
+	case infrastructurev1beta1.BootTransportRedfishHTTPBoot:
+		target := driverdomain.BootTargetHTTP
+		return &target, nil
+	case infrastructurev1beta1.BootTransportRedfishPXE:
+		target := driverdomain.BootTargetPXE
+		return &target, nil
+	case infrastructurev1beta1.BootTransportRedfishVirtualMedia:
+		target := driverdomain.BootTargetVirtualMedia
+		return &target, nil
+	default:
+		return nil, fmt.Errorf("unsupported Redfish preferred boot transport %q", host.Spec.Management.Redfish.PreferredBootTransport)
+	}
+}
+
+func (r *TartHostOperationReconciler) driverTarget(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+) (driverdomain.HostTarget, error) {
+	if r.Targets != nil {
+		return r.Targets.Build(ctx, host)
+	}
+	bootMAC, err := driverdomain.ParseMACAddress(host.Spec.Identifiers.BootMACAddress)
+	if err != nil {
+		return driverdomain.HostTarget{}, fmt.Errorf("parse TartHost boot MAC address: %w", err)
+	}
+	return driverdomain.NewHostTarget(bootMAC), nil
+}
+
+func (r *TartHostOperationReconciler) observeDriverCapabilities(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.DriverCapabilities == nil {
+		return nil
+	}
+	return r.DriverCapabilities.ObserveAndPersist(ctx, driverName, target, host, invocation)
 }
 
 func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(

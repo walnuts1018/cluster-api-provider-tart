@@ -15,6 +15,7 @@
 package driver
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -62,6 +63,20 @@ func TestRegistryRejectsDuplicatePowerOnRegistration(t *testing.T) {
 	}
 }
 
+func TestRegistryReturnsRegisteredCapabilityDiscoverer(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	discoverer := &fakeCapabilityDiscoverer{}
+	if err := registry.RegisterCapabilityDiscoverer(driverdomain.Redfish, discoverer); err != nil {
+		t.Fatalf("RegisterCapabilityDiscoverer() error = %v", err)
+	}
+	got, ok := registry.CapabilityDiscoverer(driverdomain.Redfish)
+	if !ok || got == nil {
+		t.Fatal("CapabilityDiscoverer() = nil/false, want registered implementation")
+	}
+}
+
 func TestDriverErrorCanBeMatchedThroughWrapping(t *testing.T) {
 	t.Parallel()
 
@@ -69,4 +84,15 @@ func TestDriverErrorCanBeMatchedThroughWrapping(t *testing.T) {
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
 		t.Fatal("wrapped driver error was not classified")
 	}
+}
+
+type fakeCapabilityDiscoverer struct{}
+
+func (*fakeCapabilityDiscoverer) DiscoverCapabilities(
+	context.Context,
+	driverdomain.Name,
+	driverdomain.HostTarget,
+	Invocation,
+) (capabilitydomain.Set, error) {
+	return capabilitydomain.NewSet(capabilitydomain.PowerOn)
 }

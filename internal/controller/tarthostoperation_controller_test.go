@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -46,10 +47,12 @@ func TestTartHostOperationReconcilerはUpdate開始時にHostをUpdatingへ移�
 		Build()
 	hostPhase := &recordingOperationHostPhase{}
 	reconciler := &TartHostOperationReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		PowerOn:   successfulOperationPowerOn{},
-		HostPhase: hostPhase,
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          hostPhase,
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
 	}
 
 	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
@@ -63,6 +66,84 @@ func TestTartHostOperationReconcilerはUpdate開始時にHostをUpdatingへ移�
 	}
 	if hostPhase.provisioning {
 		t.Fatal("MarkHostProvisioning() was called for Update Operation")
+	}
+}
+
+func TestTartHostOperationReconcilerはPowerOn前にDriverCapabilitiesを観測する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	observer := &recordingOperationDriverCapabilities{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: observer,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveAndPersist() calls = %d, want 1", observer.calls)
+	}
+	if observer.driver != driverdomain.WoL {
+		t.Fatalf("driver = %q, want %q", observer.driver, driverdomain.WoL)
+	}
+}
+
+func TestTartHostOperationReconcilerはRedfishPreferredBootTransportをPrepareBootへ渡す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Spec.Management.PowerDriver = "redfish"
+	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
+		Endpoint:               "https://bmc.example.test",
+		PreferredBootTransport: infrastructurev1beta1.BootTransportRedfishPXE,
+	}
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	preparation := &recordingOperationBootPreparation{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        preparation,
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if preparation.calls != 1 {
+		t.Fatalf("PrepareBoot() calls = %d, want 1", preparation.calls)
+	}
+	if preparation.preferred == nil || *preparation.preferred != driverdomain.BootTargetPXE {
+		t.Fatalf("preferred = %v, want PXE", preparation.preferred)
 	}
 }
 
@@ -200,6 +281,45 @@ type recordingOperationHostPhase struct {
 	updating     bool
 	provisioned  bool
 	recovery     bool
+}
+
+type recordingOperationDriverCapabilities struct {
+	calls  int
+	driver driverdomain.Name
+}
+
+type recordingOperationBootPreparation struct {
+	calls     int
+	preferred *driverdomain.BootTarget
+}
+
+func (observer *recordingOperationDriverCapabilities) ObserveAndPersist(
+	_ context.Context,
+	driver driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ *infrastructurev1beta1.TartHost,
+	_ applicationdriver.Invocation,
+) error {
+	observer.calls++
+	observer.driver = driver
+	_, _ = capabilitydomain.NewSet(capabilitydomain.PowerOn)
+	return nil
+}
+
+func (preparation *recordingOperationBootPreparation) PrepareBoot(
+	_ context.Context,
+	_ driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ operationdomain.ID,
+	preferred *driverdomain.BootTarget,
+	_ applicationdriver.Invocation,
+) (driverdomain.BootTarget, error) {
+	preparation.calls++
+	preparation.preferred = preferred
+	if preferred != nil {
+		return *preferred, nil
+	}
+	return driverdomain.BootTargetHTTP, nil
 }
 
 func (phase *recordingOperationHostPhase) MarkHostProvisioning(

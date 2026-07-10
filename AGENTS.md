@@ -14,6 +14,7 @@
 - Kubernetesコントローラの実装、Custom ResourceやWebHookの追加には必ずcontroller-genやkubebuilderを用いてください。
 - テスト用のドメインが必要な場合は、`hoge.test.walnuts.dev`や`hoge.sample.walnuts.dev`を利用して下さい。
 - `mise run test-e2e`や`mise run test-provisioning-e2e`は手元では実行せずに、GitHub Action上でのみ実行してください。
+- 現状まだ開発中で未リリースなので、破壊的変更はどのようなものでも自由に行ってください。変更を最小にすることよりも、実装の美しさや使いやすさなどを優先してください。
 
 ### 開発再開
 

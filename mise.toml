@@ -13,6 +13,7 @@ actionlint = "latest"
 go = "latest"
 k9s = "latest"
 shellcheck = "latest"
+codex = "latest"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"

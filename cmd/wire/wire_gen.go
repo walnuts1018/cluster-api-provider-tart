@@ -7,9 +7,12 @@
 package wire
 
 import (
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/redfish"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
@@ -32,7 +35,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartHostReconciler := provideTartHostReconciler(k8sClient, scheme, service)
 	bootstraptokenService := bootstraptoken.NewService(k8sClient)
 	adapter := wol.Default()
-	registry, err := provideDriverRegistry(adapter)
+	redfishAdapter := redfish.New()
+	registry, err := provideDriverRegistry(adapter, redfishAdapter)
 	if err != nil {
 		return Reconcilers{}, err
 	}
@@ -50,7 +54,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	operationService := operation.NewService(k8sClient)
 	orchestrator := initialprovisioning.NewOrchestrator(allocationService, v1beta1hostService, operationService)
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, v1beta1hostService)
+	drivertargetService := drivertarget.NewService(k8sClient)
+	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
 	return reconcilers, nil
 }
@@ -66,9 +72,30 @@ type Reconcilers struct {
 	TartHostOperation   *controller.TartHostOperationReconciler
 }
 
-func provideDriverRegistry(wolDriver *wol.Adapter) (*driver.Registry, error) {
+func provideDriverRegistry(
+	wolDriver *wol.Adapter,
+	redfishDriver *redfish.Adapter,
+) (*driver.Registry, error) {
 	registry := driver.NewRegistry()
 	if err := registry.RegisterPowerOn(driver2.WoL, wolDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerOn(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerOff(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerStateObserver(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterBootOverride(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterVirtualMedia(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterCapabilityDiscoverer(driver2.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
 	return registry, nil
@@ -130,13 +157,19 @@ func provideTartHostOperationReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
 	powerOn controller.OperationPowerOnService,
+	prepareBoot controller.OperationBootPreparationService,
 	hostPhase controller.OperationHostPhaseService,
+	targets controller.OperationDriverTargetBuilder,
+	driverCapabilities controller.OperationDriverCapabilityObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		PowerOn:   powerOn,
-		HostPhase: hostPhase,
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            powerOn,
+		PrepareBoot:        prepareBoot,
+		HostPhase:          hostPhase,
+		Targets:            targets,
+		DriverCapabilities: driverCapabilities,
 	}
 }
 

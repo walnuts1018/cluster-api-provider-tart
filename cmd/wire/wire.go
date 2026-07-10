@@ -7,9 +7,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	redfishadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/redfish"
 	woladapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
+	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
@@ -32,9 +35,30 @@ type Reconcilers struct {
 	TartHostOperation   *controller.TartHostOperationReconciler
 }
 
-func provideDriverRegistry(wolDriver *woladapter.Adapter) (*applicationdriver.Registry, error) {
+func provideDriverRegistry(
+	wolDriver *woladapter.Adapter,
+	redfishDriver *redfishadapter.Adapter,
+) (*applicationdriver.Registry, error) {
 	registry := applicationdriver.NewRegistry()
 	if err := registry.RegisterPowerOn(driverdomain.WoL, wolDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerOn(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerOff(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterPowerStateObserver(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterCapabilityDiscoverer(driverdomain.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
 	return registry, nil
@@ -96,13 +120,19 @@ func provideTartHostOperationReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
 	powerOn controller.OperationPowerOnService,
+	prepareBoot controller.OperationBootPreparationService,
 	hostPhase controller.OperationHostPhaseService,
+	targets controller.OperationDriverTargetBuilder,
+	driverCapabilities controller.OperationDriverCapabilityObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		PowerOn:   powerOn,
-		HostPhase: hostPhase,
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            powerOn,
+		PrepareBoot:        prepareBoot,
+		HostPhase:          hostPhase,
+		Targets:            targets,
+		DriverCapabilities: driverCapabilities,
 	}
 }
 
@@ -128,6 +158,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	wire.Build(
 		k8shost.NewService,
 		k8sbootstraptoken.NewService,
+		k8sdrivercapability.NewService,
+		k8sdrivertarget.NewService,
 		k8sallocation.NewService,
 		k8smachinehealth.NewObserver,
 		k8soperation.NewService,
@@ -147,9 +179,15 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),
 		wire.Bind(new(controller.OperationPowerOnService), new(*applicationdriver.Service)),
+		wire.Bind(new(controller.OperationBootPreparationService), new(*applicationdriver.Service)),
 		wire.Bind(new(controller.OperationHostPhaseService), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
+		wire.Bind(new(controller.OperationDriverCapabilityObserver), new(*k8sdrivercapability.Service)),
+		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
+		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
 
 		woladapter.Default,
+		redfishadapter.New,
 		provideDriverRegistry,
 		applicationdriver.NewService,
 		applicationprovisioning.NewService,

@@ -17,6 +17,7 @@ package v1beta1host
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 )
 
@@ -38,6 +40,34 @@ type Service struct {
 
 func NewService(k8sClient client.Client) *Service {
 	return &Service{client: k8sClient}
+}
+
+// UpdateCapabilities はdriver discovery結果をTartHost Statusへ保存する。
+func (s *Service) UpdateCapabilities(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	capabilities capabilitydomain.Set,
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHost{}
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
+			return fmt.Errorf("get TartHost for capability update: %w", err)
+		}
+
+		values := capabilities.Values()
+		apiValues := make([]infrastructurev1beta1.Capability, 0, len(values))
+		for _, value := range values {
+			apiValues = append(apiValues, infrastructurev1beta1.Capability(value))
+		}
+		if slices.Equal(current.Status.Capabilities, apiValues) {
+			return nil
+		}
+
+		original := current.DeepCopy()
+		current.Status.Capabilities = apiValues
+		current.Status.ObservedGeneration = current.Generation
+		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
 }
 
 // MarkHostProvisioning はHostをProvisioningフェーズに遷移させる。

@@ -53,6 +53,7 @@ func (address MACAddress) String() string {
 
 type HostTarget struct {
 	bootMACAddress MACAddress
+	redfishAccess  *RedfishAccess
 }
 
 func NewHostTarget(bootMACAddress MACAddress) HostTarget {
@@ -61,4 +62,16 @@ func NewHostTarget(bootMACAddress MACAddress) HostTarget {
 
 func (target HostTarget) BootMACAddress() MACAddress {
 	return target.bootMACAddress
+}
+
+func (target HostTarget) WithRedfishAccess(access RedfishAccess) HostTarget {
+	target.redfishAccess = &access
+	return target
+}
+
+func (target HostTarget) RedfishAccess() (RedfishAccess, bool) {
+	if target.redfishAccess == nil {
+		return RedfishAccess{}, false
+	}
+	return *target.redfishAccess, true
 }

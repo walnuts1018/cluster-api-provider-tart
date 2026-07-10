@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	fakedriver "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/fake"
+	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
@@ -135,6 +136,125 @@ func TestServiceDoesNotCallUnsupportedDriver(t *testing.T) {
 	err = service.PowerOn(t.Context(), "missing", testTarget(t), testOperationID(t), Invocation{})
 	if !driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
 		t.Fatalf("PowerOn() error = %v, want Unsupported", err)
+	}
+}
+
+func TestServiceDiscoverCapabilitiesFallsBackToRegistryWhenNoDiscovererIsRegistered(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	if err := registry.RegisterPowerOn(driverdomain.WoL, fakedriver.NewPowerOn()); err != nil {
+		t.Fatalf("RegisterPowerOn() error = %v", err)
+	}
+	service, err := NewServiceForTest(
+		registry,
+		time.Second,
+		sleep,
+		func(delay time.Duration) time.Duration { return delay },
+	)
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	capabilities, err := service.DiscoverCapabilities(t.Context(), driverdomain.WoL, testTarget(t), Invocation{})
+	if err != nil {
+		t.Fatalf("DiscoverCapabilities() error = %v", err)
+	}
+	if got := capabilities.Values(); len(got) != 1 || got[0] != driverdomainToCapability(driverdomain.WoL) {
+		t.Fatalf("DiscoverCapabilities() = %v, want [PowerOn]", got)
+	}
+}
+
+func TestServiceDiscoverCapabilitiesDoesNotRetryAuthenticationFailure(t *testing.T) {
+	t.Parallel()
+
+	authenticationFailed := driverdomain.NewError(
+		driverdomain.ErrorAuthenticationFailed,
+		errors.New("bad credentials"),
+	)
+	discoverer := &recordingCapabilityDiscoverer{
+		errors: []error{authenticationFailed},
+	}
+	registry := NewRegistry()
+	if err := registry.RegisterCapabilityDiscoverer(driverdomain.Redfish, discoverer); err != nil {
+		t.Fatalf("RegisterCapabilityDiscoverer() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	_, err = service.DiscoverCapabilities(t.Context(), driverdomain.Redfish, testTarget(t), Invocation{})
+	if !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
+		t.Fatalf("DiscoverCapabilities() error = %v, want AuthenticationFailed", err)
+	}
+	if discoverer.calls != 1 {
+		t.Fatalf("discoverer calls = %d, want 1", discoverer.calls)
+	}
+}
+
+func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
+	t.Parallel()
+
+	implementation := &recordingBootOverrideDriver{
+		errorsByTarget: map[driverdomain.BootTarget][]error{
+			driverdomain.BootTargetHTTP: {
+				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
+			},
+		},
+	}
+	registry := NewRegistry()
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, implementation); err != nil {
+		t.Fatalf("RegisterBootOverride() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	target, err := service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		nil,
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("PrepareBoot() error = %v", err)
+	}
+	if target != driverdomain.BootTargetPXE {
+		t.Fatalf("PrepareBoot() target = %q, want PXE", target)
+	}
+	if got := implementation.calls; len(got) != 2 || got[0] != driverdomain.BootTargetHTTP || got[1] != driverdomain.BootTargetPXE {
+		t.Fatalf("SetNextBoot calls = %v, want [HTTP PXE]", got)
+	}
+}
+
+func TestServicePrepareBootRejectsVirtualMediaPreferenceWithoutArtifactProvider(t *testing.T) {
+	t.Parallel()
+
+	service, err := NewServiceForTest(NewRegistry(), time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	preferred := driverdomain.BootTargetVirtualMedia
+	_, err = service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		&preferred,
+		Invocation{},
+	)
+	if !driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
+		t.Fatalf("PrepareBoot() error = %v, want Unsupported", err)
 	}
 }
 
@@ -252,4 +372,53 @@ func testOperationID(t *testing.T) operationdomain.ID {
 		t.Fatalf("ParseID() error = %v", err)
 	}
 	return id
+}
+
+func driverdomainToCapability(name driverdomain.Name) capabilitydomain.Capability {
+	switch name {
+	case driverdomain.WoL:
+		return capabilitydomain.PowerOn
+	default:
+		return ""
+	}
+}
+
+type recordingCapabilityDiscoverer struct {
+	calls  int
+	errors []error
+}
+
+type recordingBootOverrideDriver struct {
+	calls          []driverdomain.BootTarget
+	errorsByTarget map[driverdomain.BootTarget][]error
+}
+
+func (driver *recordingBootOverrideDriver) SetNextBoot(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	target driverdomain.BootTarget,
+	_ operationdomain.ID,
+) error {
+	driver.calls = append(driver.calls, target)
+	errors := driver.errorsByTarget[target]
+	if len(errors) == 0 {
+		return nil
+	}
+	err := errors[0]
+	driver.errorsByTarget[target] = errors[1:]
+	return err
+}
+
+func (discoverer *recordingCapabilityDiscoverer) DiscoverCapabilities(
+	_ context.Context,
+	_ driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ Invocation,
+) (capabilitydomain.Set, error) {
+	discoverer.calls++
+	index := discoverer.calls - 1
+	if index < len(discoverer.errors) {
+		return capabilitydomain.Set{}, discoverer.errors[index]
+	}
+	return capabilitydomain.NewSet(capabilitydomain.PowerOn, capabilitydomain.PowerOff)
 }

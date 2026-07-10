@@ -61,6 +61,15 @@ const (
 	CapabilityVirtualMedia      Capability = "VirtualMedia"
 )
 
+type BootTransport string
+
+const (
+	BootTransportIPXE                BootTransport = "IPXE"
+	BootTransportRedfishPXE          BootTransport = "RedfishPXE"
+	BootTransportRedfishHTTPBoot     BootTransport = "RedfishHTTPBoot"
+	BootTransportRedfishVirtualMedia BootTransport = "RedfishVirtualMedia"
+)
+
 type TartHostSpec struct {
 	// identifiers contains stable identifiers for the physical host.
 	// +required
@@ -148,6 +157,31 @@ type HostManagement struct {
 	// credentialsSecretRef references credentials required by the configured drivers.
 	// +optional
 	CredentialsSecretRef *corev1.LocalObjectReference `json:"credentialsSecretRef,omitempty"`
+
+	// redfish contains BMC connection settings used when either driver is Redfish.
+	// +optional
+	Redfish *RedfishManagement `json:"redfish,omitempty"`
+}
+
+type RedfishManagement struct {
+	// endpoint is the Redfish service root URL exposed by the BMC.
+	// +required
+	// +kubebuilder:validation:Pattern=`^https://.+$`
+	Endpoint string `json:"endpoint"`
+
+	// caBundleSecretRef references a Secret whose ca.crt key extends the TLS trust roots.
+	// +optional
+	CABundleSecretRef *corev1.LocalObjectReference `json:"caBundleSecretRef,omitempty"`
+
+	// spkiPins contains acceptable SHA-256 SPKI pins for the BMC certificate chain.
+	// +optional
+	// +listType=set
+	SPKIPins []string `json:"spkiPins,omitempty"`
+
+	// preferredBootTransport forces a specific Redfish boot transport when set.
+	// +optional
+	// +kubebuilder:validation:Enum=IPXE;RedfishPXE;RedfishHTTPBoot;RedfishVirtualMedia
+	PreferredBootTransport BootTransport `json:"preferredBootTransport,omitempty"`
 }
 
 type ResourceReference struct {

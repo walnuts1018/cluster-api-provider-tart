@@ -49,6 +49,7 @@ type TartHostOperationReconciler struct {
 	Scheme    *runtime.Scheme
 	PowerOn   OperationPowerOnService
 	HostPhase OperationHostPhaseService
+	Targets   OperationDriverTargetBuilder
 }
 
 // OperationPowerOnService はOperationのPreparingBootフェーズでWoLを発火する。
@@ -74,6 +75,11 @@ type OperationHostPhaseService interface {
 	MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostAvailable はHostをAvailableに戻す（ConsumerRefを除去）。
 	MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+}
+
+// OperationDriverTargetBuilder はTartHostからdriver呼び出し対象を構築する。
+type OperationDriverTargetBuilder interface {
+	Build(context.Context, *infrastructurev1beta1.TartHost) (driverdomain.HostTarget, error)
 }
 
 const (
@@ -194,13 +200,14 @@ func (r *TartHostOperationReconciler) handlePending(
 		return err
 	}
 
-	bootMAC, err := driverdomain.ParseMACAddress(host.Spec.Identifiers.BootMACAddress)
-	if err != nil {
-		return fmt.Errorf("parse TartHost boot MAC address: %w", err)
-	}
 	operationID, err := operationdomain.ParseID(operation.Spec.OperationID)
 	if err != nil {
 		return fmt.Errorf("parse operation ID: %w", err)
+	}
+
+	target, err := r.driverTarget(ctx, host)
+	if err != nil {
+		return err
 	}
 
 	powerDriverName, err := driverdomain.ParseName(host.Spec.Management.PowerDriver)
@@ -211,7 +218,7 @@ func (r *TartHostOperationReconciler) handlePending(
 	if err := r.PowerOn.PowerOn(
 		ctx,
 		powerDriverName,
-		driverdomain.NewHostTarget(bootMAC),
+		target,
 		operationID,
 		applicationdriver.Invocation{
 			OperationType: string(operation.Spec.Type),
@@ -245,6 +252,20 @@ func (r *TartHostOperationReconciler) handlePending(
 	}
 
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+}
+
+func (r *TartHostOperationReconciler) driverTarget(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+) (driverdomain.HostTarget, error) {
+	if r.Targets != nil {
+		return r.Targets.Build(ctx, host)
+	}
+	bootMAC, err := driverdomain.ParseMACAddress(host.Spec.Identifiers.BootMACAddress)
+	if err != nil {
+		return driverdomain.HostTarget{}, fmt.Errorf("parse TartHost boot MAC address: %w", err)
+	}
+	return driverdomain.NewHostTarget(bootMAC), nil
 }
 
 func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(

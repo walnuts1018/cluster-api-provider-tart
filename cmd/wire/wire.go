@@ -10,6 +10,7 @@ import (
 	woladapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
+	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
@@ -97,12 +98,14 @@ func provideTartHostOperationReconciler(
 	scheme *runtime.Scheme,
 	powerOn controller.OperationPowerOnService,
 	hostPhase controller.OperationHostPhaseService,
+	targets controller.OperationDriverTargetBuilder,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
 		PowerOn:   powerOn,
 		HostPhase: hostPhase,
+		Targets:   targets,
 	}
 }
 
@@ -128,6 +131,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	wire.Build(
 		k8shost.NewService,
 		k8sbootstraptoken.NewService,
+		k8sdrivertarget.NewService,
 		k8sallocation.NewService,
 		k8smachinehealth.NewObserver,
 		k8soperation.NewService,
@@ -148,6 +152,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),
 		wire.Bind(new(controller.OperationPowerOnService), new(*applicationdriver.Service)),
 		wire.Bind(new(controller.OperationHostPhaseService), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
 
 		woladapter.Default,
 		provideDriverRegistry,

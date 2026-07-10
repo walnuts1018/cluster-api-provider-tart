@@ -324,6 +324,49 @@ spec:
                     maxLength: 64
                     minLength: 1
                     type: string
+                  redfish:
+                    description: redfish contains BMC connection settings used when
+                      either driver is Redfish.
+                    properties:
+                      caBundleSecretRef:
+                        description: caBundleSecretRef references a Secret whose ca.crt
+                          key extends the TLS trust roots.
+                        properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      endpoint:
+                        description: endpoint is the Redfish service root URL exposed
+                          by the BMC.
+                        pattern: ^https://.+$
+                        type: string
+                      preferredBootTransport:
+                        description: preferredBootTransport forces a specific Redfish
+                          boot transport when set.
+                        enum:
+                        - IPXE
+                        - RedfishPXE
+                        - RedfishHTTPBoot
+                        - RedfishVirtualMedia
+                        type: string
+                      spkiPins:
+                        description: spkiPins contains acceptable SHA-256 SPKI pins
+                          for the BMC certificate chain.
+                        items:
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: set
+                    required:
+                    - endpoint
+                    type: object
                 required:
                 - bootDriver
                 - powerDriver

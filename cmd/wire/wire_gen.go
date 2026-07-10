@@ -10,6 +10,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
@@ -50,7 +51,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	operationService := operation.NewService(k8sClient)
 	orchestrator := initialprovisioning.NewOrchestrator(allocationService, v1beta1hostService, operationService)
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, v1beta1hostService)
+	drivertargetService := drivertarget.NewService(k8sClient)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, v1beta1hostService, drivertargetService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
 	return reconcilers, nil
 }
@@ -131,12 +133,14 @@ func provideTartHostOperationReconciler(
 	scheme *runtime.Scheme,
 	powerOn controller.OperationPowerOnService,
 	hostPhase controller.OperationHostPhaseService,
+	targets controller.OperationDriverTargetBuilder,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
 		PowerOn:   powerOn,
 		HostPhase: hostPhase,
+		Targets:   targets,
 	}
 }
 

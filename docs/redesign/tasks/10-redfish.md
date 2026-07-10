@@ -79,6 +79,25 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - vendor OS deployment API
 - SwitchBot/GPIO
 
+## 実装状況
+
+### 実装済み
+
+- `internal/domain/driver` に Redfish endpoint、credential、CA bundle、SPKI pin を保持する `RedfishAccess` を追加し、WoL向け `HostTarget` を壊さずに Host 単位の Redfish 接続情報を渡せるようにした。
+- `internal/domain/driver` の error 型へ `TLSVerificationFailed` と `Conflict` を追加し、Task 10 が要求する TLS 不一致と mount 競合を通常の temporary error から分離した。
+- `internal/adapter/driver/redfish` に Power、ObservePowerState、one-time BootOverride、Virtual Media mount/unmount、Capability discovery を行う Redfish adapter を追加した。
+- Redfish adapter で session authentication を優先し、SessionService 未対応時だけ basic authentication へ fallback する挙動を unit test で固定した。
+- CA/SPKI pin 検証、Capability discovery、same Operation ID の idempotent mount、異なる mount 要求の `Conflict`、one-time BootOverride を unit test で固定した。
+
+### 未実装
+
+- `TartHost.spec.management` への Redfish endpoint / trust / transport policy の接続
+- Secret 参照から credential を解決して `TartHostOperation` controller で Redfish target を組み立てる処理
+- `TartHost Status` への discovery 結果の保存
+- HTTPBoot / VirtualMedia / PXE の各 Transport から Provisioning Agent を起動する controller 統合
+- controller 再起動後の BMC 再観測と Status 修正
+- Redfish simulator の外部 contract test と実機検証記録
+
 ## 関連
 
 - ADR 0005、0010

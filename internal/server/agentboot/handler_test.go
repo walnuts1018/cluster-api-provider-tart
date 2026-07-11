@@ -123,6 +123,50 @@ func TestHandlerはScriptと固定DigestArtifactを配信する(t *testing.T) {
 	}
 }
 
+func TestHandlerはVirtualMediaArtifactURLを提供する(t *testing.T) {
+	files := writeArtifactFiles(t)
+	files.VirtualMediaPath = filepath.Join(filepath.Dir(files.ManifestPath), "agent.iso")
+	media := []byte("agent-virtual-media")
+	if err := rewriteArtifactManifestWithVirtualMedia(t, files, media); err != nil {
+		t.Fatalf("rewriteArtifactManifestWithVirtualMedia() error = %v", err)
+	}
+	if err := os.WriteFile(files.VirtualMediaPath, media, 0o600); err != nil {
+		t.Fatalf("WriteFile(virtual media) error = %v", err)
+	}
+	artifact, err := LoadArtifact(files)
+	if err != nil {
+		t.Fatalf("LoadArtifact() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := artifact.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	handler, err := NewHandler(Config{
+		Resolver:        staticResolver{err: ErrTargetNotFound},
+		Artifact:        artifact,
+		ArtifactBaseURL: "https://boot.test/agent",
+		AgentAPIURL:     "https://agent-api.test",
+	})
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	artifactURL, err := artifact.VirtualMediaURL("https://boot.test/agent")
+	if err != nil {
+		t.Fatalf("VirtualMediaURL() error = %v", err)
+	}
+	if !strings.HasSuffix(artifactURL, "/virtual-media") {
+		t.Fatalf("VirtualMediaURL() = %q, want virtual-media suffix", artifactURL)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, strings.TrimPrefix(artifactURL, "https://boot.test/agent"), nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != string(media) {
+		t.Fatalf("virtual media response = %d %q", response.Code, response.Body.String())
+	}
+}
+
 func TestHandlerは対象外Hostへ終了Scriptを返す(t *testing.T) {
 	artifact, err := LoadArtifact(writeArtifactFiles(t))
 	if err != nil {
@@ -208,4 +252,49 @@ func writeArtifactFiles(t *testing.T) ArtifactFiles {
 		}
 	}
 	return paths
+}
+
+func rewriteArtifactManifestWithVirtualMedia(t *testing.T, files ArtifactFiles, media []byte) error {
+	t.Helper()
+	manifestData, err := os.ReadFile(files.ManifestPath)
+	if err != nil {
+		return err
+	}
+	var manifest agentartifact.Manifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return err
+	}
+	descriptor := agentartifact.DescriptorFromBytes(media)
+	manifest.VirtualMedia = &descriptor
+	validated, err := agentartifact.Validate(manifest)
+	if err != nil {
+		return err
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	signature, err := agentartifact.Sign(validated, "agent-release", privateKey)
+	if err != nil {
+		return err
+	}
+	canonical, err := validated.CanonicalJSON()
+	if err != nil {
+		return err
+	}
+	signatureData, err := json.Marshal(signature)
+	if err != nil {
+		return err
+	}
+	publicKeyData, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(files.ManifestPath, canonical, 0o600); err != nil {
+		return err
+	}
+	if err := os.WriteFile(files.SignaturePath, signatureData, 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(files.PublicKeyPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicKeyData}), 0o600)
 }

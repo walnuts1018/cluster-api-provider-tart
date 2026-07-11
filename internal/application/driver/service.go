@@ -46,11 +46,12 @@ type Sleeper func(context.Context, time.Duration) error
 type Jitter func(time.Duration) time.Duration
 
 type Service struct {
-	registry *Registry
-	timeout  time.Duration
-	sleep    Sleeper
-	jitter   Jitter
-	calls    metric.Int64Counter
+	registry      *Registry
+	agentArtifact AgentArtifactProvider
+	timeout       time.Duration
+	sleep         Sleeper
+	jitter        Jitter
+	calls         metric.Int64Counter
 }
 
 func NewService(registry *Registry) (*Service, error) {
@@ -88,6 +89,10 @@ func newService(
 		jitter:   jitter,
 		calls:    calls,
 	}
+}
+
+func (service *Service) SetAgentArtifactProvider(provider AgentArtifactProvider) {
+	service.agentArtifact = provider
 }
 
 func (service *Service) PowerOn(
@@ -203,10 +208,13 @@ func (service *Service) PrepareBoot(
 ) (driverdomain.BootTarget, error) {
 	if preferred != nil {
 		if *preferred == driverdomain.BootTargetVirtualMedia {
-			return "", driverdomain.NewError(
-				driverdomain.ErrorUnsupported,
-				errors.New("VirtualMedia boot requires Agent Artifact delivery integration"),
-			)
+			if err := service.prepareVirtualMedia(ctx, name, target, operationID, invocation); err != nil {
+				return "", err
+			}
+			if err := service.setNextBoot(ctx, name, target, *preferred, operationID, invocation); err != nil {
+				return "", err
+			}
+			return *preferred, nil
 		}
 		if err := service.setNextBoot(ctx, name, target, *preferred, operationID, invocation); err != nil {
 			return "", err
@@ -216,9 +224,18 @@ func (service *Service) PrepareBoot(
 
 	candidates := []driverdomain.BootTarget{
 		driverdomain.BootTargetHTTP,
+		driverdomain.BootTargetVirtualMedia,
 		driverdomain.BootTargetPXE,
 	}
 	for _, candidate := range candidates {
+		if candidate == driverdomain.BootTargetVirtualMedia {
+			if err := service.prepareVirtualMedia(ctx, name, target, operationID, invocation); err != nil {
+				if driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
+					continue
+				}
+				return "", err
+			}
+		}
 		if err := service.setNextBoot(ctx, name, target, candidate, operationID, invocation); err != nil {
 			if driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
 				continue
@@ -231,6 +248,70 @@ func (service *Service) PrepareBoot(
 		driverdomain.ErrorUnsupported,
 		errors.New("no supported Redfish network boot transport is available"),
 	)
+}
+
+func (service *Service) prepareVirtualMedia(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	operationID operationdomain.ID,
+	invocation Invocation,
+) error {
+	if service.agentArtifact == nil {
+		service.record(ctx, name, invocation, "unsupported")
+		return driverdomain.NewError(
+			driverdomain.ErrorUnsupported,
+			errors.New("VirtualMedia boot requires Agent Artifact delivery integration"),
+		)
+	}
+	implementation, err := service.registry.VirtualMedia(name)
+	if err != nil {
+		service.record(ctx, name, invocation, "unsupported")
+		return err
+	}
+	artifact, err := service.agentArtifact.VirtualMediaArtifact(ctx, operationID)
+	if err != nil {
+		service.record(ctx, name, invocation, errorResult(err))
+		return err
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, service.timeout)
+	defer cancel()
+
+	for attempt := range defaultAttempts {
+		err = implementation.Mount(callCtx, target, artifact, operationID)
+		if err == nil {
+			service.record(ctx, name, invocation, "success")
+			return nil
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			service.record(ctx, name, invocation, "deadline_exceeded")
+			return driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+		}
+		if !driverdomain.IsErrorKind(err, driverdomain.ErrorTemporary) {
+			service.record(ctx, name, invocation, errorResult(err))
+			return err
+		}
+		if attempt == defaultAttempts-1 {
+			service.record(ctx, name, invocation, "temporary")
+			return err
+		}
+		delay := service.jitter(time.Duration(attempt+1) * time.Second)
+		ctrllog.FromContext(ctx).Error(err, "Retrying temporary virtual media failure",
+			"driver", name,
+			"attempt", attempt+2,
+			"maxAttempts", defaultAttempts,
+			"retryAfter", delay,
+		)
+		if err := service.sleep(callCtx, delay); err != nil {
+			service.record(ctx, name, invocation, errorResult(err))
+			if errors.Is(err, context.DeadlineExceeded) {
+				return driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+			}
+			return err
+		}
+	}
+	return fmt.Errorf("unreachable VirtualMedia retry state")
 }
 
 func (service *Service) setNextBoot(

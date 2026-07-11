@@ -43,6 +43,10 @@ type VirtualMediaDriver interface {
 	Unmount(context.Context, driverdomain.HostTarget, operationdomain.ID) error
 }
 
+type AgentArtifactProvider interface {
+	VirtualMediaArtifact(context.Context, operationdomain.ID) (driverdomain.Artifact, error)
+}
+
 type CapabilityDiscoverer interface {
 	DiscoverCapabilities(
 		context.Context,

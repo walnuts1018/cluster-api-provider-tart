@@ -55,6 +55,7 @@ import (
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
@@ -434,16 +435,29 @@ func main() {
 
 	if ipxeBindAddress != "0" {
 		if agentArtifactEnabled {
+			virtualMediaPath, err := optionalFilePath(filepath.Join(agentArtifactRoot, "virtual-media.iso"))
+			if err != nil {
+				setupLog.Error(err, "Failed to inspect Agent Artifact virtual media")
+				os.Exit(1)
+			}
 			artifact, err := agentboot.LoadArtifact(agentboot.ArtifactFiles{
-				ManifestPath:  filepath.Join(agentArtifactRoot, "manifest.json"),
-				SignaturePath: filepath.Join(agentArtifactRoot, "manifest.signature.json"),
-				KernelPath:    filepath.Join(agentArtifactRoot, "vmlinuz"),
-				InitrdPath:    filepath.Join(agentArtifactRoot, "initrd"),
-				KeyID:         agentArtifactKeyID,
-				PublicKeyPath: agentArtifactPublicKeyFile,
+				ManifestPath:     filepath.Join(agentArtifactRoot, "manifest.json"),
+				SignaturePath:    filepath.Join(agentArtifactRoot, "manifest.signature.json"),
+				KernelPath:       filepath.Join(agentArtifactRoot, "vmlinuz"),
+				InitrdPath:       filepath.Join(agentArtifactRoot, "initrd"),
+				VirtualMediaPath: virtualMediaPath,
+				KeyID:            agentArtifactKeyID,
+				PublicKeyPath:    agentArtifactPublicKeyFile,
 			})
 			if err != nil {
 				setupLog.Error(err, "Failed to verify Agent Artifact")
+				os.Exit(1)
+			}
+			if err := configureRedfishVirtualMedia(reconcilers.Driver, artifact, baseURL); err != nil {
+				if closeErr := artifact.Close(); closeErr != nil {
+					setupLog.Error(closeErr, "Failed to close Agent Artifact")
+				}
+				setupLog.Error(err, "Failed to configure Redfish VirtualMedia Agent Artifact")
 				os.Exit(1)
 			}
 			handler, err := agentboot.NewHandler(agentboot.Config{
@@ -628,6 +642,40 @@ func main() {
 		setupLog.Error(startErr, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+func optionalFilePath(path string) (string, error) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("%s is a directory", path)
+	}
+	return path, nil
+}
+
+func configureRedfishVirtualMedia(
+	driverService *applicationdriver.Service,
+	artifact agentboot.Artifact,
+	baseURL string,
+) error {
+	if artifact.Manifest().VirtualMedia == nil {
+		return nil
+	}
+	virtualMediaURL, err := artifact.VirtualMediaURL(baseURL)
+	if err != nil {
+		return err
+	}
+	provider, err := applicationdriver.NewStaticAgentArtifactProvider(virtualMediaURL)
+	if err != nil {
+		return err
+	}
+	driverService.SetAgentArtifactProvider(provider)
+	return nil
 }
 
 type updateFeatureGates struct {

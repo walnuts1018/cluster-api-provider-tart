@@ -57,7 +57,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
 	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
-	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
+	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler, driverService)
 	return reconcilers, nil
 }
 
@@ -70,6 +70,7 @@ type Reconcilers struct {
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
 	TartHostOperation   *controller.TartHostOperationReconciler
+	Driver              *driver.Service
 }
 
 func provideDriverRegistry(
@@ -180,6 +181,7 @@ func provideReconcilers(
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
 	tartHostOperation *controller.TartHostOperationReconciler,
+	driverService *driver.Service,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
@@ -188,5 +190,6 @@ func provideReconcilers(
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
 		TartHostOperation:   tartHostOperation,
+		Driver:              driverService,
 	}
 }

@@ -82,6 +82,10 @@ func NewHandler(config Config) (*Handler, error) {
 	handler.mux.HandleFunc("HEAD "+prefix+"kernel", handler.serveKernel)
 	handler.mux.HandleFunc("GET "+prefix+"initrd", handler.serveInitrd)
 	handler.mux.HandleFunc("HEAD "+prefix+"initrd", handler.serveInitrd)
+	if config.Artifact.Manifest().VirtualMedia != nil {
+		handler.mux.HandleFunc("GET "+prefix+"virtual-media", handler.serveVirtualMedia)
+		handler.mux.HandleFunc("HEAD "+prefix+"virtual-media", handler.serveVirtualMedia)
+	}
 	return handler, nil
 }
 
@@ -153,6 +157,21 @@ func (handler *Handler) serveInitrd(response http.ResponseWriter, request *http.
 		"initrd",
 		handler.artifact.Manifest().Initrd.Digest,
 		"application/vnd.tart.agent-initrd",
+	)
+}
+
+func (handler *Handler) serveVirtualMedia(response http.ResponseWriter, request *http.Request) {
+	descriptor := handler.artifact.Manifest().VirtualMedia
+	if descriptor == nil {
+		http.NotFound(response, request)
+		return
+	}
+	handler.serveFile(
+		response,
+		request,
+		"virtual-media",
+		descriptor.Digest,
+		"application/vnd.tart.agent-virtual-media",
 	)
 }
 

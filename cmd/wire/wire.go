@@ -33,6 +33,7 @@ type Reconcilers struct {
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
 	TartHostOperation   *controller.TartHostOperationReconciler
+	Driver              *applicationdriver.Service
 }
 
 func provideDriverRegistry(
@@ -143,6 +144,7 @@ func provideReconcilers(
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
 	tartHostOperation *controller.TartHostOperationReconciler,
+	driverService *applicationdriver.Service,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
@@ -151,6 +153,7 @@ func provideReconcilers(
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
 		TartHostOperation:   tartHostOperation,
+		Driver:              driverService,
 	}
 }
 

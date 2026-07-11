@@ -235,6 +235,58 @@ func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 	}
 }
 
+func TestServicePrepareBootUsesVirtualMediaBeforePXE(t *testing.T) {
+	t.Parallel()
+
+	bootOverride := &recordingBootOverrideDriver{
+		errorsByTarget: map[driverdomain.BootTarget][]error{
+			driverdomain.BootTargetHTTP: {
+				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
+			},
+		},
+	}
+	virtualMedia := &recordingVirtualMediaDriver{}
+	registry := NewRegistry()
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, bootOverride); err != nil {
+		t.Fatalf("RegisterBootOverride() error = %v", err)
+	}
+	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, virtualMedia); err != nil {
+		t.Fatalf("RegisterVirtualMedia() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	provider, err := NewStaticAgentArtifactProvider("https://boot.test/v1/agent-artifacts/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/virtual-media")
+	if err != nil {
+		t.Fatalf("NewStaticAgentArtifactProvider() error = %v", err)
+	}
+	service.SetAgentArtifactProvider(provider)
+
+	target, err := service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		nil,
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("PrepareBoot() error = %v", err)
+	}
+	if target != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("PrepareBoot() target = %q, want VirtualMedia", target)
+	}
+	if got := virtualMedia.mounts; len(got) != 1 || got[0] != provider.reference.Reference() {
+		t.Fatalf("VirtualMedia mounts = %v, want artifact URL", got)
+	}
+	if got := bootOverride.calls; len(got) != 2 || got[0] != driverdomain.BootTargetHTTP || got[1] != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("SetNextBoot calls = %v, want [HTTP VirtualMedia]", got)
+	}
+}
+
 func TestServicePrepareBootRejectsVirtualMediaPreferenceWithoutArtifactProvider(t *testing.T) {
 	t.Parallel()
 
@@ -407,6 +459,28 @@ func (driver *recordingBootOverrideDriver) SetNextBoot(
 	err := errors[0]
 	driver.errorsByTarget[target] = errors[1:]
 	return err
+}
+
+type recordingVirtualMediaDriver struct {
+	mounts []string
+}
+
+func (driver *recordingVirtualMediaDriver) Mount(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	artifact driverdomain.Artifact,
+	_ operationdomain.ID,
+) error {
+	driver.mounts = append(driver.mounts, artifact.Reference())
+	return nil
+}
+
+func (driver *recordingVirtualMediaDriver) Unmount(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	_ operationdomain.ID,
+) error {
+	return nil
 }
 
 func (discoverer *recordingCapabilityDiscoverer) DiscoverCapabilities(

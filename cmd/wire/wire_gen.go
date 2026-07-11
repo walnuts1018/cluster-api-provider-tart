@@ -12,6 +12,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
@@ -56,7 +57,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
+	driverstateService := driverstate.NewService(driverService, v1beta1hostService)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService, driverstateService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler, driverService)
 	return reconcilers, nil
 }
@@ -162,6 +164,7 @@ func provideTartHostOperationReconciler(
 	hostPhase controller.OperationHostPhaseService,
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
+	driverPowerState controller.OperationDriverPowerStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -171,6 +174,7 @@ func provideTartHostOperationReconciler(
 		HostPhase:          hostPhase,
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
+		DriverPowerState:   driverPowerState,
 	}
 }
 

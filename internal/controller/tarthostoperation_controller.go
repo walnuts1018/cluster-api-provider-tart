@@ -52,6 +52,7 @@ type TartHostOperationReconciler struct {
 	HostPhase          OperationHostPhaseService
 	Targets            OperationDriverTargetBuilder
 	DriverCapabilities OperationDriverCapabilityObserver
+	DriverPowerState   OperationDriverPowerStateObserver
 }
 
 // OperationPowerOnService はOperationのPreparingBootフェーズでWoLを発火する。
@@ -98,6 +99,17 @@ type OperationDriverTargetBuilder interface {
 
 // OperationDriverCapabilityObserver はHostごとのdriver capabilityを観測しStatusへ反映する。
 type OperationDriverCapabilityObserver interface {
+	ObserveAndPersist(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		*infrastructurev1beta1.TartHost,
+		applicationdriver.Invocation,
+	) error
+}
+
+// OperationDriverPowerStateObserver はHostごとのdriver power stateを観測しStatusへ反映する。
+type OperationDriverPowerStateObserver interface {
 	ObserveAndPersist(
 		context.Context,
 		driverdomain.Name,
@@ -251,6 +263,13 @@ func (r *TartHostOperationReconciler) handlePending(
 		)
 		return fmt.Errorf("observe TartHost driver capabilities: %w", err)
 	}
+	if err := r.observeDriverPowerState(ctx, host, powerDriverName, target, invocation); err != nil {
+		log.Error(err, "Failed to observe TartHost power state",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", powerDriverName,
+		)
+		return fmt.Errorf("observe TartHost power state: %w", err)
+	}
 	if err := r.prepareBoot(ctx, host, powerDriverName, target, operationID, invocation); err != nil {
 		log.Error(err, "Failed to prepare TartHost boot transport",
 			"host", client.ObjectKeyFromObject(host).String(),
@@ -359,6 +378,19 @@ func (r *TartHostOperationReconciler) observeDriverCapabilities(
 		return nil
 	}
 	return r.DriverCapabilities.ObserveAndPersist(ctx, driverName, target, host, invocation)
+}
+
+func (r *TartHostOperationReconciler) observeDriverPowerState(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.DriverPowerState == nil {
+		return nil
+	}
+	return r.DriverPowerState.ObserveAndPersist(ctx, driverName, target, host, invocation)
 }
 
 func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(

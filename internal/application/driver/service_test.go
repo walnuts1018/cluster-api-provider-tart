@@ -195,6 +195,38 @@ func TestServiceDiscoverCapabilitiesDoesNotRetryAuthenticationFailure(t *testing
 	}
 }
 
+func TestServiceObservePowerStateReturnsDriverState(t *testing.T) {
+	t.Parallel()
+
+	observer := &recordingPowerStateObserver{state: driverdomain.PowerStateOn}
+	registry := NewRegistry()
+	if err := registry.RegisterPowerStateObserver(driverdomain.Redfish, observer); err != nil {
+		t.Fatalf("RegisterPowerStateObserver() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	state, err := service.ObservePowerState(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		Invocation{OperationType: "Update", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("ObservePowerState() error = %v", err)
+	}
+	if state != driverdomain.PowerStateOn {
+		t.Fatalf("ObservePowerState() = %q, want On", state)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObservePowerState calls = %d, want 1", observer.calls)
+	}
+}
+
 func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 	t.Parallel()
 
@@ -438,6 +470,23 @@ func driverdomainToCapability(name driverdomain.Name) capabilitydomain.Capabilit
 type recordingCapabilityDiscoverer struct {
 	calls  int
 	errors []error
+}
+
+type recordingPowerStateObserver struct {
+	calls int
+	state driverdomain.PowerState
+	err   error
+}
+
+func (observer *recordingPowerStateObserver) ObservePowerState(
+	context.Context,
+	driverdomain.HostTarget,
+) (driverdomain.PowerState, error) {
+	observer.calls++
+	if observer.err != nil {
+		return driverdomain.PowerStateUnknown, observer.err
+	}
+	return observer.state, nil
 }
 
 type recordingBootOverrideDriver struct {

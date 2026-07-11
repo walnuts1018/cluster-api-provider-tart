@@ -90,6 +90,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `internal/adapter/k8s/drivertarget` に `TartHost` と Secret から `driverdomain.HostTarget` / `RedfishAccess` を構築する adapter を追加し、`TartHostOperation` controller から利用する接続点を作った。
 - `internal/application/driver` に host-aware capability discovery port を追加し、Redfish discovery結果またはregistryの静的capabilityを retry付きで取得できるようにした。
 - `internal/adapter/k8s/drivercapability` と `internal/adapter/k8s/v1beta1host` に、driver discovery結果を `TartHost Status.capabilities` へ保存する adapter を追加し、`TartHostOperation` controller から PowerOn 前に実行するよう接続した。
+- `internal/application/driver` と `internal/adapter/k8s/driverstate` に PowerState 再観測を追加し、`TartHostOperation` controller が PowerOn 前に BMC から観測した状態を `TartHost.status.powerState` へ保存するようにした。
 - `internal/application/driver` に Redfish boot override 準備を追加し、preferred transport が未指定なら `HTTP -> VirtualMedia -> PXE` の順で起動経路を準備し、明示指定時は fallback せずに失敗させる挙動を unit test で固定した。
 - `TartHostOperation` controller が Redfish host の `preferredBootTransport` を `PrepareBoot` へ渡し、PowerOn 前に boot override を準備する接続を追加した。
 - Agent Artifact manifest と HTTPS配信に optional `virtualMedia` / `virtual-media.iso` を追加し、署名・digest検証後の file descriptor から digest固定URLで配信できるようにした。
@@ -102,7 +103,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 
 - Redfish VirtualMediaで起動可能な `virtual-media.iso` の生成pipelineと外部contract test
 - HTTPBoot / PXE の各 Transport で実際に同じ Agent Protocol `/v1` へ register する実機/contract 検証
-- controller 再起動後の BMC 再観測と Status 修正
+- controller 再起動後の BootOverride / VirtualMedia mount 状態のBMC再観測とStatus修正
 - Redfish simulator の外部 contract test と実機検証記録
 
 ## 関連

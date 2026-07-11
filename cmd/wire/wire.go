@@ -12,6 +12,7 @@ import (
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
@@ -125,6 +126,7 @@ func provideTartHostOperationReconciler(
 	hostPhase controller.OperationHostPhaseService,
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
+	driverPowerState controller.OperationDriverPowerStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -134,6 +136,7 @@ func provideTartHostOperationReconciler(
 		HostPhase:          hostPhase,
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
+		DriverPowerState:   driverPowerState,
 	}
 }
 
@@ -162,6 +165,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8shost.NewService,
 		k8sbootstraptoken.NewService,
 		k8sdrivercapability.NewService,
+		k8sdriverstate.NewService,
 		k8sdrivertarget.NewService,
 		k8sallocation.NewService,
 		k8smachinehealth.NewObserver,
@@ -186,8 +190,11 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(controller.OperationHostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
 		wire.Bind(new(controller.OperationDriverCapabilityObserver), new(*k8sdrivercapability.Service)),
+		wire.Bind(new(controller.OperationDriverPowerStateObserver), new(*k8sdriverstate.Service)),
 		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
 		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(k8sdriverstate.PowerStateObserver), new(*applicationdriver.Service)),
+		wire.Bind(new(k8sdriverstate.HostPowerStateWriter), new(*k8sv1beta1host.Service)),
 
 		woladapter.Default,
 		redfishadapter.New,

@@ -88,6 +88,35 @@ func TestServiceUpdateCapabilitiesNoopsWhenCapabilitiesMatch(t *testing.T) {
 	}
 }
 
+func TestServiceUpdatePowerStatePersistsObservedState(t *testing.T) {
+	t.Parallel()
+
+	host := &infrastructurev1beta1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "host-a",
+			Namespace:  "default",
+			Generation: 4,
+		},
+	}
+	k8sClient := newFakeClient(t, host)
+	service := NewService(k8sClient)
+
+	if err := service.UpdatePowerState(t.Context(), host, infrastructurev1beta1.PowerStateOn); err != nil {
+		t.Fatalf("UpdatePowerState() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHost{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(host), current); err != nil {
+		t.Fatalf("get TartHost: %v", err)
+	}
+	if current.Status.PowerState != infrastructurev1beta1.PowerStateOn {
+		t.Fatalf("status.powerState = %q, want On", current.Status.PowerState)
+	}
+	if current.Status.ObservedGeneration != current.Generation {
+		t.Fatalf("observedGeneration = %d, want %d", current.Status.ObservedGeneration, current.Generation)
+	}
+}
+
 func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()

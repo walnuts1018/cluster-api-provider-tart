@@ -105,6 +105,43 @@ func TestTartHostOperationReconcilerはPowerOn前にDriverCapabilitiesを観測�
 	}
 }
 
+func TestTartHostOperationReconcilerはPowerOn前にPowerStateを観測する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	observer := &recordingOperationDriverPowerState{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+		DriverPowerState:   observer,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveAndPersist() calls = %d, want 1", observer.calls)
+	}
+	if observer.driver != driverdomain.WoL {
+		t.Fatalf("driver = %q, want %q", observer.driver, driverdomain.WoL)
+	}
+}
+
 func TestTartHostOperationReconcilerはRedfishPreferredBootTransportをPrepareBootへ渡す(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
@@ -288,6 +325,11 @@ type recordingOperationDriverCapabilities struct {
 	driver driverdomain.Name
 }
 
+type recordingOperationDriverPowerState struct {
+	calls  int
+	driver driverdomain.Name
+}
+
 type recordingOperationBootPreparation struct {
 	calls     int
 	preferred *driverdomain.BootTarget
@@ -303,6 +345,18 @@ func (observer *recordingOperationDriverCapabilities) ObserveAndPersist(
 	observer.calls++
 	observer.driver = driver
 	_, _ = capabilitydomain.NewSet(capabilitydomain.PowerOn)
+	return nil
+}
+
+func (observer *recordingOperationDriverPowerState) ObserveAndPersist(
+	_ context.Context,
+	driver driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ *infrastructurev1beta1.TartHost,
+	_ applicationdriver.Invocation,
+) error {
+	observer.calls++
+	observer.driver = driver
 	return nil
 }
 

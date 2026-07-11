@@ -54,6 +54,7 @@ import (
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
+	k8snodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycle"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
@@ -501,8 +502,11 @@ func main() {
 				mgr.GetClient(),
 				agentsessiondomain.DefaultTTL,
 			),
-			Progress:  k8sagentprogress.NewService(mgr.GetClient()),
-			Plans:     provider,
+			Progress: k8sagentprogress.NewService(mgr.GetClient()),
+			Plans:    provider,
+			NodeLifecyclePlans: k8snodelifecycle.NewProvider(
+				mgr.GetClient(),
+			),
 			Bootstrap: provider,
 			BootReports: k8sbootreport.NewService(
 				mgr.GetClient(),

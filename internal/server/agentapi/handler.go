@@ -29,6 +29,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	agentprogressdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentprogress"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
@@ -63,6 +64,10 @@ type PlanProvider interface {
 	GetPlan(context.Context, client.ObjectKey) (agentprotocol.SignedPlan, error)
 }
 
+type NodeLifecyclePlanProvider interface {
+	GetPlan(context.Context, client.ObjectKey) (nodelifecycle.SignedPlan, error)
+}
+
 type BootstrapProvider interface {
 	GetBootstrapBundle(context.Context, client.ObjectKey) (agentprotocol.BootstrapBundle, error)
 }
@@ -77,6 +82,7 @@ type Config struct {
 	Sessions             SessionService
 	Progress             ProgressService
 	Plans                PlanProvider
+	NodeLifecyclePlans   NodeLifecyclePlanProvider
 	Bootstrap            BootstrapProvider
 	BootReports          BootReporter
 	RateLimiter          *rate.Limiter
@@ -98,6 +104,7 @@ func NewHandler(config Config) *Handler {
 	handler := &Handler{config: config, mux: http.NewServeMux()}
 	handler.mux.HandleFunc("POST /v1/agent/register", handler.register)
 	handler.mux.HandleFunc("GET /v1/operations/{uid}/plan", handler.plan)
+	handler.mux.HandleFunc("GET /v1/operations/{uid}/node-lifecycle-plan", handler.nodeLifecyclePlan)
 	handler.mux.HandleFunc("POST /v1/operations/{uid}/progress", handler.progress)
 	handler.mux.HandleFunc("GET /v1/operations/{uid}/bootstrap", handler.bootstrap)
 	handler.mux.HandleFunc("POST /v1/operations/{uid}/boot-report", handler.bootReport)
@@ -185,6 +192,37 @@ func (handler *Handler) plan(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	validated, err := agentprotocol.ValidatePlan(signedPlan.Plan)
+	if err != nil {
+		handler.internalError(writer)
+		return
+	}
+	planDigest, err := validated.Digest()
+	if err != nil || planDigest.String() != operation.Spec.PlanDigest {
+		handler.notFound(writer)
+		return
+	}
+	handler.writeJSON(writer, http.StatusOK, signedPlan)
+}
+
+func (handler *Handler) nodeLifecyclePlan(writer http.ResponseWriter, request *http.Request) {
+	if !handler.dependenciesAvailable(
+		writer,
+		handler.config.Operations,
+		handler.config.Sessions,
+		handler.config.NodeLifecyclePlans,
+	) {
+		return
+	}
+	key, operation, ok := handler.authorizeOperation(writer, request)
+	if !ok {
+		return
+	}
+	signedPlan, err := handler.config.NodeLifecyclePlans.GetPlan(request.Context(), key)
+	if err != nil {
+		handler.notFound(writer)
+		return
+	}
+	validated, err := nodelifecycle.ValidatePlan(signedPlan.Plan)
 	if err != nil {
 		handler.internalError(writer)
 		return

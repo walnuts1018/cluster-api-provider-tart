@@ -37,7 +37,9 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -100,6 +102,15 @@ func (staticPlan) GetPlan(context.Context, client.ObjectKey) (agentprotocol.Sign
 	return testSignedPlan, nil
 }
 
+type staticNodeLifecyclePlan struct {
+	plan nodelifecycle.SignedPlan
+	err  error
+}
+
+func (provider staticNodeLifecyclePlan) GetPlan(context.Context, client.ObjectKey) (nodelifecycle.SignedPlan, error) {
+	return provider.plan, provider.err
+}
+
 func (provider staticBootstrap) GetBootstrapBundle(
 	context.Context,
 	client.ObjectKey,
@@ -159,6 +170,11 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 			name:   "plan",
 			method: http.MethodGet,
 			path:   "/v1/operations/operation-uid/plan",
+		},
+		{
+			name:   "node lifecycle plan",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/node-lifecycle-plan",
 		},
 		{
 			name:   "progress",
@@ -227,6 +243,76 @@ func TestHandlerRejectsExpiredSession(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+}
+
+func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	signed := nodelifecycle.SignedPlan{
+		Plan: nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    "operation-uid",
+			CurrentVersion: "v1.34.0",
+			TargetVersion:  "v1.35.0",
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleWorker,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+		},
+		Signature: agentprotocol.Signature{
+			Algorithm: agentprotocol.SignatureAlgorithm,
+			KeyID:     "node-lifecycle-key",
+			Value:     "signature",
+		},
+	}
+	handler.config.NodeLifecyclePlans = staticNodeLifecyclePlan{plan: signed}
+	validated, err := nodelifecycle.ValidatePlan(signed.Plan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	handler.config.Operations = staticResolver{
+		key: client.ObjectKey{Namespace: "default", Name: "operation"},
+		operation: &infrastructurev1beta1.TartHostOperation{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "operation"},
+			Spec: infrastructurev1beta1.TartHostOperationSpec{
+				OperationID: "operation-uid",
+				PlanDigest:  planDigest.String(),
+				HostRef: infrastructurev1beta1.ResourceReference{
+					Namespace: "default",
+					Name:      "host",
+					UID:       types.UID("host-uid"),
+				},
+			},
+		},
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/node-lifecycle-plan",
+		sessionToken,
+		nil,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+	}
+	var got nodelifecycle.SignedPlan
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Plan.OperationID != "operation-uid" ||
+		got.Plan.TargetVersion != "v1.35.0" ||
+		got.Signature.KeyID != "node-lifecycle-key" {
+		t.Fatalf("node lifecycle plan = %#v, want signed plan", got)
 	}
 }
 
@@ -554,8 +640,20 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		Sessions:             sessions,
 		Progress:             k8sagentprogress.NewService(k8sClient),
 		Plans:                staticPlan{},
-		Bootstrap:            bootstrap,
-		Now:                  func() time.Time { return now },
+		NodeLifecyclePlans: staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{
+			Plan: nodelifecycle.Plan{
+				APIVersion:     nodelifecycle.APIVersion,
+				OperationID:    "operation-uid",
+				CurrentVersion: "v1.34.0",
+				TargetVersion:  "v1.35.0",
+				UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+				NodeRole:       distributiondomain.NodeRoleWorker,
+				Deadline:       now.Add(time.Hour),
+				Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+			},
+		}},
+		Bootstrap: bootstrap,
+		Now:       func() time.Time { return now },
 	}), token.BearerValue()
 }
 

@@ -98,12 +98,12 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `cmd/main.go` で検証済みAgent Artifactに `virtual-media.iso` がある場合だけ、Redfish VirtualMedia用のArtifact URL providerをdriver serviceへ登録するようにした。
 - Redfish adapter で session authentication を優先し、SessionService 未対応時だけ basic authentication へ fallback する挙動を unit test で固定した。
 - CA/SPKI pin 検証、Capability discovery、same Operation ID の idempotent mount、異なる mount 要求の `Conflict`、one-time BootOverride を unit test で固定した。
+- Redfish adapter と `TartHostOperation` controller に BootOverride / VirtualMedia mount 状態の再観測を追加し、controller再起動後に active Operation を再concileした時も `TartHost.status.bootState` と `powerState` をBMC状態で修正できるようにした。
 
 ### 未実装
 
 - Redfish VirtualMediaで起動可能な `virtual-media.iso` の生成pipelineと外部contract test
 - HTTPBoot / PXE の各 Transport で実際に同じ Agent Protocol `/v1` へ register する実機/contract 検証
-- controller 再起動後の BootOverride / VirtualMedia mount 状態のBMC再観測とStatus修正
 - Redfish simulator の外部 contract test と実機検証記録
 
 ## 関連

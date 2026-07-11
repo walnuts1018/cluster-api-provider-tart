@@ -53,6 +53,7 @@ type TartHostOperationReconciler struct {
 	Targets            OperationDriverTargetBuilder
 	DriverCapabilities OperationDriverCapabilityObserver
 	DriverPowerState   OperationDriverPowerStateObserver
+	DriverBootState    OperationDriverBootStateObserver
 }
 
 // OperationPowerOnService はOperationのPreparingBootフェーズでWoLを発火する。
@@ -111,6 +112,17 @@ type OperationDriverCapabilityObserver interface {
 // OperationDriverPowerStateObserver はHostごとのdriver power stateを観測しStatusへ反映する。
 type OperationDriverPowerStateObserver interface {
 	ObserveAndPersist(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		*infrastructurev1beta1.TartHost,
+		applicationdriver.Invocation,
+	) error
+}
+
+// OperationDriverBootStateObserver はHostごとのdriver boot stateを観測しStatusへ反映する。
+type OperationDriverBootStateObserver interface {
+	ObserveBootAndPersist(
 		context.Context,
 		driverdomain.Name,
 		driverdomain.HostTarget,
@@ -184,6 +196,9 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		infrastructurev1beta1.TartHostOperationPhaseBootTrial:
 		// これらのPhaseはAgent/Driverがphase報告経由で進める。
 		// OperationがDeadline内かどうかをrequeue間隔で確認する。
+		if err := r.observeActiveOperationDriverState(ctx, &operation); err != nil {
+			return ctrl.Result{}, err
+		}
 		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
 
 	case infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
@@ -251,6 +266,14 @@ func (r *TartHostOperationReconciler) handlePending(
 	if err != nil {
 		return fmt.Errorf("parse power driver name: %w", err)
 	}
+	bootDriver := host.Spec.Management.BootDriver
+	if bootDriver == "" {
+		bootDriver = host.Spec.Management.PowerDriver
+	}
+	bootDriverName, err := driverdomain.ParseName(bootDriver)
+	if err != nil {
+		return fmt.Errorf("parse boot driver name: %w", err)
+	}
 	invocation := applicationdriver.Invocation{
 		OperationType: string(operation.Spec.Type),
 		Phase:         "PreparingBoot",
@@ -270,10 +293,17 @@ func (r *TartHostOperationReconciler) handlePending(
 		)
 		return fmt.Errorf("observe TartHost power state: %w", err)
 	}
-	if err := r.prepareBoot(ctx, host, powerDriverName, target, operationID, invocation); err != nil {
+	if err := r.observeDriverBootState(ctx, host, bootDriverName, target, invocation); err != nil {
+		log.Error(err, "Failed to observe TartHost boot state",
+			"host", client.ObjectKeyFromObject(host).String(),
+			"driver", bootDriverName,
+		)
+		return fmt.Errorf("observe TartHost boot state: %w", err)
+	}
+	if err := r.prepareBoot(ctx, host, bootDriverName, target, operationID, invocation); err != nil {
 		log.Error(err, "Failed to prepare TartHost boot transport",
 			"host", client.ObjectKeyFromObject(host).String(),
-			"driver", powerDriverName,
+			"driver", bootDriverName,
 		)
 		return fmt.Errorf("prepare TartHost boot transport: %w", err)
 	}
@@ -391,6 +421,60 @@ func (r *TartHostOperationReconciler) observeDriverPowerState(
 		return nil
 	}
 	return r.DriverPowerState.ObserveAndPersist(ctx, driverName, target, host, invocation)
+}
+
+func (r *TartHostOperationReconciler) observeDriverBootState(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	driverName driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation applicationdriver.Invocation,
+) error {
+	if r.DriverBootState == nil || host.Spec.Management.BootDriver != "redfish" {
+		return nil
+	}
+	return r.DriverBootState.ObserveBootAndPersist(ctx, driverName, target, host, invocation)
+}
+
+func (r *TartHostOperationReconciler) observeActiveOperationDriverState(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if r.DriverBootState == nil && r.DriverPowerState == nil {
+		return nil
+	}
+	host, err := r.getHost(ctx, operation)
+	if err != nil {
+		return err
+	}
+	target, err := r.driverTarget(ctx, host)
+	if err != nil {
+		return err
+	}
+	bootDriver := host.Spec.Management.BootDriver
+	if bootDriver == "" {
+		bootDriver = host.Spec.Management.PowerDriver
+	}
+	bootDriverName, err := driverdomain.ParseName(bootDriver)
+	if err != nil {
+		return fmt.Errorf("parse boot driver name: %w", err)
+	}
+	invocation := applicationdriver.Invocation{
+		OperationType: string(operation.Spec.Type),
+		Phase:         string(operation.Status.Phase),
+		Rollback:      operation.Status.Phase == infrastructurev1beta1.TartHostOperationPhaseRollingBack,
+	}
+	powerDriverName, err := driverdomain.ParseName(host.Spec.Management.PowerDriver)
+	if err != nil {
+		return fmt.Errorf("parse power driver name: %w", err)
+	}
+	if err := r.observeDriverPowerState(ctx, host, powerDriverName, target, invocation); err != nil {
+		return fmt.Errorf("observe TartHost power state: %w", err)
+	}
+	if err := r.observeDriverBootState(ctx, host, bootDriverName, target, invocation); err != nil {
+		return fmt.Errorf("observe TartHost boot state: %w", err)
+	}
+	return nil
 }
 
 func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(

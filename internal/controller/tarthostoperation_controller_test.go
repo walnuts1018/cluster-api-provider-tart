@@ -142,6 +142,90 @@ func TestTartHostOperationReconcilerはPowerOn前にPowerStateを観測する(t 
 	}
 }
 
+func TestTartHostOperationReconcilerはPowerOn前にBootStateを観測する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Spec.Management.PowerDriver = "redfish"
+	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
+		Endpoint: "https://bmc.example.test",
+	}
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	observer := &recordingOperationDriverBootState{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+		DriverPowerState:   &recordingOperationDriverPowerState{},
+		DriverBootState:    observer,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveAndPersist() calls = %d, want 1", observer.calls)
+	}
+	if observer.driver != driverdomain.Redfish {
+		t.Fatalf("driver = %q, want %q", observer.driver, driverdomain.Redfish)
+	}
+}
+
+func TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再観測する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Spec.Management.PowerDriver = "redfish"
+	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
+		Endpoint: "https://bmc.example.test",
+	}
+	operation := operationTestUpdate(host)
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhasePreparingBoot
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	observer := &recordingOperationDriverBootState{}
+	reconciler := &TartHostOperationReconciler{
+		Client:          k8sClient,
+		Scheme:          scheme,
+		PowerOn:         successfulOperationPowerOn{},
+		HostPhase:       &recordingOperationHostPhase{},
+		DriverBootState: observer,
+	}
+
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != operationDeadlineRequeueInterval {
+		t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, operationDeadlineRequeueInterval)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveBootAndPersist() calls = %d, want 1", observer.calls)
+	}
+}
+
 func TestTartHostOperationReconcilerはRedfishPreferredBootTransportをPrepareBootへ渡す(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
@@ -330,6 +414,11 @@ type recordingOperationDriverPowerState struct {
 	driver driverdomain.Name
 }
 
+type recordingOperationDriverBootState struct {
+	calls  int
+	driver driverdomain.Name
+}
+
 type recordingOperationBootPreparation struct {
 	calls     int
 	preferred *driverdomain.BootTarget
@@ -349,6 +438,18 @@ func (observer *recordingOperationDriverCapabilities) ObserveAndPersist(
 }
 
 func (observer *recordingOperationDriverPowerState) ObserveAndPersist(
+	_ context.Context,
+	driver driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ *infrastructurev1beta1.TartHost,
+	_ applicationdriver.Invocation,
+) error {
+	observer.calls++
+	observer.driver = driver
+	return nil
+}
+
+func (observer *recordingOperationDriverBootState) ObserveBootAndPersist(
 	_ context.Context,
 	driver driverdomain.Name,
 	_ driverdomain.HostTarget,

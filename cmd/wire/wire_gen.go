@@ -57,8 +57,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
-	driverstateService := driverstate.NewService(driverService, v1beta1hostService)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService, driverstateService)
+	driverstateService := driverstate.NewService(driverService, driverService, v1beta1hostService)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService, driverstateService, driverstateService)
 	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler, driverService)
 	return reconcilers, nil
 }
@@ -93,6 +93,9 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	if err := registry.RegisterBootOverride(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterBootStateObserver(driver2.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
 	if err := registry.RegisterVirtualMedia(driver2.Redfish, redfishDriver); err != nil {
@@ -165,6 +168,7 @@ func provideTartHostOperationReconciler(
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
 	driverPowerState controller.OperationDriverPowerStateObserver,
+	driverBootState controller.OperationDriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -175,6 +179,7 @@ func provideTartHostOperationReconciler(
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
 		DriverPowerState:   driverPowerState,
+		DriverBootState:    driverBootState,
 	}
 }
 

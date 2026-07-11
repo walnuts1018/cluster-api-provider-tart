@@ -92,6 +92,28 @@ func (s *Service) UpdatePowerState(
 	})
 }
 
+// UpdateBootState はdriverのBootOverride/VirtualMedia観測結果をTartHost Statusへ保存する。
+func (s *Service) UpdateBootState(
+	ctx context.Context,
+	host *infrastructurev1beta1.TartHost,
+	state infrastructurev1beta1.BootStateStatus,
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHost{}
+		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
+			return fmt.Errorf("get TartHost for boot state update: %w", err)
+		}
+		if current.Status.BootState != nil && *current.Status.BootState == state {
+			return nil
+		}
+
+		original := current.DeepCopy()
+		current.Status.BootState = &state
+		current.Status.ObservedGeneration = current.Generation
+		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
+}
+
 // MarkHostProvisioning はHostをProvisioningフェーズに遷移させる。
 func (s *Service) MarkHostProvisioning(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
 	return s.updatePhase(ctx, host, infrastructurev1beta1.TartHostPhaseProvisioning, "Provisioning",

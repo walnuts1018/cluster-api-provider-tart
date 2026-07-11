@@ -227,6 +227,49 @@ func TestServiceObservePowerStateReturnsDriverState(t *testing.T) {
 	}
 }
 
+func TestServiceObserveBootStateReturnsDriverState(t *testing.T) {
+	t.Parallel()
+
+	observer := &recordingBootStateObserver{
+		state: driverdomain.BootState{
+			OverrideEnabled: true,
+			OverrideTarget:  driverdomain.BootTargetVirtualMedia,
+			MediaInserted:   true,
+			MediaImage:      "https://controller.example.test/agent.iso",
+			MediaOperation:  "f4353748-c9ea-41c6-b321-94197b64330e",
+		},
+	}
+	registry := NewRegistry()
+	if err := registry.RegisterBootStateObserver(driverdomain.Redfish, observer); err != nil {
+		t.Fatalf("RegisterBootStateObserver() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	state, err := service.ObserveBootState(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("ObserveBootState() error = %v", err)
+	}
+	if !state.OverrideEnabled || state.OverrideTarget != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("BootState = %#v, want enabled VirtualMedia", state)
+	}
+	if !state.MediaInserted || state.MediaImage == "" || state.MediaOperation == "" {
+		t.Fatalf("BootState media = %#v, want mounted media", state)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveBootState calls = %d, want 1", observer.calls)
+	}
+}
+
 func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 	t.Parallel()
 
@@ -485,6 +528,23 @@ func (observer *recordingPowerStateObserver) ObservePowerState(
 	observer.calls++
 	if observer.err != nil {
 		return driverdomain.PowerStateUnknown, observer.err
+	}
+	return observer.state, nil
+}
+
+type recordingBootStateObserver struct {
+	calls int
+	state driverdomain.BootState
+	err   error
+}
+
+func (observer *recordingBootStateObserver) ObserveBootState(
+	context.Context,
+	driverdomain.HostTarget,
+) (driverdomain.BootState, error) {
+	observer.calls++
+	if observer.err != nil {
+		return driverdomain.BootState{}, observer.err
 	}
 	return observer.state, nil
 }

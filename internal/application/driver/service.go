@@ -249,6 +249,57 @@ func (service *Service) ObservePowerState(
 	return driverdomain.PowerStateUnknown, fmt.Errorf("unreachable ObservePowerState retry state")
 }
 
+func (service *Service) ObserveBootState(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	invocation Invocation,
+) (driverdomain.BootState, error) {
+	implementation, err := service.registry.BootStateObserver(name)
+	if err != nil {
+		service.record(ctx, name, invocation, "unsupported")
+		return driverdomain.BootState{}, err
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, service.timeout)
+	defer cancel()
+
+	for attempt := range defaultAttempts {
+		state, err := implementation.ObserveBootState(callCtx, target)
+		if err == nil {
+			service.record(ctx, name, invocation, "success")
+			return state, nil
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(callCtx.Err(), context.DeadlineExceeded) {
+			service.record(ctx, name, invocation, "deadline_exceeded")
+			return driverdomain.BootState{}, driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+		}
+		if !driverdomain.IsErrorKind(err, driverdomain.ErrorTemporary) {
+			service.record(ctx, name, invocation, errorResult(err))
+			return driverdomain.BootState{}, err
+		}
+		if attempt == defaultAttempts-1 {
+			service.record(ctx, name, invocation, "temporary")
+			return driverdomain.BootState{}, err
+		}
+		delay := service.jitter(time.Duration(attempt+1) * time.Second)
+		ctrllog.FromContext(ctx).Error(err, "Retrying temporary boot state observation failure",
+			"driver", name,
+			"attempt", attempt+2,
+			"maxAttempts", defaultAttempts,
+			"retryAfter", delay,
+		)
+		if err := service.sleep(callCtx, delay); err != nil {
+			service.record(ctx, name, invocation, errorResult(err))
+			if errors.Is(err, context.DeadlineExceeded) {
+				return driverdomain.BootState{}, driverdomain.NewError(driverdomain.ErrorDeadlineExceeded, err)
+			}
+			return driverdomain.BootState{}, err
+		}
+	}
+	return driverdomain.BootState{}, fmt.Errorf("unreachable ObserveBootState retry state")
+}
+
 func (service *Service) PrepareBoot(
 	ctx context.Context,
 	name driverdomain.Name,

@@ -70,6 +70,14 @@ const (
 	BootTransportRedfishVirtualMedia BootTransport = "RedfishVirtualMedia"
 )
 
+type BootTarget string
+
+const (
+	BootTargetPXE          BootTarget = "PXE"
+	BootTargetHTTP         BootTarget = "HTTP"
+	BootTargetVirtualMedia BootTarget = "VirtualMedia"
+)
+
 type TartHostSpec struct {
 	// identifiers contains stable identifiers for the physical host.
 	// +required
@@ -216,6 +224,10 @@ type TartHostStatus struct {
 	// +kubebuilder:validation:Enum=On;Off;Unknown
 	PowerState PowerState `json:"powerState,omitempty"`
 
+	// bootState is the last boot override and virtual media state reported by a boot observer.
+	// +optional
+	BootState *BootStateStatus `json:"bootState,omitempty"`
+
 	// reachability is the last network observation and does not imply a power state.
 	// +optional
 	// +kubebuilder:validation:Enum=Reachable;Unreachable;Unknown
@@ -240,6 +252,35 @@ type TartHostStatus struct {
 	// observedGeneration is the last spec generation reconciled into status.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+type BootStateStatus struct {
+	// overrideEnabled indicates whether the BMC currently has a boot override armed.
+	// +optional
+	OverrideEnabled bool `json:"overrideEnabled,omitempty"`
+
+	// overrideTarget is the currently configured boot override target.
+	// +optional
+	// +kubebuilder:validation:Enum=PXE;HTTP;VirtualMedia
+	OverrideTarget BootTarget `json:"overrideTarget,omitempty"`
+
+	// virtualMedia is the currently observed CD/DVD virtual media device state.
+	// +optional
+	VirtualMedia VirtualMediaStatus `json:"virtualMedia,omitempty,omitzero"`
+}
+
+type VirtualMediaStatus struct {
+	// inserted indicates whether virtual media is currently inserted.
+	// +optional
+	Inserted bool `json:"inserted,omitempty"`
+
+	// image is the inserted virtual media image URL reported by the BMC.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// operationID is the operation identifier stored in the TART Redfish OEM field when present.
+	// +optional
+	OperationID string `json:"operationID,omitempty"`
 }
 
 type TartHostPhase string

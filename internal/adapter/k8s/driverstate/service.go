@@ -31,20 +31,32 @@ type PowerStateObserver interface {
 	) (driverdomain.PowerState, error)
 }
 
+type BootStateObserver interface {
+	ObserveBootState(
+		context.Context,
+		driverdomain.Name,
+		driverdomain.HostTarget,
+		applicationdriver.Invocation,
+	) (driverdomain.BootState, error)
+}
+
 type HostPowerStateWriter interface {
 	UpdatePowerState(context.Context, *infrastructurev1beta1.TartHost, infrastructurev1beta1.PowerState) error
+	UpdateBootState(context.Context, *infrastructurev1beta1.TartHost, infrastructurev1beta1.BootStateStatus) error
 }
 
-// Service はdriverから観測したPowerStateをHost Statusへ保存する。
+// Service はdriverから観測したPowerStateとboot stateをHost Statusへ保存する。
 type Service struct {
-	observer PowerStateObserver
-	writer   HostPowerStateWriter
+	powerObserver PowerStateObserver
+	bootObserver  BootStateObserver
+	writer        HostPowerStateWriter
 }
 
-func NewService(observer PowerStateObserver, writer HostPowerStateWriter) *Service {
+func NewService(powerObserver PowerStateObserver, bootObserver BootStateObserver, writer HostPowerStateWriter) *Service {
 	return &Service{
-		observer: observer,
-		writer:   writer,
+		powerObserver: powerObserver,
+		bootObserver:  bootObserver,
+		writer:        writer,
 	}
 }
 
@@ -55,7 +67,7 @@ func (service *Service) ObserveAndPersist(
 	host *infrastructurev1beta1.TartHost,
 	invocation applicationdriver.Invocation,
 ) error {
-	state, err := service.observer.ObservePowerState(ctx, name, target, invocation)
+	state, err := service.powerObserver.ObservePowerState(ctx, name, target, invocation)
 	if err != nil {
 		if driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
 			return nil
@@ -63,4 +75,29 @@ func (service *Service) ObserveAndPersist(
 		return err
 	}
 	return service.writer.UpdatePowerState(ctx, host, infrastructurev1beta1.PowerState(state))
+}
+
+func (service *Service) ObserveBootAndPersist(
+	ctx context.Context,
+	name driverdomain.Name,
+	target driverdomain.HostTarget,
+	host *infrastructurev1beta1.TartHost,
+	invocation applicationdriver.Invocation,
+) error {
+	state, err := service.bootObserver.ObserveBootState(ctx, name, target, invocation)
+	if err != nil {
+		if driverdomain.IsErrorKind(err, driverdomain.ErrorUnsupported) {
+			return nil
+		}
+		return err
+	}
+	return service.writer.UpdateBootState(ctx, host, infrastructurev1beta1.BootStateStatus{
+		OverrideEnabled: state.OverrideEnabled,
+		OverrideTarget:  infrastructurev1beta1.BootTarget(state.OverrideTarget),
+		VirtualMedia: infrastructurev1beta1.VirtualMediaStatus{
+			Inserted:    state.MediaInserted,
+			Image:       state.MediaImage,
+			OperationID: state.MediaOperation,
+		},
+	})
 }

@@ -68,6 +68,14 @@ func (target BootTarget) Valid() bool {
 	return false
 }
 
+type BootState struct {
+	OverrideEnabled bool
+	OverrideTarget  BootTarget
+	MediaInserted   bool
+	MediaImage      string
+	MediaOperation  string
+}
+
 type Artifact struct {
 	reference string
 }

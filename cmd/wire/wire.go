@@ -57,6 +57,9 @@ func provideDriverRegistry(
 	if err := registry.RegisterBootOverride(driverdomain.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
+	if err := registry.RegisterBootStateObserver(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
 	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
@@ -127,6 +130,7 @@ func provideTartHostOperationReconciler(
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
 	driverPowerState controller.OperationDriverPowerStateObserver,
+	driverBootState controller.OperationDriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -137,6 +141,7 @@ func provideTartHostOperationReconciler(
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
 		DriverPowerState:   driverPowerState,
+		DriverBootState:    driverBootState,
 	}
 }
 
@@ -191,9 +196,11 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
 		wire.Bind(new(controller.OperationDriverCapabilityObserver), new(*k8sdrivercapability.Service)),
 		wire.Bind(new(controller.OperationDriverPowerStateObserver), new(*k8sdriverstate.Service)),
+		wire.Bind(new(controller.OperationDriverBootStateObserver), new(*k8sdriverstate.Service)),
 		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
 		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(k8sdriverstate.PowerStateObserver), new(*applicationdriver.Service)),
+		wire.Bind(new(k8sdriverstate.BootStateObserver), new(*applicationdriver.Service)),
 		wire.Bind(new(k8sdriverstate.HostPowerStateWriter), new(*k8sv1beta1host.Service)),
 
 		woladapter.Default,

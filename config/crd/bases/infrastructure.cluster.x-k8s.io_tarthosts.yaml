@@ -415,6 +415,40 @@ spec:
             type: object
           status:
             properties:
+              bootState:
+                description: bootState is the last boot override and virtual media
+                  state reported by a boot observer.
+                properties:
+                  overrideEnabled:
+                    description: overrideEnabled indicates whether the BMC currently
+                      has a boot override armed.
+                    type: boolean
+                  overrideTarget:
+                    description: overrideTarget is the currently configured boot override
+                      target.
+                    enum:
+                    - PXE
+                    - HTTP
+                    - VirtualMedia
+                    type: string
+                  virtualMedia:
+                    description: virtualMedia is the currently observed CD/DVD virtual
+                      media device state.
+                    properties:
+                      image:
+                        description: image is the inserted virtual media image URL
+                          reported by the BMC.
+                        type: string
+                      inserted:
+                        description: inserted indicates whether virtual media is currently
+                          inserted.
+                        type: boolean
+                      operationID:
+                        description: operationID is the operation identifier stored
+                          in the TART Redfish OEM field when present.
+                        type: string
+                    type: object
+                type: object
               capabilities:
                 description: capabilities contains only operations implemented by
                   the configured drivers.

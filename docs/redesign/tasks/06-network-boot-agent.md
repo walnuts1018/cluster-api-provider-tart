@@ -122,6 +122,8 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
   `--preflight-only`診断、GPT作成または既存Role検証だけを行う`--prepare-layout-only`、
   Artifact検証とOS/Verity書込みを行う破壊的な`--write-payloads-only`を提供。
   Registry credentialは任意のDocker互換config fileから読込む
+- `internal/registrycredential`: Docker互換config fileからORAS用credential関数を生成し、
+  controllerとProvisioning Agentでprivate OCI Registry設定を共有する
 
 2026-07-06時点で、10%刻みの書込み進捗をAgent APIへ接続し、最新step/role/percentと
 Write/Verify完了StepをOperationへ保存する処理まで実装した。再登録時はStatusのagentSequenceを

@@ -31,8 +31,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"oras.land/oras-go/v2/registry/remote/auth"
-	"oras.land/oras-go/v2/registry/remote/credentials"
 
 	provisioningagent "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
@@ -45,6 +43,7 @@ import (
 	agentplan "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/plan"
 	agentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/progress"
 	agentwriter "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/writer"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/registrycredential"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
@@ -176,7 +175,7 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		credential, err := registryCredential(cfg.registryConfig)
+		credential, err := registrycredential.Load(cfg.registryConfig)
 		if err != nil {
 			return err
 		}
@@ -460,17 +459,6 @@ func loadPublicKey(path, purpose string) (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("%s public key must be Ed25519", purpose)
 	}
 	return publicKey, nil
-}
-
-func registryCredential(configPath string) (auth.CredentialFunc, error) {
-	if configPath == "" {
-		return nil, nil
-	}
-	store, err := credentials.NewStore(configPath, credentials.StoreOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("load registry credential file: %w", err)
-	}
-	return credentials.Credential(store), nil
 }
 
 func newHTTPClient(caFile string) (*http.Client, error) {

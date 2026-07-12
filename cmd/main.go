@@ -64,6 +64,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/registrycredential"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentapi"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
@@ -117,6 +118,7 @@ func main() {
 	var agentBootKeyFile string
 	var osArtifactKeyID string
 	var osArtifactPublicKeyFile string
+	var osArtifactRegistryConfig string
 	var agentPlanKeyID string
 	var agentPlanPrivateKeyFile string
 	var probeAddr string
@@ -154,6 +156,12 @@ func main() {
 	flag.StringVar(&agentBootKeyFile, "agent-boot-key-file", "", "The Agent boot HTTPS TLS private key file.")
 	flag.StringVar(&osArtifactKeyID, "os-artifact-key-id", "", "The trusted OS Artifact signing key ID used by in-place updates.")
 	flag.StringVar(&osArtifactPublicKeyFile, "os-artifact-public-key-file", "", "The trusted OS Artifact Ed25519 public key file used by in-place updates.")
+	flag.StringVar(
+		&osArtifactRegistryConfig,
+		"os-artifact-registry-config",
+		"",
+		"Optional Docker-compatible registry credential file used to resolve OS Artifacts for in-place updates.",
+	)
 	flag.StringVar(&agentPlanKeyID, "agent-plan-key-id", "", "The Agent Plan signing key ID used by in-place updates.")
 	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file, mounted read-only separately from Artifact trust keys.")
 	flag.BoolVar(
@@ -584,10 +592,14 @@ func main() {
 			setupLog.Error(err, "Failed to load Agent Plan signing key")
 			os.Exit(1)
 		}
-		// TODO: private Registry credentialをcontroller設定へ追加した時点で匿名credentialを置き換える。
+		registryCredential, err := registrycredential.Load(osArtifactRegistryConfig)
+		if err != nil {
+			setupLog.Error(err, "Failed to load OS Artifact registry credential file")
+			os.Exit(1)
+		}
 		manifestResolver, err := artifactfetch.NewOCI(
 			artifact.StaticTrustStore{osArtifactKeyID: artifactPublicKey},
-			nil,
+			registryCredential,
 		)
 		if err != nil {
 			setupLog.Error(err, "Failed to create OS Artifact Manifest resolver")

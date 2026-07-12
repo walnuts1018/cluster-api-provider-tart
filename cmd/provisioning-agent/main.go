@@ -195,10 +195,11 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		targetWriter := agentwriter.New(
+		targetWriter := agentwriter.NewWithSanitizer(
 			layout.NewManager(layout.NewLinuxDiskIO()),
 			source,
 			agentwriter.LinuxDeviceOpener{},
+			agentwriter.NewLinuxSanitizer(),
 			func(ctx context.Context, progress agentwriter.Progress) error {
 				slog.Info(
 					"Provisioning Agent payload write progress",

@@ -155,7 +155,7 @@ func main() {
 	flag.StringVar(&osArtifactKeyID, "os-artifact-key-id", "", "The trusted OS Artifact signing key ID used by in-place updates.")
 	flag.StringVar(&osArtifactPublicKeyFile, "os-artifact-public-key-file", "", "The trusted OS Artifact Ed25519 public key file used by in-place updates.")
 	flag.StringVar(&agentPlanKeyID, "agent-plan-key-id", "", "The Agent Plan signing key ID used by in-place updates.")
-	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file used by in-place updates.")
+	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file, mounted read-only separately from Artifact trust keys.")
 	flag.BoolVar(
 		&agentAPIAllowIsolatedL2,
 		"agent-api-allow-isolated-l2",
@@ -385,7 +385,7 @@ func main() {
 		os.Exit(1)
 	}
 	if agentPlanKeyID != "" && agentPlanPrivateKeyFile != "" {
-		planPrivateKey, err := signingkey.LoadPrivate(agentPlanPrivateKeyFile)
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
 		if err != nil {
 			setupLog.Error(err, "Failed to load Agent Plan signing key for Cleaning workflow")
 			os.Exit(1)
@@ -578,7 +578,7 @@ func main() {
 			setupLog.Error(err, "Failed to load OS Artifact verification key")
 			os.Exit(1)
 		}
-		planPrivateKey, err := signingkey.LoadPrivate(agentPlanPrivateKeyFile)
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
 		if err != nil {
 			setupLog.Error(err, "Failed to load Agent Plan signing key")
 			os.Exit(1)

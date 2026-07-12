@@ -57,7 +57,7 @@ func (manager *Manager) Prepare(
 		}
 	case agentprotocol.OperationTypeUpdate:
 		// 更新ではpartition tableへ副作用を起こさず、既存Roleの一致だけを確認する。
-	case agentprotocol.OperationTypeClean:
+	case agentprotocol.OperationTypeClean, agentprotocol.OperationTypeWipeAll:
 		// Cleaningでは既存partition tableのRole解決だけを行う。
 	default:
 		return nil, fmt.Errorf("unsupported operation type: %q", operation)

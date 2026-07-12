@@ -45,7 +45,7 @@
 - [x] Planを検証してRFC 8785 digestを算出し、Ed25519署名する。
 - [x] Operationと同じ名前空間へowner reference付きSecretをSSAで保存する。
 - [x] controller再起動後に同じPlan Secretへ収束するテストを追加する。
-- [ ] Plan署名鍵をArtifact信頼鍵とは別のread-only mountから読み込む起動オプションを追加する。
+- [x] Plan署名鍵をArtifact信頼鍵とは別のread-only mountから読み込む起動オプションを追加する。
 - [x] 対象packageのテストを実行し、変更をコミットする。
 
 ### 作業単位3: Bootstrap Bundleと初回boot完了を接続する
@@ -63,7 +63,7 @@
 - [x] Bootstrap成功markerがpayload digestと一致するProtocolへ拡張する。
 - [x] boot report受信後もNode health条件が不足していれば`AwaitingHealth`を維持する。
 - [x] 全条件成立時だけOperation、Host、TartMachineを順に完了状態へPatchする。
-- [ ] 対象packageのテストを実行し、変更をコミットする。
+- [x] 対象packageのテストを実行し、変更をコミットする。
 
 ### 作業単位4: 削除Policyと手動WipeAllを実装する
 
@@ -81,7 +81,7 @@
 - [x] TartMachine削除時にCleaning Operationを作成し、完了までfinalizerを保持する。
 - [x] `machineRef=nil`の手動WipeAllを同じOperation reconcilerで処理する。
 - [x] 完了後のHost phaseをそれぞれAvailable、Retained、DetachedへPatchする。
-- [ ] 対象packageのテストを実行し、変更をコミットする。
+- [x] 対象packageのテストを実行し、変更をコミットする。
 
 ### 作業単位5: 検証記録と統合
 
@@ -89,7 +89,7 @@
 
 - `docs/redesign/tasks/07-initial-provisioning.md`
 
-- [ ] 受け入れ条件ごとの実装状況と残る実機確認を記録する。
+- [x] 受け入れ条件ごとの実装状況と残る実機確認を記録する。
 - [ ] `mise run build`、`mise run lint`、関連する`go test`を実行する。
 - [ ] `mise run test-provisioning-e2e`はローカル実行せず、GitHub Actionsの結果だけを記録する。
 - [ ] PR本文に対象条件、検証command、未検証の実機項目を記載する。

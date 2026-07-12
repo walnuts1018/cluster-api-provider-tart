@@ -48,6 +48,10 @@ type DeviceOpener interface {
 	Open(string) (SyncReadWriteSeekCloser, error)
 }
 
+type Sanitizer interface {
+	Sanitize(context.Context, string, int64) (bool, error)
+}
+
 type Progress struct {
 	Step      string
 	DiskRole  agentprotocol.DiskRole
@@ -61,6 +65,7 @@ type Writer struct {
 	layout   LayoutPreparer
 	fetcher  ArtifactFetcher
 	opener   DeviceOpener
+	sanitize Sanitizer
 	progress ProgressReporter
 }
 
@@ -70,10 +75,21 @@ func New(
 	opener DeviceOpener,
 	progress ProgressReporter,
 ) *Writer {
+	return NewWithSanitizer(layoutPreparer, fetcher, opener, nil, progress)
+}
+
+func NewWithSanitizer(
+	layoutPreparer LayoutPreparer,
+	fetcher ArtifactFetcher,
+	opener DeviceOpener,
+	sanitizer Sanitizer,
+	progress ProgressReporter,
+) *Writer {
 	return &Writer{
 		layout:   layoutPreparer,
 		fetcher:  fetcher,
 		opener:   opener,
+		sanitize: sanitizer,
 		progress: progress,
 	}
 }
@@ -84,8 +100,12 @@ func (writer *Writer) WriteTargets(
 	device disk.Device,
 ) error {
 	switch plan.Value().OperationType {
+	case agentprotocol.OperationTypeProvision, agentprotocol.OperationTypeUpdate:
+		// OS Artifactの書き込みはこの後の共通処理で行う。
 	case agentprotocol.OperationTypeClean, agentprotocol.OperationTypeWipeAll:
 		return writer.cleanTargets(ctx, plan, device)
+	default:
+		return fmt.Errorf("unsupported operation type %q", plan.Value().OperationType)
 	}
 	if err := validateProgressSteps(plan.Value()); err != nil {
 		return err
@@ -160,6 +180,15 @@ func (writer *Writer) cleanTargets(
 	value := plan.Value()
 	switch value.OperationType {
 	case agentprotocol.OperationTypeWipeAll:
+		if writer.sanitize != nil {
+			sanitized, err := writer.sanitize.Sanitize(ctx, device.Path, device.SizeBytes)
+			if err != nil {
+				return fmt.Errorf("sanitize root disk: %w", err)
+			}
+			if sanitized {
+				return writer.reportCleaningCompletion(ctx)
+			}
+		}
 		if err := writer.zeroRole(ctx, agentprotocol.DiskRoleData, device.Path, device.SizeBytes); err != nil {
 			return fmt.Errorf("wipe root disk: %w", err)
 		}
@@ -181,6 +210,8 @@ func (writer *Writer) cleanTargets(
 				return fmt.Errorf("clean role %s: %w", role, err)
 			}
 		}
+	case agentprotocol.OperationTypeProvision, agentprotocol.OperationTypeUpdate:
+		return fmt.Errorf("unsupported cleaning operation type %q", value.OperationType)
 	default:
 		return fmt.Errorf("unsupported operation type %q", value.OperationType)
 	}
@@ -318,6 +349,8 @@ func selectPayloadTargets(plan agentprotocol.ValidatedPlan) (payloadTargets, err
 		default:
 			return payloadTargets{}, fmt.Errorf("unsupported active slot %q", value.ActiveSlot)
 		}
+	case agentprotocol.OperationTypeClean, agentprotocol.OperationTypeWipeAll:
+		return payloadTargets{}, fmt.Errorf("operation type %q does not write OS payloads", value.OperationType)
 	default:
 		return payloadTargets{}, fmt.Errorf("unsupported operation type %q", value.OperationType)
 	}

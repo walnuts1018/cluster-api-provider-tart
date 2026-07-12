@@ -63,3 +63,47 @@ func TestLoadEd25519Keys(t *testing.T) {
 		t.Fatal("LoadPrivate() returned another key")
 	}
 }
+
+func TestLoadPrivateReadOnlyRejectsWritableFile(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+	_ = publicKey
+	privateDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("x509.MarshalPKCS8PrivateKey() error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "private.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o644); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+
+	if _, err := LoadPrivateReadOnly(path); err == nil {
+		t.Fatal("LoadPrivateReadOnly() accepted writable file")
+	}
+}
+
+func TestLoadPrivateReadOnlyAcceptsReadOnlyFile(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+	_ = publicKey
+	privateDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatalf("x509.MarshalPKCS8PrivateKey() error = %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "private.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o400); err != nil {
+		t.Fatalf("write private key: %v", err)
+	}
+
+	loadedPrivate, err := LoadPrivateReadOnly(path)
+	if err != nil {
+		t.Fatalf("LoadPrivateReadOnly() error = %v", err)
+	}
+	if !bytes.Equal(loadedPrivate, privateKey) {
+		t.Fatal("LoadPrivateReadOnly() returned another key")
+	}
+}

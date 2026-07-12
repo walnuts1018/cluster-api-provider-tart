@@ -103,11 +103,49 @@ func run(ctx context.Context, args []string) error {
 		NodeName:    cfg.nodeName,
 	})
 	service := distribution.NewService(kubeadmadapter.NewDriver(runtime))
-	if _, err := service.RunStep(ctx, domainPlan, cfg.step); err != nil {
+	result, stepErr := service.RunStep(ctx, domainPlan, cfg.step)
+	if err := reportStepOutcome(ctx, apiClient, sessionToken, cfg, result, stepErr); err != nil {
 		return err
 	}
-	// TODO: Node Lifecycle progress endpointを追加した後、Step成功直後にcontrollerへ報告する。
+	if stepErr != nil {
+		return stepErr
+	}
 	slog.Info("Node Lifecycle step completed", "operation_uid", cfg.operationUID, "step", cfg.step)
+	return nil
+}
+
+type lifecycleProgressReporter interface {
+	ReportNodeLifecycleProgress(context.Context, string, agentprotocol.NodeLifecycleProgressRequest) error
+}
+
+func reportStepOutcome(
+	ctx context.Context,
+	reporter lifecycleProgressReporter,
+	sessionToken string,
+	cfg config,
+	result distribution.StepResult,
+	stepErr error,
+) error {
+	report := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: cfg.operationUID,
+		PlanDigest:   cfg.planDigest,
+		Step:         string(cfg.step),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+		SnapshotRef:  result.SnapshotRef,
+	}
+	if stepErr != nil {
+		report.Result = agentprotocol.NodeLifecycleResultFailed
+	}
+	if err := reporter.ReportNodeLifecycleProgress(ctx, sessionToken, report); err != nil {
+		if stepErr != nil {
+			return errors.Join(stepErr, fmt.Errorf("report Node Lifecycle step failure: %w", err))
+		}
+		return fmt.Errorf("report Node Lifecycle step success: %w", err)
+	}
+	if stepErr != nil {
+		return stepErr
+	}
 	return nil
 }
 

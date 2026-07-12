@@ -135,10 +135,12 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - controllerのAgent APIへ`/v1/operations/{uid}/node-lifecycle-plan`を追加し、Session Token認証、
   OperationのPlanDigest照合、Kubernetes Secret providerからの署名済みPlan配信を接続
 - Provisioning Agent clientへNode Lifecycle Plan取得APIを追加し、PlanDigestとEd25519署名を検証
+- Node Lifecycle ServiceのStep成功/失敗をSession Token認証済みAgent API
+  `/v1/operations/{uid}/node-lifecycle-progress`へ報告し、成功StepをStatusStoreの`completedSteps`、
+  失敗Stepを`RecoveryRequired`遷移へ接続
 
 未実装・未検証:
 
-- Node Lifecycle ServiceのStep成功/失敗をcontrollerへ報告するAgent APIとStatusStore接続
 - worker/control plane別Plan生成と署名済みPlan adapter/providerのTartHostOperation controllerへの接続
 - 7つの各Step直後のcontrollerまたはNode再起動検証
 - control plane component、etcd quorum、API healthの詳細な実観測Runtime

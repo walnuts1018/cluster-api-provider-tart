@@ -203,6 +203,24 @@ func (client *Client) ReportProgress(
 	return response, nil
 }
 
+func (client *Client) ReportNodeLifecycleProgress(
+	ctx context.Context,
+	sessionToken string,
+	request agentprotocol.NodeLifecycleProgressRequest,
+) error {
+	if err := agentprotocol.ValidateNodeLifecycleProgressRequest(request); err != nil {
+		return fmt.Errorf("validate Node Lifecycle progress: %w", err)
+	}
+	endpoint, err := operationEndpoint(request.OperationUID, "node-lifecycle-progress")
+	if err != nil {
+		return err
+	}
+	if err := client.doJSON(ctx, http.MethodPost, endpoint, sessionToken, request, nil, 0); err != nil {
+		return fmt.Errorf("report Node Lifecycle progress: %w", err)
+	}
+	return nil
+}
+
 func (client *Client) FetchBootstrap(
 	ctx context.Context,
 	operationUID, sessionToken string,

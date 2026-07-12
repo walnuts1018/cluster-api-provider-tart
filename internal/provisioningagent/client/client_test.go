@@ -175,6 +175,38 @@ func TestFetchNodeLifecyclePlanVerifiesDigestSignatureAndAuthorization(t *testin
 	}
 }
 
+func TestReportNodeLifecycleProgressUsesBoundSession(t *testing.T) {
+	var received agentprotocol.NodeLifecycleProgressRequest
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/operations/operation-uid/node-lifecycle-progress" {
+			t.Errorf("path = %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != testSessionAuthorization {
+			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, nil)
+	request := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		PlanDigest:   "sha256:" + strings.Repeat("a", 64),
+		Step:         string(distributiondomain.StepPreflightCompleted),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+	}
+
+	if err := client.ReportNodeLifecycleProgress(t.Context(), "session-secret", request); err != nil {
+		t.Fatalf("ReportNodeLifecycleProgress() error = %v", err)
+	}
+	if received.Step != request.Step || received.Result != request.Result {
+		t.Fatalf("received request = %#v, want %#v", received, request)
+	}
+}
+
 func TestFetchBootstrapAndReportBootUseBoundSession(t *testing.T) {
 	payload := []byte("#cloud-config\n")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

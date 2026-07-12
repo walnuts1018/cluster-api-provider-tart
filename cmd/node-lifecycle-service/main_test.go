@@ -15,15 +15,19 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
 func TestParseConfigRequiresNodeLifecycleInputs(t *testing.T) {
@@ -82,4 +86,54 @@ func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {
 	if !publicKey.Equal(got) {
 		t.Fatal("loadPublicKey() returned another key")
 	}
+}
+
+func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	reporter := &recordingLifecycleProgressReporter{}
+	if err := reportStepOutcome(
+		context.Background(),
+		reporter,
+		"session-token",
+		cfg,
+		distribution.StepResult{},
+		nil,
+	); err != nil {
+		t.Fatalf("reportStepOutcome(success) error = %v", err)
+	}
+	if reporter.requests[0].Result != agentprotocol.NodeLifecycleResultSucceeded {
+		t.Fatalf("success result = %q", reporter.requests[0].Result)
+	}
+
+	stepErr := errors.New("step failed")
+	if err := reportStepOutcome(
+		context.Background(),
+		reporter,
+		"session-token",
+		cfg,
+		distribution.StepResult{},
+		stepErr,
+	); !errors.Is(err, stepErr) {
+		t.Fatalf("reportStepOutcome(failure) error = %v, want original step error", err)
+	}
+	if reporter.requests[1].Result != agentprotocol.NodeLifecycleResultFailed {
+		t.Fatalf("failure result = %q", reporter.requests[1].Result)
+	}
+}
+
+type recordingLifecycleProgressReporter struct {
+	requests []agentprotocol.NodeLifecycleProgressRequest
+}
+
+func (reporter *recordingLifecycleProgressReporter) ReportNodeLifecycleProgress(
+	_ context.Context,
+	_ string,
+	request agentprotocol.NodeLifecycleProgressRequest,
+) error {
+	reporter.requests = append(reporter.requests, request)
+	return nil
 }

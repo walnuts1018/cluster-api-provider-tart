@@ -37,6 +37,7 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
+	k8sdistributionlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/distributionlifecycle"
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
@@ -133,6 +134,37 @@ func (reporter *recordingBootReporter) ReportBoot(
 	return reporter.err
 }
 
+type recordingNodeLifecycleStatus struct {
+	operation   *infrastructurev1beta1.TartHostOperation
+	plan        distributiondomain.Plan
+	step        distributiondomain.Step
+	snapshotRef *infrastructurev1beta1.ResourceReference
+	recovery    bool
+}
+
+func (status *recordingNodeLifecycleStatus) RecordStep(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	plan distributiondomain.Plan,
+	step distributiondomain.Step,
+	snapshotRef *infrastructurev1beta1.ResourceReference,
+) error {
+	status.operation = operation
+	status.plan = plan
+	status.step = step
+	status.snapshotRef = snapshotRef
+	return nil
+}
+
+func (status *recordingNodeLifecycleStatus) MarkRecoveryRequired(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	status.operation = operation
+	status.recovery = true
+	return nil
+}
+
 func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
 	handler := NewHandler(Config{})
 	request := httptest.NewRequest(http.MethodGet, "/v1/operations/operation-uid/plan", nil)
@@ -188,6 +220,18 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 				Step:          "WriteImage",
 				Percent:       100,
 				Completed:     true,
+			},
+		},
+		{
+			name:   "node lifecycle progress",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/node-lifecycle-progress",
+			body: agentprotocol.NodeLifecycleProgressRequest{
+				APIVersion:   agentprotocol.APIVersion,
+				OperationUID: "operation-uid",
+				PlanDigest:   testPlanDigest,
+				Step:         string(distributiondomain.StepPreflightCompleted),
+				Result:       agentprotocol.NodeLifecycleResultSucceeded,
 			},
 		},
 		{
@@ -313,6 +357,54 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 		got.Plan.TargetVersion != "v1.35.0" ||
 		got.Signature.KeyID != "node-lifecycle-key" {
 		t.Fatalf("node lifecycle plan = %#v, want signed plan", got)
+	}
+}
+
+func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	recorder := &recordingNodeLifecycleStatus{}
+	handler.config.NodeLifecycleStatus = recorder
+	signed := handler.config.NodeLifecyclePlans.(staticNodeLifecyclePlan).plan
+	validated, err := nodelifecycle.ValidatePlan(signed.Plan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	operation := handler.config.Operations.(staticResolver).operation.DeepCopy()
+	operation.Spec.PlanDigest = planDigest.String()
+	handler.config.Operations = staticResolver{
+		key:       client.ObjectKey{Namespace: operation.Namespace, Name: operation.Name},
+		operation: operation,
+	}
+	body := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		PlanDigest:   planDigest.String(),
+		Step:         string(distributiondomain.StepPreflightCompleted),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	if recorder.operation == nil || recorder.operation.Spec.OperationID != "operation-uid" {
+		t.Fatalf("recorded operation = %#v, want operation-uid", recorder.operation)
+	}
+	if recorder.plan.OperationID != "operation-uid" ||
+		recorder.step != distributiondomain.StepPreflightCompleted {
+		t.Fatalf("recorded plan/step = %#v/%q, want PreflightCompleted", recorder.plan, recorder.step)
 	}
 }
 
@@ -652,8 +744,9 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 				Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
 			},
 		}},
-		Bootstrap: bootstrap,
-		Now:       func() time.Time { return now },
+		NodeLifecycleStatus: k8sdistributionlifecycle.NewStatusStore(k8sClient),
+		Bootstrap:           bootstrap,
+		Now:                 func() time.Time { return now },
 	}), token.BearerValue()
 }
 

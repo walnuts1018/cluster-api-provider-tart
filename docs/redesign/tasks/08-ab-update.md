@@ -155,14 +155,22 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - `InPlaceUpdates`親gateと`InPlaceUpdatesWorker`、
   `InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`子gateのparse。
   親gate無効時はRuntime Extension managerを生成しない
+- worker / single control plane / multi control planeの対象判定をRuntime Hookへ接続し、
+  無効な対象ではpatchなしで通常置換へfallback、`UpdateMachine`も開始しない処理
+- update failureの失敗stepを`TartHostOperation`の`Degraded` Conditionへ保持し、
+  `TartMachine`へ引き継ぐ処理
+- update failure時にOperation ID、Host名、Operation type、failure reasonを含むEvent、
+  `operation_type`/`phase`/`result`/`rollback` label付きMetric、
+  Operation IDとfailure reasonを持つTrace attributeを出す処理
+- Update PlanにBoot roleを含め、Provisioning Agentがtarget slot、rollback slot、
+  Artifact Generation、最大試行回数をtyped requestとしてboot trial driverへ渡す処理
+- Provisioning Agentのcommand adapterがboot device pathとslot情報を固定引数で受け取り、
+  boot trial metadata更新を外部driverへ委譲する処理
+- controllerのOS Artifact Manifest resolverが、Docker互換config fileから読んだ
+  private OCI Registry credentialを使ってdigest固定Artifactを解決する処理
 
 未実装・未検証:
 
-- boot trial metadataを操作するDriver adapter
-- Condition、Event、Metric、Traceの更新失敗観測情報
-- worker、複数control plane、単一control planeの子gateを実際の対象Machine種別判定へ接続する処理
-- controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は
-  digest固定参照と署名検証を必須とし、匿名Registryに限定する
 - QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証
 
 ## 関連

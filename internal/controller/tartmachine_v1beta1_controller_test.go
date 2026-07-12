@@ -16,12 +16,14 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,6 +31,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	applicationallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineallocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 )
@@ -448,6 +451,12 @@ func TestTartMachineV1Beta1ReconcilerKeepsReadyAfterUpdateRollback(t *testing.T)
 		},
 		Status: infrastructurev1beta1.TartHostOperationStatus{
 			Phase: infrastructurev1beta1.TartHostOperationPhaseFailed,
+			Conditions: []metav1.Condition{{
+				Type:    appupdate.ConditionDegraded,
+				Status:  metav1.ConditionTrue,
+				Reason:  "BootFailed",
+				Message: "In-place OS update failed during BootTrial and the previous slot is healthy",
+			}},
 		},
 	}
 	k8sClient := fake.NewClientBuilder().
@@ -472,6 +481,94 @@ func TestTartMachineV1Beta1ReconcilerKeepsReadyAfterUpdateRollback(t *testing.T)
 		condition.Status != metav1.ConditionTrue ||
 		condition.Reason != "UpdateRolledBack" {
 		t.Fatalf("Ready condition = %#v", condition)
+	}
+	degraded := apimeta.FindStatusCondition(current.Status.Conditions, appupdate.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "BootFailed" {
+		t.Fatalf("Degraded condition = %#v", degraded)
+	}
+}
+
+func TestTartMachineV1Beta1ReconcilerEmitsUpdateFailureEvent(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	provisioned := true
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-update-event",
+			Namespace:  "default",
+			UID:        types.UID("machine-update-event-uid"),
+			Generation: 2,
+		},
+		Status: infrastructurev1beta1.TartMachineStatus{
+			Initialization: infrastructurev1beta1.TartMachineInitializationStatus{Provisioned: &provisioned},
+			HostRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: "default",
+				Name:      "host-update",
+				UID:       types.UID("host-update-uid"),
+			},
+			OperationRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: "default",
+				Name:      "operation-update-event",
+				UID:       types.UID("operation-update-event-uid"),
+			},
+		},
+	}
+	operation := &infrastructurev1beta1.TartHostOperation{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "operation-update-event",
+			Namespace: machine.Namespace,
+			UID:       types.UID("operation-update-event-uid"),
+		},
+		Spec: infrastructurev1beta1.TartHostOperationSpec{
+			OperationID: "11111111-1111-1111-1111-111111111111",
+			Type:        infrastructurev1beta1.OperationTypeUpdate,
+			HostRef: infrastructurev1beta1.ResourceReference{
+				Namespace: machine.Namespace,
+				Name:      "host-update",
+				UID:       types.UID("host-update-uid"),
+			},
+		},
+		Status: infrastructurev1beta1.TartHostOperationStatus{
+			Phase: infrastructurev1beta1.TartHostOperationPhaseFailed,
+			Conditions: []metav1.Condition{{
+				Type:    appupdate.ConditionDegraded,
+				Status:  metav1.ConditionTrue,
+				Reason:  "HealthCheckFailed",
+				Message: "In-place OS update failed during AwaitingHealth and the previous slot is healthy",
+			}},
+		},
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(machine, operation).
+		Build()
+	recorder := record.NewFakeRecorder(1)
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client:   k8sClient,
+		Recorder: recorder,
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	select {
+	case event := <-recorder.Events:
+		for _, want := range []string{
+			"UpdateFailed",
+			"11111111-1111-1111-1111-111111111111",
+			"host-update",
+			"Update",
+			"HealthCheckFailed",
+		} {
+			if !strings.Contains(event, want) {
+				t.Fatalf("event = %q, want substring %q", event, want)
+			}
+		}
+	default:
+		t.Fatal("expected update failure event")
 	}
 }
 

@@ -39,11 +39,19 @@ func StatusWithUpdateSucceeded(
 		Message:            "In-place OS update has completed successfully",
 		ObservedGeneration: machine.Generation,
 	})
+	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
+		Type:               ConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             "Updated",
+		Message:            "No update failure is present",
+		ObservedGeneration: machine.Generation,
+	})
 	return *status
 }
 
 func StatusWithUpdateRolledBack(
 	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
 ) infrastructurev1beta1.TartMachineStatus {
 	status := machine.Status.DeepCopy()
 	status.ObservedGeneration = machine.Generation
@@ -54,11 +62,21 @@ func StatusWithUpdateRolledBack(
 		Message:            "In-place OS update failed and the previous slot is healthy",
 		ObservedGeneration: machine.Generation,
 	})
+	if degraded := FailureCondition(operation); degraded != nil {
+		apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               ConditionDegraded,
+			Status:             degraded.Status,
+			Reason:             degraded.Reason,
+			Message:            degraded.Message,
+			ObservedGeneration: machine.Generation,
+		})
+	}
 	return *status
 }
 
 func StatusWithUpdateRecoveryRequired(
 	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
 ) infrastructurev1beta1.TartMachineStatus {
 	status := machine.Status.DeepCopy()
 	status.ObservedGeneration = machine.Generation
@@ -69,5 +87,14 @@ func StatusWithUpdateRecoveryRequired(
 		Message:            "In-place OS update failed and automatic rollback did not restore health",
 		ObservedGeneration: machine.Generation,
 	})
+	if degraded := FailureCondition(operation); degraded != nil {
+		apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
+			Type:               ConditionDegraded,
+			Status:             degraded.Status,
+			Reason:             degraded.Reason,
+			Message:            degraded.Message,
+			ObservedGeneration: machine.Generation,
+		})
+	}
 	return *status
 }

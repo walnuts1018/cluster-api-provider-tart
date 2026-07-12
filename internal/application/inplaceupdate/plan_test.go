@@ -63,11 +63,12 @@ func TestBuildUpdatePlanはInactiveSlotだけを許可する(t *testing.T) {
 			if plan.ActiveSlot != tt.activeSlot {
 				t.Fatalf("ActiveSlot = %q, want %q", plan.ActiveSlot, tt.activeSlot)
 			}
-			if len(plan.AllowedTargetRoles) != 2 ||
-				plan.AllowedTargetRoles[0] != tt.wantOS ||
-				plan.AllowedTargetRoles[1] != tt.wantVerity {
-				t.Fatalf("AllowedTargetRoles = %v, want [%s %s]",
-					plan.AllowedTargetRoles, tt.wantOS, tt.wantVerity)
+			if len(plan.AllowedTargetRoles) != 3 ||
+				plan.AllowedTargetRoles[0] != agentprotocol.DiskRoleBoot ||
+				plan.AllowedTargetRoles[1] != tt.wantOS ||
+				plan.AllowedTargetRoles[2] != tt.wantVerity {
+				t.Fatalf("AllowedTargetRoles = %v, want [%s %s %s]",
+					plan.AllowedTargetRoles, agentprotocol.DiskRoleBoot, tt.wantOS, tt.wantVerity)
 			}
 			if plan.Bootstrap != nil {
 				t.Fatal("Bootstrap must be nil for OSOnly update")

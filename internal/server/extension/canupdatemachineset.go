@@ -22,12 +22,35 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// HandleCanUpdateMachineSetはOSOnly allowlistでtemplate差分を分類する。
-func HandleCanUpdateMachineSet(
+// CanUpdateMachineSetHandlerはOSOnly allowlistと対象gateを束ねる。
+type CanUpdateMachineSetHandler struct {
+	support *TargetSupportChecker
+}
+
+// NewCanUpdateMachineSetHandlerはMachineSet hook handlerを生成する。
+func NewCanUpdateMachineSetHandler(support *TargetSupportChecker) *CanUpdateMachineSetHandler {
+	return &CanUpdateMachineSetHandler{support: support}
+}
+
+// HandleはOSOnly allowlistでtemplate差分を分類する。
+func (handler *CanUpdateMachineSetHandler) Handle(
 	ctx context.Context,
 	request *runtimehooksv1.CanUpdateMachineSetRequest,
 	response *runtimehooksv1.CanUpdateMachineSetResponse,
 ) {
+	supported, reason, err := handler.support.SupportsMachineSet(ctx, &request.Desired.MachineSet)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate in-place MachineSet target")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to evaluate in-place update target: " + err.Error())
+		return
+	}
+	if !supported {
+		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
+		response.SetMessage("in-place update not selected; " + reason)
+		return
+	}
+
 	classification, desired, err := classifyMachineSetRequest(request)
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "Failed to classify in-place MachineSet update")

@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -63,6 +65,10 @@ func TestServiceStartsRollbackWhenBootReportShowsMountFailure(t *testing.T) {
 	persisted := getOperation(t, ctx, k8sClient, key)
 	if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
 		t.Fatalf("phase after incomplete report = %q, want RollingBack", persisted.Status.Phase)
+	}
+	degraded := apimeta.FindStatusCondition(persisted.Status.Conditions, appupdate.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "BootFailed" {
+		t.Fatalf("Degraded condition = %#v", degraded)
 	}
 	if persisted.Status.LastBootReport == nil || persisted.Status.LastBootReport.DataMounted {
 		t.Fatalf("lastBootReport = %#v, want persisted incomplete report", persisted.Status.LastBootReport)
@@ -141,6 +147,10 @@ func TestServiceCountsWrongSlotBootReportAsBootFailureAttempt(t *testing.T) {
 		}
 		if persisted.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
 			t.Fatalf("attempt %d phase = %q, want RollingBack", attempt, persisted.Status.Phase)
+		}
+		degraded := apimeta.FindStatusCondition(persisted.Status.Conditions, appupdate.ConditionDegraded)
+		if degraded == nil || degraded.Reason != "BootFailed" {
+			t.Fatalf("attempt %d Degraded condition = %#v", attempt, degraded)
 		}
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,6 +30,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
@@ -336,6 +338,10 @@ func TestTartHostOperationReconcilerはUpdateのHealthGateDeadline超過をRollb
 	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
 		t.Fatalf("phase = %q, want RollingBack", current.Status.Phase)
 	}
+	degraded := apimeta.FindStatusCondition(current.Status.Conditions, appupdate.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "HealthCheckFailed" {
+		t.Fatalf("Degraded condition = %#v", degraded)
+	}
 }
 
 func TestTartHostOperationReconcilerはBootReport未着をBoot失敗試行として数える(t *testing.T) {
@@ -381,6 +387,10 @@ func TestTartHostOperationReconcilerはBootReport未着をBoot失敗試行とし
 		}
 		if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
 			t.Fatalf("attempt %d phase = %q, want RollingBack", attempt, current.Status.Phase)
+		}
+		degraded := apimeta.FindStatusCondition(current.Status.Conditions, appupdate.ConditionDegraded)
+		if degraded == nil || degraded.Reason != "BootFailed" {
+			t.Fatalf("attempt %d Degraded condition = %#v", attempt, degraded)
 		}
 	}
 }

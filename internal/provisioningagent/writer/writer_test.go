@@ -28,6 +28,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
+	boottrial "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/boottrial"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
@@ -135,6 +136,100 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 		progress[20] != (Progress{Step: agentprotocol.StepWriteImage, Percent: 100, Completed: true}) ||
 		progress[21] != (Progress{Step: agentprotocol.StepVerifyImage, Percent: 100, Completed: true}) {
 		t.Fatalf("progress = %#v", progress)
+	}
+}
+
+func TestWriterUpdateConfiguresBootTrialMetadata(t *testing.T) {
+	t.Parallel()
+
+	image := bytes.Repeat([]byte("i"), 2<<20)
+	verity := bytes.Repeat([]byte("v"), 1<<20)
+	fetched := testArtifact(t, image, verity, int64(len(image)), int64(len(verity)))
+	fetcher := &fakeFetcher{artifact: fetched}
+	resolved := map[agentprotocol.DiskRole]layout.RoleDevice{}
+	resolved[agentprotocol.DiskRoleBoot] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleBoot, DevicePath: "boot", SizeBytes: 512 << 20,
+	}
+	resolved[agentprotocol.DiskRoleOSB] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleOSB, DevicePath: "os-b", SizeBytes: 8 << 30,
+	}
+	resolved[agentprotocol.DiskRoleVerityB] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleVerityB, DevicePath: "verity-b", SizeBytes: 1 << 30,
+	}
+	layoutPreparer := &fakeLayout{resolved: resolved}
+	targetDirectory := t.TempDir()
+	opener := fakeOpener{paths: map[string]string{
+		"os-b":     filepath.Join(targetDirectory, "os-b"),
+		"verity-b": filepath.Join(targetDirectory, "verity-b"),
+	}}
+	bootTrial := &fakeBootTrialDriver{}
+	targetWriter := New(layoutPreparer, fetcher, opener, nil)
+	targetWriter.SetBootTrialDriver(bootTrial)
+	plan := testPlan(
+		t,
+		agentprotocol.OperationTypeUpdate,
+		"A",
+		[]agentprotocol.DiskRole{
+			agentprotocol.DiskRoleBoot,
+			agentprotocol.DiskRoleOSB,
+			agentprotocol.DiskRoleVerityB,
+		},
+	)
+
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 64 << 30}); err != nil {
+		t.Fatalf("WriteTargets() error = %v", err)
+	}
+	if bootTrial.calls != 1 {
+		t.Fatalf("Configure() calls = %d, want 1", bootTrial.calls)
+	}
+	if bootTrial.request.BootDevicePath != "boot" {
+		t.Fatalf("BootDevicePath = %q, want boot", bootTrial.request.BootDevicePath)
+	}
+	if bootTrial.request.ActiveSlot != "A" || bootTrial.request.TargetSlot != "B" || bootTrial.request.RollbackSlot != "A" {
+		t.Fatalf("boot trial request = %#v, want active A target B rollback A", bootTrial.request)
+	}
+	if bootTrial.request.ArtifactGeneration != 12 || bootTrial.request.MaxAttempts != 3 {
+		t.Fatalf("boot trial request = %#v, want generation 12 attempts 3", bootTrial.request)
+	}
+}
+
+func TestWriterUpdateRejectsMissingBootTrialDriver(t *testing.T) {
+	t.Parallel()
+
+	image := bytes.Repeat([]byte("i"), 2<<20)
+	verity := bytes.Repeat([]byte("v"), 1<<20)
+	fetched := testArtifact(t, image, verity, int64(len(image)), int64(len(verity)))
+	fetcher := &fakeFetcher{artifact: fetched}
+	resolved := map[agentprotocol.DiskRole]layout.RoleDevice{}
+	resolved[agentprotocol.DiskRoleBoot] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleBoot, DevicePath: "boot", SizeBytes: 512 << 20,
+	}
+	resolved[agentprotocol.DiskRoleOSB] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleOSB, DevicePath: "os-b", SizeBytes: 8 << 30,
+	}
+	resolved[agentprotocol.DiskRoleVerityB] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleVerityB, DevicePath: "verity-b", SizeBytes: 1 << 30,
+	}
+	layoutPreparer := &fakeLayout{resolved: resolved}
+	targetDirectory := t.TempDir()
+	opener := fakeOpener{paths: map[string]string{
+		"os-b":     filepath.Join(targetDirectory, "os-b"),
+		"verity-b": filepath.Join(targetDirectory, "verity-b"),
+	}}
+	targetWriter := New(layoutPreparer, fetcher, opener, nil)
+	plan := testPlan(
+		t,
+		agentprotocol.OperationTypeUpdate,
+		"A",
+		[]agentprotocol.DiskRole{
+			agentprotocol.DiskRoleBoot,
+			agentprotocol.DiskRoleOSB,
+			agentprotocol.DiskRoleVerityB,
+		},
+	)
+
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 64 << 30}); err == nil {
+		t.Fatal("WriteTargets() accepted an Update Plan without a boot trial driver")
 	}
 }
 
@@ -365,6 +460,18 @@ type fakeSanitizer struct {
 	calls     int
 	path      string
 	sizeBytes int64
+}
+
+type fakeBootTrialDriver struct {
+	request boottrial.Request
+	calls   int
+	err     error
+}
+
+func (driver *fakeBootTrialDriver) Configure(_ context.Context, request boottrial.Request) error {
+	driver.calls++
+	driver.request = request
+	return driver.err
 }
 
 func (sanitizer *fakeSanitizer) Sanitize(

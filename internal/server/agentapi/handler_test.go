@@ -507,15 +507,16 @@ func TestHandlerAcceptsValidBootReport(t *testing.T) {
 	handler, sessionToken := newAuthenticatedHandler(t, nil)
 	handler.config.BootReports = reporter
 	body := agentprotocol.BootReportRequest{
-		APIVersion:         agentprotocol.APIVersion,
-		OperationUID:       "operation-uid",
-		PlanDigest:         testPlanDigest,
-		BootID:             "boot-id",
-		ActiveSlot:         "A",
-		ArtifactGeneration: 1,
-		StateMounted:       true,
-		DataMounted:        true,
-		BootstrapApplied:   true,
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           "operation-uid",
+		PlanDigest:             testPlanDigest,
+		BootID:                 "boot-id",
+		ActiveSlot:             "A",
+		ArtifactGeneration:     1,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: "sha256:" + strings.Repeat("d", 64),
 	}
 
 	response := performJSONRequest(

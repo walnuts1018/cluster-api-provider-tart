@@ -207,15 +207,16 @@ type BootstrapBundle struct {
 }
 
 type BootReportRequest struct {
-	APIVersion         string `json:"apiVersion"`
-	OperationUID       string `json:"operationUID"`
-	PlanDigest         string `json:"planDigest"`
-	BootID             string `json:"bootID"`
-	ActiveSlot         string `json:"activeSlot"`
-	ArtifactGeneration uint64 `json:"artifactGeneration"`
-	StateMounted       bool   `json:"stateMounted"`
-	DataMounted        bool   `json:"dataMounted"`
-	BootstrapApplied   bool   `json:"bootstrapApplied"`
+	APIVersion             string `json:"apiVersion"`
+	OperationUID           string `json:"operationUID"`
+	PlanDigest             string `json:"planDigest"`
+	BootID                 string `json:"bootID"`
+	ActiveSlot             string `json:"activeSlot"`
+	ArtifactGeneration     uint64 `json:"artifactGeneration"`
+	StateMounted           bool   `json:"stateMounted"`
+	DataMounted            bool   `json:"dataMounted"`
+	BootstrapApplied       bool   `json:"bootstrapApplied"`
+	BootstrapPayloadDigest string `json:"bootstrapPayloadDigest,omitempty"`
 }
 
 type ErrorResponse struct {
@@ -313,6 +314,10 @@ func ValidateBootReport(report BootReportRequest) error {
 		return errors.New("activeSlot must be A or B")
 	case report.ArtifactGeneration == 0:
 		return errors.New("artifactGeneration must be greater than zero")
+	case report.BootstrapApplied && !validSHA256Digest(report.BootstrapPayloadDigest):
+		return errors.New("bootstrapPayloadDigest must be a canonical SHA-256 digest when bootstrapApplied is true")
+	case !report.BootstrapApplied && report.BootstrapPayloadDigest != "":
+		return errors.New("bootstrapPayloadDigest must be empty when bootstrapApplied is false")
 	}
 	return nil
 }

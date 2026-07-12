@@ -312,6 +312,12 @@ spec:
                     description: bootstrapApplied indicates that the Bootstrap success
                       marker exists in State.
                     type: boolean
+                  bootstrapPayloadDigest:
+                    description: |-
+                      bootstrapPayloadDigest is the payload digest recorded in the Bootstrap success marker.
+                      It is present only when bootstrapApplied is true.
+                    pattern: ^sha256:[0-9a-f]{64}$
+                    type: string
                   dataMounted:
                     description: dataMounted indicates that the required Data filesystem
                       is mounted.

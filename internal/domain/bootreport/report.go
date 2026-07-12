@@ -26,12 +26,13 @@ var (
 )
 
 type Report struct {
-	BootID             string
-	ActiveSlot         string
-	ArtifactGeneration uint64
-	StateMounted       bool
-	DataMounted        bool
-	BootstrapApplied   bool
+	BootID                 string
+	ActiveSlot             string
+	ArtifactGeneration     uint64
+	StateMounted           bool
+	DataMounted            bool
+	BootstrapApplied       bool
+	BootstrapPayloadDigest string
 }
 
 type ExpectedBoot struct {

@@ -70,7 +70,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 |---|---|---|
 | 1 | 一部実装 | Host予約、Provision Operation作成、WoL、Health Gate判定をcontrollerへ接続。OS Artifact Manifest取得とPlan Secret生成の接続、実機bootは未実装 |
 | 2 | 一部実装 | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録以降の4再起動pointは未検証 |
-| 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。OS上のBootstrap Adapterはpayload digest一致の成功markerがある場合に再適用しない。実機first-boot unit経由の再送確認は未検証 |
+| 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。OS上のBootstrap Adapterはpayload digest一致の成功markerがある場合に再適用しない。BootReport/Operation Statusは成功markerのpayload digestを保持する。実機first-boot unit経由の再送確認は未検証 |
 | 4 | 実装済み | `EvaluateReadiness`とTartMachine controllerの単体テストでproviderID不一致時にProvisionedへ遷移しないことを確認 |
 | 5 | 一部実装 | Bootstrap Bundle生成と`cloud-config` format検証はAgent APIへ接続済み。OS上のBootstrap Adapter失敗時はpayload原本を保持する単体テストを追加済み。実機挙動は未検証 |
 | 6 | 実装済み | v1beta1 Agent APIはSession TokenをSecretではなく`TartHostOperation.status`のhash/expiry/consumedで保持し、`ClaimBootstrap`成功時に消費済みへ遷移する。`BootstrapDelivered`で新Sessionからの再取得も拒否 |
@@ -91,6 +91,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 - 初期Provisioning完了時に、観測済みKubernetes versionを
   `TartMachine.status.installedDistributionVersion`へ保存する接続
 - OS上で動くProvisioning AgentのBootstrap適用モード。`cloud-config` Bundleのpayload原本を一時保存し、local adapter成功後だけ削除する。成功markerにはpayload digest、Machine UID、Operation UID、adapter version、適用時刻を保存する
+- BootReport protocolと`TartHostOperation.status.lastBootReport`の`bootstrapPayloadDigest`。`bootstrapApplied=true`の場合はpayload digestが必須で、digestなしではProvisioning完了Gateを通過しない
 
 ## 対象外
 

@@ -98,13 +98,14 @@ func (service *Service) ReportBoot(
 			bootreportdomain.DecisionRollbackCompleted,
 			bootreportdomain.DecisionRecoveryRequired:
 			operation.Status.LastBootReport = &infrastructurev1beta1.BootReportStatus{
-				BootID:             request.BootID,
-				ActiveSlot:         infrastructurev1beta1.OSSlot(request.ActiveSlot),
-				ArtifactGeneration: int64(request.ArtifactGeneration),
-				StateMounted:       request.StateMounted,
-				DataMounted:        request.DataMounted,
-				BootstrapApplied:   request.BootstrapApplied,
-				ReportedAt:         now,
+				BootID:                 request.BootID,
+				ActiveSlot:             infrastructurev1beta1.OSSlot(request.ActiveSlot),
+				ArtifactGeneration:     int64(request.ArtifactGeneration),
+				StateMounted:           request.StateMounted,
+				DataMounted:            request.DataMounted,
+				BootstrapApplied:       request.BootstrapApplied,
+				BootstrapPayloadDigest: request.BootstrapPayloadDigest,
+				ReportedAt:             now,
 			}
 			operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(result.NextPhase)
 			if result.Decision == bootreportdomain.DecisionRecorded &&
@@ -207,12 +208,13 @@ func applyBootFailureAttempt(
 
 func requestReport(request agentprotocol.BootReportRequest) bootreportdomain.Report {
 	return bootreportdomain.Report{
-		BootID:             request.BootID,
-		ActiveSlot:         request.ActiveSlot,
-		ArtifactGeneration: request.ArtifactGeneration,
-		StateMounted:       request.StateMounted,
-		DataMounted:        request.DataMounted,
-		BootstrapApplied:   request.BootstrapApplied,
+		BootID:                 request.BootID,
+		ActiveSlot:             request.ActiveSlot,
+		ArtifactGeneration:     request.ArtifactGeneration,
+		StateMounted:           request.StateMounted,
+		DataMounted:            request.DataMounted,
+		BootstrapApplied:       request.BootstrapApplied,
+		BootstrapPayloadDigest: request.BootstrapPayloadDigest,
 	}
 }
 
@@ -221,11 +223,12 @@ func statusReport(status *infrastructurev1beta1.BootReportStatus) *bootreportdom
 		return nil
 	}
 	return &bootreportdomain.Report{
-		BootID:             status.BootID,
-		ActiveSlot:         string(status.ActiveSlot),
-		ArtifactGeneration: uint64(status.ArtifactGeneration),
-		StateMounted:       status.StateMounted,
-		DataMounted:        status.DataMounted,
-		BootstrapApplied:   status.BootstrapApplied,
+		BootID:                 status.BootID,
+		ActiveSlot:             string(status.ActiveSlot),
+		ArtifactGeneration:     uint64(status.ArtifactGeneration),
+		StateMounted:           status.StateMounted,
+		DataMounted:            status.DataMounted,
+		BootstrapApplied:       status.BootstrapApplied,
+		BootstrapPayloadDigest: status.BootstrapPayloadDigest,
 	}
 }

@@ -672,9 +672,10 @@ func provisioningGateObjects(
 		Status: infrastructurev1beta1.TartHostOperationStatus{
 			Phase: phase,
 			LastBootReport: &infrastructurev1beta1.BootReportStatus{
-				StateMounted:     true,
-				DataMounted:      true,
-				BootstrapApplied: true,
+				StateMounted:           true,
+				DataMounted:            true,
+				BootstrapApplied:       true,
+				BootstrapPayloadDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 			},
 		},
 	}

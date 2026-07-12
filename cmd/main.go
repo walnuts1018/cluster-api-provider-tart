@@ -579,6 +579,13 @@ func main() {
 				PrivateKey: planPrivateKey,
 			},
 		)
+		updateWorkflow.SetNodeLifecyclePlanWriter(
+			k8snodelifecycle.NewPlanWriter(mgr.GetClient()),
+			applicationinplaceupdate.PlanSigner{
+				KeyID:      agentPlanKeyID,
+				PrivateKey: planPrivateKey,
+			},
+		)
 		updateService := k8sinplaceupdate.NewService(
 			mgr.GetClient(),
 			manifestResolver,

@@ -162,6 +162,11 @@ func updatePlanInput(t *testing.T) UpdatePlanInput {
 
 func updateManifest(t *testing.T) artifact.ValidatedManifest {
 	t.Helper()
+	return updateManifestWithKubernetesVersion(t, "v1.34.0")
+}
+
+func updateManifestWithKubernetesVersion(t *testing.T, version string) artifact.ValidatedManifest {
+	t.Helper()
 	validated, err := artifact.Validate(artifact.Manifest{
 		SchemaVersion:   artifact.SchemaVersion,
 		MediaType:       artifact.MediaType,
@@ -171,7 +176,7 @@ func updateManifest(t *testing.T) artifact.ValidatedManifest {
 		Image:           artifact.Payload{Digest: testDigest("b"), SizeBytes: 8 << 30},
 		Verity:          artifact.Verity{Digest: testDigest("c"), SizeBytes: 1 << 30, RootHash: strings.Repeat("d", 64)},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.34.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: version},
 		Boot:            artifact.Boot{KernelDigest: testDigest("e"), InitrdDigest: testDigest("f")},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      2,

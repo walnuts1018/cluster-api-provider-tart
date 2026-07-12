@@ -60,6 +60,12 @@ type TartHostOperationSpec struct {
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	PlanDigest string `json:"planDigest"`
 
+	// nodeLifecyclePlanDigest is the digest of the canonical signed Node Lifecycle Plan.
+	// It is set only when distribution-specific lifecycle steps are required.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	NodeLifecyclePlanDigest string `json:"nodeLifecyclePlanDigest,omitempty"`
+
 	// desiredObjectsDigest identifies the canonical desired Kubernetes objects that produced the Plan.
 	// +required
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`

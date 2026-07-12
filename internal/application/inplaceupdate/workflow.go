@@ -20,6 +20,8 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	nodelifecycleapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
@@ -30,6 +32,16 @@ type PlanWriter interface {
 		context.Context,
 		*infrastructurev1beta1.TartHostOperation,
 		agentprotocol.ValidatedPlan,
+		agentprotocol.Signature,
+	) error
+}
+
+// NodeLifecyclePlanWriterはOperationに対応する署名済みNode Lifecycle Planを永続化する境界である。
+type NodeLifecyclePlanWriter interface {
+	Write(
+		context.Context,
+		*infrastructurev1beta1.TartHostOperation,
+		nodelifecycleapp.ValidatedPlan,
 		agentprotocol.Signature,
 	) error
 }
@@ -48,9 +60,11 @@ type WorkflowInput struct {
 
 // WorkflowはUpdate Operation作成と署名済みPlan保存を順序付ける。
 type Workflow struct {
-	operations OperationStarter
-	plans      PlanWriter
-	signer     PlanSigner
+	operations          OperationStarter
+	plans               PlanWriter
+	signer              PlanSigner
+	nodeLifecyclePlans  NodeLifecyclePlanWriter
+	nodeLifecycleSigner PlanSigner
 }
 
 // NewWorkflowはUpdate workflowを生成する。
@@ -64,6 +78,15 @@ func NewWorkflow(
 		plans:      plans,
 		signer:     signer,
 	}
+}
+
+// SetNodeLifecyclePlanWriterはKubernetesBinary更新で配信するNode Lifecycle Plan保存先を設定する。
+func (workflow *Workflow) SetNodeLifecyclePlanWriter(
+	plans NodeLifecyclePlanWriter,
+	signer PlanSigner,
+) {
+	workflow.nodeLifecyclePlans = plans
+	workflow.nodeLifecycleSigner = signer
 }
 
 // StartはOperationを冪等に作成し、そのOperationを正本としてPlanを保存する。
@@ -80,6 +103,13 @@ func (workflow *Workflow) Start(
 		return nil, err
 	}
 	draft.Spec.PlanDigest = candidatePlan.Digest.String()
+	candidateNodePlan, err := workflow.buildNodeLifecyclePlan(input, draft)
+	if err != nil {
+		return nil, err
+	}
+	if candidateNodePlan != nil {
+		draft.Spec.NodeLifecyclePlanDigest = candidateNodePlan.Digest.String()
+	}
 
 	started, err := workflow.operations.Start(ctx, draft)
 	if err != nil {
@@ -92,6 +122,13 @@ func (workflow *Workflow) Start(
 	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
 		return nil, fmt.Errorf("stored Update Operation Plan digest does not match regenerated Plan")
 	}
+	persistedNodePlan, err := workflow.buildNodeLifecyclePlan(input, started)
+	if err != nil {
+		return nil, err
+	}
+	if persistedNodePlan != nil && persistedNodePlan.Digest.String() != started.Spec.NodeLifecyclePlanDigest {
+		return nil, fmt.Errorf("stored Update Operation Node Lifecycle Plan digest does not match regenerated Plan")
+	}
 	if err := workflow.plans.Write(
 		ctx,
 		started,
@@ -99,6 +136,19 @@ func (workflow *Workflow) Start(
 		persistedPlan.Signature,
 	); err != nil {
 		return nil, fmt.Errorf("persist Update Plan: %w", err)
+	}
+	if persistedNodePlan != nil {
+		if workflow.nodeLifecyclePlans == nil {
+			return nil, fmt.Errorf("Node Lifecycle Plan writer is required for KubernetesBinary update")
+		}
+		if err := workflow.nodeLifecyclePlans.Write(
+			ctx,
+			started,
+			persistedNodePlan.Plan,
+			persistedNodePlan.Signature,
+		); err != nil {
+			return nil, fmt.Errorf("persist Node Lifecycle Plan: %w", err)
+		}
 	}
 	return started, nil
 }
@@ -121,4 +171,40 @@ func (workflow *Workflow) buildPlan(
 		return SignedUpdatePlan{}, fmt.Errorf("build signed Update Plan: %w", err)
 	}
 	return plan, nil
+}
+
+func (workflow *Workflow) buildNodeLifecyclePlan(
+	input WorkflowInput,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (*nodelifecycleapp.BuiltPlan, error) {
+	if operation.Spec.UpdateClass == infrastructurev1beta1.UpdateClassOSOnly {
+		return nil, nil
+	}
+	if operation.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
+		return nil, fmt.Errorf("unsupported distribution lifecycle update class %q", operation.Spec.UpdateClass)
+	}
+	nodeRole := input.NodeRole
+	if nodeRole == "" {
+		nodeRole = distributiondomain.NodeRoleWorker
+	}
+	plan, err := distributiondomain.BuildPlan(distributiondomain.PlanInput{
+		OperationID:    operation.Spec.OperationID,
+		CurrentVersion: currentDistributionVersion(input.StartInput),
+		TargetVersion:  targetDistributionVersion(input.StartInput),
+		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+		NodeRole:       nodeRole,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build Node Lifecycle domain Plan: %w", err)
+	}
+	built, err := nodelifecycleapp.BuildSignedPlan(
+		plan,
+		operation.Spec.Deadline.Time,
+		workflow.nodeLifecycleSigner.KeyID,
+		workflow.nodeLifecycleSigner.PrivateKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build signed Node Lifecycle Plan: %w", err)
+	}
+	return &built, nil
 }

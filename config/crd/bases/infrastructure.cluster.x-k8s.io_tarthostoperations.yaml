@@ -105,6 +105,12 @@ spec:
                 - namespace
                 - uid
                 type: object
+              nodeLifecyclePlanDigest:
+                description: |-
+                  nodeLifecyclePlanDigest is the digest of the canonical signed Node Lifecycle Plan.
+                  It is set only when distribution-specific lifecycle steps are required.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
               operationID:
                 description: operationID is the immutable UUID used to make external
                   side effects idempotent.

@@ -138,10 +138,12 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - Node Lifecycle ServiceのStep成功/失敗をSession Token認証済みAgent API
   `/v1/operations/{uid}/node-lifecycle-progress`へ報告し、成功StepをStatusStoreの`completedSteps`、
   失敗Stepを`RecoveryRequired`遷移へ接続
+- KubernetesBinary Update Operation作成時にworker/control plane別Node Lifecycle Planを生成し、
+  `TartHostOperation.spec.nodeLifecyclePlanDigest`とOperation所有のimmutable Secretへ保存する接続
+- `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
 
 未実装・未検証:
 
-- worker/control plane別Plan生成と署名済みPlan adapter/providerのTartHostOperation controllerへの接続
 - 7つの各Step直後のcontrollerまたはNode再起動検証
 - control plane component、etcd quorum、API healthの詳細な実観測Runtime
 - Recovery Runbookと実機/E2E検証

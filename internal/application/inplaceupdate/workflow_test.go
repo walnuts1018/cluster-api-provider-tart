@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	nodelifecycleapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -83,6 +85,48 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生
 	}
 }
 
+func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t *testing.T) {
+	input := workflowInput(t)
+	input.CurrentDistributionVersion = "v1.34.0"
+	input.TargetDistributionVersion = "v1.35.0"
+	input.Machine.Spec.Version = "v1.35.0"
+	input.Manifest = updateManifestWithKubernetesVersion(t, "v1.35.0")
+	input.NodeRole = distributiondomain.NodeRoleWorker
+	starter := &workflowOperationStarter{}
+	agentWriter := &recordingPlanWriter{}
+	nodeWriter := &recordingNodeLifecyclePlanWriter{}
+	workflow := NewWorkflow(starter, agentWriter, testPlanSigner(t))
+	workflow.SetNodeLifecyclePlanWriter(nodeWriter, testPlanSigner(t))
+
+	started, err := workflow.Start(t.Context(), input)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if started.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
+		t.Fatalf("UpdateClass = %q, want KubernetesBinary", started.Spec.UpdateClass)
+	}
+	if started.Spec.NodeLifecyclePlanDigest == "" {
+		t.Fatal("NodeLifecyclePlanDigest is empty")
+	}
+	if nodeWriter.operation == nil || nodeWriter.operation.UID != started.UID {
+		t.Fatalf("written Node Lifecycle Operation UID = %v, want %q", nodeWriter.operation, started.UID)
+	}
+	nodePlan := nodeWriter.plan.Value()
+	if nodePlan.NodeRole != distributiondomain.NodeRoleWorker ||
+		nodePlan.CurrentVersion != "v1.34.0" ||
+		nodePlan.TargetVersion != "v1.35.0" {
+		t.Fatalf("Node Lifecycle Plan = %#v, want worker v1.34.0 -> v1.35.0", nodePlan)
+	}
+	digest, err := nodeWriter.plan.Digest()
+	if err != nil {
+		t.Fatalf("Node Lifecycle Plan.Digest() error = %v", err)
+	}
+	if digest.String() != started.Spec.NodeLifecyclePlanDigest {
+		t.Fatalf("Node Lifecycle Plan digest = %q, want %q", digest, started.Spec.NodeLifecyclePlanDigest)
+	}
+}
+
 func workflowInput(t *testing.T) WorkflowInput {
 	t.Helper()
 	input := updateInput()
@@ -134,6 +178,24 @@ type recordingPlanWriter struct {
 	operation *infrastructurev1beta1.TartHostOperation
 	plan      agentprotocol.ValidatedPlan
 	signature agentprotocol.Signature
+}
+
+type recordingNodeLifecyclePlanWriter struct {
+	operation *infrastructurev1beta1.TartHostOperation
+	plan      nodelifecycleapp.ValidatedPlan
+	signature agentprotocol.Signature
+}
+
+func (writer *recordingNodeLifecyclePlanWriter) Write(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	plan nodelifecycleapp.ValidatedPlan,
+	signature agentprotocol.Signature,
+) error {
+	writer.operation = operation.DeepCopy()
+	writer.plan = plan
+	writer.signature = signature
+	return nil
 }
 
 func (writer *recordingPlanWriter) Write(

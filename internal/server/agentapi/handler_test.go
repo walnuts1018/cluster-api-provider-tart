@@ -323,8 +323,8 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 		operation: &infrastructurev1beta1.TartHostOperation{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "operation"},
 			Spec: infrastructurev1beta1.TartHostOperationSpec{
-				OperationID: "operation-uid",
-				PlanDigest:  planDigest.String(),
+				OperationID:             "operation-uid",
+				NodeLifecyclePlanDigest: planDigest.String(),
 				HostRef: infrastructurev1beta1.ResourceReference{
 					Namespace: "default",
 					Name:      "host",
@@ -374,7 +374,7 @@ func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T)
 		t.Fatalf("Digest() error = %v", err)
 	}
 	operation := handler.config.Operations.(staticResolver).operation.DeepCopy()
-	operation.Spec.PlanDigest = planDigest.String()
+	operation.Spec.NodeLifecyclePlanDigest = planDigest.String()
 	handler.config.Operations = staticResolver{
 		key:       client.ObjectKey{Namespace: operation.Namespace, Name: operation.Name},
 		operation: operation,
@@ -711,6 +711,25 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 			},
 		},
 	}
+	nodePlan := nodelifecycle.Plan{
+		APIVersion:     nodelifecycle.APIVersion,
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.34.0",
+		TargetVersion:  "v1.35.0",
+		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+		NodeRole:       distributiondomain.NodeRoleWorker,
+		Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+		Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+	}
+	validatedNodePlan, err := nodelifecycle.ValidatePlan(nodePlan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	nodePlanDigest, err := validatedNodePlan.Digest()
+	if err != nil {
+		t.Fatalf("Node Lifecycle Plan.Digest() error = %v", err)
+	}
+	operation.Spec.NodeLifecyclePlanDigest = nodePlanDigest.String()
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -732,21 +751,10 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		Sessions:             sessions,
 		Progress:             k8sagentprogress.NewService(k8sClient),
 		Plans:                staticPlan{},
-		NodeLifecyclePlans: staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{
-			Plan: nodelifecycle.Plan{
-				APIVersion:     nodelifecycle.APIVersion,
-				OperationID:    "operation-uid",
-				CurrentVersion: "v1.34.0",
-				TargetVersion:  "v1.35.0",
-				UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-				NodeRole:       distributiondomain.NodeRoleWorker,
-				Deadline:       now.Add(time.Hour),
-				Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
-			},
-		}},
-		NodeLifecycleStatus: k8sdistributionlifecycle.NewStatusStore(k8sClient),
-		Bootstrap:           bootstrap,
-		Now:                 func() time.Time { return now },
+		NodeLifecyclePlans:   staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{Plan: nodePlan}},
+		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(k8sClient),
+		Bootstrap:            bootstrap,
+		Now:                  func() time.Time { return now },
 	}), token.BearerValue()
 }
 

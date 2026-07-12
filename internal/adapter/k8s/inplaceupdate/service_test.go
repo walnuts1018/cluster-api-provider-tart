@@ -37,6 +37,7 @@ func TestServiceStartはLiveStatusとDesiredSpecからWorkflowを開始する(t 
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	liveMachine := updateTartMachine()
+	liveMachine.Status.InstalledDistributionVersion = "v1.34.0"
 	host := updateHost()
 	manifest := updateArtifactManifest(t)
 	workflow := &recordingWorkflow{
@@ -68,6 +69,47 @@ func TestServiceStartはLiveStatusとDesiredSpecからWorkflowを開始する(t 
 	}
 	if workflow.input.TargetImageDigest != manifest.Value().Image.Digest {
 		t.Fatalf("target image digest = %q, want Manifest digest", workflow.input.TargetImageDigest)
+	}
+}
+
+func TestServiceStartはTargetVersionとNodeRoleをWorkflowへ渡す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	liveMachine := updateTartMachine()
+	liveMachine.Status.InstalledDistributionVersion = "v1.34.0"
+	host := updateHost()
+	manifest := updateArtifactManifestWithKubernetesVersion(t, "v1.35.0")
+	workflow := &recordingWorkflow{
+		operation: &infrastructurev1beta1.TartHostOperation{
+			ObjectMeta: metav1.ObjectMeta{Name: "operation-a", Namespace: "default"},
+		},
+	}
+	service := NewService(
+		fake.NewClientBuilder().WithScheme(scheme).WithObjects(liveMachine, host).Build(),
+		staticManifestResolver{manifest: manifest},
+		workflow,
+	)
+
+	request := updateRequest(t, liveMachine)
+	request.Desired.Machine = updateCAPIMachine()
+	request.Desired.Machine.Spec.Version = "v1.35.0"
+	request.Desired.Machine.Labels = map[string]string{
+		clusterv1.MachineControlPlaneLabel: "",
+	}
+	if _, err := service.Start(t.Context(), request); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if workflow.input.CurrentDistributionVersion != "v1.34.0" ||
+		workflow.input.TargetDistributionVersion != "v1.35.0" {
+		t.Fatalf("workflow versions = %q -> %q, want v1.34.0 -> v1.35.0",
+			workflow.input.CurrentDistributionVersion,
+			workflow.input.TargetDistributionVersion)
+	}
+	if workflow.input.NodeRole != "ControlPlane" {
+		t.Fatalf("workflow node role = %q, want ControlPlane", workflow.input.NodeRole)
 	}
 }
 
@@ -177,6 +219,11 @@ func updateCAPIMachine() clusterv1.Machine {
 
 func updateArtifactManifest(t *testing.T) artifact.ValidatedManifest {
 	t.Helper()
+	return updateArtifactManifestWithKubernetesVersion(t, "v1.34.0")
+}
+
+func updateArtifactManifestWithKubernetesVersion(t *testing.T, version string) artifact.ValidatedManifest {
+	t.Helper()
 	manifest, err := artifact.Validate(artifact.Manifest{
 		SchemaVersion:   artifact.SchemaVersion,
 		MediaType:       artifact.MediaType,
@@ -186,7 +233,7 @@ func updateArtifactManifest(t *testing.T) artifact.ValidatedManifest {
 		Image:           artifact.Payload{Digest: requestDigest("b"), SizeBytes: 8 << 30},
 		Verity:          artifact.Verity{Digest: requestDigest("c"), SizeBytes: 1 << 30, RootHash: requestHex("d")},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.34.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: version},
 		Boot:            artifact.Boot{KernelDigest: requestDigest("e"), InitrdDigest: requestDigest("f")},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      2,

@@ -242,7 +242,7 @@ func (handler *Handler) nodeLifecyclePlan(writer http.ResponseWriter, request *h
 		return
 	}
 	planDigest, err := validated.Digest()
-	if err != nil || planDigest.String() != operation.Spec.PlanDigest {
+	if err != nil || planDigest.String() != operation.Spec.NodeLifecyclePlanDigest {
 		handler.notFound(writer)
 		return
 	}
@@ -268,7 +268,7 @@ func (handler *Handler) nodeLifecycleProgress(writer http.ResponseWriter, reques
 		return
 	}
 	if body.OperationUID != operation.Spec.OperationID ||
-		body.PlanDigest != operation.Spec.PlanDigest {
+		body.PlanDigest != operation.Spec.NodeLifecyclePlanDigest {
 		handler.notFound(writer)
 		return
 	}
@@ -287,7 +287,7 @@ func (handler *Handler) nodeLifecycleProgress(writer http.ResponseWriter, reques
 		return
 	}
 	planDigest, err := validated.Digest()
-	if err != nil || planDigest.String() != operation.Spec.PlanDigest {
+	if err != nil || planDigest.String() != operation.Spec.NodeLifecyclePlanDigest {
 		handler.notFound(writer)
 		return
 	}

@@ -76,8 +76,11 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 			request := machineSetUpdateRequest(t)
 			tt.mutate(request)
 			response := &runtimehooksv1.CanUpdateMachineSetResponse{}
+			handler := NewCanUpdateMachineSetHandler(
+				NewTargetSupportChecker(nil, UpdateTargetFeatureGates{Worker: true}),
+			)
 
-			HandleCanUpdateMachineSet(t.Context(), request, response)
+			handler.Handle(t.Context(), request, response)
 
 			if response.Status != runtimehooksv1.ResponseStatusSuccess {
 				t.Fatalf("Status = %q, want %q; message=%q",
@@ -97,6 +100,25 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 				assertTemplateOSOnlyPatch(t, response.InfrastructureMachineTemplatePatch)
 			}
 		})
+	}
+}
+
+func TestHandleCanUpdateMachineSetはworkerGate無効ならPatchを返さない(t *testing.T) {
+	request := machineSetUpdateRequest(t)
+	template := decodeTestTartMachineTemplate(t, request.Desired.InfrastructureMachineTemplate)
+	template.Spec.Template.Spec.Image.Ref = extensionArtifactRef("b")
+	request.Desired.InfrastructureMachineTemplate = rawExtension(t, template)
+	response := &runtimehooksv1.CanUpdateMachineSetResponse{}
+	handler := NewCanUpdateMachineSetHandler(NewTargetSupportChecker(nil, UpdateTargetFeatureGates{}))
+
+	handler.Handle(t.Context(), request, response)
+
+	if response.Status != runtimehooksv1.ResponseStatusSuccess {
+		t.Fatalf("Status = %q, want %q; message=%q",
+			response.Status, runtimehooksv1.ResponseStatusSuccess, response.Message)
+	}
+	if response.InfrastructureMachineTemplatePatch.IsDefined() {
+		t.Fatalf("InfrastructureMachineTemplatePatch.IsDefined() = true, want false; message=%q", response.Message)
 	}
 }
 

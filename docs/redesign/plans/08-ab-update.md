@@ -183,9 +183,9 @@ Machine version、Bootstrap spec、Platform Profile等を含むdesired objects d
 
 `Pending`から`RollingBack`までは`Success + RetryAfterSeconds=10`、`Succeeded`は`Success + 0`、`Failed`と`RecoveryRequired`は`Failure`にする。Handlerへclient依存を注入し、global stateを持たない。
 
-- [ ] **Step 5: feature gate別登録を追加する**
+- [x] **Step 5: feature gate別登録を追加する**
 
-`InPlaceUpdates`を親gateとし、`InPlaceUpdatesWorker`、`InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`を独立にparseする。親gate無効時はRuntime Extension managerを生成しない。
+`InPlaceUpdates`を親gateとし、`InPlaceUpdatesWorker`、`InPlaceUpdatesMultiControlPlane`、`InPlaceUpdatesSingleControlPlane`を段階的にparseする。親gate無効時はRuntime Extension managerを生成せず、無効な対象Machine種別はpatchなしで通常置換へfallbackさせる。
 
 - [x] **Step 6: targeted testを通してコミットする**
 

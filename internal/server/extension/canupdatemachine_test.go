@@ -18,9 +18,11 @@ import (
 	"encoding/json"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
@@ -109,8 +111,15 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 			request := machineUpdateRequest(t)
 			tt.mutate(request)
 			response := &runtimehooksv1.CanUpdateMachineResponse{}
+			handler := NewCanUpdateMachineHandler(
+				newTestTargetSupportChecker(
+					t,
+					UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
+					request.Current.Machine.DeepCopy(),
+				),
+			)
 
-			HandleCanUpdateMachine(t.Context(), request, response)
+			handler.Handle(t.Context(), request, response)
 
 			if response.Status != runtimehooksv1.ResponseStatusSuccess {
 				t.Fatalf("Status = %q, want %q; message=%q",
@@ -133,12 +142,80 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 	}
 }
 
+func TestHandleCanUpdateMachineは無効な対象ではPatchを返さず通常置換へfallbackする(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*runtimehooksv1.CanUpdateMachineRequest)
+		gates   UpdateTargetFeatureGates
+		objects []runtime.Object
+	}{
+		{
+			name:  "worker gate無効",
+			gates: UpdateTargetFeatureGates{},
+		},
+		{
+			name: "single control plane gate無効",
+			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
+				markControlPlaneMachine(&request.Current.Machine)
+				markControlPlaneMachine(&request.Desired.Machine)
+			},
+			gates: UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true},
+		},
+		{
+			name: "multi control plane gate無効",
+			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
+				markControlPlaneMachine(&request.Current.Machine)
+				markControlPlaneMachine(&request.Desired.Machine)
+			},
+			gates: UpdateTargetFeatureGates{Worker: true, SingleControlPlane: true},
+			objects: []runtime.Object{
+				controlPlaneMachine("cp-2"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := machineUpdateRequest(t)
+			machine := decodeTestTartMachine(t, request.Desired.InfrastructureMachine)
+			machine.Spec.Image.Ref = extensionArtifactRef("b")
+			request.Desired.InfrastructureMachine = rawExtension(t, machine)
+			if tt.mutate != nil {
+				tt.mutate(request)
+			}
+			response := &runtimehooksv1.CanUpdateMachineResponse{}
+			handler := NewCanUpdateMachineHandler(
+				newTestTargetSupportChecker(t, tt.gates, append([]runtime.Object{
+					request.Current.Machine.DeepCopy(),
+				}, tt.objects...)...),
+			)
+
+			handler.Handle(t.Context(), request, response)
+
+			if response.Status != runtimehooksv1.ResponseStatusSuccess {
+				t.Fatalf("Status = %q, want %q; message=%q",
+					response.Status, runtimehooksv1.ResponseStatusSuccess, response.Message)
+			}
+			if response.InfrastructureMachinePatch.IsDefined() {
+				t.Fatalf("InfrastructureMachinePatch.IsDefined() = true, want false; message=%q", response.Message)
+			}
+		})
+	}
+}
+
 func TestHandleCanUpdateMachineは不正なInfraMachineをFailureにする(t *testing.T) {
 	request := machineUpdateRequest(t)
 	request.Desired.InfrastructureMachine.Raw = []byte(`{`)
 	response := &runtimehooksv1.CanUpdateMachineResponse{}
+	handler := NewCanUpdateMachineHandler(
+		newTestTargetSupportChecker(
+			t,
+			UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
+			request.Current.Machine.DeepCopy(),
+		),
+	)
 
-	HandleCanUpdateMachine(t.Context(), request, response)
+	handler.Handle(t.Context(), request, response)
 
 	if response.Status != runtimehooksv1.ResponseStatusFailure {
 		t.Fatalf("Status = %q, want %q", response.Status, runtimehooksv1.ResponseStatusFailure)
@@ -149,6 +226,13 @@ func machineUpdateRequest(t *testing.T) *runtimehooksv1.CanUpdateMachineRequest 
 	t.Helper()
 
 	machine := clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-1",
+			Namespace: "default",
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel: "sample",
+			},
+		},
 		Spec: clusterv1.MachineSpec{
 			ClusterName: "sample",
 			Version:     "v1.34.0",
@@ -235,4 +319,46 @@ func extensionArtifactRef(fill string) string {
 		value += fill
 	}
 	return "oci://registry.test.walnuts.dev/os/ubuntu@sha256:" + value
+}
+
+func newTestTargetSupportChecker(
+	t *testing.T,
+	gates UpdateTargetFeatureGates,
+	objects ...runtime.Object,
+) *TargetSupportChecker {
+	t.Helper()
+
+	scheme := runtime.NewScheme()
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	builder := fake.NewClientBuilder().WithScheme(scheme)
+	if len(objects) > 0 {
+		builder = builder.WithRuntimeObjects(objects...)
+	}
+	return NewTargetSupportChecker(builder.Build(), gates)
+}
+
+func markControlPlaneMachine(machine *clusterv1.Machine) {
+	if machine.Labels == nil {
+		machine.Labels = map[string]string{}
+	}
+	machine.Labels[clusterv1.MachineControlPlaneLabel] = ""
+	machine.Labels[clusterv1.MachineControlPlaneNameLabel] = "sample-control-plane"
+}
+
+func controlPlaneMachine(name string) *clusterv1.Machine {
+	machine := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			Labels: map[string]string{
+				clusterv1.ClusterNameLabel:             "sample",
+				clusterv1.MachineControlPlaneLabel:     "",
+				clusterv1.MachineControlPlaneNameLabel: "sample-control-plane",
+			},
+		},
+		Spec: clusterv1.MachineSpec{ClusterName: "sample"},
+	}
+	return machine
 }

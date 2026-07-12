@@ -22,12 +22,35 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// HandleCanUpdateMachineはOSOnly allowlistでcurrentとdesiredを分類する。
-func HandleCanUpdateMachine(
+// CanUpdateMachineHandlerはOSOnly allowlistと対象gateを束ねる。
+type CanUpdateMachineHandler struct {
+	support *TargetSupportChecker
+}
+
+// NewCanUpdateMachineHandlerはMachine hook handlerを生成する。
+func NewCanUpdateMachineHandler(support *TargetSupportChecker) *CanUpdateMachineHandler {
+	return &CanUpdateMachineHandler{support: support}
+}
+
+// HandleはOSOnly allowlistでcurrentとdesiredを分類する。
+func (handler *CanUpdateMachineHandler) Handle(
 	ctx context.Context,
 	request *runtimehooksv1.CanUpdateMachineRequest,
 	response *runtimehooksv1.CanUpdateMachineResponse,
 ) {
+	supported, reason, err := handler.support.SupportsMachine(ctx, &request.Desired.Machine)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate in-place update target")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to evaluate in-place update target: " + err.Error())
+		return
+	}
+	if !supported {
+		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
+		response.SetMessage("in-place update not selected; " + reason)
+		return
+	}
+
 	classification, desired, err := classifyMachineRequest(request)
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "Failed to classify in-place Machine update")

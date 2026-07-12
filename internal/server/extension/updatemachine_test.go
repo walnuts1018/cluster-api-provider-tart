@@ -19,6 +19,8 @@ import (
 	"errors"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -75,6 +77,56 @@ func TestUpdateMachineHandlerは開始失敗をFailureにする(t *testing.T) {
 	}
 }
 
+func TestUpdateMachineHandlerは無効な対象で開始しない(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*runtimehooksv1.UpdateMachineRequest)
+		gates  UpdateTargetFeatureGates
+	}{
+		{
+			name:  "worker gate無効",
+			gates: UpdateTargetFeatureGates{},
+		},
+		{
+			name: "single control plane gate無効",
+			mutate: func(request *runtimehooksv1.UpdateMachineRequest) {
+				markControlPlaneMachine(&request.Desired.Machine)
+			},
+			gates: UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			starter := &countingUpdateStarter{
+				operation: &infrastructurev1beta1.TartHostOperation{
+					Status: infrastructurev1beta1.TartHostOperationStatus{
+						Phase: infrastructurev1beta1.TartHostOperationPhasePending,
+					},
+				},
+			}
+			handler := NewUpdateMachineHandlerWithSupport(
+				starter,
+				newTestTargetSupportChecker(t, test.gates),
+			)
+			request := updateMachineRequest()
+			if test.mutate != nil {
+				test.mutate(request)
+			}
+			response := &runtimehooksv1.UpdateMachineResponse{}
+
+			handler.Handle(t.Context(), request, response)
+
+			if response.Status != runtimehooksv1.ResponseStatusFailure {
+				t.Fatalf("Status = %q, want %q", response.Status, runtimehooksv1.ResponseStatusFailure)
+			}
+			if starter.calls != 0 {
+				t.Fatalf("Start() calls = %d, want 0", starter.calls)
+			}
+		})
+	}
+}
+
 type staticUpdateStarter struct {
 	operation *infrastructurev1beta1.TartHostOperation
 	err       error
@@ -85,4 +137,36 @@ func (starter staticUpdateStarter) Start(
 	*runtimehooksv1.UpdateMachineRequest,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
 	return starter.operation, starter.err
+}
+
+type countingUpdateStarter struct {
+	operation *infrastructurev1beta1.TartHostOperation
+	calls     int
+}
+
+func (starter *countingUpdateStarter) Start(
+	context.Context,
+	*runtimehooksv1.UpdateMachineRequest,
+) (*infrastructurev1beta1.TartHostOperation, error) {
+	starter.calls++
+	return starter.operation, nil
+}
+
+func updateMachineRequest() *runtimehooksv1.UpdateMachineRequest {
+	return &runtimehooksv1.UpdateMachineRequest{
+		Desired: runtimehooksv1.UpdateMachineRequestObjects{
+			Machine: clusterv1.Machine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "machine-1",
+					Namespace: "default",
+					Labels: map[string]string{
+						clusterv1.ClusterNameLabel: "sample",
+					},
+				},
+				Spec: clusterv1.MachineSpec{
+					ClusterName: "sample",
+				},
+			},
+		},
+	}
 }

@@ -23,6 +23,7 @@ import (
 	runtimecatalog "sigs.k8s.io/cluster-api/exp/runtime/catalog"
 	"sigs.k8s.io/cluster-api/exp/runtime/server"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // Manager runs the Runtime Extension webhook server.
@@ -31,7 +32,12 @@ type Manager struct {
 }
 
 // NewManager creates a new Runtime Extension server manager.
-func NewManager(catalog *runtimecatalog.Catalog, updateStarter UpdateStarter) (*Manager, error) {
+func NewManager(
+	catalog *runtimecatalog.Catalog,
+	reader client.Reader,
+	updateStarter UpdateStarter,
+	gates UpdateTargetFeatureGates,
+) (*Manager, error) {
 	s, err := server.New(server.Options{
 		Catalog:  catalog,
 		Port:     9443,
@@ -44,9 +50,10 @@ func NewManager(catalog *runtimecatalog.Catalog, updateStarter UpdateStarter) (*
 	}
 
 	// Register extension handlers for in-place update hooks.
+	support := NewTargetSupportChecker(reader, gates)
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
 		Hook:           runtimehooksv1.CanUpdateMachine,
-		HandlerFunc:    HandleCanUpdateMachine,
+		HandlerFunc:    NewCanUpdateMachineHandler(support).Handle,
 		Name:           "can-update-machine",
 		TimeoutSeconds: new(int32(10)),
 	}); err != nil {
@@ -55,7 +62,7 @@ func NewManager(catalog *runtimecatalog.Catalog, updateStarter UpdateStarter) (*
 
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
 		Hook:           runtimehooksv1.CanUpdateMachineSet,
-		HandlerFunc:    HandleCanUpdateMachineSet,
+		HandlerFunc:    NewCanUpdateMachineSetHandler(support).Handle,
 		Name:           "can-update-machine-set",
 		TimeoutSeconds: new(int32(10)),
 	}); err != nil {
@@ -64,7 +71,7 @@ func NewManager(catalog *runtimecatalog.Catalog, updateStarter UpdateStarter) (*
 
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
 		Hook:           runtimehooksv1.UpdateMachine,
-		HandlerFunc:    NewUpdateMachineHandler(updateStarter).Handle,
+		HandlerFunc:    NewUpdateMachineHandlerWithSupport(updateStarter, support).Handle,
 		Name:           "update-machine",
 		TimeoutSeconds: new(int32(10)),
 	}); err != nil {

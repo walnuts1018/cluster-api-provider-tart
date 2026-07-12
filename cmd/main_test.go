@@ -45,16 +45,29 @@ func TestResolveUpdateFeatureGates(t *testing.T) {
 			},
 		},
 		{
-			name: "親gate有効時にcontrol plane gateを個別に有効",
+			name: "InPlaceUpdatesはworkerから順に有効化する",
+			input: map[string]bool{
+				"InPlaceUpdates":                   true,
+				"InPlaceUpdatesWorker":             true,
+				"InPlaceUpdatesMultiControlPlane":  true,
+				"InPlaceUpdatesSingleControlPlane": true,
+			},
+			want: updateFeatureGates{
+				InPlaceUpdates:     true,
+				Worker:             true,
+				MultiControlPlane:  true,
+				SingleControlPlane: true,
+			},
+		},
+		{
+			name: "InPlaceUpdatesは前段階なしに後段階を有効化しない",
 			input: map[string]bool{
 				"InPlaceUpdates":                   true,
 				"InPlaceUpdatesMultiControlPlane":  true,
 				"InPlaceUpdatesSingleControlPlane": true,
 			},
 			want: updateFeatureGates{
-				InPlaceUpdates:     true,
-				MultiControlPlane:  true,
-				SingleControlPlane: true,
+				InPlaceUpdates: true,
 			},
 		},
 		{

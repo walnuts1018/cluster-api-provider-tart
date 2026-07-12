@@ -617,7 +617,16 @@ func main() {
 			setupLog.Error(err, "Failed to create Runtime Extension catalog")
 			os.Exit(1)
 		}
-		extManager, err := extension.NewManager(extCatalog, updateService)
+		extManager, err := extension.NewManager(
+			extCatalog,
+			mgr.GetClient(),
+			updateService,
+			extension.UpdateTargetFeatureGates{
+				Worker:             updateFeatureGates.Worker,
+				MultiControlPlane:  updateFeatureGates.MultiControlPlane,
+				SingleControlPlane: updateFeatureGates.SingleControlPlane,
+			},
+		)
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension manager")
 			os.Exit(1)
@@ -733,11 +742,14 @@ func resolveUpdateFeatureGates(gates map[string]bool) updateFeatureGates {
 	if !gates["InPlaceUpdates"] {
 		return updateFeatureGates{}
 	}
+	worker := gates["InPlaceUpdatesWorker"]
+	multiControlPlane := worker && gates["InPlaceUpdatesMultiControlPlane"]
+	singleControlPlane := multiControlPlane && gates["InPlaceUpdatesSingleControlPlane"]
 	return updateFeatureGates{
 		InPlaceUpdates:        true,
-		Worker:                gates["InPlaceUpdatesWorker"],
-		MultiControlPlane:     gates["InPlaceUpdatesMultiControlPlane"],
-		SingleControlPlane:    gates["InPlaceUpdatesSingleControlPlane"],
+		Worker:                worker,
+		MultiControlPlane:     multiControlPlane,
+		SingleControlPlane:    singleControlPlane,
 		DistributionLifecycle: resolveDistributionLifecycleFeatureGates(gates),
 	}
 }

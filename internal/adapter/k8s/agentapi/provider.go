@@ -39,6 +39,9 @@ const (
 	PlanSecretSuffix       = "-agent-plan"
 	PlanSecretPlanKey      = "plan.json"
 	PlanSecretSignatureKey = "signature.json"
+	BootstrapValueKey      = "value"
+	BootstrapFormatKey     = "format"
+	BootstrapDigestKey     = "payloadDigest"
 )
 
 var (
@@ -160,23 +163,42 @@ func (provider *Provider) GetBootstrapBundle(
 		}
 		return agentprotocol.BootstrapBundle{}, fmt.Errorf("get Bootstrap Secret: %w", err)
 	}
-	payload := secret.Data["value"]
-	format := string(secret.Data["format"])
-	if format == "" {
-		format = agentprotocol.BootstrapFormatCloud
-	}
-	bundle := agentprotocol.BootstrapBundle{
-		APIVersion:    agentprotocol.APIVersion,
-		Format:        format,
-		Payload:       append([]byte(nil), payload...),
-		PayloadDigest: digest.FromBytes(payload).String(),
-		MachineUID:    string(owner.UID),
-		OperationUID:  operation.Spec.OperationID,
+	bundle, err := bootstrapBundleFromSecret(secret, string(owner.UID), operation.Spec.OperationID)
+	if err != nil {
+		return agentprotocol.BootstrapBundle{}, err
 	}
 	if err := agentprotocol.ValidateBootstrapBundle(bundle); err != nil {
 		return agentprotocol.BootstrapBundle{}, fmt.Errorf("validate Bootstrap Bundle: %w", err)
 	}
 	return bundle, nil
+}
+
+func bootstrapBundleFromSecret(
+	secret *corev1.Secret,
+	machineUID, operationUID string,
+) (agentprotocol.BootstrapBundle, error) {
+	payload := append([]byte(nil), secret.Data[BootstrapValueKey]...)
+	format := string(secret.Data[BootstrapFormatKey])
+	if format != agentprotocol.BootstrapFormatCloud {
+		return agentprotocol.BootstrapBundle{}, fmt.Errorf("%w: %q", agentprotocol.ErrUnsupportedBootstrapFormat, format)
+	}
+
+	payloadDigest := digest.FromBytes(payload).String()
+	if declared := string(secret.Data[BootstrapDigestKey]); declared != "" {
+		if declared != payloadDigest {
+			return agentprotocol.BootstrapBundle{}, fmt.Errorf("Bootstrap Secret payloadDigest %q does not match payload", declared)
+		}
+		payloadDigest = declared
+	}
+
+	return agentprotocol.BootstrapBundle{
+		APIVersion:    agentprotocol.APIVersion,
+		Format:        format,
+		Payload:       payload,
+		PayloadDigest: payloadDigest,
+		MachineUID:    machineUID,
+		OperationUID:  operationUID,
+	}, nil
 }
 
 func (provider *Provider) bootstrapSecretName(

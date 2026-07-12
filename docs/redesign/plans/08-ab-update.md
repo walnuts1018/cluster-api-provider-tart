@@ -271,7 +271,7 @@ type Decision struct {
 
 不正なphase飛び越し、target slotの再選択、terminal phaseの変更を拒否する。
 
-- [ ] **Step 4: controllerとboot reportをreducerへ接続する**
+- [x] **Step 4: controllerとboot reportをreducerへ接続する**
 
 全status更新は`Patch()`で競合再試行し、phase、attempt、last boot report、Conditionsを永続化する。失敗PhaseとslotをEvent、構造化log、Trace attributeへ出す。
 

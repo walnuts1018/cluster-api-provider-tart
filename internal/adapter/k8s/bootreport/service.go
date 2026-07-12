@@ -21,11 +21,13 @@ import (
 	"math"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	bootreportdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/bootreport"
 	inplaceupdatedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -108,6 +110,41 @@ func (service *Service) ReportBoot(
 				ReportedAt:             now,
 			}
 			operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(result.NextPhase)
+			if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
+				switch result.Decision {
+				case bootreportdomain.DecisionRollbackRequired:
+					appupdate.SetUpdateFailureCondition(
+						&operation.Status,
+						operation.Generation,
+						infrastructurev1beta1.TartHostOperationPhase(phase),
+						operation.Status.Phase,
+					)
+				case bootreportdomain.DecisionRollbackCompleted:
+					appupdate.UpdateFailureCondition(
+						&operation.Status,
+						operation.Generation,
+						infrastructurev1beta1.TartHostOperationPhase(phase),
+						operation.Status.Phase,
+					)
+				case bootreportdomain.DecisionRecoveryRequired:
+					appupdate.UpdateFailureCondition(
+						&operation.Status,
+						operation.Generation,
+						infrastructurev1beta1.TartHostOperationPhase(phase),
+						operation.Status.Phase,
+					)
+				case bootreportdomain.DecisionCompleted:
+					if degraded := apimeta.FindStatusCondition(operation.Status.Conditions, appupdate.ConditionDegraded); degraded != nil {
+						apimeta.SetStatusCondition(&operation.Status.Conditions, metav1.Condition{
+							Type:               appupdate.ConditionDegraded,
+							Status:             metav1.ConditionFalse,
+							Reason:             "Updated",
+							Message:            "No update failure is present",
+							ObservedGeneration: operation.Generation,
+						})
+					}
+				}
+			}
 			if result.Decision == bootreportdomain.DecisionRecorded &&
 				phase == operationdomain.PhaseBootTrial &&
 				operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
@@ -206,6 +243,14 @@ func applyBootFailureAttempt(
 	}
 	operation.Status.Attempt = decision.Attempt
 	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhase(decision.Phase)
+	if operation.Status.Phase == infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		appupdate.SetUpdateFailureCondition(
+			&operation.Status,
+			operation.Generation,
+			infrastructurev1beta1.TartHostOperationPhaseBootTrial,
+			operation.Status.Phase,
+		)
+	}
 	return nil
 }
 

@@ -384,6 +384,7 @@ func main() {
 		setupLog.Error(err, "Failed to initialize reconcilers")
 		os.Exit(1)
 	}
+	reconcilers.TartMachineV1Beta1.Recorder = mgr.GetEventRecorderFor("tartmachine-v1beta1")
 	if agentPlanKeyID != "" && agentPlanPrivateKeyFile != "" {
 		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
 		if err != nil {

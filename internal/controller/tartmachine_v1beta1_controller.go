@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -27,6 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
@@ -36,6 +41,7 @@ import (
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 type HostReferenceService interface {
@@ -65,6 +71,7 @@ type TartMachineV1Beta1Reconciler struct {
 	NodeHealth     NodeHealthObserver
 	Provisioner    ProvisionOrchestrator
 	Cleaner        CleaningOrchestrator
+	Recorder       record.EventRecorder
 }
 
 type CleaningOrchestrator interface {
@@ -94,9 +101,17 @@ type NodeHealthObserver interface {
 
 func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+	ctx, span := telemetry.Tracer.Start(ctx, "TartMachineV1Beta1.Reconcile")
+	span.SetAttributes(
+		attribute.String("kubernetes.resource.name", req.Name),
+		attribute.String("kubernetes.resource.namespace", req.Namespace),
+	)
+	defer span.End()
 
 	machine := &infrastructurev1beta1.TartMachine{}
 	if err := r.Get(ctx, req.NamespacedName, machine); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
@@ -297,13 +312,20 @@ func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(
 	switch phase {
 	case operationdomain.PhaseSucceeded:
 		machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
+		appupdate.RecordUpdateOutcome(ctx, operation, "succeeded")
 	case operationdomain.PhaseFailed:
-		machine.Status = appupdate.StatusWithUpdateRolledBack(machine)
+		machine.Status = appupdate.StatusWithUpdateRolledBack(machine, operation)
+		appupdate.RecordUpdateOutcome(ctx, operation, "failed")
 	case operationdomain.PhaseRecoveryRequired:
-		machine.Status = appupdate.StatusWithUpdateRecoveryRequired(machine)
+		machine.Status = appupdate.StatusWithUpdateRecoveryRequired(machine, operation)
+		appupdate.RecordUpdateOutcome(ctx, operation, "recovery_required")
 	}
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return false, fmt.Errorf("set TartMachine Update status: %w", err)
+	}
+	if phase == operationdomain.PhaseFailed || phase == operationdomain.PhaseRecoveryRequired {
+		trace.SpanFromContext(ctx).SetAttributes(appupdate.FailureTraceAttributes(operation)...)
+		r.recordUpdateFailureEvent(machine, operation)
 	}
 	return true, nil
 }
@@ -578,9 +600,10 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 				}
 				machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
 			} else {
-				if err := r.transitionOperationPhase(
+				if err := r.transitionUpdateFailurePhase(
 					ctx,
 					operation,
+					infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
 					infrastructurev1beta1.TartHostOperationPhaseRollingBack,
 				); err != nil {
 					return ctrl.Result{}, err
@@ -601,6 +624,30 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 	return ctrl.Result{}, nil
 }
 
+func (r *TartMachineV1Beta1Reconciler) recordUpdateFailureEvent(
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+) {
+	if r.Recorder == nil {
+		return
+	}
+	condition := appupdate.FailureCondition(operation)
+	if condition == nil {
+		return
+	}
+	r.Recorder.Eventf(
+		machine,
+		"Warning",
+		"UpdateFailed",
+		"operationID=%s host=%s operationType=%s failureReason=%s message=%s",
+		operation.Spec.OperationID,
+		operation.Spec.HostRef.Name,
+		operation.Spec.Type,
+		condition.Reason,
+		condition.Message,
+	)
+}
+
 func (r *TartMachineV1Beta1Reconciler) transitionOperationPhase(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -613,6 +660,24 @@ func (r *TartMachineV1Beta1Reconciler) transitionOperationPhase(
 	}
 	if err := r.Status().Patch(ctx, operation, client.MergeFrom(original)); err != nil {
 		return fmt.Errorf("set TartHostOperation phase: %w", err)
+	}
+	return nil
+}
+
+func (r *TartMachineV1Beta1Reconciler) transitionUpdateFailurePhase(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	failedPhase infrastructurev1beta1.TartHostOperationPhase,
+	target infrastructurev1beta1.TartHostOperationPhase,
+) error {
+	original := operation.DeepCopy()
+	operation.Status.Phase = target
+	appupdate.UpdateFailureCondition(&operation.Status, operation.Generation, failedPhase, target)
+	if operation.Status.ObservedGeneration < operation.Generation {
+		operation.Status.ObservedGeneration = operation.Generation
+	}
+	if err := r.Status().Patch(ctx, operation, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("set TartHostOperation update failure phase: %w", err)
 	}
 	return nil
 }

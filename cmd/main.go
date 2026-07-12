@@ -57,6 +57,8 @@ import (
 	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
 	k8snodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycle"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
+	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
+	applicationcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
@@ -153,7 +155,7 @@ func main() {
 	flag.StringVar(&osArtifactKeyID, "os-artifact-key-id", "", "The trusted OS Artifact signing key ID used by in-place updates.")
 	flag.StringVar(&osArtifactPublicKeyFile, "os-artifact-public-key-file", "", "The trusted OS Artifact Ed25519 public key file used by in-place updates.")
 	flag.StringVar(&agentPlanKeyID, "agent-plan-key-id", "", "The Agent Plan signing key ID used by in-place updates.")
-	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file used by in-place updates.")
+	flag.StringVar(&agentPlanPrivateKeyFile, "agent-plan-private-key-file", "", "The Agent Plan Ed25519 private key file, mounted read-only separately from Artifact trust keys.")
 	flag.BoolVar(
 		&agentAPIAllowIsolatedL2,
 		"agent-api-allow-isolated-l2",
@@ -382,6 +384,25 @@ func main() {
 		setupLog.Error(err, "Failed to initialize reconcilers")
 		os.Exit(1)
 	}
+	if agentPlanKeyID != "" && agentPlanPrivateKeyFile != "" {
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load Agent Plan signing key for Cleaning workflow")
+			os.Exit(1)
+		}
+		cleaningOrchestrator := applicationcleaning.NewOrchestrator(
+			k8sv1beta1host.NewService(mgr.GetClient()),
+			k8soperation.NewService(mgr.GetClient()),
+		)
+		reconcilers.TartMachineV1Beta1.Cleaner = applicationcleaning.NewWorkflow(
+			cleaningOrchestrator,
+			k8sagentapi.NewPlanWriter(mgr.GetClient()),
+			applicationcleaning.PlanSigner{
+				KeyID:      agentPlanKeyID,
+				PrivateKey: planPrivateKey,
+			},
+		)
+	}
 
 	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
@@ -557,7 +578,7 @@ func main() {
 			setupLog.Error(err, "Failed to load OS Artifact verification key")
 			os.Exit(1)
 		}
-		planPrivateKey, err := signingkey.LoadPrivate(agentPlanPrivateKeyFile)
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
 		if err != nil {
 			setupLog.Error(err, "Failed to load Agent Plan signing key")
 			os.Exit(1)

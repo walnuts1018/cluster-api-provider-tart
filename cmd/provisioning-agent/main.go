@@ -195,10 +195,11 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		targetWriter := agentwriter.New(
+		targetWriter := agentwriter.NewWithSanitizer(
 			layout.NewManager(layout.NewLinuxDiskIO()),
 			source,
 			agentwriter.LinuxDeviceOpener{},
+			agentwriter.NewLinuxSanitizer(),
 			func(ctx context.Context, progress agentwriter.Progress) error {
 				slog.Info(
 					"Provisioning Agent payload write progress",
@@ -220,12 +221,14 @@ func run(ctx context.Context, args []string) error {
 		if err := provisioningagent.NewService(targetWriter).Execute(operationContext, validatedPlan, devices); err != nil {
 			return err
 		}
-		slog.Info(
-			"Provisioning Agent payloads written and verified",
+		attributes := []any{
 			"operation_uid", cfg.operationUID,
 			"target_device", target.Path,
-			"artifact_generation", validatedPlan.Value().Artifact.Generation,
-		)
+		}
+		if validatedPlan.Value().Artifact != nil {
+			attributes = append(attributes, "artifact_generation", validatedPlan.Value().Artifact.Generation)
+		}
+		slog.Info("Provisioning Agent payloads written and verified", attributes...)
 		// TODO: verity root hashとboot trial metadataの検証・更新後に通常Agent実行へ昇格する。
 		return nil
 	}

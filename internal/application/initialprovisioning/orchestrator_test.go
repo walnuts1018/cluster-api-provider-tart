@@ -101,6 +101,55 @@ func TestOrchestratorMapsNoMatchingHost(t *testing.T) {
 	}
 }
 
+func TestOrchestratorCompletesProvisioningInOperationThenHostOrder(t *testing.T) {
+	t.Parallel()
+
+	var calls []string
+	orchestrator := NewOrchestrator(
+		hostReserveStub{},
+		hostPhaseStub{markProvisioned: func() { calls = append(calls, "host") }},
+		operationServiceStub{completeProvision: func() { calls = append(calls, "operation") }},
+	)
+
+	if err := orchestrator.CompleteProvisioning(
+		t.Context(),
+		&infrastructurev1beta1.TartHost{},
+		&infrastructurev1beta1.TartHostOperation{},
+	); err != nil {
+		t.Fatalf("CompleteProvisioning() error = %v", err)
+	}
+	if len(calls) != 2 || calls[0] != "operation" || calls[1] != "host" {
+		t.Fatalf("call order = %v, want [operation host]", calls)
+	}
+}
+
+func TestOrchestratorStopsProvisionCompletionWhenOperationCompletionFails(t *testing.T) {
+	t.Parallel()
+
+	hostMarked := false
+	orchestrator := NewOrchestrator(
+		hostReserveStub{},
+		hostPhaseStub{
+			markProvisioned: func() { hostMarked = true },
+		},
+		operationServiceStub{
+			err: errors.New("operation failed"),
+		},
+	)
+
+	err := orchestrator.CompleteProvisioning(
+		t.Context(),
+		&infrastructurev1beta1.TartHost{},
+		&infrastructurev1beta1.TartHostOperation{},
+	)
+	if err == nil {
+		t.Fatal("CompleteProvisioning() succeeded unexpectedly")
+	}
+	if hostMarked {
+		t.Fatal("MarkHostProvisioned() was called after operation completion failed")
+	}
+}
+
 func testMachine() *infrastructurev1beta1.TartMachine {
 	return &infrastructurev1beta1.TartMachine{
 		ObjectMeta: metav1.ObjectMeta{
@@ -135,7 +184,8 @@ func (s hostReserveStub) Reserve(
 }
 
 type hostPhaseStub struct {
-	err error
+	err             error
+	markProvisioned func()
 }
 
 func (s hostPhaseStub) ReserveForMachine(
@@ -150,12 +200,16 @@ func (s hostPhaseStub) MarkHostProvisioned(
 	context.Context,
 	*infrastructurev1beta1.TartHost,
 ) error {
+	if s.markProvisioned != nil {
+		s.markProvisioned()
+	}
 	return s.err
 }
 
 type operationServiceStub struct {
-	operation *infrastructurev1beta1.TartHostOperation
-	err       error
+	operation         *infrastructurev1beta1.TartHostOperation
+	err               error
+	completeProvision func()
 }
 
 func (s operationServiceStub) Start(
@@ -169,5 +223,8 @@ func (s operationServiceStub) CompleteProvision(
 	context.Context,
 	*infrastructurev1beta1.TartHostOperation,
 ) error {
+	if s.completeProvision != nil {
+		s.completeProvision()
+	}
 	return s.err
 }

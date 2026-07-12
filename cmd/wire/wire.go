@@ -19,6 +19,7 @@ import (
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
+	appcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
@@ -112,12 +113,14 @@ func provideTartMachineV1Beta1Reconciler(
 	hostReferences controller.HostReferenceService,
 	nodeHealth controller.NodeHealthObserver,
 	provisioner controller.ProvisionOrchestrator,
+	cleaner controller.CleaningOrchestrator,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,
+		Cleaner:        cleaner,
 	}
 }
 
@@ -183,10 +186,14 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(applicationprovisioning.PowerOnService), new(*applicationdriver.Service)),
 
 		// v1beta1 bindings
+		appcleaning.NewOrchestrator,
 		appprovisioning.NewOrchestrator,
 		wire.Bind(new(controller.HostReferenceService), new(*k8sallocation.Service)),
 		wire.Bind(new(controller.NodeHealthObserver), new(*k8smachinehealth.Observer)),
+		wire.Bind(new(controller.CleaningOrchestrator), new(*appcleaning.Orchestrator)),
 		wire.Bind(new(controller.ProvisionOrchestrator), new(*appprovisioning.Orchestrator)),
+		wire.Bind(new(appcleaning.HostPhaseService), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(appcleaning.OperationService), new(*k8soperation.Service)),
 		wire.Bind(new(appprovisioning.HostReserveService), new(*k8sallocation.Service)),
 		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),

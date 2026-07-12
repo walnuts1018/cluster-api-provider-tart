@@ -101,6 +101,23 @@ func TestServiceWritesAfterEverySafetyCheckPasses(t *testing.T) {
 	}
 }
 
+func TestServiceAcceptsCleaningPlanWithoutArtifact(t *testing.T) {
+	t.Parallel()
+
+	writer := &recordingWriter{}
+	service := NewService(writer)
+	if err := service.Execute(
+		t.Context(),
+		validatedPlan(t, agentprotocol.OperationTypeClean, "", nil),
+		[]disk.Device{matchingDisk("/dev/sda")},
+	); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("WriteTargets() calls = %d, want 1", writer.calls)
+	}
+}
+
 func validatedPlan(
 	t *testing.T,
 	operation agentprotocol.OperationType,
@@ -108,7 +125,7 @@ func validatedPlan(
 	roles []agentprotocol.DiskRole,
 ) agentprotocol.ValidatedPlan {
 	t.Helper()
-	plan, err := agentprotocol.ValidatePlan(agentprotocol.Plan{
+	value := agentprotocol.Plan{
 		APIVersion:    agentprotocol.APIVersion,
 		OperationUID:  "operation-1",
 		HostUID:       "host-1",
@@ -120,14 +137,17 @@ func validatedPlan(
 			SerialNumber: "serial-root",
 			MinSizeBytes: 100,
 		},
-		Artifact: agentprotocol.Artifact{
+		AllowedTargetRoles: roles,
+		Steps:              []agentprotocol.PlanStep{{Name: "Write"}},
+	}
+	if operation == agentprotocol.OperationTypeProvision || operation == agentprotocol.OperationTypeUpdate {
+		value.Artifact = &agentprotocol.Artifact{
 			Ref:            "oci://registry.test/os@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			ManifestDigest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 			Generation:     1,
-		},
-		AllowedTargetRoles: roles,
-		Steps:              []agentprotocol.PlanStep{{Name: "Write"}},
-	})
+		}
+	}
+	plan, err := agentprotocol.ValidatePlan(value)
 	if err != nil {
 		t.Fatalf("ValidatePlan() error = %v", err)
 	}

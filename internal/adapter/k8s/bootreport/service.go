@@ -142,6 +142,9 @@ func (service *Service) expectedBoot(
 	if err != nil || digest.String() != planDigest {
 		return bootreportdomain.ExpectedBoot{}, fmt.Errorf("%w: plan digest mismatch", ErrOperationNotFound)
 	}
+	if signedPlan.Plan.Artifact == nil {
+		return bootreportdomain.ExpectedBoot{}, fmt.Errorf("%w: invalid boot target", ErrOperationNotFound)
+	}
 	slot, err := targetSlot(signedPlan.Plan.AllowedTargetRoles)
 	if err != nil || signedPlan.Plan.Artifact.Generation > math.MaxInt64 {
 		return bootreportdomain.ExpectedBoot{}, fmt.Errorf("%w: invalid boot target", ErrOperationNotFound)

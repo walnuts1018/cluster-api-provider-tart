@@ -365,6 +365,56 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 	}
 }
 
+func TestTartMachineV1Beta1ReconcilerKeepsAwaitingHealthUntilNodeIsReady(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	machine, host, operation := provisioningGateObjects(
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+	)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(machine, host, operation).
+		Build()
+	provisioner := &provisionOrchestratorStub{}
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client:         k8sClient,
+		HostReferences: k8sallocation.NewService(k8sClient),
+		NodeHealth: nodeHealthObserverStub{observation: machinehealthdomain.NodeObservation{
+			MachineProviderID: machine.Spec.ProviderID,
+			NodeProviderID:    machine.Spec.ProviderID,
+			NodeReady:         false,
+			ExpectedVersion:   "v1.35.0",
+			NodeVersion:       "v1.35.0",
+		}},
+		Provisioner: provisioner,
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	currentMachine := &infrastructurev1beta1.TartMachine{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), currentMachine); err != nil {
+		t.Fatalf("get TartMachine: %v", err)
+	}
+	if currentMachine.Status.Initialization.Provisioned != nil && *currentMachine.Status.Initialization.Provisioned {
+		t.Fatalf("initialization.provisioned = %#v, want nil or false", currentMachine.Status.Initialization.Provisioned)
+	}
+	if provisioner.completeCalls != 0 {
+		t.Fatalf("CompleteProvisioning() calls = %d, want 0", provisioner.completeCalls)
+	}
+
+	currentOperation := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), currentOperation); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if currentOperation.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
+		t.Fatalf("operation phase = %q, want AwaitingHealth", currentOperation.Status.Phase)
+	}
+}
+
 func TestTartMachineV1Beta1ReconcilerKeepsReadyAfterUpdateRollback(t *testing.T) {
 	t.Parallel()
 

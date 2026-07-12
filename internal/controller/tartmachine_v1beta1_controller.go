@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -63,7 +64,18 @@ type TartMachineV1Beta1Reconciler struct {
 	HostReferences HostReferenceService
 	NodeHealth     NodeHealthObserver
 	Provisioner    ProvisionOrchestrator
+	Cleaner        CleaningOrchestrator
 }
+
+type CleaningOrchestrator interface {
+	StartCleaning(
+		ctx context.Context,
+		machine *infrastructurev1beta1.TartMachine,
+		host *infrastructurev1beta1.TartHost,
+	) (*infrastructurev1beta1.TartHostOperation, error)
+}
+
+const tartMachineCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmachine-cleanup"
 
 type NodeHealthObserver interface {
 	Observe(
@@ -74,7 +86,9 @@ type NodeHealthObserver interface {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/finalizers,verbs=update
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthostoperations,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
@@ -87,6 +101,12 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get TartMachine: %w", err)
+	}
+	if !machine.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, r.reconcileDelete(ctx, machine)
+	}
+	if err := r.ensureFinalizer(ctx, machine); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// すでにProvisioned済みの場合はUpdate Operationを先に反映し、必要ならNodeHealthを観察する。
@@ -132,6 +152,114 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 
 	// 常にNodeHealthを観察し、Provisionedへの遷移やProviderIDMismatchの検出を行う
 	return r.reconcileNodeHealth(ctx, machine)
+}
+
+func (r *TartMachineV1Beta1Reconciler) ensureFinalizer(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) error {
+	if controllerutil.ContainsFinalizer(machine, tartMachineCleanupFinalizer) {
+		return nil
+	}
+	original := machine.DeepCopy()
+	controllerutil.AddFinalizer(machine, tartMachineCleanupFinalizer)
+	if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("add TartMachine cleanup finalizer: %w", err)
+	}
+	return nil
+}
+
+func (r *TartMachineV1Beta1Reconciler) reconcileDelete(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) error {
+	if !controllerutil.ContainsFinalizer(machine, tartMachineCleanupFinalizer) {
+		return nil
+	}
+	if machine.Status.HostRef == nil {
+		return r.removeFinalizer(ctx, machine)
+	}
+
+	host := &infrastructurev1beta1.TartHost{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: machine.Status.HostRef.Namespace,
+		Name:      machine.Status.HostRef.Name,
+	}, host); err != nil {
+		if apierrors.IsNotFound(err) {
+			return r.removeFinalizer(ctx, machine)
+		}
+		return fmt.Errorf("get TartHost for delete reconcile: %w", err)
+	}
+	if host.UID != machine.Status.HostRef.UID {
+		return r.removeFinalizer(ctx, machine)
+	}
+
+	if machine.Status.OperationRef == nil {
+		if r.Cleaner == nil {
+			return fmt.Errorf("start Cleaning operation: Cleaner is not configured")
+		}
+		operation, err := r.Cleaner.StartCleaning(ctx, machine, host)
+		if err != nil {
+			return err
+		}
+		original := machine.DeepCopy()
+		machine.Status.OperationRef = &infrastructurev1beta1.ResourceReference{
+			Namespace: operation.Namespace,
+			Name:      operation.Name,
+			UID:       operation.UID,
+		}
+		if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("persist Cleaning operation reference: %w", err)
+		}
+		return nil
+	}
+
+	operation := &infrastructurev1beta1.TartHostOperation{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: machine.Status.OperationRef.Namespace,
+		Name:      machine.Status.OperationRef.Name,
+	}, operation); err != nil {
+		if apierrors.IsNotFound(err) {
+			original := machine.DeepCopy()
+			machine.Status.OperationRef = nil
+			if patchErr := r.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
+				return fmt.Errorf("clear missing Cleaning operation reference: %w", patchErr)
+			}
+			return nil
+		}
+		return fmt.Errorf("get Cleaning operation: %w", err)
+	}
+	if operation.UID != machine.Status.OperationRef.UID {
+		original := machine.DeepCopy()
+		machine.Status.OperationRef = nil
+		if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("clear mismatched Cleaning operation reference: %w", err)
+		}
+		return nil
+	}
+	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
+	if err != nil {
+		return fmt.Errorf("parse Cleaning operation phase: %w", err)
+	}
+	if !phase.Terminal() {
+		return nil
+	}
+	if phase != operationdomain.PhaseSucceeded {
+		return fmt.Errorf("Cleaning operation finished in %s", phase)
+	}
+	return r.removeFinalizer(ctx, machine)
+}
+
+func (r *TartMachineV1Beta1Reconciler) removeFinalizer(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) error {
+	original := machine.DeepCopy()
+	controllerutil.RemoveFinalizer(machine, tartMachineCleanupFinalizer)
+	if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("remove TartMachine cleanup finalizer: %w", err)
+	}
+	return nil
 }
 
 func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(

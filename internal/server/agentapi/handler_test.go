@@ -56,7 +56,7 @@ var (
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 1,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test.walnuts.dev/os@sha256:" + strings.Repeat("b", 64),
 			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
 			Generation:     1,
@@ -190,7 +190,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 		MachineUID:    "machine-uid",
 		OperationUID:  "operation-uid",
 	}}
-	handler, _ := newAuthenticatedHandler(t, bootstrap)
+	handler, _, _ := newAuthenticatedHandler(t, bootstrap)
 	handler.config.BootReports = &recordingBootReporter{}
 	requests := []struct {
 		name   string
@@ -271,7 +271,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 }
 
 func TestHandlerRejectsExpiredSession(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	handler.config.Now = func() time.Time {
 		return time.Date(2026, 7, 5, 12, 11, 0, 0, time.UTC)
 	}
@@ -291,7 +291,7 @@ func TestHandlerRejectsExpiredSession(t *testing.T) {
 }
 
 func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	signed := nodelifecycle.SignedPlan{
 		Plan: nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
@@ -361,7 +361,7 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 }
 
 func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	recorder := &recordingNodeLifecycleStatus{}
 	handler.config.NodeLifecycleStatus = recorder
 	signed := handler.config.NodeLifecyclePlans.(staticNodeLifecyclePlan).plan
@@ -409,7 +409,7 @@ func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T)
 }
 
 func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T) {
-	handler, _ := newAuthenticatedHandler(t, nil)
+	handler, _, _ := newAuthenticatedHandler(t, nil)
 	credential := "credential-that-must-not-be-reflected"
 	secretValue := "request-value-that-must-not-be-reflected"
 	body := agentprotocol.ProgressRequest{
@@ -442,7 +442,7 @@ func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T
 }
 
 func TestHandlerProgressSequence(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	sequences := []int64{1, 2, 2, 1, 4, 3}
 	wantStatuses := []int{
 		http.StatusOK,
@@ -477,7 +477,7 @@ func TestHandlerProgressSequence(t *testing.T) {
 }
 
 func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	body := agentprotocol.ProgressRequest{
 		APIVersion:    agentprotocol.APIVersion,
 		OperationUID:  "operation-uid",
@@ -504,7 +504,7 @@ func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
 
 func TestHandlerAcceptsValidBootReport(t *testing.T) {
 	reporter := &recordingBootReporter{}
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	handler.config.BootReports = reporter
 	body := agentprotocol.BootReportRequest{
 		APIVersion:             agentprotocol.APIVersion,
@@ -560,7 +560,7 @@ func TestHandlerRejectsInvalidAndConflictingBootReports(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reporter := &recordingBootReporter{err: test.reportErr}
-			handler, sessionToken := newAuthenticatedHandler(t, nil)
+			handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 			handler.config.BootReports = reporter
 			body := agentprotocol.BootReportRequest{
 				APIVersion:         agentprotocol.APIVersion,
@@ -598,7 +598,7 @@ func TestHandlerBootstrapIsSingleShot(t *testing.T) {
 		MachineUID:    "machine-uid",
 		OperationUID:  "operation-uid",
 	}
-	handler, sessionToken := newAuthenticatedHandler(t, staticBootstrap{bundle: bundle})
+	handler, sessionToken, _ := newAuthenticatedHandler(t, staticBootstrap{bundle: bundle})
 
 	first := performJSONRequest(
 		t,
@@ -627,8 +627,56 @@ func TestHandlerBootstrapIsSingleShot(t *testing.T) {
 	}
 }
 
+func TestHandlerBootstrapStaysSingleShotAfterSessionReissue(t *testing.T) {
+	payload := []byte("#cloud-config\npassword: highly-secret\n")
+	bundle := agentprotocol.BootstrapBundle{
+		APIVersion:    agentprotocol.APIVersion,
+		Format:        agentprotocol.BootstrapFormatCloud,
+		Payload:       payload,
+		PayloadDigest: digest.FromBytes(payload).String(),
+		MachineUID:    "machine-uid",
+		OperationUID:  "operation-uid",
+	}
+	handler, sessionToken, k8sClient := newAuthenticatedHandler(t, staticBootstrap{bundle: bundle})
+
+	first := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/bootstrap",
+		sessionToken,
+		nil,
+	)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status = %d, want %d; body=%s", first.Code, http.StatusOK, first.Body.String())
+	}
+
+	sessions := k8sagentsession.NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	second, _, err := sessions.Issue(
+		t.Context(),
+		client.ObjectKey{Namespace: "default", Name: "operation"},
+		"host-uid",
+		"operation-uid",
+		time.Date(2026, 7, 5, 12, 1, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("Issue(second) error = %v", err)
+	}
+	secondResponse := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/bootstrap",
+		second.BearerValue(),
+		nil,
+	)
+	if secondResponse.Code != http.StatusUnauthorized {
+		t.Fatalf("second session status = %d, want %d; body=%s", secondResponse.Code, http.StatusUnauthorized, secondResponse.Body.String())
+	}
+}
+
 func TestHandlerRejectsRequestLargerThanOneMiB(t *testing.T) {
-	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/v1/operations/operation-uid/progress",
@@ -681,7 +729,7 @@ func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler, token := newAuthenticatedHandler(t, staticBootstrap{bundle: test.bundle})
+			handler, token, _ := newAuthenticatedHandler(t, staticBootstrap{bundle: test.bundle})
 			response := performJSONRequest(
 				t,
 				handler,
@@ -697,7 +745,7 @@ func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
 	}
 }
 
-func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handler, string) {
+func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handler, string, client.Client) {
 	t.Helper()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	operation := &infrastructurev1beta1.TartHostOperation{
@@ -756,7 +804,7 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(k8sClient),
 		Bootstrap:            bootstrap,
 		Now:                  func() time.Time { return now },
-	}), token.BearerValue()
+	}), token.BearerValue(), k8sClient
 }
 
 func mustPlanDigest(plan agentprotocol.Plan) string {

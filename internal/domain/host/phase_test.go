@@ -24,7 +24,7 @@ func TestStateTransition(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[Phase][]Phase{
-		PhaseAvailable:        {PhaseReserved, PhaseError},
+		PhaseAvailable:        {PhaseReserved, PhaseCleaning, PhaseError},
 		PhaseReserved:         {PhaseProvisioning, PhaseCleaning, PhaseError},
 		PhaseProvisioning:     {PhaseProvisioned, PhaseCleaning, PhaseError},
 		PhaseProvisioned:      {PhaseUpdating, PhaseCleaning, PhaseDetached, PhaseError},

@@ -18,10 +18,12 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/opencontainers/go-digest"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -121,8 +123,9 @@ func TestProviderBuildsBootstrapBundleFromCABPKSecret(t *testing.T) {
 	bootstrapSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "bootstrap-data"},
 		Data: map[string][]byte{
-			"value":  payload,
-			"format": []byte(agentprotocol.BootstrapFormatCloud),
+			BootstrapValueKey:  payload,
+			BootstrapFormatKey: []byte(agentprotocol.BootstrapFormatCloud),
+			BootstrapDigestKey: []byte(digest.FromBytes(payload).String()),
 		},
 	}
 	provider := NewProvider(newFakeClient(t, operation, tartMachine, capiMachine, bootstrapSecret))
@@ -136,6 +139,84 @@ func TestProviderBuildsBootstrapBundleFromCABPKSecret(t *testing.T) {
 		string(bundle.Payload) != string(payload) {
 		t.Fatalf("GetBootstrapBundle() = %#v", bundle)
 	}
+}
+
+func TestProviderRejectsBootstrapSecretWithoutCloudConfigFormat(t *testing.T) {
+	ctx := t.Context()
+	operation, tartMachine, capiMachine := testBootstrapObjects()
+	bootstrapSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "bootstrap-data"},
+		Data: map[string][]byte{
+			BootstrapValueKey: []byte("#cloud-config\n"),
+		},
+	}
+	provider := NewProvider(newFakeClient(t, operation, tartMachine, capiMachine, bootstrapSecret))
+
+	_, err := provider.GetBootstrapBundle(ctx, client.ObjectKeyFromObject(operation))
+	if !errors.Is(err, agentprotocol.ErrUnsupportedBootstrapFormat) {
+		t.Fatalf("GetBootstrapBundle() error = %v, want unsupported bootstrap format", err)
+	}
+}
+
+func TestProviderRejectsBootstrapSecretWithMismatchedPayloadDigest(t *testing.T) {
+	ctx := t.Context()
+	operation, tartMachine, capiMachine := testBootstrapObjects()
+	bootstrapSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "bootstrap-data"},
+		Data: map[string][]byte{
+			BootstrapValueKey:  []byte("#cloud-config\n"),
+			BootstrapFormatKey: []byte(agentprotocol.BootstrapFormatCloud),
+			BootstrapDigestKey: []byte("sha256:" + strings.Repeat("d", 64)),
+		},
+	}
+	provider := NewProvider(newFakeClient(t, operation, tartMachine, capiMachine, bootstrapSecret))
+
+	_, err := provider.GetBootstrapBundle(ctx, client.ObjectKeyFromObject(operation))
+	if err == nil || !strings.Contains(err.Error(), "payloadDigest") {
+		t.Fatalf("GetBootstrapBundle() error = %v, want payloadDigest mismatch", err)
+	}
+}
+
+func testBootstrapObjects() (
+	*infrastructurev1beta1.TartHostOperation,
+	*infrastructurev1beta1.TartMachine,
+	*unstructured.Unstructured,
+) {
+	operation := testOperation()
+	machineUID := types.UID("capi-machine-uid")
+	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: "default",
+		Name:      "tart-machine",
+		UID:       types.UID("tart-machine-uid"),
+	}
+	tartMachine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "default",
+			Name:      "tart-machine",
+			UID:       operation.Spec.MachineRef.UID,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: "cluster.x-k8s.io/v1beta2",
+				Kind:       "Machine",
+				Name:       "capi-machine",
+				UID:        machineUID,
+			}},
+		},
+	}
+	capiMachine := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "cluster.x-k8s.io/v1beta2",
+		"kind":       "Machine",
+		"metadata": map[string]any{
+			"namespace": "default",
+			"name":      "capi-machine",
+		},
+		"spec": map[string]any{
+			"bootstrap": map[string]any{"dataSecretName": "bootstrap-data"},
+		},
+	}}
+	capiMachine.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "cluster.x-k8s.io", Version: "v1beta2", Kind: "Machine",
+	})
+	return operation, tartMachine, capiMachine
 }
 
 func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
@@ -181,7 +262,7 @@ func testPlan() agentprotocol.Plan {
 			SerialNumber: "disk",
 			MinSizeBytes: 1,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test/os@sha256:" + strings.Repeat("b", 64),
 			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
 			Generation:     1,

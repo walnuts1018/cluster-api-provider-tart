@@ -73,6 +73,8 @@ type OperationType string
 const (
 	OperationTypeProvision OperationType = "Provision"
 	OperationTypeUpdate    OperationType = "Update"
+	OperationTypeClean     OperationType = "Clean"
+	OperationTypeWipeAll   OperationType = "WipeAll"
 )
 
 type Plan struct {
@@ -83,7 +85,7 @@ type Plan struct {
 	ActiveSlot         string           `json:"activeSlot,omitempty"`
 	Deadline           time.Time        `json:"deadline"`
 	RootDevice         RootDevice       `json:"rootDevice"`
-	Artifact           Artifact         `json:"artifact"`
+	Artifact           *Artifact        `json:"artifact,omitempty"`
 	AllowedTargetRoles []DiskRole       `json:"allowedTargetRoles"`
 	Steps              []PlanStep       `json:"steps"`
 	Bootstrap          *BootstrapTarget `json:"bootstrap,omitempty"`
@@ -241,10 +243,15 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 		return ValidatedPlan{}, errors.New("operationUID is invalid")
 	case !validUID(plan.HostUID):
 		return ValidatedPlan{}, errors.New("hostUID is invalid")
-	case plan.OperationType != OperationTypeProvision && plan.OperationType != OperationTypeUpdate:
+	case plan.OperationType != OperationTypeProvision &&
+		plan.OperationType != OperationTypeUpdate &&
+		plan.OperationType != OperationTypeClean &&
+		plan.OperationType != OperationTypeWipeAll:
 		return ValidatedPlan{}, fmt.Errorf("unsupported operationType: %q", plan.OperationType)
-	case plan.OperationType == OperationTypeProvision && plan.ActiveSlot != "":
-		return ValidatedPlan{}, errors.New("activeSlot must be empty for Provision")
+	case (plan.OperationType == OperationTypeProvision ||
+		plan.OperationType == OperationTypeClean ||
+		plan.OperationType == OperationTypeWipeAll) && plan.ActiveSlot != "":
+		return ValidatedPlan{}, fmt.Errorf("activeSlot must be empty for %s", plan.OperationType)
 	case plan.OperationType == OperationTypeUpdate && plan.ActiveSlot != "A" && plan.ActiveSlot != "B":
 		return ValidatedPlan{}, errors.New("activeSlot must be A or B for Update")
 	case plan.Deadline.IsZero():
@@ -255,16 +262,29 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 		return ValidatedPlan{}, errors.New("rootDevice.minSizeBytes must be greater than zero")
 	case plan.RootDevice.SerialNumber == "" && plan.RootDevice.WWN == "":
 		return ValidatedPlan{}, errors.New("rootDevice requires serialNumber or wwn")
-	case !artifactRefPattern.MatchString(plan.Artifact.Ref):
-		return ValidatedPlan{}, errors.New("artifact.ref must be a digest-pinned OCI reference")
-	case !validSHA256Digest(plan.Artifact.ManifestDigest):
-		return ValidatedPlan{}, errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
-	case plan.Artifact.Generation == 0:
-		return ValidatedPlan{}, errors.New("artifact.generation must be greater than zero")
-	case len(plan.AllowedTargetRoles) == 0:
+	case len(plan.AllowedTargetRoles) == 0 && plan.OperationType != OperationTypeClean:
 		return ValidatedPlan{}, errors.New("allowedTargetRoles must not be empty")
 	case len(plan.Steps) == 0:
 		return ValidatedPlan{}, errors.New("steps must not be empty")
+	}
+
+	switch plan.OperationType {
+	case OperationTypeProvision, OperationTypeUpdate:
+		if plan.Artifact == nil {
+			return ValidatedPlan{}, errors.New("artifact is required")
+		}
+		switch {
+		case !artifactRefPattern.MatchString(plan.Artifact.Ref):
+			return ValidatedPlan{}, errors.New("artifact.ref must be a digest-pinned OCI reference")
+		case !validSHA256Digest(plan.Artifact.ManifestDigest):
+			return ValidatedPlan{}, errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
+		case plan.Artifact.Generation == 0:
+			return ValidatedPlan{}, errors.New("artifact.generation must be greater than zero")
+		}
+	case OperationTypeClean, OperationTypeWipeAll:
+		if plan.Artifact != nil {
+			return ValidatedPlan{}, fmt.Errorf("artifact must be omitted for %s", plan.OperationType)
+		}
 	}
 
 	roles := make(map[DiskRole]struct{}, len(plan.AllowedTargetRoles))
@@ -290,6 +310,9 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 	}
 
 	if plan.Bootstrap != nil {
+		if plan.OperationType != OperationTypeProvision {
+			return ValidatedPlan{}, fmt.Errorf("bootstrap must be omitted for %s", plan.OperationType)
+		}
 		if !validUID(plan.Bootstrap.MachineUID) {
 			return ValidatedPlan{}, errors.New("bootstrap.machineUID is invalid")
 		}

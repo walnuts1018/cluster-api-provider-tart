@@ -55,6 +55,7 @@ func TestManagerCreatesPartitionTableOnlyForProvision(t *testing.T) {
 	}{
 		{name: "Provision", operation: agentprotocol.OperationTypeProvision, wantGeometryCalls: 1, wantCreateCalls: 1},
 		{name: "Update", operation: agentprotocol.OperationTypeUpdate},
+		{name: "Clean", operation: agentprotocol.OperationTypeClean},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -38,7 +38,7 @@ func validPlan() Plan {
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 64 << 30,
 		},
-		Artifact: Artifact{
+		Artifact: &Artifact{
 			Ref:            "oci://registry.test/os@sha256:" + strings.Repeat("a", 64),
 			ManifestDigest: "sha256:" + strings.Repeat("b", 64),
 			Generation:     1,
@@ -104,6 +104,7 @@ func TestValidatePlanRejectsUnsafePlans(t *testing.T) {
 		{name: "missing operation type", mutate: func(plan *Plan) { plan.OperationType = "" }},
 		{name: "unstable device name", mutate: func(plan *Plan) { plan.RootDevice.DeviceName = "/dev/sda" }},
 		{name: "missing disk identity", mutate: func(plan *Plan) { plan.RootDevice.SerialNumber = "" }},
+		{name: "missing artifact", mutate: func(plan *Plan) { plan.Artifact = nil }},
 		{name: "unknown role", mutate: func(plan *Plan) { plan.AllowedTargetRoles = []DiskRole{"Unknown"} }},
 		{name: "duplicate role", mutate: func(plan *Plan) { plan.AllowedTargetRoles = []DiskRole{DiskRoleOSA, DiskRoleOSA} }},
 		{name: "duplicate step", mutate: func(plan *Plan) { plan.Steps = []PlanStep{{Name: "Write"}, {Name: "Write"}} }},
@@ -115,6 +116,49 @@ func TestValidatePlanRejectsUnsafePlans(t *testing.T) {
 			test.mutate(&plan)
 			if _, err := ValidatePlan(plan); err == nil {
 				t.Fatal("ValidatePlan() accepted invalid plan")
+			}
+		})
+	}
+}
+
+func TestValidatePlanAllowsCleaningWithoutArtifact(t *testing.T) {
+	plan := validPlan()
+	plan.OperationType = OperationTypeClean
+	plan.Artifact = nil
+	plan.Bootstrap = nil
+	plan.AllowedTargetRoles = nil
+
+	if _, err := ValidatePlan(plan); err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+}
+
+func TestValidatePlanRejectsCleaningArtifactAndBootstrap(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Plan)
+	}{
+		{
+			name: "artifact",
+			mutate: func(plan *Plan) {
+				plan.OperationType = OperationTypeClean
+				plan.Bootstrap = nil
+			},
+		},
+		{
+			name: "bootstrap",
+			mutate: func(plan *Plan) {
+				plan.OperationType = OperationTypeWipeAll
+				plan.Artifact = nil
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := validPlan()
+			test.mutate(&plan)
+			if _, err := ValidatePlan(plan); err == nil {
+				t.Fatal("ValidatePlan() accepted invalid cleaning plan")
 			}
 		})
 	}

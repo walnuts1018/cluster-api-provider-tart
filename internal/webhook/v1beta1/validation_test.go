@@ -182,6 +182,18 @@ func TestTartHostOperationValidation(t *testing.T) {
 	}
 }
 
+func TestTartHostOperationValidationは手動WipeAllでMachineRefを省略できる(t *testing.T) {
+	t.Parallel()
+
+	operation := validOperation()
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeWipeAll
+	operation.Spec.MachineRef = nil
+
+	if _, err := (&TartHostOperationCustomValidator{}).ValidateCreate(t.Context(), operation); err != nil {
+		t.Fatalf("ValidateCreate() error = %v", err)
+	}
+}
+
 func TestTartHostOperationRequiresDeterministicActiveName(t *testing.T) {
 	t.Parallel()
 

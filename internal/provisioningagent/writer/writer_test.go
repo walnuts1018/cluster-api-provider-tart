@@ -86,11 +86,15 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 	verity := bytes.Repeat([]byte("v"), 1<<20)
 	fetched := testArtifact(t, image, verity, int64(len(image)), int64(len(verity)))
 	fetcher := &fakeFetcher{artifact: fetched}
+	resolved := map[agentprotocol.DiskRole]layout.RoleDevice{}
+	resolved[agentprotocol.DiskRoleOSA] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleOSA, DevicePath: "os-a", SizeBytes: 8 << 30,
+	}
+	resolved[agentprotocol.DiskRoleVerityA] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleVerityA, DevicePath: "verity-a", SizeBytes: 1 << 30,
+	}
 	layoutPreparer := &fakeLayout{
-		resolved: map[agentprotocol.DiskRole]layout.RoleDevice{
-			agentprotocol.DiskRoleOSA:     {Role: agentprotocol.DiskRoleOSA, DevicePath: "os-a", SizeBytes: 8 << 30},
-			agentprotocol.DiskRoleVerityA: {Role: agentprotocol.DiskRoleVerityA, DevicePath: "verity-a", SizeBytes: 1 << 30},
-		},
+		resolved: resolved,
 	}
 	targetDirectory := t.TempDir()
 	opener := fakeOpener{paths: map[string]string{
@@ -173,6 +177,158 @@ func TestWriterRejectsOversizedPayloadBeforeDestructiveLayout(t *testing.T) {
 	}
 }
 
+func TestWriterWipeAllZeroesWholeDiskWithoutArtifactFetch(t *testing.T) {
+	t.Parallel()
+
+	targetDirectory := t.TempDir()
+	rootPath := filepath.Join(targetDirectory, "root-disk")
+	if err := os.WriteFile(rootPath, bytes.Repeat([]byte("x"), 2<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+	layoutPreparer := &fakeLayout{}
+	opener := fakeOpener{paths: map[string]string{
+		"/dev/test": rootPath,
+	}}
+	targetWriter := New(layoutPreparer, fetcher, opener, nil)
+	plan := cleaningPlan(t, agentprotocol.OperationTypeWipeAll, []agentprotocol.DiskRole{
+		agentprotocol.DiskRoleBoot,
+		agentprotocol.DiskRoleOSA,
+		agentprotocol.DiskRoleOSB,
+		agentprotocol.DiskRoleVerityA,
+		agentprotocol.DiskRoleVerityB,
+		agentprotocol.DiskRoleState,
+		agentprotocol.DiskRoleData,
+	})
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 2 << 20}); err != nil {
+		t.Fatalf("WriteTargets() error = %v", err)
+	}
+	assertZeroContent(t, rootPath, 2<<20)
+	if layoutPreparer.calls != 0 || fetcher.calls != 0 {
+		t.Fatalf("calls: layout=%d fetch=%d", layoutPreparer.calls, fetcher.calls)
+	}
+}
+
+func TestWriterWipeAllPrefersSanitizeWhenSupported(t *testing.T) {
+	t.Parallel()
+
+	targetDirectory := t.TempDir()
+	rootPath := filepath.Join(targetDirectory, "root-disk")
+	original := bytes.Repeat([]byte("x"), 2<<20)
+	if err := os.WriteFile(rootPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+	layoutPreparer := &fakeLayout{}
+	opener := fakeOpener{paths: map[string]string{
+		"/dev/test": rootPath,
+	}}
+	sanitizer := &fakeSanitizer{supported: true}
+	targetWriter := NewWithSanitizer(layoutPreparer, fetcher, opener, sanitizer, nil)
+	plan := cleaningPlan(t, agentprotocol.OperationTypeWipeAll, []agentprotocol.DiskRole{
+		agentprotocol.DiskRoleBoot,
+		agentprotocol.DiskRoleOSA,
+		agentprotocol.DiskRoleOSB,
+		agentprotocol.DiskRoleVerityA,
+		agentprotocol.DiskRoleVerityB,
+		agentprotocol.DiskRoleState,
+		agentprotocol.DiskRoleData,
+	})
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 2 << 20}); err != nil {
+		t.Fatalf("WriteTargets() error = %v", err)
+	}
+	assertFilePrefix(t, rootPath, original)
+	if sanitizer.calls != 1 || sanitizer.path != "/dev/test" || sanitizer.sizeBytes != 2<<20 {
+		t.Fatalf("sanitizer = %#v", sanitizer)
+	}
+	if layoutPreparer.calls != 0 || fetcher.calls != 0 {
+		t.Fatalf("calls: layout=%d fetch=%d", layoutPreparer.calls, fetcher.calls)
+	}
+}
+
+func TestWriterWipeAllFallsBackToZeroOverwriteWhenSanitizeIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	targetDirectory := t.TempDir()
+	rootPath := filepath.Join(targetDirectory, "root-disk")
+	if err := os.WriteFile(rootPath, bytes.Repeat([]byte("x"), 2<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fetcher := &fakeFetcher{}
+	layoutPreparer := &fakeLayout{}
+	opener := fakeOpener{paths: map[string]string{
+		"/dev/test": rootPath,
+	}}
+	sanitizer := &fakeSanitizer{}
+	targetWriter := NewWithSanitizer(layoutPreparer, fetcher, opener, sanitizer, nil)
+	plan := cleaningPlan(t, agentprotocol.OperationTypeWipeAll, []agentprotocol.DiskRole{
+		agentprotocol.DiskRoleBoot,
+		agentprotocol.DiskRoleOSA,
+		agentprotocol.DiskRoleOSB,
+		agentprotocol.DiskRoleVerityA,
+		agentprotocol.DiskRoleVerityB,
+		agentprotocol.DiskRoleState,
+		agentprotocol.DiskRoleData,
+	})
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 2 << 20}); err != nil {
+		t.Fatalf("WriteTargets() error = %v", err)
+	}
+	assertZeroContent(t, rootPath, 2<<20)
+	if sanitizer.calls != 1 {
+		t.Fatalf("Sanitize() calls = %d, want 1", sanitizer.calls)
+	}
+	if layoutPreparer.calls != 0 || fetcher.calls != 0 {
+		t.Fatalf("calls: layout=%d fetch=%d", layoutPreparer.calls, fetcher.calls)
+	}
+}
+
+func TestWriterCleanZeroesOnlyAllowedRoles(t *testing.T) {
+	t.Parallel()
+
+	targetDirectory := t.TempDir()
+	osPath := filepath.Join(targetDirectory, "os-a")
+	statePath := filepath.Join(targetDirectory, "state")
+	dataPath := filepath.Join(targetDirectory, "data")
+	for _, file := range []string{osPath, statePath, dataPath} {
+		if err := os.WriteFile(file, bytes.Repeat([]byte("x"), 1<<20), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fetcher := &fakeFetcher{}
+	resolved := map[agentprotocol.DiskRole]layout.RoleDevice{}
+	resolved[agentprotocol.DiskRoleOSA] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleOSA, DevicePath: "os-a", SizeBytes: 1 << 20,
+	}
+	resolved[agentprotocol.DiskRoleState] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleState, DevicePath: "state", SizeBytes: 1 << 20,
+	}
+	resolved[agentprotocol.DiskRoleData] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleData, DevicePath: "data", SizeBytes: 1 << 20,
+	}
+	layoutPreparer := &fakeLayout{
+		resolved: resolved,
+	}
+	opener := fakeOpener{paths: map[string]string{
+		"os-a":  osPath,
+		"state": statePath,
+		"data":  dataPath,
+	}}
+	targetWriter := New(layoutPreparer, fetcher, opener, nil)
+	plan := cleaningPlan(t, agentprotocol.OperationTypeClean, []agentprotocol.DiskRole{
+		agentprotocol.DiskRoleOSA,
+		agentprotocol.DiskRoleState,
+	})
+	if err := targetWriter.WriteTargets(t.Context(), plan, disk.Device{Path: "/dev/test", SizeBytes: 4 << 20}); err != nil {
+		t.Fatalf("WriteTargets() error = %v", err)
+	}
+	assertZeroContent(t, osPath, 1<<20)
+	assertZeroContent(t, statePath, 1<<20)
+	assertFilePrefix(t, dataPath, bytes.Repeat([]byte("x"), 1<<20))
+	if layoutPreparer.calls != 1 || fetcher.calls != 0 {
+		t.Fatalf("calls: layout=%d fetch=%d", layoutPreparer.calls, fetcher.calls)
+	}
+}
+
 type fakeFetcher struct {
 	artifact artifactfetch.Artifact
 	err      error
@@ -201,6 +357,25 @@ func (preparer *fakeLayout) Prepare(
 ) (map[agentprotocol.DiskRole]layout.RoleDevice, error) {
 	preparer.calls++
 	return preparer.resolved, preparer.err
+}
+
+type fakeSanitizer struct {
+	supported bool
+	err       error
+	calls     int
+	path      string
+	sizeBytes int64
+}
+
+func (sanitizer *fakeSanitizer) Sanitize(
+	_ context.Context,
+	devicePath string,
+	sizeBytes int64,
+) (bool, error) {
+	sanitizer.calls++
+	sanitizer.path = devicePath
+	sanitizer.sizeBytes = sizeBytes
+	return sanitizer.supported, sanitizer.err
 }
 
 type fakeOpener struct {
@@ -296,10 +471,39 @@ func testPlan(
 			SerialNumber: "serial",
 			MinSizeBytes: 64 << 30,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test.walnuts.dev/tart/os@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			ManifestDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			Generation:     12,
+		},
+		AllowedTargetRoles: roles,
+		Steps: []agentprotocol.PlanStep{
+			{Name: agentprotocol.StepWriteImage},
+			{Name: agentprotocol.StepVerifyImage},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return plan
+}
+
+func cleaningPlan(
+	t *testing.T,
+	operation agentprotocol.OperationType,
+	roles []agentprotocol.DiskRole,
+) agentprotocol.ValidatedPlan {
+	t.Helper()
+	plan, err := agentprotocol.ValidatePlan(agentprotocol.Plan{
+		APIVersion:    agentprotocol.APIVersion,
+		OperationUID:  "operation-uid",
+		HostUID:       "host-uid",
+		OperationType: operation,
+		Deadline:      time.Now().Add(time.Hour),
+		RootDevice: agentprotocol.RootDevice{
+			DeviceName:   "/dev/disk/by-id/test",
+			SerialNumber: "serial",
+			MinSizeBytes: 64 << 30,
 		},
 		AllowedTargetRoles: roles,
 		Steps: []agentprotocol.PlanStep{
@@ -322,4 +526,9 @@ func assertFilePrefix(t *testing.T, path string, expected []byte) {
 	if !bytes.Equal(actual, expected) {
 		t.Fatalf("%s content does not match payload", path)
 	}
+}
+
+func assertZeroContent(t *testing.T, path string, size int) {
+	t.Helper()
+	assertFilePrefix(t, path, make([]byte, size))
 }

@@ -58,6 +58,18 @@ func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 	return privateKey, nil
 }
 
+// LoadPrivateReadOnlyはwrite bitがない専用mount上の秘密鍵だけを受け入れる。
+func LoadPrivateReadOnly(path string) (ed25519.PrivateKey, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat Ed25519 key: %w", err)
+	}
+	if info.Mode().Perm()&0o222 != 0 {
+		return nil, errors.New("private key file must be mounted read-only")
+	}
+	return LoadPrivate(path)
+}
+
 func loadPEM(path, blockType string) (*pem.Block, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -91,6 +91,16 @@ type OperationHostPhaseService interface {
 	MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 	// MarkHostAvailable はHostをAvailableに戻す（ConsumerRefを除去）。
 	MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+	// MarkHostCleaningForDeletion は削除ポリシーに応じたCleaning開始を記録する。
+	MarkHostCleaningForDeletion(
+		ctx context.Context,
+		host *infrastructurev1beta1.TartHost,
+		deletionPolicy infrastructurev1beta1.DeletionPolicy,
+	) error
+	// MarkHostRetained はData保持のCleaning完了を記録する。
+	MarkHostRetained(ctx context.Context, host *infrastructurev1beta1.TartHost) error
+	// MarkHostDetached はState/Data保持のCleaning完了を記録する。
+	MarkHostDetached(ctx context.Context, host *infrastructurev1beta1.TartHost) error
 }
 
 // OperationDriverTargetBuilder はTartHostからdriver呼び出し対象を構築する。
@@ -206,6 +216,9 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// Provision/Update OperationはTartMachineV1Beta1ReconcilerがNode健全性を確認して完了させる。
 		if operation.Spec.Type == infrastructurev1beta1.OperationTypeWipeAll {
 			return ctrl.Result{}, r.handleWipeAllAwaitingHealth(ctx, &operation)
+		}
+		if operation.Spec.Type == infrastructurev1beta1.OperationTypeClean {
+			return ctrl.Result{}, r.handleCleaningAwaitingHealth(ctx, &operation)
 		}
 		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
 
@@ -326,10 +339,25 @@ func (r *TartHostOperationReconciler) handlePending(
 	// Hostのフェーズ更新とOperation Phase遷移を行う。
 	var markHostPhase func(context.Context, *infrastructurev1beta1.TartHost) error
 	targetHostPhase := infrastructurev1beta1.TartHostPhaseProvisioning
-	if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
+	switch operation.Spec.Type {
+	case infrastructurev1beta1.OperationTypeUpdate:
 		markHostPhase = r.HostPhase.MarkHostUpdating
 		targetHostPhase = infrastructurev1beta1.TartHostPhaseUpdating
-	} else {
+	case infrastructurev1beta1.OperationTypeClean:
+		policy, err := r.cleaningPolicy(ctx, operation)
+		if err != nil {
+			return err
+		}
+		markHostPhase = func(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
+			return r.HostPhase.MarkHostCleaningForDeletion(ctx, host, policy)
+		}
+		targetHostPhase = infrastructurev1beta1.TartHostPhaseCleaning
+	case infrastructurev1beta1.OperationTypeWipeAll:
+		markHostPhase = func(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
+			return r.HostPhase.MarkHostCleaningForDeletion(ctx, host, infrastructurev1beta1.DeletionPolicyWipeAll)
+		}
+		targetHostPhase = infrastructurev1beta1.TartHostPhaseCleaning
+	default:
 		markHostPhase = r.HostPhase.MarkHostProvisioning
 	}
 	if err := markHostPhase(ctx, host); err != nil {
@@ -492,6 +520,56 @@ func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(
 	}
 
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
+}
+
+func (r *TartHostOperationReconciler) handleCleaningAwaitingHealth(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	host, err := r.getHost(ctx, operation)
+	if err != nil {
+		return err
+	}
+	policy, err := r.cleaningPolicy(ctx, operation)
+	if err != nil {
+		return err
+	}
+	switch policy {
+	case infrastructurev1beta1.DeletionPolicyRetainData:
+		if err := r.HostPhase.MarkHostRetained(ctx, host); err != nil {
+			return fmt.Errorf("mark TartHost retained after Cleaning: %w", err)
+		}
+	case infrastructurev1beta1.DeletionPolicyRetainState:
+		if err := r.HostPhase.MarkHostDetached(ctx, host); err != nil {
+			return fmt.Errorf("mark TartHost detached after Cleaning: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported cleaning policy %q for Clean operation", policy)
+	}
+	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
+}
+
+func (r *TartHostOperationReconciler) cleaningPolicy(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (infrastructurev1beta1.DeletionPolicy, error) {
+	if operation.Spec.Type == infrastructurev1beta1.OperationTypeWipeAll {
+		return infrastructurev1beta1.DeletionPolicyWipeAll, nil
+	}
+	if operation.Spec.MachineRef == nil {
+		return "", fmt.Errorf("machineRef is required for Clean operation")
+	}
+	machine := &infrastructurev1beta1.TartMachine{}
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: operation.Spec.MachineRef.Namespace,
+		Name:      operation.Spec.MachineRef.Name,
+	}, machine); err != nil {
+		return "", fmt.Errorf("get TartMachine for Cleaning policy: %w", err)
+	}
+	if machine.UID != operation.Spec.MachineRef.UID {
+		return "", fmt.Errorf("TartMachine UID mismatch: expected %s, got %s", operation.Spec.MachineRef.UID, machine.UID)
+	}
+	return machine.Spec.DeletionPolicy, nil
 }
 
 func (r *TartHostOperationReconciler) getHost(

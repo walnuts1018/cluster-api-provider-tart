@@ -105,6 +105,44 @@ func (runtime *LocalRuntime) ObserveHealth(ctx context.Context, plan domain.Plan
 	if runtime.config.NodeName == "" {
 		return domain.HealthInput{}, fmt.Errorf("node name is required for health verification")
 	}
+	health, err := runtime.observeNodeHealth(ctx, plan.NodeRole)
+	if err != nil {
+		return domain.HealthInput{}, err
+	}
+	if plan.NodeRole != domain.NodeRoleControlPlane {
+		return health, nil
+	}
+
+	staticPodsReady, err := runtime.observeStaticPodsReady(ctx)
+	if err != nil {
+		return domain.HealthInput{}, err
+	}
+	health.StaticPodsReady = staticPodsReady
+
+	etcdQuorum, err := runtime.observeEtcdQuorum(ctx)
+	if err != nil {
+		return domain.HealthInput{}, err
+	}
+	health.EtcdQuorum = etcdQuorum
+
+	apiHealthy, err := runtime.observeAPIHealth(ctx)
+	if err != nil {
+		return domain.HealthInput{}, err
+	}
+	health.APIHealthy = apiHealthy
+	return health, nil
+}
+
+func etcdEndpointArgs() []string {
+	return []string{
+		"--endpoints=https://127.0.0.1:2379",
+		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+		"--cert=/etc/kubernetes/pki/etcd/server.crt",
+		"--key=/etc/kubernetes/pki/etcd/server.key",
+	}
+}
+
+func (runtime *LocalRuntime) observeNodeHealth(ctx context.Context, nodeRole domain.NodeRole) (domain.HealthInput, error) {
 	ready, err := runtime.runner.Run(
 		ctx,
 		runtime.config.KubectlPath,
@@ -127,27 +165,72 @@ func (runtime *LocalRuntime) ObserveHealth(ctx context.Context, plan domain.Plan
 	if err != nil {
 		return domain.HealthInput{}, err
 	}
-	health := domain.HealthInput{
+	return domain.HealthInput{
 		NodeReady:   strings.TrimSpace(ready) == "True",
 		NodeVersion: strings.TrimSpace(version),
-		NodeRole:    plan.NodeRole,
-	}
-	if plan.NodeRole == domain.NodeRoleControlPlane {
-		// TODO: static Pod、etcd quorum、API healthを個別観測するRuntimeへ分割する。
-		health.StaticPodsReady = health.NodeReady
-		health.EtcdQuorum = health.NodeReady
-		health.APIHealthy = health.NodeReady
-	}
-	return health, nil
+		NodeRole:    nodeRole,
+	}, nil
 }
 
-func etcdEndpointArgs() []string {
-	return []string{
-		"--endpoints=https://127.0.0.1:2379",
-		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
-		"--cert=/etc/kubernetes/pki/etcd/server.crt",
-		"--key=/etc/kubernetes/pki/etcd/server.key",
+func (runtime *LocalRuntime) observeStaticPodsReady(ctx context.Context) (bool, error) {
+	components := []string{"kube-apiserver", "kube-controller-manager", "kube-scheduler", "etcd"}
+	for _, component := range components {
+		output, err := runtime.runner.Run(
+			ctx,
+			runtime.config.KubectlPath,
+			"-n",
+			"kube-system",
+			"get",
+			"pod",
+			component+"-"+runtime.config.NodeName,
+			"-o=jsonpath={.status.containerStatuses[*].ready}",
+		)
+		if err != nil {
+			return false, err
+		}
+		if !allReady(output) {
+			return false, nil
+		}
 	}
+	return true, nil
+}
+
+func (runtime *LocalRuntime) observeEtcdQuorum(ctx context.Context) (bool, error) {
+	output, err := runtime.runner.Run(
+		ctx,
+		runtime.config.EtcdctlPath,
+		append(etcdEndpointArgs(), "endpoint", "health", "--cluster")...,
+	)
+	if err != nil {
+		return false, err
+	}
+	return strings.Contains(strings.ToLower(strings.TrimSpace(output)), "healthy"), nil
+}
+
+func (runtime *LocalRuntime) observeAPIHealth(ctx context.Context) (bool, error) {
+	output, err := runtime.runner.Run(
+		ctx,
+		runtime.config.KubectlPath,
+		"get",
+		"--raw=/readyz",
+	)
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(strings.TrimSpace(output), "ok"), nil
+}
+
+func allReady(output string) bool {
+	fields := strings.Fields(strings.TrimSpace(output))
+	if len(fields) == 0 {
+		return false
+	}
+	for _, field := range fields {
+		if field != "true" {
+			return false
+		}
+	}
+	return true
 }
 
 type commandRunner struct{}

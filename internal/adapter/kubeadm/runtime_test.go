@@ -106,6 +106,81 @@ func TestRuntimeはNodeHealthをkubectlから観測する(t *testing.T) {
 	}
 }
 
+func TestRuntimeはControlPlaneHealthを個別観測する(t *testing.T) {
+	runner := &recordingCommandRunner{
+		outputs: []string{
+			"True\n",
+			"v1.35.0\n",
+			"true\n",
+			"true\n",
+			"true\n",
+			"true\n",
+			"https://127.0.0.1:2379 is healthy: successfully committed proposal: took = 2.1ms\n",
+			"ok",
+		},
+	}
+	runtime := NewRuntimeForTest(RuntimeConfig{
+		KubectlPath: "kubectl",
+		EtcdctlPath: "etcdctl",
+		NodeName:    "cp-1",
+	}, runner)
+
+	health, err := runtime.ObserveHealth(t.Context(), domain.Plan{NodeRole: domain.NodeRoleControlPlane})
+	if err != nil {
+		t.Fatalf("ObserveHealth() error = %v", err)
+	}
+	if !health.NodeReady || health.NodeVersion != "v1.35.0" {
+		t.Fatalf("health = %#v", health)
+	}
+	if !health.StaticPodsReady || !health.EtcdQuorum || !health.APIHealthy {
+		t.Fatalf("health = %#v", health)
+	}
+	want := []commandCall{
+		{name: "kubectl", args: []string{"get", "node", "cp-1", "-o=jsonpath={.status.conditions[?(@.type==\"Ready\")].status}"}},
+		{name: "kubectl", args: []string{"get", "node", "cp-1", "-o=jsonpath={.status.nodeInfo.kubeletVersion}"}},
+		{name: "kubectl", args: []string{"-n", "kube-system", "get", "pod", "kube-apiserver-cp-1", "-o=jsonpath={.status.containerStatuses[*].ready}"}},
+		{name: "kubectl", args: []string{"-n", "kube-system", "get", "pod", "kube-controller-manager-cp-1", "-o=jsonpath={.status.containerStatuses[*].ready}"}},
+		{name: "kubectl", args: []string{"-n", "kube-system", "get", "pod", "kube-scheduler-cp-1", "-o=jsonpath={.status.containerStatuses[*].ready}"}},
+		{name: "kubectl", args: []string{"-n", "kube-system", "get", "pod", "etcd-cp-1", "-o=jsonpath={.status.containerStatuses[*].ready}"}},
+		{name: "etcdctl", args: []string{
+			"--endpoints=https://127.0.0.1:2379",
+			"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+			"--cert=/etc/kubernetes/pki/etcd/server.crt",
+			"--key=/etc/kubernetes/pki/etcd/server.key",
+			"endpoint",
+			"health",
+			"--cluster",
+		}},
+		{name: "kubectl", args: []string{"get", "--raw=/readyz"}},
+	}
+	if !equalCommandCalls(runner.calls, want) {
+		t.Fatalf("calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestRuntimeはControlPlaneStaticPod未準備を検出する(t *testing.T) {
+	runner := &recordingCommandRunner{
+		outputs: []string{
+			"True\n",
+			"v1.35.0\n",
+			"true\n",
+			"false\n",
+		},
+	}
+	runtime := NewRuntimeForTest(RuntimeConfig{KubectlPath: "kubectl", NodeName: "cp-1"}, runner)
+
+	health, err := runtime.ObserveHealth(t.Context(), domain.Plan{NodeRole: domain.NodeRoleControlPlane})
+	if err != nil {
+		t.Fatalf("ObserveHealth() error = %v", err)
+	}
+	if health.StaticPodsReady {
+		t.Fatalf("health = %#v", health)
+	}
+	if health.EtcdQuorum || health.APIHealthy {
+		t.Fatalf("health = %#v", health)
+	}
+}
+
 type commandCall struct {
 	name string
 	args []string

@@ -122,6 +122,9 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - Node Ready、期待version、static Pod、etcd quorum、API healthをCommit前に評価するHealth Gate純粋判定
 - `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
   `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver
+- control planeの`ObserveHealth`で、Node Ready/versionに加えて
+  static Pod readiness、`etcdctl endpoint health --cluster`、`kubectl get --raw=/readyz`
+  を個別観測するkubeadm Runtime
 - Distribution Lifecycle用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
 - Node Lifecycle Service境界で受け取るPlanをEd25519署名対象のCanonical JSONとし、
   未署名・改ざん済みPlanを既存のDistribution Lifecycle Step runnerへ渡さない検証
@@ -145,5 +148,4 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 未実装・未検証:
 
 - 7つの各Step直後のcontrollerまたはNode再起動検証
-- control plane component、etcd quorum、API healthの詳細な実観測Runtime
 - Recovery Runbookと実機/E2E検証

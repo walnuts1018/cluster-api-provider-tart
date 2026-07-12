@@ -63,12 +63,16 @@ func StatusWithHostReserved(
 func StatusWithProvisioned(
 	machine *infrastructurev1beta1.TartMachine,
 	addresses []clusterv1.MachineAddress,
+	installedDistributionVersion string,
 ) infrastructurev1beta1.TartMachineStatus {
 	status := machine.Status.DeepCopy()
 	status.ObservedGeneration = machine.Generation
 
 	if len(addresses) > 0 {
 		status.Addresses = addresses
+	}
+	if installedDistributionVersion != "" {
+		status.InstalledDistributionVersion = installedDistributionVersion
 	}
 
 	provisioned := true

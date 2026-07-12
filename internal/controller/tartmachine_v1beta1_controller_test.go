@@ -357,6 +357,9 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 	if current.Status.Initialization.Provisioned == nil || !*current.Status.Initialization.Provisioned {
 		t.Fatalf("initialization.provisioned = %#v, want true", current.Status.Initialization.Provisioned)
 	}
+	if current.Status.InstalledDistributionVersion != "v1.35.0" {
+		t.Fatalf("installedDistributionVersion = %q, want v1.35.0", current.Status.InstalledDistributionVersion)
+	}
 	if provisioner.completeCalls != 1 {
 		t.Fatalf("CompleteProvisioning() calls = %d, want 1", provisioner.completeCalls)
 	}

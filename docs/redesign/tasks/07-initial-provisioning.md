@@ -86,6 +86,8 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 - Operation所有のimmutable Plan SecretをSSAで保存するKubernetes adapter
 - OS boot report、State/Data mount、Bootstrap marker、Node Ready、providerID、Kubernetes versionの完了Gate
 - Gate通過後のOperation=`Succeeded`、Host=`Provisioned`、TartMachine=`Provisioned`への再試行可能な収束
+- 初期Provisioning完了時に、観測済みKubernetes versionを
+  `TartMachine.status.installedDistributionVersion`へ保存する接続
 
 ## 対象外
 

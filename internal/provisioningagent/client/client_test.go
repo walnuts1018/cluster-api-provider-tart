@@ -27,8 +27,12 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
+
+const testSessionAuthorization = "Bearer session-secret"
 
 func TestNewRequiresCredentialFreeHTTPSBaseURL(t *testing.T) {
 	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
@@ -103,7 +107,7 @@ func TestFetchPlanVerifiesDigestSignatureAndAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer session-secret" {
+		if request.Header.Get("Authorization") != testSessionAuthorization {
 			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
 		}
 		writeJSON(t, writer, agentprotocol.SignedPlan{Plan: plan, Signature: signature})
@@ -126,10 +130,87 @@ func TestFetchPlanVerifiesDigestSignatureAndAuthorization(t *testing.T) {
 	}
 }
 
+func TestFetchNodeLifecyclePlanVerifiesDigestSignatureAndAuthorization(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := testNodeLifecyclePlan()
+	validated, err := nodelifecycle.ValidatePlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signature, err := nodelifecycle.Sign(validated, "test-key", privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/operations/operation-uid/node-lifecycle-plan" {
+			t.Errorf("path = %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != testSessionAuthorization {
+			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		writeJSON(t, writer, nodelifecycle.SignedPlan{Plan: plan, Signature: signature})
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, agentprotocol.StaticTrustStore{"test-key": publicKey})
+	got, err := client.FetchNodeLifecyclePlan(t.Context(), plan.OperationID, "session-secret", planDigest.String())
+	if err != nil {
+		t.Fatalf("FetchNodeLifecyclePlan() error = %v", err)
+	}
+	if got.Value().TargetVersion != plan.TargetVersion {
+		t.Fatalf("FetchNodeLifecyclePlan() = %#v", got.Value())
+	}
+	if _, err := client.FetchNodeLifecyclePlan(t.Context(), plan.OperationID, "session-secret", digest.FromString("other").String()); err == nil {
+		t.Fatal("FetchNodeLifecyclePlan() accepted a mismatched digest")
+	}
+	untrustedClient := newTestClient(t, server, agentprotocol.StaticTrustStore{"other-key": publicKey})
+	if _, err := untrustedClient.FetchNodeLifecyclePlan(t.Context(), plan.OperationID, "session-secret", planDigest.String()); err == nil {
+		t.Fatal("FetchNodeLifecyclePlan() accepted an untrusted signature key")
+	}
+}
+
+func TestReportNodeLifecycleProgressUsesBoundSession(t *testing.T) {
+	var received agentprotocol.NodeLifecycleProgressRequest
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/operations/operation-uid/node-lifecycle-progress" {
+			t.Errorf("path = %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != testSessionAuthorization {
+			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	client := newTestClient(t, server, nil)
+	request := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		PlanDigest:   "sha256:" + strings.Repeat("a", 64),
+		Step:         string(distributiondomain.StepPreflightCompleted),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+	}
+
+	if err := client.ReportNodeLifecycleProgress(t.Context(), "session-secret", request); err != nil {
+		t.Fatalf("ReportNodeLifecycleProgress() error = %v", err)
+	}
+	if received.Step != request.Step || received.Result != request.Result {
+		t.Fatalf("received request = %#v, want %#v", received, request)
+	}
+}
+
 func TestFetchBootstrapAndReportBootUseBoundSession(t *testing.T) {
 	payload := []byte("#cloud-config\n")
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer session-secret" {
+		if request.Header.Get("Authorization") != testSessionAuthorization {
 			t.Errorf("Authorization = %q", request.Header.Get("Authorization"))
 		}
 		switch request.URL.Path {
@@ -261,6 +342,19 @@ func testPlan() agentprotocol.Plan {
 		},
 		AllowedTargetRoles: []agentprotocol.DiskRole{agentprotocol.DiskRoleOSA},
 		Steps:              []agentprotocol.PlanStep{{Name: "WriteImage"}},
+	}
+}
+
+func testNodeLifecyclePlan() nodelifecycle.Plan {
+	return nodelifecycle.Plan{
+		APIVersion:     nodelifecycle.APIVersion,
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.34.0",
+		TargetVersion:  "v1.35.0",
+		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+		NodeRole:       distributiondomain.NodeRoleWorker,
+		Deadline:       time.Now().Add(time.Hour).UTC(),
+		Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
 	}
 }
 

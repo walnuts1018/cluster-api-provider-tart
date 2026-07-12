@@ -31,6 +31,8 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
+var testBootstrapPayloadDigest = "sha256:" + strings.Repeat("d", 64)
+
 type staticPlanProvider struct {
 	plan agentprotocol.SignedPlan
 }
@@ -72,15 +74,16 @@ func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
 	service, k8sClient, key, planDigest := newTestService(t)
 	firstTime := metav1.NewTime(time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC))
 	complete := agentprotocol.BootReportRequest{
-		APIVersion:         agentprotocol.APIVersion,
-		OperationUID:       "operation-uid",
-		PlanDigest:         planDigest,
-		BootID:             "boot-id",
-		ActiveSlot:         "B",
-		ArtifactGeneration: 2,
-		StateMounted:       true,
-		DataMounted:        true,
-		BootstrapApplied:   true,
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           "operation-uid",
+		PlanDigest:             planDigest,
+		BootID:                 "boot-id",
+		ActiveSlot:             "B",
+		ArtifactGeneration:     2,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: testBootstrapPayloadDigest,
 	}
 	if err := service.ReportBoot(ctx, key, complete, firstTime); err != nil {
 		t.Fatalf("ReportBoot(complete) error = %v", err)
@@ -91,6 +94,9 @@ func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
 	}
 	if !persisted.Status.LastBootReport.ReportedAt.Equal(&firstTime) {
 		t.Fatalf("reportedAt = %v, want %v", persisted.Status.LastBootReport.ReportedAt, firstTime)
+	}
+	if persisted.Status.LastBootReport.BootstrapPayloadDigest != testBootstrapPayloadDigest {
+		t.Fatalf("bootstrapPayloadDigest = %q, want %q", persisted.Status.LastBootReport.BootstrapPayloadDigest, testBootstrapPayloadDigest)
 	}
 
 	duplicateTime := metav1.NewTime(firstTime.Add(time.Minute))
@@ -109,15 +115,16 @@ func TestServiceCountsWrongSlotBootReportAsBootFailureAttempt(t *testing.T) {
 
 	for attempt := int32(1); attempt <= 3; attempt++ {
 		report := agentprotocol.BootReportRequest{
-			APIVersion:         agentprotocol.APIVersion,
-			OperationUID:       "operation-uid",
-			PlanDigest:         planDigest,
-			BootID:             "wrong-slot-boot-" + string(rune('0'+attempt)),
-			ActiveSlot:         "A",
-			ArtifactGeneration: 1,
-			StateMounted:       true,
-			DataMounted:        true,
-			BootstrapApplied:   true,
+			APIVersion:             agentprotocol.APIVersion,
+			OperationUID:           "operation-uid",
+			PlanDigest:             planDigest,
+			BootID:                 "wrong-slot-boot-" + string(rune('0'+attempt)),
+			ActiveSlot:             "A",
+			ArtifactGeneration:     1,
+			StateMounted:           true,
+			DataMounted:            true,
+			BootstrapApplied:       true,
+			BootstrapPayloadDigest: testBootstrapPayloadDigest,
 		}
 		if err := service.ReportBoot(ctx, key, report, metav1.Now()); err != nil {
 			t.Fatalf("attempt %d ReportBoot() error = %v", attempt, err)
@@ -142,15 +149,16 @@ func TestServiceRejectsConflictingReportAfterBootCompletion(t *testing.T) {
 	ctx := t.Context()
 	service, _, key, planDigest := newTestService(t)
 	report := agentprotocol.BootReportRequest{
-		APIVersion:         agentprotocol.APIVersion,
-		OperationUID:       "operation-uid",
-		PlanDigest:         planDigest,
-		BootID:             "boot-id",
-		ActiveSlot:         "B",
-		ArtifactGeneration: 2,
-		StateMounted:       true,
-		DataMounted:        true,
-		BootstrapApplied:   true,
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           "operation-uid",
+		PlanDigest:             planDigest,
+		BootID:                 "boot-id",
+		ActiveSlot:             "B",
+		ArtifactGeneration:     2,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: testBootstrapPayloadDigest,
 	}
 	now := metav1.Now()
 	if err := service.ReportBoot(ctx, key, report, now); err != nil {
@@ -171,14 +179,15 @@ func TestServiceRecordsRollbackBootResult(t *testing.T) {
 		{
 			name: "旧slot健全",
 			report: agentprotocol.BootReportRequest{
-				APIVersion:         agentprotocol.APIVersion,
-				OperationUID:       "operation-uid",
-				BootID:             "rollback-boot",
-				ActiveSlot:         "A",
-				ArtifactGeneration: 1,
-				StateMounted:       true,
-				DataMounted:        true,
-				BootstrapApplied:   true,
+				APIVersion:             agentprotocol.APIVersion,
+				OperationUID:           "operation-uid",
+				BootID:                 "rollback-boot",
+				ActiveSlot:             "A",
+				ArtifactGeneration:     1,
+				StateMounted:           true,
+				DataMounted:            true,
+				BootstrapApplied:       true,
+				BootstrapPayloadDigest: testBootstrapPayloadDigest,
 			},
 			wantPhase: infrastructurev1beta1.TartHostOperationPhaseFailed,
 		},

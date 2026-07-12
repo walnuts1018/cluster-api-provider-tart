@@ -112,6 +112,12 @@ type TartMachineStatus struct {
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	InstalledImageDigest string `json:"installedImageDigest,omitempty"`
 
+	// installedDistributionVersion is the Kubernetes distribution version running in activeSlot.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	InstalledDistributionVersion string `json:"installedDistributionVersion,omitempty"`
+
 	// failureDomain is the failure domain in which the machine was placed.
 	// +optional
 	// +kubebuilder:validation:MinLength=1

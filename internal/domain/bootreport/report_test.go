@@ -16,19 +16,23 @@ package bootreport
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
+var testBootstrapPayloadDigest = "sha256:" + strings.Repeat("d", 64)
+
 func TestEvaluate(t *testing.T) {
 	complete := Report{
-		BootID:             "boot-id",
-		ActiveSlot:         "B",
-		ArtifactGeneration: 2,
-		StateMounted:       true,
-		DataMounted:        true,
-		BootstrapApplied:   true,
+		BootID:                 "boot-id",
+		ActiveSlot:             "B",
+		ArtifactGeneration:     2,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: testBootstrapPayloadDigest,
 	}
 	expected := ExpectedBoot{ActiveSlot: "B", ArtifactGeneration: 2}
 	rollbackExpected := ExpectedBoot{ActiveSlot: "B", ArtifactGeneration: 2, RollbackSlot: "A"}
@@ -59,7 +63,7 @@ func TestEvaluate(t *testing.T) {
 		{
 			name:         "unexpected slot remains observable without advancing",
 			phase:        operationdomain.PhaseBootTrial,
-			incoming:     Report{BootID: "boot-id", ActiveSlot: "A", ArtifactGeneration: 2, StateMounted: true, DataMounted: true, BootstrapApplied: true},
+			incoming:     Report{BootID: "boot-id", ActiveSlot: "A", ArtifactGeneration: 2, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
 			wantDecision: DecisionRecorded,
 			wantPhase:    operationdomain.PhaseBootTrial,
 		},
@@ -74,7 +78,7 @@ func TestEvaluate(t *testing.T) {
 		{
 			name:         "rollback boot report marks operation failed",
 			phase:        operationdomain.PhaseRollingBack,
-			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true, DataMounted: true, BootstrapApplied: true},
+			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
 			wantDecision: DecisionRollbackCompleted,
 			wantPhase:    operationdomain.PhaseFailed,
 		},

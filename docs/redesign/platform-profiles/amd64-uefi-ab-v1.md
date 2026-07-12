@@ -51,10 +51,16 @@ A/Bの区別は一意なGPT labelで行い、OS起動時のmountはAgentが報�
 - Agent Artifactには`blockdev`、`sfdisk`、`udevadm`を含める。
 - Agent Artifact manifestは`application/vnd.tart.provisioning-agent.v1`とし、digest固定OCI参照、
   `architecture=amd64`、`firmware=UEFI`、`platformProfile=amd64-uefi-ab/v1`、
-  kernel/initrdのSHA-256 digestとsizeを署名対象へ含める。
+  kernel/initrdのSHA-256 digestとsizeを署名対象へ含める。Redfish VirtualMediaで
+  起動するArtifactは、追加で`virtualMedia`のSHA-256 digestとsizeを署名対象へ含める。
 - controllerへmountするAgent Artifact directoryは`manifest.json`、
-  `manifest.signature.json`、`vmlinuz`、`initrd`を持つ。信頼する公開鍵はArtifactとは
-  別のread-only mountからcontrollerへ渡す。
+  `manifest.signature.json`、`vmlinuz`、`initrd`を持つ。Redfish VirtualMediaを
+  使う場合は同じdirectoryへ`virtual-media.iso`を追加する。信頼する公開鍵は
+  Artifactとは別のread-only mountからcontrollerへ渡す。
+- `virtual-media.iso`は`mise run agent-artifact-virtual-media`で生成し、GRUBから
+  `/vmlinuz`と`/initrd`を起動する。ISO内のkernel argumentは`controller-url`、
+  Host UID、Operation UID、boot MACだけとし、Initial Credential、Session Token、
+  Bootstrap Dataを含めない。
 - iPXE scriptは`controller-url`、Host UID、Operation UID、boot MACだけを
   `tart.agent.*` kernel parameterとして渡す。Initial Credential、Session Token、
   Bootstrap Dataをscriptまたはkernel command lineへ含めない。

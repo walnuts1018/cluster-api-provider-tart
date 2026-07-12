@@ -60,6 +60,12 @@ type TartHostOperationSpec struct {
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	PlanDigest string `json:"planDigest"`
 
+	// nodeLifecyclePlanDigest is the digest of the canonical signed Node Lifecycle Plan.
+	// It is set only when distribution-specific lifecycle steps are required.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	NodeLifecyclePlanDigest string `json:"nodeLifecyclePlanDigest,omitempty"`
+
 	// desiredObjectsDigest identifies the canonical desired Kubernetes objects that produced the Plan.
 	// +required
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
@@ -218,6 +224,12 @@ type BootReportStatus struct {
 	// bootstrapApplied indicates that the Bootstrap success marker exists in State.
 	// +required
 	BootstrapApplied bool `json:"bootstrapApplied"`
+
+	// bootstrapPayloadDigest is the payload digest recorded in the Bootstrap success marker.
+	// It is present only when bootstrapApplied is true.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
+	BootstrapPayloadDigest string `json:"bootstrapPayloadDigest,omitempty"`
 
 	// reportedAt is the controller receipt time and is not supplied by the Agent.
 	// +required

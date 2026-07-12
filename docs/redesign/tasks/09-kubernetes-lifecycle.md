@@ -125,14 +125,25 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - Distribution Lifecycle用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
 - Node Lifecycle Service境界で受け取るPlanをEd25519署名対象のCanonical JSONとし、
   未署名・改ざん済みPlanを既存のDistribution Lifecycle Step runnerへ渡さない検証
+- `cmd/node-lifecycle-service`を追加し、Agent APIから取得した署名済みNode Lifecycle Planを検証して、
+  指定されたLifecycle Stepだけをkubeadm Driverへdispatchするprocess境界を作成
+- Node Lifecycle Service用のkubeadm Runtimeを追加し、`kubeadm upgrade plan/apply/node`、
+  `etcdctl snapshot save/status`、`kubectl get node`を任意shell commandではなく型付き操作として実行
 - Domain PlanからNode Lifecycle Service向け署名済みPlanとPlan Digestを生成するapplication境界
 - 署名済みNode Lifecycle PlanをTartHostOperation所有のimmutable Secretへ冪等保存するKubernetes adapter
 - 保存済みNode Lifecycle Plan SecretからPlanと署名を復元するKubernetes provider
+- controllerのAgent APIへ`/v1/operations/{uid}/node-lifecycle-plan`を追加し、Session Token認証、
+  OperationのPlanDigest照合、Kubernetes Secret providerからの署名済みPlan配信を接続
+- Provisioning Agent clientへNode Lifecycle Plan取得APIを追加し、PlanDigestとEd25519署名を検証
+- Node Lifecycle ServiceのStep成功/失敗をSession Token認証済みAgent API
+  `/v1/operations/{uid}/node-lifecycle-progress`へ報告し、成功StepをStatusStoreの`completedSteps`、
+  失敗Stepを`RecoveryRequired`遷移へ接続
+- KubernetesBinary Update Operation作成時にworker/control plane別Node Lifecycle Planを生成し、
+  `TartHostOperation.spec.nodeLifecyclePlanDigest`とOperation所有のimmutable Secretへ保存する接続
+- `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
 
 未実装・未検証:
 
-- Node Lifecycle Serviceのprocess化とcontrollerからの署名済みPlan配信
-- worker/control plane別Plan生成と署名済みPlan adapter/providerのTartHostOperation controllerへの接続
 - 7つの各Step直後のcontrollerまたはNode再起動検証
-- control plane component、etcd quorum、API healthの実観測Runtime
+- control plane component、etcd quorum、API healthの詳細な実観測Runtime
 - Recovery Runbookと実機/E2E検証

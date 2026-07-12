@@ -116,6 +116,41 @@ func (adapter *Adapter) ObservePowerState(
 	}
 }
 
+func (adapter *Adapter) ObserveBootState(
+	ctx context.Context,
+	target driverdomain.HostTarget,
+) (driverdomain.BootState, error) {
+	client, session, err := adapter.newSession(ctx, target)
+	if err != nil {
+		return driverdomain.BootState{}, err
+	}
+	system, media, err := session.discover(ctx, client)
+	if err != nil {
+		return driverdomain.BootState{}, err
+	}
+
+	state := driverdomain.BootState{
+		OverrideEnabled: strings.EqualFold(system.Boot.OverrideEnabled, "Once") ||
+			strings.EqualFold(system.Boot.OverrideEnabled, "Continuous"),
+	}
+	targetValue, err := bootTargetFromOverride(system.Boot.OverrideTarget)
+	if err != nil {
+		return driverdomain.BootState{}, err
+	}
+	state.OverrideTarget = targetValue
+
+	if media.Path != "" {
+		inserted, err := session.getVirtualMedia(ctx, client, media.Path)
+		if err != nil {
+			return driverdomain.BootState{}, err
+		}
+		state.MediaInserted = inserted.Inserted
+		state.MediaImage = inserted.Image
+		state.MediaOperation = inserted.Oem.TART.OperationID
+	}
+	return state, nil
+}
+
 func (adapter *Adapter) SetNextBoot(
 	ctx context.Context,
 	target driverdomain.HostTarget,
@@ -248,7 +283,9 @@ type systemResource struct {
 	Path       string `json:"-"`
 	PowerState string `json:"PowerState"`
 	Boot       struct {
-		Allowed []string `json:"BootSourceOverrideTarget@Redfish.AllowableValues"`
+		Allowed         []string `json:"BootSourceOverrideTarget@Redfish.AllowableValues"`
+		OverrideEnabled string   `json:"BootSourceOverrideEnabled"`
+		OverrideTarget  string   `json:"BootSourceOverrideTarget"`
 	} `json:"Boot"`
 	Actions struct {
 		Reset struct {
@@ -446,7 +483,6 @@ func (session *session) discover(
 		return systemResource{}, virtualMediaResource{}, err
 	}
 	system.Path = systems.Members[0].ODataID
-	system.Actions.Reset.Target = system.Actions.Reset.Target
 
 	virtualMedia, err := session.discoverVirtualMedia(ctx, client, root.Managers.ODataID)
 	if err != nil {
@@ -540,6 +576,21 @@ func bootOverrideValue(system systemResource, target driverdomain.BootTarget) (s
 		}
 	}
 	return "", driverdomain.NewError(driverdomain.ErrorUnsupported, fmt.Errorf("boot target %q is not supported", target))
+}
+
+func bootTargetFromOverride(value string) (driverdomain.BootTarget, error) {
+	switch value {
+	case "":
+		return "", nil
+	case "Pxe":
+		return driverdomain.BootTargetPXE, nil
+	case "UefiHttp":
+		return driverdomain.BootTargetHTTP, nil
+	case "Cd":
+		return driverdomain.BootTargetVirtualMedia, nil
+	default:
+		return "", driverdomain.NewError(driverdomain.ErrorUnsupported, fmt.Errorf("boot override target %q is not supported", value))
+	}
 }
 
 func (session *session) get(

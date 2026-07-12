@@ -52,6 +52,9 @@ func EvaluateReadiness(
 	if !report.BootstrapApplied {
 		return ReadinessResult{Reason: "BootstrapNotApplied", Message: "Bootstrap success marker has not been reported"}
 	}
+	if report.BootstrapPayloadDigest == "" {
+		return ReadinessResult{Reason: "BootstrapPayloadDigestMissing", Message: "Bootstrap success marker payload digest has not been reported"}
+	}
 
 	health := machinehealthdomain.EvaluateNode(node)
 	if !health.Ready {

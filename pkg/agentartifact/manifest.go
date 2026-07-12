@@ -39,14 +39,15 @@ const (
 var referencePattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
 
 type Manifest struct {
-	SchemaVersion   int        `json:"schemaVersion"`
-	MediaType       string     `json:"mediaType"`
-	Reference       string     `json:"reference"`
-	Architecture    string     `json:"architecture"`
-	Firmware        string     `json:"firmware"`
-	PlatformProfile string     `json:"platformProfile"`
-	Kernel          Descriptor `json:"kernel"`
-	Initrd          Descriptor `json:"initrd"`
+	SchemaVersion   int         `json:"schemaVersion"`
+	MediaType       string      `json:"mediaType"`
+	Reference       string      `json:"reference"`
+	Architecture    string      `json:"architecture"`
+	Firmware        string      `json:"firmware"`
+	PlatformProfile string      `json:"platformProfile"`
+	Kernel          Descriptor  `json:"kernel"`
+	Initrd          Descriptor  `json:"initrd"`
+	VirtualMedia    *Descriptor `json:"virtualMedia,omitempty"`
 }
 
 type Descriptor struct {
@@ -100,6 +101,11 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 	if err := validateDescriptor("initrd", manifest.Initrd); err != nil {
 		return ValidatedManifest{}, err
 	}
+	if manifest.VirtualMedia != nil {
+		if err := validateDescriptor("virtualMedia", *manifest.VirtualMedia); err != nil {
+			return ValidatedManifest{}, err
+		}
+	}
 	return ValidatedManifest{manifest: manifest}, nil
 }
 
@@ -137,6 +143,17 @@ func VerifyPayloads(manifest ValidatedManifest, kernel, initrd io.Reader) error 
 	}
 	if err := artifact.VerifyPayload(initrd, value.Initrd.Digest, value.Initrd.SizeBytes); err != nil {
 		return fmt.Errorf("verify Agent Artifact initrd: %w", err)
+	}
+	return nil
+}
+
+func VerifyVirtualMediaPayload(manifest ValidatedManifest, media io.Reader) error {
+	value := manifest.Value()
+	if value.VirtualMedia == nil {
+		return errors.New("agent Artifact does not contain a VirtualMedia payload")
+	}
+	if err := artifact.VerifyPayload(media, value.VirtualMedia.Digest, value.VirtualMedia.SizeBytes); err != nil {
+		return fmt.Errorf("verify Agent Artifact virtual media: %w", err)
 	}
 	return nil
 }

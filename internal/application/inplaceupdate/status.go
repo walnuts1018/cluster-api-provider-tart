@@ -31,6 +31,7 @@ func StatusWithUpdateSucceeded(
 	status.ObservedGeneration = machine.Generation
 	status.ActiveSlot = operation.Spec.TargetSlot
 	status.InstalledImageDigest = operation.Spec.TargetImageDigest
+	status.InstalledDistributionVersion = operation.Spec.TargetDistributionVersion
 	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:               ConditionReady,
 		Status:             metav1.ConditionTrue,

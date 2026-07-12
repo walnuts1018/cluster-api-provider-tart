@@ -28,6 +28,7 @@ type Registry struct {
 	powerOff            map[driverdomain.Name]PowerOffDriver
 	powerStateObservers map[driverdomain.Name]PowerStateObserver
 	bootOverride        map[driverdomain.Name]BootOverrideDriver
+	bootStateObservers  map[driverdomain.Name]BootStateObserver
 	virtualMedia        map[driverdomain.Name]VirtualMediaDriver
 	discoverers         map[driverdomain.Name]CapabilityDiscoverer
 }
@@ -38,6 +39,7 @@ func NewRegistry() *Registry {
 		powerOff:            make(map[driverdomain.Name]PowerOffDriver),
 		powerStateObservers: make(map[driverdomain.Name]PowerStateObserver),
 		bootOverride:        make(map[driverdomain.Name]BootOverrideDriver),
+		bootStateObservers:  make(map[driverdomain.Name]BootStateObserver),
 		virtualMedia:        make(map[driverdomain.Name]VirtualMediaDriver),
 		discoverers:         make(map[driverdomain.Name]CapabilityDiscoverer),
 	}
@@ -92,6 +94,19 @@ func (registry *Registry) RegisterBootOverride(name driverdomain.Name, implement
 		return fmt.Errorf("register SetNextBoot driver %q: already registered", name)
 	}
 	registry.bootOverride[name] = implementation
+	return nil
+}
+
+func (registry *Registry) RegisterBootStateObserver(name driverdomain.Name, implementation BootStateObserver) error {
+	if implementation == nil {
+		return fmt.Errorf("register ObserveBootState driver %q: implementation must not be nil", name)
+	}
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	if _, exists := registry.bootStateObservers[name]; exists {
+		return fmt.Errorf("register ObserveBootState driver %q: already registered", name)
+	}
+	registry.bootStateObservers[name] = implementation
 	return nil
 }
 
@@ -155,6 +170,16 @@ func (registry *Registry) BootOverride(name driverdomain.Name) (BootOverrideDriv
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	implementation, exists := registry.bootOverride[name]
+	if !exists {
+		return nil, unsupported(name, capabilitydomain.SetNextBoot)
+	}
+	return implementation, nil
+}
+
+func (registry *Registry) BootStateObserver(name driverdomain.Name) (BootStateObserver, error) {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	implementation, exists := registry.bootStateObservers[name]
 	if !exists {
 		return nil, unsupported(name, capabilitydomain.SetNextBoot)
 	}

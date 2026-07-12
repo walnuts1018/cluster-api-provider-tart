@@ -195,6 +195,81 @@ func TestServiceDiscoverCapabilitiesDoesNotRetryAuthenticationFailure(t *testing
 	}
 }
 
+func TestServiceObservePowerStateReturnsDriverState(t *testing.T) {
+	t.Parallel()
+
+	observer := &recordingPowerStateObserver{state: driverdomain.PowerStateOn}
+	registry := NewRegistry()
+	if err := registry.RegisterPowerStateObserver(driverdomain.Redfish, observer); err != nil {
+		t.Fatalf("RegisterPowerStateObserver() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	state, err := service.ObservePowerState(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		Invocation{OperationType: "Update", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("ObservePowerState() error = %v", err)
+	}
+	if state != driverdomain.PowerStateOn {
+		t.Fatalf("ObservePowerState() = %q, want On", state)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObservePowerState calls = %d, want 1", observer.calls)
+	}
+}
+
+func TestServiceObserveBootStateReturnsDriverState(t *testing.T) {
+	t.Parallel()
+
+	observer := &recordingBootStateObserver{
+		state: driverdomain.BootState{
+			OverrideEnabled: true,
+			OverrideTarget:  driverdomain.BootTargetVirtualMedia,
+			MediaInserted:   true,
+			MediaImage:      "https://controller.example.test/agent.iso",
+			MediaOperation:  "f4353748-c9ea-41c6-b321-94197b64330e",
+		},
+	}
+	registry := NewRegistry()
+	if err := registry.RegisterBootStateObserver(driverdomain.Redfish, observer); err != nil {
+		t.Fatalf("RegisterBootStateObserver() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+
+	state, err := service.ObserveBootState(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("ObserveBootState() error = %v", err)
+	}
+	if !state.OverrideEnabled || state.OverrideTarget != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("BootState = %#v, want enabled VirtualMedia", state)
+	}
+	if !state.MediaInserted || state.MediaImage == "" || state.MediaOperation == "" {
+		t.Fatalf("BootState media = %#v, want mounted media", state)
+	}
+	if observer.calls != 1 {
+		t.Fatalf("ObserveBootState calls = %d, want 1", observer.calls)
+	}
+}
+
 func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 	t.Parallel()
 
@@ -232,6 +307,58 @@ func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 	}
 	if got := implementation.calls; len(got) != 2 || got[0] != driverdomain.BootTargetHTTP || got[1] != driverdomain.BootTargetPXE {
 		t.Fatalf("SetNextBoot calls = %v, want [HTTP PXE]", got)
+	}
+}
+
+func TestServicePrepareBootUsesVirtualMediaBeforePXE(t *testing.T) {
+	t.Parallel()
+
+	bootOverride := &recordingBootOverrideDriver{
+		errorsByTarget: map[driverdomain.BootTarget][]error{
+			driverdomain.BootTargetHTTP: {
+				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
+			},
+		},
+	}
+	virtualMedia := &recordingVirtualMediaDriver{}
+	registry := NewRegistry()
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, bootOverride); err != nil {
+		t.Fatalf("RegisterBootOverride() error = %v", err)
+	}
+	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, virtualMedia); err != nil {
+		t.Fatalf("RegisterVirtualMedia() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	provider, err := NewStaticAgentArtifactProvider("https://boot.test/v1/agent-artifacts/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/virtual-media")
+	if err != nil {
+		t.Fatalf("NewStaticAgentArtifactProvider() error = %v", err)
+	}
+	service.SetAgentArtifactProvider(provider)
+
+	target, err := service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		nil,
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if err != nil {
+		t.Fatalf("PrepareBoot() error = %v", err)
+	}
+	if target != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("PrepareBoot() target = %q, want VirtualMedia", target)
+	}
+	if got := virtualMedia.mounts; len(got) != 1 || got[0] != provider.reference.Reference() {
+		t.Fatalf("VirtualMedia mounts = %v, want artifact URL", got)
+	}
+	if got := bootOverride.calls; len(got) != 2 || got[0] != driverdomain.BootTargetHTTP || got[1] != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("SetNextBoot calls = %v, want [HTTP VirtualMedia]", got)
 	}
 }
 
@@ -388,6 +515,40 @@ type recordingCapabilityDiscoverer struct {
 	errors []error
 }
 
+type recordingPowerStateObserver struct {
+	calls int
+	state driverdomain.PowerState
+	err   error
+}
+
+func (observer *recordingPowerStateObserver) ObservePowerState(
+	context.Context,
+	driverdomain.HostTarget,
+) (driverdomain.PowerState, error) {
+	observer.calls++
+	if observer.err != nil {
+		return driverdomain.PowerStateUnknown, observer.err
+	}
+	return observer.state, nil
+}
+
+type recordingBootStateObserver struct {
+	calls int
+	state driverdomain.BootState
+	err   error
+}
+
+func (observer *recordingBootStateObserver) ObserveBootState(
+	context.Context,
+	driverdomain.HostTarget,
+) (driverdomain.BootState, error) {
+	observer.calls++
+	if observer.err != nil {
+		return driverdomain.BootState{}, observer.err
+	}
+	return observer.state, nil
+}
+
 type recordingBootOverrideDriver struct {
 	calls          []driverdomain.BootTarget
 	errorsByTarget map[driverdomain.BootTarget][]error
@@ -407,6 +568,28 @@ func (driver *recordingBootOverrideDriver) SetNextBoot(
 	err := errors[0]
 	driver.errorsByTarget[target] = errors[1:]
 	return err
+}
+
+type recordingVirtualMediaDriver struct {
+	mounts []string
+}
+
+func (driver *recordingVirtualMediaDriver) Mount(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	artifact driverdomain.Artifact,
+	_ operationdomain.ID,
+) error {
+	driver.mounts = append(driver.mounts, artifact.Reference())
+	return nil
+}
+
+func (driver *recordingVirtualMediaDriver) Unmount(
+	_ context.Context,
+	_ driverdomain.HostTarget,
+	_ operationdomain.ID,
+) error {
+	return nil
 }
 
 func (discoverer *recordingCapabilityDiscoverer) DiscoverCapabilities(

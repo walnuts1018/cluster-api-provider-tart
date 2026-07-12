@@ -31,9 +31,10 @@ func TestEvaluateReadinessRequiresEveryProvisioningGate(t *testing.T) {
 		Status: infrastructurev1beta1.TartHostOperationStatus{
 			Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
 			LastBootReport: &infrastructurev1beta1.BootReportStatus{
-				StateMounted:     true,
-				DataMounted:      true,
-				BootstrapApplied: true,
+				StateMounted:           true,
+				DataMounted:            true,
+				BootstrapApplied:       true,
+				BootstrapPayloadDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 			},
 		},
 	}
@@ -82,8 +83,16 @@ func TestEvaluateReadinessRequiresEveryProvisioningGate(t *testing.T) {
 			name: "Bootstrap未適用",
 			mutate: func(operation *infrastructurev1beta1.TartHostOperation, _ *machinehealthdomain.NodeObservation) {
 				operation.Status.LastBootReport.BootstrapApplied = false
+				operation.Status.LastBootReport.BootstrapPayloadDigest = ""
 			},
 			reason: "BootstrapNotApplied",
+		},
+		{
+			name: "Bootstrap payload digest未報告",
+			mutate: func(operation *infrastructurev1beta1.TartHostOperation, _ *machinehealthdomain.NodeObservation) {
+				operation.Status.LastBootReport.BootstrapPayloadDigest = ""
+			},
+			reason: "BootstrapPayloadDigestMissing",
 		},
 		{
 			name: "providerID不一致",

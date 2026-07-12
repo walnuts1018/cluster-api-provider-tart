@@ -12,6 +12,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
@@ -56,8 +57,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
-	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService)
-	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler)
+	driverstateService := driverstate.NewService(driverService, driverService, v1beta1hostService)
+	tartHostOperationReconciler := provideTartHostOperationReconciler(k8sClient, scheme, driverService, driverService, v1beta1hostService, drivertargetService, drivercapabilityService, driverstateService, driverstateService)
+	reconcilers := provideReconcilers(tartHostReconciler, tartMachineReconciler, tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler, driverService)
 	return reconcilers, nil
 }
 
@@ -70,6 +72,7 @@ type Reconcilers struct {
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
 	TartHostOperation   *controller.TartHostOperationReconciler
+	Driver              *driver.Service
 }
 
 func provideDriverRegistry(
@@ -90,6 +93,9 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	if err := registry.RegisterBootOverride(driver2.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterBootStateObserver(driver2.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
 	if err := registry.RegisterVirtualMedia(driver2.Redfish, redfishDriver); err != nil {
@@ -161,6 +167,8 @@ func provideTartHostOperationReconciler(
 	hostPhase controller.OperationHostPhaseService,
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
+	driverPowerState controller.OperationDriverPowerStateObserver,
+	driverBootState controller.OperationDriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -170,6 +178,8 @@ func provideTartHostOperationReconciler(
 		HostPhase:          hostPhase,
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
+		DriverPowerState:   driverPowerState,
+		DriverBootState:    driverBootState,
 	}
 }
 
@@ -180,6 +190,7 @@ func provideReconcilers(
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
 	tartHostOperation *controller.TartHostOperationReconciler,
+	driverService *driver.Service,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
@@ -188,5 +199,6 @@ func provideReconcilers(
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
 		TartHostOperation:   tartHostOperation,
+		Driver:              driverService,
 	}
 }

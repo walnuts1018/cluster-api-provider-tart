@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 
@@ -31,18 +32,20 @@ import (
 )
 
 type ArtifactFiles struct {
-	ManifestPath  string
-	SignaturePath string
-	KernelPath    string
-	InitrdPath    string
-	KeyID         string
-	PublicKeyPath string
+	ManifestPath     string
+	SignaturePath    string
+	KernelPath       string
+	InitrdPath       string
+	VirtualMediaPath string
+	KeyID            string
+	PublicKeyPath    string
 }
 
 type Artifact struct {
 	manifest agentartifact.ValidatedManifest
 	kernel   *os.File
 	initrd   *os.File
+	media    *os.File
 	digest   digest.Digest
 }
 
@@ -91,54 +94,79 @@ func LoadArtifact(files ArtifactFiles) (Artifact, error) {
 	}
 	verifyErr := agentartifact.VerifyPayloads(manifest, kernel, initrd)
 	if verifyErr != nil {
-		closeErr := closePayloads(kernel, initrd)
+		closeErr := closePayloads(kernel, initrd, nil)
 		return Artifact{}, errors.Join(verifyErr, closeErr)
+	}
+	var media *os.File
+	if files.VirtualMediaPath != "" {
+		media, err = os.Open(files.VirtualMediaPath)
+		if err != nil {
+			return Artifact{}, errors.Join(
+				fmt.Errorf("open Agent Artifact virtual media: %w", err),
+				closePayloads(kernel, initrd, nil),
+			)
+		}
+		if err := agentartifact.VerifyVirtualMediaPayload(manifest, media); err != nil {
+			return Artifact{}, errors.Join(err, closePayloads(kernel, initrd, nil), wrapCloseError("virtual media", media.Close()))
+		}
 	}
 	// 署名検証後のpath差し替えを配信へ反映しないため、検証したfile descriptorを保持する。
 	if _, err := kernel.Seek(0, io.SeekStart); err != nil {
 		return Artifact{}, errors.Join(
 			fmt.Errorf("rewind Agent Artifact kernel: %w", err),
-			closePayloads(kernel, initrd),
+			closePayloads(kernel, initrd, media),
 		)
 	}
 	if _, err := initrd.Seek(0, io.SeekStart); err != nil {
 		return Artifact{}, errors.Join(
 			fmt.Errorf("rewind Agent Artifact initrd: %w", err),
-			closePayloads(kernel, initrd),
+			closePayloads(kernel, initrd, media),
 		)
+	}
+	if media != nil {
+		if _, err := media.Seek(0, io.SeekStart); err != nil {
+			return Artifact{}, errors.Join(
+				fmt.Errorf("rewind Agent Artifact virtual media: %w", err),
+				closePayloads(kernel, initrd, media),
+			)
+		}
 	}
 	reference := manifest.Value().Reference
 	referenceDigest := digest.Digest(reference[strings.LastIndex(reference, "@")+1:])
 	if err := referenceDigest.Validate(); err != nil {
 		return Artifact{}, errors.Join(
 			fmt.Errorf("validate Agent Artifact reference digest: %w", err),
-			closePayloads(kernel, initrd),
+			closePayloads(kernel, initrd, media),
 		)
 	}
 	return Artifact{
 		manifest: manifest,
 		kernel:   kernel,
 		initrd:   initrd,
+		media:    media,
 		digest:   referenceDigest,
 	}, nil
 }
 
 func (artifact Artifact) Close() error {
-	if artifact.kernel == nil && artifact.initrd == nil {
+	if artifact.kernel == nil && artifact.initrd == nil && artifact.media == nil {
 		return nil
 	}
-	return closePayloads(artifact.kernel, artifact.initrd)
+	return closePayloads(artifact.kernel, artifact.initrd, artifact.media)
 }
 
-func closePayloads(kernel, initrd *os.File) error {
-	var kernelErr, initrdErr error
+func closePayloads(kernel, initrd, media *os.File) error {
+	var kernelErr, initrdErr, mediaErr error
 	if kernel != nil {
 		kernelErr = wrapCloseError("kernel", kernel.Close())
 	}
 	if initrd != nil {
 		initrdErr = wrapCloseError("initrd", initrd.Close())
 	}
-	return errors.Join(kernelErr, initrdErr)
+	if media != nil {
+		mediaErr = wrapCloseError("virtual media", media.Close())
+	}
+	return errors.Join(kernelErr, initrdErr, mediaErr)
 }
 
 func wrapCloseError(name string, err error) error {
@@ -162,6 +190,11 @@ func (artifact Artifact) payload(name string) (*os.File, int64, error) {
 	case "initrd":
 		file = artifact.initrd
 		size = artifact.Manifest().Initrd.SizeBytes
+	case "virtual-media":
+		file = artifact.media
+		if artifact.Manifest().VirtualMedia != nil {
+			size = artifact.Manifest().VirtualMedia.SizeBytes
+		}
 	default:
 		return nil, 0, errors.New("unknown Agent Artifact payload")
 	}
@@ -169,6 +202,28 @@ func (artifact Artifact) payload(name string) (*os.File, int64, error) {
 		return nil, 0, errors.New("agent Artifact payload is closed")
 	}
 	return file, size, nil
+}
+
+func (artifact Artifact) VirtualMediaURL(baseURL string) (string, error) {
+	if artifact.media == nil || artifact.Manifest().VirtualMedia == nil {
+		return "", errors.New("Agent Artifact does not contain a VirtualMedia payload")
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse Agent Artifact base URL: %w", err)
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+		parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", errors.New("Agent Artifact base URL must be an HTTPS origin or base path")
+	}
+	return url.JoinPath(
+		parsed.String(),
+		"v1",
+		"agent-artifacts",
+		"sha256",
+		artifact.digest.Encoded(),
+		"virtual-media",
+	)
 }
 
 func decodeStrict(data []byte, target any) error {

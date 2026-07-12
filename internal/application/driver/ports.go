@@ -38,9 +38,17 @@ type BootOverrideDriver interface {
 	SetNextBoot(context.Context, driverdomain.HostTarget, driverdomain.BootTarget, operationdomain.ID) error
 }
 
+type BootStateObserver interface {
+	ObserveBootState(context.Context, driverdomain.HostTarget) (driverdomain.BootState, error)
+}
+
 type VirtualMediaDriver interface {
 	Mount(context.Context, driverdomain.HostTarget, driverdomain.Artifact, operationdomain.ID) error
 	Unmount(context.Context, driverdomain.HostTarget, operationdomain.ID) error
+}
+
+type AgentArtifactProvider interface {
+	VirtualMediaArtifact(context.Context, operationdomain.ID) (driverdomain.Artifact, error)
 }
 
 type CapabilityDiscoverer interface {

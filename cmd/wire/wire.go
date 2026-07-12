@@ -12,6 +12,7 @@ import (
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
+	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
@@ -33,6 +34,7 @@ type Reconcilers struct {
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
 	TartHostOperation   *controller.TartHostOperationReconciler
+	Driver              *applicationdriver.Service
 }
 
 func provideDriverRegistry(
@@ -53,6 +55,9 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	if err := registry.RegisterBootOverride(driverdomain.Redfish, redfishDriver); err != nil {
+		return nil, err
+	}
+	if err := registry.RegisterBootStateObserver(driverdomain.Redfish, redfishDriver); err != nil {
 		return nil, err
 	}
 	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, redfishDriver); err != nil {
@@ -124,6 +129,8 @@ func provideTartHostOperationReconciler(
 	hostPhase controller.OperationHostPhaseService,
 	targets controller.OperationDriverTargetBuilder,
 	driverCapabilities controller.OperationDriverCapabilityObserver,
+	driverPowerState controller.OperationDriverPowerStateObserver,
+	driverBootState controller.OperationDriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -133,6 +140,8 @@ func provideTartHostOperationReconciler(
 		HostPhase:          hostPhase,
 		Targets:            targets,
 		DriverCapabilities: driverCapabilities,
+		DriverPowerState:   driverPowerState,
+		DriverBootState:    driverBootState,
 	}
 }
 
@@ -143,6 +152,7 @@ func provideReconcilers(
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
 	tartHostOperation *controller.TartHostOperationReconciler,
+	driverService *applicationdriver.Service,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
@@ -151,6 +161,7 @@ func provideReconcilers(
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
 		TartHostOperation:   tartHostOperation,
+		Driver:              driverService,
 	}
 }
 
@@ -159,6 +170,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8shost.NewService,
 		k8sbootstraptoken.NewService,
 		k8sdrivercapability.NewService,
+		k8sdriverstate.NewService,
 		k8sdrivertarget.NewService,
 		k8sallocation.NewService,
 		k8smachinehealth.NewObserver,
@@ -183,8 +195,13 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(controller.OperationHostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
 		wire.Bind(new(controller.OperationDriverCapabilityObserver), new(*k8sdrivercapability.Service)),
+		wire.Bind(new(controller.OperationDriverPowerStateObserver), new(*k8sdriverstate.Service)),
+		wire.Bind(new(controller.OperationDriverBootStateObserver), new(*k8sdriverstate.Service)),
 		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
 		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(k8sdriverstate.PowerStateObserver), new(*applicationdriver.Service)),
+		wire.Bind(new(k8sdriverstate.BootStateObserver), new(*applicationdriver.Service)),
+		wire.Bind(new(k8sdriverstate.HostPowerStateWriter), new(*k8sv1beta1host.Service)),
 
 		woladapter.Default,
 		redfishadapter.New,

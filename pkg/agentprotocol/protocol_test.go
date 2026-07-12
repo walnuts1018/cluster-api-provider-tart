@@ -139,6 +139,33 @@ func TestValidateBootstrapBundle(t *testing.T) {
 	}
 }
 
+func TestValidateBootReportRequiresBootstrapPayloadDigestWhenApplied(t *testing.T) {
+	report := BootReportRequest{
+		APIVersion:             APIVersion,
+		OperationUID:           "operation-uid",
+		PlanDigest:             "sha256:" + strings.Repeat("a", 64),
+		BootID:                 "boot-id",
+		ActiveSlot:             "A",
+		ArtifactGeneration:     1,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: "sha256:" + strings.Repeat("d", 64),
+	}
+	if err := ValidateBootReport(report); err != nil {
+		t.Fatalf("ValidateBootReport() error = %v", err)
+	}
+	report.BootstrapPayloadDigest = ""
+	if err := ValidateBootReport(report); err == nil {
+		t.Fatal("ValidateBootReport() accepted applied bootstrap without payload digest")
+	}
+	report.BootstrapApplied = false
+	report.BootstrapPayloadDigest = "sha256:" + strings.Repeat("d", 64)
+	if err := ValidateBootReport(report); err == nil {
+		t.Fatal("ValidateBootReport() accepted payload digest without applied bootstrap")
+	}
+}
+
 func TestValidateProgressRequest(t *testing.T) {
 	valid := ProgressRequest{
 		APIVersion:    APIVersion,

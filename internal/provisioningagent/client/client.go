@@ -29,6 +29,7 @@ import (
 
 	retry "github.com/avast/retry-go/v4"
 
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -151,6 +152,38 @@ func (client *Client) FetchPlan(
 	return validated, nil
 }
 
+func (client *Client) FetchNodeLifecyclePlan(
+	ctx context.Context,
+	operationUID, sessionToken, expectedDigest string,
+) (nodelifecycle.ValidatedPlan, error) {
+	var signed nodelifecycle.SignedPlan
+	endpoint, err := operationEndpoint(operationUID, "node-lifecycle-plan")
+	if err != nil {
+		return nodelifecycle.ValidatedPlan{}, err
+	}
+	if err := client.doJSON(ctx, http.MethodGet, endpoint, sessionToken, nil, &signed, agentprotocol.MaxRequestBodyBytes); err != nil {
+		return nodelifecycle.ValidatedPlan{}, fmt.Errorf("fetch Node Lifecycle Plan: %w", err)
+	}
+	validated, err := nodelifecycle.ValidatePlan(signed.Plan)
+	if err != nil {
+		return nodelifecycle.ValidatedPlan{}, fmt.Errorf("validate Node Lifecycle Plan: %w", err)
+	}
+	if signed.Plan.OperationID != operationUID {
+		return nodelifecycle.ValidatedPlan{}, errors.New("validate Node Lifecycle Plan: operation UID does not match request")
+	}
+	actualDigest, err := validated.Digest()
+	if err != nil {
+		return nodelifecycle.ValidatedPlan{}, fmt.Errorf("digest Node Lifecycle Plan: %w", err)
+	}
+	if actualDigest.String() != expectedDigest {
+		return nodelifecycle.ValidatedPlan{}, errors.New("validate Node Lifecycle Plan: digest does not match registration")
+	}
+	if err := nodelifecycle.VerifySignature(validated, signed.Signature, client.trustStore); err != nil {
+		return nodelifecycle.ValidatedPlan{}, fmt.Errorf("verify Node Lifecycle Plan signature: %w", err)
+	}
+	return validated, nil
+}
+
 func (client *Client) ReportProgress(
 	ctx context.Context,
 	sessionToken string,
@@ -168,6 +201,24 @@ func (client *Client) ReportProgress(
 		return agentprotocol.ProgressResponse{}, errors.New("report Agent progress: response apiVersion is invalid")
 	}
 	return response, nil
+}
+
+func (client *Client) ReportNodeLifecycleProgress(
+	ctx context.Context,
+	sessionToken string,
+	request agentprotocol.NodeLifecycleProgressRequest,
+) error {
+	if err := agentprotocol.ValidateNodeLifecycleProgressRequest(request); err != nil {
+		return fmt.Errorf("validate Node Lifecycle progress: %w", err)
+	}
+	endpoint, err := operationEndpoint(request.OperationUID, "node-lifecycle-progress")
+	if err != nil {
+		return err
+	}
+	if err := client.doJSON(ctx, http.MethodPost, endpoint, sessionToken, request, nil, 0); err != nil {
+		return fmt.Errorf("report Node Lifecycle progress: %w", err)
+	}
+	return nil
 }
 
 func (client *Client) FetchBootstrap(

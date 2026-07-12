@@ -60,6 +60,24 @@ func TestManifest署名とPayloadを検証する(t *testing.T) {
 	}
 }
 
+func TestManifestはVirtualMediaPayloadを検証する(t *testing.T) {
+	media := []byte("agent-virtual-media")
+	manifest := validManifest([]byte("kernel"), []byte("initrd"))
+	descriptor := DescriptorFromBytes(media)
+	manifest.VirtualMedia = &descriptor
+	validated, err := Validate(manifest)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+
+	if err := VerifyVirtualMediaPayload(validated, bytes.NewReader(media)); err != nil {
+		t.Fatalf("VerifyVirtualMediaPayload() error = %v", err)
+	}
+	if err := VerifyVirtualMediaPayload(validated, bytes.NewReader([]byte("changed"))); err == nil {
+		t.Fatal("VerifyVirtualMediaPayload() accepted modified media")
+	}
+}
+
 func TestValidateは不正なManifestを拒否する(t *testing.T) {
 	kernel := []byte("agent-kernel")
 	initrd := []byte("agent-initrd")
@@ -73,6 +91,10 @@ func TestValidateは不正なManifestを拒否する(t *testing.T) {
 		{name: "未対応Profile", mutate: func(manifest *Manifest) { manifest.PlatformProfile = "amd64-uefi-ab/v2" }},
 		{name: "不正なkernel digest", mutate: func(manifest *Manifest) { manifest.Kernel.Digest = "sha256:invalid" }},
 		{name: "空のinitrd", mutate: func(manifest *Manifest) { manifest.Initrd.SizeBytes = 0 }},
+		{name: "不正なVirtualMedia", mutate: func(manifest *Manifest) {
+			descriptor := Descriptor{Digest: "sha256:invalid", SizeBytes: 1}
+			manifest.VirtualMedia = &descriptor
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

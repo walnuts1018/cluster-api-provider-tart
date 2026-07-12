@@ -409,7 +409,11 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 			if err := r.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
 				return ctrl.Result{}, err
 			}
-			machine.Status = appprovisioning.StatusWithProvisioned(machine, machine.Status.Addresses)
+			machine.Status = appprovisioning.StatusWithProvisioned(
+				machine,
+				machine.Status.Addresses,
+				observation.ExpectedVersion,
+			)
 		} else {
 			machine.Status = appprovisioning.StatusWithHealthGatePending(
 				machine,

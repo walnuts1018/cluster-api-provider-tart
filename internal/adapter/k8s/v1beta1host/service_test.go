@@ -88,6 +88,82 @@ func TestServiceUpdateCapabilitiesNoopsWhenCapabilitiesMatch(t *testing.T) {
 	}
 }
 
+func TestServiceUpdatePowerStatePersistsObservedState(t *testing.T) {
+	t.Parallel()
+
+	host := &infrastructurev1beta1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "host-a",
+			Namespace:  "default",
+			Generation: 4,
+		},
+	}
+	k8sClient := newFakeClient(t, host)
+	service := NewService(k8sClient)
+
+	if err := service.UpdatePowerState(t.Context(), host, infrastructurev1beta1.PowerStateOn); err != nil {
+		t.Fatalf("UpdatePowerState() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHost{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(host), current); err != nil {
+		t.Fatalf("get TartHost: %v", err)
+	}
+	if current.Status.PowerState != infrastructurev1beta1.PowerStateOn {
+		t.Fatalf("status.powerState = %q, want On", current.Status.PowerState)
+	}
+	if current.Status.ObservedGeneration != current.Generation {
+		t.Fatalf("observedGeneration = %d, want %d", current.Status.ObservedGeneration, current.Generation)
+	}
+}
+
+func TestServiceUpdateBootStatePersistsObservedState(t *testing.T) {
+	t.Parallel()
+
+	host := &infrastructurev1beta1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "host-a",
+			Namespace:  "default",
+			Generation: 5,
+		},
+	}
+	k8sClient := newFakeClient(t, host)
+	service := NewService(k8sClient)
+
+	state := infrastructurev1beta1.BootStateStatus{
+		OverrideEnabled: true,
+		OverrideTarget:  infrastructurev1beta1.BootTargetVirtualMedia,
+		VirtualMedia: infrastructurev1beta1.VirtualMediaStatus{
+			Inserted:    true,
+			Image:       "https://controller.example.test/agent.iso",
+			OperationID: "f4353748-c9ea-41c6-b321-94197b64330e",
+		},
+	}
+	if err := service.UpdateBootState(t.Context(), host, state); err != nil {
+		t.Fatalf("UpdateBootState() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHost{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(host), current); err != nil {
+		t.Fatalf("get TartHost: %v", err)
+	}
+	if current.Status.BootState == nil {
+		t.Fatal("status.bootState = nil, want observed state")
+	}
+	if !current.Status.BootState.OverrideEnabled ||
+		current.Status.BootState.OverrideTarget != infrastructurev1beta1.BootTargetVirtualMedia {
+		t.Fatalf("status.bootState = %#v, want VirtualMedia override", current.Status.BootState)
+	}
+	if !current.Status.BootState.VirtualMedia.Inserted ||
+		current.Status.BootState.VirtualMedia.Image == "" ||
+		current.Status.BootState.VirtualMedia.OperationID == "" {
+		t.Fatalf("status.bootState.virtualMedia = %#v, want mounted media", current.Status.BootState.VirtualMedia)
+	}
+	if current.Status.ObservedGeneration != current.Generation {
+		t.Fatalf("observedGeneration = %d, want %d", current.Status.ObservedGeneration, current.Generation)
+	}
+}
+
 func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
 	t.Helper()
 	scheme := runtime.NewScheme()

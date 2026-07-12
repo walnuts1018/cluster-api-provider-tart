@@ -21,11 +21,13 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
@@ -105,16 +107,28 @@ func (service *Service) Start(
 	machine := request.Desired.Machine.DeepCopy()
 	return service.workflow.Start(ctx, application.WorkflowInput{
 		StartInput: application.StartInput{
-			Machine:                  machine,
-			TartMachine:              live,
-			BootstrapConfig:          request.Desired.BootstrapConfig,
-			Host:                     host,
-			TargetImageDigest:        value.Image.Digest,
-			TargetArtifactGeneration: value.Generation,
-			Now:                      service.now().UTC(),
+			Machine:                    machine,
+			TartMachine:                live,
+			BootstrapConfig:            request.Desired.BootstrapConfig,
+			Host:                       host,
+			TargetImageDigest:          value.Image.Digest,
+			TargetArtifactGeneration:   value.Generation,
+			CurrentDistributionVersion: live.Status.InstalledDistributionVersion,
+			TargetDistributionVersion:  machine.Spec.Version,
+			NodeRole:                   nodeRole(machine),
+			Now:                        service.now().UTC(),
 		},
 		Manifest: manifest,
 	})
+}
+
+func nodeRole(machine *clusterv1.Machine) distributiondomain.NodeRole {
+	if machine != nil {
+		if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
+			return distributiondomain.NodeRoleControlPlane
+		}
+	}
+	return distributiondomain.NodeRoleWorker
 }
 
 func decodeTartMachine(extension runtime.RawExtension) (infrastructurev1beta1.TartMachine, error) {

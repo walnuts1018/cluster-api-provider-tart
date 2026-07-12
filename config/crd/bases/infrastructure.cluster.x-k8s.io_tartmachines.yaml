@@ -500,6 +500,12 @@ spec:
                       Once true, this value must never become false.
                     type: boolean
                 type: object
+              installedDistributionVersion:
+                description: installedDistributionVersion is the Kubernetes distribution
+                  version running in activeSlot.
+                maxLength: 128
+                minLength: 1
+                type: string
               installedImageDigest:
                 description: installedImageDigest is the digest of the OS artifact
                   running in activeSlot.

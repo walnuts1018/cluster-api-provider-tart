@@ -60,7 +60,7 @@
 
 - [ ] CABPK Secretの`format=cloud-config`とpayload digestを検証する。
 - [ ] Bundle送信成功時にSession Token Secretを即時削除する既存処理をOperation作成フローと結合する。
-- [ ] Bootstrap成功markerがpayload digestと一致するProtocolへ拡張する。
+- [x] Bootstrap成功markerがpayload digestと一致するProtocolへ拡張する。
 - [ ] boot report受信後もNode health条件が不足していれば`AwaitingHealth`を維持する。
 - [ ] 全条件成立時だけOperation、Host、TartMachineを順に完了状態へPatchする。
 - [ ] 対象packageのテストを実行し、変更をコミットする。

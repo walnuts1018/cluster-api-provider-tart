@@ -90,16 +90,22 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `internal/adapter/k8s/drivertarget` に `TartHost` と Secret から `driverdomain.HostTarget` / `RedfishAccess` を構築する adapter を追加し、`TartHostOperation` controller から利用する接続点を作った。
 - `internal/application/driver` に host-aware capability discovery port を追加し、Redfish discovery結果またはregistryの静的capabilityを retry付きで取得できるようにした。
 - `internal/adapter/k8s/drivercapability` と `internal/adapter/k8s/v1beta1host` に、driver discovery結果を `TartHost Status.capabilities` へ保存する adapter を追加し、`TartHostOperation` controller から PowerOn 前に実行するよう接続した。
-- `internal/application/driver` に Redfish boot override 準備を追加し、preferred transport が未指定なら `HTTP -> PXE` の順で `SetNextBoot` を試し、明示指定時は fallback せずに失敗させる挙動を unit test で固定した。
+- `internal/application/driver` と `internal/adapter/k8s/driverstate` に PowerState 再観測を追加し、`TartHostOperation` controller が PowerOn 前に BMC から観測した状態を `TartHost.status.powerState` へ保存するようにした。
+- `internal/application/driver` に Redfish boot override 準備を追加し、preferred transport が未指定なら `HTTP -> VirtualMedia -> PXE` の順で起動経路を準備し、明示指定時は fallback せずに失敗させる挙動を unit test で固定した。
 - `TartHostOperation` controller が Redfish host の `preferredBootTransport` を `PrepareBoot` へ渡し、PowerOn 前に boot override を準備する接続を追加した。
+- Agent Artifact manifest と HTTPS配信に optional `virtualMedia` / `virtual-media.iso` を追加し、署名・digest検証後の file descriptor から digest固定URLで配信できるようにした。
+- `internal/application/driver` に Agent Artifact provider を追加し、Redfish VirtualMedia選択時にArtifact URLをmountしてから one-time BootOverride を `VirtualMedia` に設定するようにした。未指定時の選択順は `HTTP -> VirtualMedia -> PXE` とした。
+- `cmd/main.go` で検証済みAgent Artifactに `virtual-media.iso` がある場合だけ、Redfish VirtualMedia用のArtifact URL providerをdriver serviceへ登録するようにした。
 - Redfish adapter で session authentication を優先し、SessionService 未対応時だけ basic authentication へ fallback する挙動を unit test で固定した。
 - CA/SPKI pin 検証、Capability discovery、same Operation ID の idempotent mount、異なる mount 要求の `Conflict`、one-time BootOverride を unit test で固定した。
+- Redfish adapter と `TartHostOperation` controller に BootOverride / VirtualMedia mount 状態の再観測を追加し、controller再起動後に active Operation を再concileした時も `TartHost.status.bootState` と `powerState` をBMC状態で修正できるようにした。
+- `hack/agent-artifact-iso` と `mise run agent-artifact-virtual-media` を追加し、Agent kernel/initrd と公開識別子だけを含む GRUB bootable ISO `virtual-media.iso` を生成できるようにした。Controller URL は HTTPS かつ credential/query/fragment なしだけを許可し、Initial Credential、Session Token、Bootstrap Data を kernel argument へ含めない。
+- `hack/agent-artifact-manifest` と `mise run agent-artifact-manifest` を追加し、`virtual-media.iso` が存在する場合は Agent Artifact manifest の `virtualMedia` descriptor と署名対象へ含めるようにした。
 
 ### 未実装
 
-- `VirtualMedia` 用 Agent Artifact URL 解決と mount/unmount を含む controller 統合
+- Redfish VirtualMediaで起動可能な `virtual-media.iso` の外部contract test
 - HTTPBoot / PXE の各 Transport で実際に同じ Agent Protocol `/v1` へ register する実機/contract 検証
-- controller 再起動後の BMC 再観測と Status 修正
 - Redfish simulator の外部 contract test と実機検証記録
 
 ## 関連

@@ -28,6 +28,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	slotdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/slot"
 )
@@ -36,14 +37,18 @@ const updateOperationDeadline = 2 * time.Hour
 
 // StartInputはOSOnly Update Operationの不変入力をまとめる。
 type StartInput struct {
-	Machine                  *clusterv1.Machine
-	TartMachine              *infrastructurev1beta1.TartMachine
-	BootstrapConfig          runtime.RawExtension
-	Host                     *infrastructurev1beta1.TartHost
-	PlanDigest               string
-	TargetImageDigest        string
-	TargetArtifactGeneration uint64
-	Now                      time.Time
+	Machine                    *clusterv1.Machine
+	TartMachine                *infrastructurev1beta1.TartMachine
+	BootstrapConfig            runtime.RawExtension
+	Host                       *infrastructurev1beta1.TartHost
+	PlanDigest                 string
+	NodeLifecyclePlanDigest    string
+	TargetImageDigest          string
+	TargetArtifactGeneration   uint64
+	CurrentDistributionVersion string
+	TargetDistributionVersion  string
+	NodeRole                   distributiondomain.NodeRole
+	Now                        time.Time
 }
 
 // OperationStarterはOperation作成の永続化境界である。
@@ -136,12 +141,13 @@ func buildOperation(input StartInput) (*infrastructurev1beta1.TartHostOperation,
 				UID:       input.TartMachine.UID,
 			},
 			PlanDigest:                input.PlanDigest,
+			NodeLifecyclePlanDigest:   input.NodeLifecyclePlanDigest,
 			DesiredObjectsDigest:      objectsDigest,
 			TargetImageDigest:         input.TargetImageDigest,
 			TargetArtifactGeneration:  &generation,
 			TargetSlot:                infrastructurev1beta1.OSSlot(target),
-			UpdateClass:               infrastructurev1beta1.UpdateClassOSOnly,
-			TargetDistributionVersion: input.Machine.Spec.Version,
+			UpdateClass:               updateClass(input),
+			TargetDistributionVersion: targetDistributionVersion(input),
 			Deadline:                  metav1.NewTime(input.Now.UTC().Add(updateOperationDeadline)),
 		},
 	}, nil
@@ -178,11 +184,37 @@ func validateStartInput(input StartInput, requirePlanDigest bool) error {
 		if err := validateDigest("plan", input.PlanDigest); err != nil {
 			return err
 		}
+		if input.NodeLifecyclePlanDigest != "" {
+			if err := validateDigest("node lifecycle plan", input.NodeLifecyclePlanDigest); err != nil {
+				return err
+			}
+		}
 	}
 	if err := validateDigest("target image", input.TargetImageDigest); err != nil {
 		return err
 	}
 	return nil
+}
+
+func updateClass(input StartInput) infrastructurev1beta1.UpdateClass {
+	if currentDistributionVersion(input) != targetDistributionVersion(input) {
+		return infrastructurev1beta1.UpdateClassKubernetesBinary
+	}
+	return infrastructurev1beta1.UpdateClassOSOnly
+}
+
+func currentDistributionVersion(input StartInput) string {
+	if input.CurrentDistributionVersion != "" {
+		return input.CurrentDistributionVersion
+	}
+	return input.Machine.Spec.Version
+}
+
+func targetDistributionVersion(input StartInput) string {
+	if input.TargetDistributionVersion != "" {
+		return input.TargetDistributionVersion
+	}
+	return input.Machine.Spec.Version
 }
 
 func sameHostReference(

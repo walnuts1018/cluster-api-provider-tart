@@ -138,7 +138,7 @@ func validateUpdatePlanInput(input UpdatePlanInput) error {
 	case manifest.Architecture != string(input.Host.Spec.Architecture):
 		return fmt.Errorf("Artifact architecture does not match TartHost")
 	case manifest.Kubernetes.Version != input.Machine.Spec.Version:
-		return fmt.Errorf("OSOnly update cannot change Kubernetes version")
+		return fmt.Errorf("Artifact Kubernetes version does not match desired Machine")
 	case manifest.Generation != input.TargetArtifactGeneration:
 		return fmt.Errorf("Artifact generation does not match Update Operation")
 	case manifest.Image.Digest != input.TargetImageDigest:

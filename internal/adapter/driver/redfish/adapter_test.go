@@ -202,9 +202,45 @@ func TestAdapterSetsOneTimeBootOverride(t *testing.T) {
 	}
 }
 
+func TestAdapterObservesBootState(t *testing.T) {
+	t.Parallel()
+
+	fixture := &redfishFixture{
+		bootOverrideEnabled:  "Once",
+		bootOverrideTarget:   "Cd",
+		virtualMediaInserted: true,
+		virtualMediaImage:    "https://controller.example.test/agent.iso",
+		virtualMediaOpID:     "f4353748-c9ea-41c6-b321-94197b64330e",
+	}
+	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
+	target := testTarget(t, nil)
+
+	state, err := adapter.ObserveBootState(context.Background(), target)
+	if err != nil {
+		t.Fatalf("ObserveBootState() error = %v", err)
+	}
+	if !state.OverrideEnabled {
+		t.Fatal("OverrideEnabled = false, want true")
+	}
+	if state.OverrideTarget != driverdomain.BootTargetVirtualMedia {
+		t.Fatalf("OverrideTarget = %q, want VirtualMedia", state.OverrideTarget)
+	}
+	if !state.MediaInserted {
+		t.Fatal("MediaInserted = false, want true")
+	}
+	if state.MediaImage != "https://controller.example.test/agent.iso" {
+		t.Fatalf("MediaImage = %q, want mounted image", state.MediaImage)
+	}
+	if state.MediaOperation != "f4353748-c9ea-41c6-b321-94197b64330e" {
+		t.Fatalf("MediaOperation = %q, want operation ID", state.MediaOperation)
+	}
+}
+
 type redfishFixture struct {
 	sessionUnsupported   bool
 	sessionAuthFails     bool
+	bootOverrideEnabled  string
+	bootOverrideTarget   string
 	virtualMediaInserted bool
 	virtualMediaImage    string
 	virtualMediaOpID     string
@@ -252,6 +288,8 @@ func (fixture *redfishFixture) roundTrip(request *http.Request) (*http.Response,
 			"PowerState": "On",
 			"Boot": map[string]any{
 				"BootSourceOverrideTarget@Redfish.AllowableValues": []string{"Pxe", "UefiHttp", "Cd"},
+				"BootSourceOverrideEnabled":                        fixture.bootOverrideEnabled,
+				"BootSourceOverrideTarget":                         fixture.bootOverrideTarget,
 			},
 			"Actions": map[string]any{
 				"#ComputerSystem.Reset": map[string]string{

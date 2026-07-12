@@ -145,7 +145,7 @@ description = "GitHub Actions workflow を actionlint で検証する"
 run = "actionlint"
 
 [tasks.build]
-description = "managerとProvisioning Agentバイナリをビルドする"
+description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする"
 run = '''
 mise run manifests
 mise run generate
@@ -154,6 +154,7 @@ mise run vet
 mkdir -p bin
 go build -o bin/manager cmd/main.go
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
+go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 '''
 
 [tasks.run]
@@ -328,6 +329,51 @@ go run ./hack/mkosi-sbom \
   -output "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/sbom.cdx.json"
 '''
 
+[tasks.agent-artifact-virtual-media]
+description = "Agent kernel/initrdからRedfish VirtualMedia用ISOを生成する"
+run = '''
+: "${AGENT_ARTIFACT_KERNEL:?AGENT_ARTIFACT_KERNEL is required}"
+: "${AGENT_ARTIFACT_INITRD:?AGENT_ARTIFACT_INITRD is required}"
+: "${AGENT_ARTIFACT_CONTROLLER_URL:?AGENT_ARTIFACT_CONTROLLER_URL is required}"
+: "${AGENT_ARTIFACT_HOST_UID:?AGENT_ARTIFACT_HOST_UID is required}"
+: "${AGENT_ARTIFACT_OPERATION_UID:?AGENT_ARTIFACT_OPERATION_UID is required}"
+: "${AGENT_ARTIFACT_BOOT_MAC:?AGENT_ARTIFACT_BOOT_MAC is required}"
+agent_output="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
+mkdir -p "$agent_output"
+go run ./hack/agent-artifact-iso \
+  -kernel "$AGENT_ARTIFACT_KERNEL" \
+  -initrd "$AGENT_ARTIFACT_INITRD" \
+  -output "$agent_output/virtual-media.iso" \
+  -controller-url "$AGENT_ARTIFACT_CONTROLLER_URL" \
+  -host-uid "$AGENT_ARTIFACT_HOST_UID" \
+  -operation-uid "$AGENT_ARTIFACT_OPERATION_UID" \
+  -boot-mac "$AGENT_ARTIFACT_BOOT_MAC"
+'''
+
+[tasks.agent-artifact-manifest]
+description = "Agent Artifact manifestと署名を生成する"
+run = '''
+: "${AGENT_ARTIFACT_REFERENCE:?AGENT_ARTIFACT_REFERENCE is required}"
+: "${AGENT_ARTIFACT_KERNEL:?AGENT_ARTIFACT_KERNEL is required}"
+: "${AGENT_ARTIFACT_INITRD:?AGENT_ARTIFACT_INITRD is required}"
+: "${AGENT_ARTIFACT_SIGNING_KEY:?AGENT_ARTIFACT_SIGNING_KEY is required}"
+: "${AGENT_ARTIFACT_SIGNING_KEY_ID:?AGENT_ARTIFACT_SIGNING_KEY_ID is required}"
+agent_output="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
+mkdir -p "$agent_output"
+if [ -f "$agent_output/virtual-media.iso" ]; then
+  set -- -virtual-media "$agent_output/virtual-media.iso"
+else
+  set --
+fi
+go run ./hack/agent-artifact-manifest \
+  -reference "$AGENT_ARTIFACT_REFERENCE" \
+  -kernel "$AGENT_ARTIFACT_KERNEL" \
+  -initrd "$AGENT_ARTIFACT_INITRD" \
+  "$@" \
+  -signing-key "$AGENT_ARTIFACT_SIGNING_KEY" \
+  -key-id "$AGENT_ARTIFACT_SIGNING_KEY_ID" \
+  -output-dir "$agent_output"
+'''
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"

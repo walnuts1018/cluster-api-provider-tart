@@ -71,11 +71,11 @@ func TestPlanWriterは署名済みNodeLifecyclePlanをImmutableSecretへ保存�
 	}
 }
 
-func TestPlanWriterはOperationDigest不一致を拒否する(t *testing.T) {
+func TestPlanWriterはNodeLifecyclePlanDigest不一致を拒否する(t *testing.T) {
 	t.Parallel()
 
 	operation, plan, signature := planWriterFixture(t)
-	operation.Spec.PlanDigest = digest.FromString("different").String()
+	operation.Spec.NodeLifecyclePlanDigest = digest.FromString("different").String()
 	err := NewPlanWriter(newPlanWriterClient(t, operation)).Write(
 		t.Context(),
 		operation,
@@ -83,7 +83,7 @@ func TestPlanWriterはOperationDigest不一致を拒否する(t *testing.T) {
 		signature,
 	)
 	if err == nil {
-		t.Fatal("Write() accepted a mismatched Operation Plan digest")
+		t.Fatal("Write() accepted a mismatched Node Lifecycle Plan digest")
 	}
 }
 
@@ -143,8 +143,8 @@ func planWriterFixture(
 			UID:       types.UID("operation-object-uid"),
 		},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
-			OperationID: built.Plan.Value().OperationID,
-			PlanDigest:  built.Digest.String(),
+			OperationID:             built.Plan.Value().OperationID,
+			NodeLifecyclePlanDigest: built.Digest.String(),
 		},
 	}
 	return operation, built.Plan, built.Signature

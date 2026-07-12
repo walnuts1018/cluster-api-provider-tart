@@ -69,6 +69,30 @@ func TestParseConfigRequiresExactlyOneMode(t *testing.T) {
 	if !cfg.prepareLayout {
 		t.Fatalf("parseConfig() = %#v", cfg)
 	}
+	applyBootstrap := append(base, "--apply-bootstrap-only")
+	cfg, err = parseConfig(applyBootstrap)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !cfg.applyBootstrap || cfg.stateDir == "" || cfg.bootstrapWorkDir == "" || cfg.bootstrapAdapter == "" {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+	reportBoot := append(
+		base,
+		"--report-boot-only",
+		"--boot-id=boot-id",
+		"--active-slot=A",
+		"--artifact-generation=1",
+		"--state-mounted",
+		"--data-mounted",
+	)
+	cfg, err = parseConfig(reportBoot)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !cfg.reportBoot || cfg.bootID != "boot-id" || cfg.activeSlot != "A" || cfg.artifactGeneration != 1 {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
 	write := append(
 		base,
 		"--write-payloads-only",

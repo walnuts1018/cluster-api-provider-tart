@@ -66,7 +66,7 @@ func (writer *PlanWriter) Write(
 	if err != nil {
 		return fmt.Errorf("persist Node Lifecycle Plan: calculate digest: %w", err)
 	}
-	if planDigest.String() != operation.Spec.PlanDigest {
+	if planDigest.String() != operation.Spec.NodeLifecyclePlanDigest {
 		return fmt.Errorf("persist Node Lifecycle Plan: digest does not match TartHostOperation")
 	}
 	planJSON, err := plan.CanonicalJSON()

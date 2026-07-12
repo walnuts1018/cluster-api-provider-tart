@@ -37,7 +37,10 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
+	k8sdistributionlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/distributionlifecycle"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -100,6 +103,15 @@ func (staticPlan) GetPlan(context.Context, client.ObjectKey) (agentprotocol.Sign
 	return testSignedPlan, nil
 }
 
+type staticNodeLifecyclePlan struct {
+	plan nodelifecycle.SignedPlan
+	err  error
+}
+
+func (provider staticNodeLifecyclePlan) GetPlan(context.Context, client.ObjectKey) (nodelifecycle.SignedPlan, error) {
+	return provider.plan, provider.err
+}
+
 func (provider staticBootstrap) GetBootstrapBundle(
 	context.Context,
 	client.ObjectKey,
@@ -120,6 +132,37 @@ func (reporter *recordingBootReporter) ReportBoot(
 ) error {
 	reporter.request = request
 	return reporter.err
+}
+
+type recordingNodeLifecycleStatus struct {
+	operation   *infrastructurev1beta1.TartHostOperation
+	plan        distributiondomain.Plan
+	step        distributiondomain.Step
+	snapshotRef *infrastructurev1beta1.ResourceReference
+	recovery    bool
+}
+
+func (status *recordingNodeLifecycleStatus) RecordStep(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	plan distributiondomain.Plan,
+	step distributiondomain.Step,
+	snapshotRef *infrastructurev1beta1.ResourceReference,
+) error {
+	status.operation = operation
+	status.plan = plan
+	status.step = step
+	status.snapshotRef = snapshotRef
+	return nil
+}
+
+func (status *recordingNodeLifecycleStatus) MarkRecoveryRequired(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	status.operation = operation
+	status.recovery = true
+	return nil
 }
 
 func TestHandlerRejectsPlainHTTPWithoutRedirect(t *testing.T) {
@@ -161,6 +204,11 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 			path:   "/v1/operations/operation-uid/plan",
 		},
 		{
+			name:   "node lifecycle plan",
+			method: http.MethodGet,
+			path:   "/v1/operations/operation-uid/node-lifecycle-plan",
+		},
+		{
 			name:   "progress",
 			method: http.MethodPost,
 			path:   "/v1/operations/operation-uid/progress",
@@ -172,6 +220,18 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 				Step:          "WriteImage",
 				Percent:       100,
 				Completed:     true,
+			},
+		},
+		{
+			name:   "node lifecycle progress",
+			method: http.MethodPost,
+			path:   "/v1/operations/operation-uid/node-lifecycle-progress",
+			body: agentprotocol.NodeLifecycleProgressRequest{
+				APIVersion:   agentprotocol.APIVersion,
+				OperationUID: "operation-uid",
+				PlanDigest:   testPlanDigest,
+				Step:         string(distributiondomain.StepPreflightCompleted),
+				Result:       agentprotocol.NodeLifecycleResultSucceeded,
 			},
 		},
 		{
@@ -227,6 +287,124 @@ func TestHandlerRejectsExpiredSession(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusUnauthorized, response.Body.String())
+	}
+}
+
+func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	signed := nodelifecycle.SignedPlan{
+		Plan: nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    "operation-uid",
+			CurrentVersion: "v1.34.0",
+			TargetVersion:  "v1.35.0",
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleWorker,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+		},
+		Signature: agentprotocol.Signature{
+			Algorithm: agentprotocol.SignatureAlgorithm,
+			KeyID:     "node-lifecycle-key",
+			Value:     "signature",
+		},
+	}
+	handler.config.NodeLifecyclePlans = staticNodeLifecyclePlan{plan: signed}
+	validated, err := nodelifecycle.ValidatePlan(signed.Plan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	handler.config.Operations = staticResolver{
+		key: client.ObjectKey{Namespace: "default", Name: "operation"},
+		operation: &infrastructurev1beta1.TartHostOperation{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "operation"},
+			Spec: infrastructurev1beta1.TartHostOperationSpec{
+				OperationID:             "operation-uid",
+				NodeLifecyclePlanDigest: planDigest.String(),
+				HostRef: infrastructurev1beta1.ResourceReference{
+					Namespace: "default",
+					Name:      "host",
+					UID:       types.UID("host-uid"),
+				},
+			},
+		},
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodGet,
+		"/v1/operations/operation-uid/node-lifecycle-plan",
+		sessionToken,
+		nil,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", response.Header().Get("Cache-Control"))
+	}
+	var got nodelifecycle.SignedPlan
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got.Plan.OperationID != "operation-uid" ||
+		got.Plan.TargetVersion != "v1.35.0" ||
+		got.Signature.KeyID != "node-lifecycle-key" {
+		t.Fatalf("node lifecycle plan = %#v, want signed plan", got)
+	}
+}
+
+func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T) {
+	handler, sessionToken := newAuthenticatedHandler(t, nil)
+	recorder := &recordingNodeLifecycleStatus{}
+	handler.config.NodeLifecycleStatus = recorder
+	signed := handler.config.NodeLifecyclePlans.(staticNodeLifecyclePlan).plan
+	validated, err := nodelifecycle.ValidatePlan(signed.Plan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	planDigest, err := validated.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	operation := handler.config.Operations.(staticResolver).operation.DeepCopy()
+	operation.Spec.NodeLifecyclePlanDigest = planDigest.String()
+	handler.config.Operations = staticResolver{
+		key:       client.ObjectKey{Namespace: operation.Namespace, Name: operation.Name},
+		operation: operation,
+	}
+	body := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: "operation-uid",
+		PlanDigest:   planDigest.String(),
+		Step:         string(distributiondomain.StepPreflightCompleted),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+	}
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		sessionToken,
+		body,
+	)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	if recorder.operation == nil || recorder.operation.Spec.OperationID != "operation-uid" {
+		t.Fatalf("recorded operation = %#v, want operation-uid", recorder.operation)
+	}
+	if recorder.plan.OperationID != "operation-uid" ||
+		recorder.step != distributiondomain.StepPreflightCompleted {
+		t.Fatalf("recorded plan/step = %#v/%q, want PreflightCompleted", recorder.plan, recorder.step)
 	}
 }
 
@@ -329,15 +507,16 @@ func TestHandlerAcceptsValidBootReport(t *testing.T) {
 	handler, sessionToken := newAuthenticatedHandler(t, nil)
 	handler.config.BootReports = reporter
 	body := agentprotocol.BootReportRequest{
-		APIVersion:         agentprotocol.APIVersion,
-		OperationUID:       "operation-uid",
-		PlanDigest:         testPlanDigest,
-		BootID:             "boot-id",
-		ActiveSlot:         "A",
-		ArtifactGeneration: 1,
-		StateMounted:       true,
-		DataMounted:        true,
-		BootstrapApplied:   true,
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           "operation-uid",
+		PlanDigest:             testPlanDigest,
+		BootID:                 "boot-id",
+		ActiveSlot:             "A",
+		ArtifactGeneration:     1,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: "sha256:" + strings.Repeat("d", 64),
 	}
 
 	response := performJSONRequest(
@@ -533,6 +712,25 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 			},
 		},
 	}
+	nodePlan := nodelifecycle.Plan{
+		APIVersion:     nodelifecycle.APIVersion,
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.34.0",
+		TargetVersion:  "v1.35.0",
+		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+		NodeRole:       distributiondomain.NodeRoleWorker,
+		Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+		Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+	}
+	validatedNodePlan, err := nodelifecycle.ValidatePlan(nodePlan)
+	if err != nil {
+		t.Fatalf("ValidatePlan() error = %v", err)
+	}
+	nodePlanDigest, err := validatedNodePlan.Digest()
+	if err != nil {
+		t.Fatalf("Node Lifecycle Plan.Digest() error = %v", err)
+	}
+	operation.Spec.NodeLifecyclePlanDigest = nodePlanDigest.String()
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -554,6 +752,8 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		Sessions:             sessions,
 		Progress:             k8sagentprogress.NewService(k8sClient),
 		Plans:                staticPlan{},
+		NodeLifecyclePlans:   staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{Plan: nodePlan}},
+		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(k8sClient),
 		Bootstrap:            bootstrap,
 		Now:                  func() time.Time { return now },
 	}), token.BearerValue()

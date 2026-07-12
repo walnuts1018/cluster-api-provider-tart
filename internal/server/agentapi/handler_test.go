@@ -56,7 +56,7 @@ var (
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 1,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test.walnuts.dev/os@sha256:" + strings.Repeat("b", 64),
 			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
 			Generation:     1,

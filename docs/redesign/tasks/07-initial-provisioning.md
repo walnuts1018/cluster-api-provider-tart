@@ -75,11 +75,11 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 | 5 | 一部実装 | Bootstrap Bundle生成時にCABPK Secretの`format=cloud-config`とpayload digestを検証する。OS上のBootstrap Adapter失敗時はpayload原本を保持する単体テストを追加済み。実機挙動は未検証 |
 | 6 | 実装済み | v1beta1 Agent APIはSession TokenをSecretではなく`TartHostOperation.status`のhash/expiry/consumedで保持し、`ClaimBootstrap`成功時に消費済みへ遷移する。`BootstrapDelivered`で新Sessionからの再取得も拒否 |
 | 7 | 一部実装 | Provisioning Agentに`--apply-bootstrap-only`を追加し、Bundleを一時fileへ保存、local cloud-config adapter成功後にpayload原本を削除し、payload digest/adapter version/適用時刻だけをState markerへ残す処理を実装。OS imageへのadapter実体とfirst-boot systemd unit組み込みは未実装 |
-| 8-10 | 一部実装 | controller/application側でDeletionPolicyごとのCleaning Operation、Host phase遷移、WipeAll deadline算出を追加。Agent側disk処理と署名済みCleaning Planは未実装 |
+| 8-10 | 一部実装 | controller/application側でDeletionPolicyごとのCleaning Operation、Host phase遷移、WipeAll deadline算出を追加。署名済みCleaning PlanとAgent側zero overwrite処理を実装済み。device sanitize優先処理と実機確認は未完 |
 | 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
 | 12 | 一部実装 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eは未検証 |
 | 13 | 未検証 | Runtime Extension無効時のCAPI Machine置換E2Eが必要 |
-| 14-15 | 一部実装 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。disk容量別deadline算出はcontroller/applicationへ実装済み。Agent側disk処理と実機確認は未完 |
+| 14-15 | 一部実装 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。disk容量別deadline算出、署名済みCleaning Plan、Agent側zero overwrite処理を実装済み。device sanitize優先処理と実機確認は未完 |
 
 実装済みの補助機能:
 

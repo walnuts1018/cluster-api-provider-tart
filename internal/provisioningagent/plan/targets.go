@@ -37,6 +37,8 @@ func ValidateTargets(plan agentprotocol.ValidatedPlan) error {
 			}
 		}
 		return nil
+	case agentprotocol.OperationTypeClean, agentprotocol.OperationTypeWipeAll:
+		return nil
 	default:
 		return fmt.Errorf("%w: unsupported operation type %q", ErrUnsafeTarget, value.OperationType)
 	}

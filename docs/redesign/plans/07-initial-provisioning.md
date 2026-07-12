@@ -46,7 +46,7 @@
 - [x] Operationと同じ名前空間へowner reference付きSecretをSSAで保存する。
 - [x] controller再起動後に同じPlan Secretへ収束するテストを追加する。
 - [ ] Plan署名鍵をArtifact信頼鍵とは別のread-only mountから読み込む起動オプションを追加する。
-- [ ] 対象packageのテストを実行し、変更をコミットする。
+- [x] 対象packageのテストを実行し、変更をコミットする。
 
 ### 作業単位3: Bootstrap Bundleと初回boot完了を接続する
 

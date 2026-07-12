@@ -118,7 +118,7 @@ func TestFetchPlanVerifiesDigestSignatureAndAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchPlan() error = %v", err)
 	}
-	if got.Value().Artifact.Ref != plan.Artifact.Ref {
+	if got.Value().Artifact == nil || plan.Artifact == nil || got.Value().Artifact.Ref != plan.Artifact.Ref {
 		t.Fatalf("FetchPlan() = %#v", got.Value())
 	}
 	if _, err := client.FetchPlan(t.Context(), plan.OperationUID, "session-secret", digest.FromString("other").String()); err == nil {
@@ -335,7 +335,7 @@ func testPlan() agentprotocol.Plan {
 			SerialNumber: "serial",
 			MinSizeBytes: 1,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test.walnuts.dev/os@sha256:" + strings.Repeat("b", 64),
 			ManifestDigest: "sha256:" + strings.Repeat("c", 64),
 			Generation:     1,

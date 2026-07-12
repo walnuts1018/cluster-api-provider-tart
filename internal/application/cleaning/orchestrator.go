@@ -30,7 +30,6 @@ import (
 
 const (
 	defaultCleaningDeadline = 30 * time.Minute
-	placeholderPlanDigest   = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 )
 
 type HostPhaseService interface {
@@ -70,6 +69,22 @@ func (o *Orchestrator) StartCleaning(
 	if err := o.hostPhase.MarkHostCleaningForDeletion(ctx, host, machine.Spec.DeletionPolicy); err != nil {
 		return nil, fmt.Errorf("mark TartHost cleaning: %w", err)
 	}
+	desired, err := o.buildDesiredOperation(machine, host, "")
+	if err != nil {
+		return nil, err
+	}
+	operation, err := o.operations.Start(ctx, desired)
+	if err != nil {
+		return nil, fmt.Errorf("start Cleaning operation: %w", err)
+	}
+	return operation, nil
+}
+
+func (o *Orchestrator) buildDesiredOperation(
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	planDigest string,
+) (*infrastructurev1beta1.TartHostOperation, error) {
 	desiredObjectsDigest, err := cleaningObjectsDigest(machine, host)
 	if err != nil {
 		return nil, fmt.Errorf("build cleaning desired objects digest: %w", err)
@@ -84,14 +99,14 @@ func (o *Orchestrator) StartCleaning(
 		operationType = infrastructurev1beta1.OperationTypeWipeAll
 		deadline = o.now().Add(WipeAllDeadline(observedRootDiskSize(host)))
 	}
-	desired := &infrastructurev1beta1.TartHostOperation{
+	return &infrastructurev1beta1.TartHostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: machine.Namespace,
 		},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
 			OperationID:          operationID,
 			Type:                 operationType,
-			PlanDigest:           placeholderPlanDigest,
+			PlanDigest:           planDigest,
 			DesiredObjectsDigest: desiredObjectsDigest,
 			HostRef: infrastructurev1beta1.ResourceReference{
 				Namespace: host.Namespace,
@@ -105,12 +120,7 @@ func (o *Orchestrator) StartCleaning(
 			},
 			Deadline: metav1.NewTime(deadline),
 		},
-	}
-	operation, err := o.operations.Start(ctx, desired)
-	if err != nil {
-		return nil, fmt.Errorf("start Cleaning operation: %w", err)
-	}
-	return operation, nil
+	}, nil
 }
 
 func observedRootDiskSize(host *infrastructurev1beta1.TartHost) int64 {

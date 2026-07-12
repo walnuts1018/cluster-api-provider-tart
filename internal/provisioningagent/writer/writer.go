@@ -16,11 +16,14 @@ package writer
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
+	"github.com/opencontainers/go-digest"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
@@ -80,6 +83,10 @@ func (writer *Writer) WriteTargets(
 	plan agentprotocol.ValidatedPlan,
 	device disk.Device,
 ) error {
+	switch plan.Value().OperationType {
+	case agentprotocol.OperationTypeClean, agentprotocol.OperationTypeWipeAll:
+		return writer.cleanTargets(ctx, plan, device)
+	}
 	if err := validateProgressSteps(plan.Value()); err != nil {
 		return err
 	}
@@ -87,7 +94,10 @@ func (writer *Writer) WriteTargets(
 	if err != nil {
 		return err
 	}
-	fetched, err := writer.fetcher.Fetch(ctx, plan.Value().Artifact, layout.ProfileID)
+	if plan.Value().Artifact == nil {
+		return errors.New("plan artifact is required")
+	}
+	fetched, err := writer.fetcher.Fetch(ctx, *plan.Value().Artifact, layout.ProfileID)
 	if err != nil {
 		return fmt.Errorf("fetch and verify OS artifact: %w", err)
 	}
@@ -122,6 +132,137 @@ func (writer *Writer) WriteTargets(
 	); err != nil {
 		return err
 	}
+	if err := writer.report(ctx, Progress{
+		Step:      agentprotocol.StepWriteImage,
+		Percent:   100,
+		Completed: true,
+	}); err != nil {
+		return err
+	}
+	if err := writer.report(ctx, Progress{
+		Step:      agentprotocol.StepVerifyImage,
+		Percent:   100,
+		Completed: true,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (writer *Writer) cleanTargets(
+	ctx context.Context,
+	plan agentprotocol.ValidatedPlan,
+	device disk.Device,
+) error {
+	if err := validateProgressSteps(plan.Value()); err != nil {
+		return err
+	}
+	value := plan.Value()
+	switch value.OperationType {
+	case agentprotocol.OperationTypeWipeAll:
+		if err := writer.zeroRole(ctx, agentprotocol.DiskRoleData, device.Path, device.SizeBytes); err != nil {
+			return fmt.Errorf("wipe root disk: %w", err)
+		}
+	case agentprotocol.OperationTypeClean:
+		if len(value.AllowedTargetRoles) == 0 {
+			return writer.reportCleaningCompletion(ctx)
+		}
+		resolved, err := writer.layout.Prepare(ctx, agentprotocol.OperationTypeClean, device)
+		if err != nil {
+			return fmt.Errorf("resolve Cleaning partition layout: %w", err)
+		}
+		orderedRoles := slices.Clone(value.AllowedTargetRoles)
+		for _, role := range orderedRoles {
+			target, ok := resolved[role]
+			if !ok {
+				return fmt.Errorf("partition layout does not contain role %q", role)
+			}
+			if err := writer.zeroRole(ctx, role, target.DevicePath, target.SizeBytes); err != nil {
+				return fmt.Errorf("clean role %s: %w", role, err)
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported operation type %q", value.OperationType)
+	}
+	return writer.reportCleaningCompletion(ctx)
+}
+
+func (writer *Writer) zeroRole(
+	ctx context.Context,
+	role agentprotocol.DiskRole,
+	devicePath string,
+	sizeBytes int64,
+) error {
+	targetDevice, err := writer.opener.Open(devicePath)
+	if err != nil {
+		return fmt.Errorf("open %s target: %w", role, err)
+	}
+	if _, err := targetDevice.Seek(0, io.SeekStart); err != nil {
+		return errors.Join(fmt.Errorf("seek %s target: %w", role, err), targetDevice.Close())
+	}
+	writeErr := zeroAndVerify(
+		ctx,
+		targetDevice,
+		sizeBytes,
+		func(ctx context.Context, percent int) error {
+			if writer.progress == nil {
+				return nil
+			}
+			return writer.report(ctx, Progress{
+				Step:     agentprotocol.StepWriteImage,
+				DiskRole: role,
+				Percent:  int32(percent),
+			})
+		},
+	)
+	if err := errors.Join(writeErr, targetDevice.Close()); err != nil {
+		return fmt.Errorf("zero and verify %s target: %w", role, err)
+	}
+	return nil
+}
+
+func zeroAndVerify(
+	ctx context.Context,
+	target payload.SyncReadWriteSeeker,
+	sizeBytes int64,
+	report payload.ProgressFunc,
+) error {
+	if sizeBytes <= 0 {
+		return errors.New("payload size must be greater than zero")
+	}
+	source := io.LimitReader(zeroReader{}, sizeBytes)
+	expectedDigest, err := zeroDigest(sizeBytes)
+	if err != nil {
+		return err
+	}
+	return payload.WriteAndVerify(ctx, target, source, sizeBytes, expectedDigest, report)
+}
+
+func zeroDigest(sizeBytes int64) (string, error) {
+	if sizeBytes <= 0 {
+		return "", errors.New("payload size must be greater than zero")
+	}
+	hasher := sha256.New()
+	buffer := make([]byte, payload.ChunkSize)
+	remaining := sizeBytes
+	for remaining > 0 {
+		chunk := min(int64(len(buffer)), remaining)
+		if _, err := hasher.Write(buffer[:chunk]); err != nil {
+			return "", fmt.Errorf("hash zero payload: %w", err)
+		}
+		remaining -= chunk
+	}
+	return digest.NewDigest(digest.SHA256, hasher).String(), nil
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(target []byte) (int, error) {
+	clear(target)
+	return len(target), nil
+}
+
+func (writer *Writer) reportCleaningCompletion(ctx context.Context) error {
 	if err := writer.report(ctx, Progress{
 		Step:      agentprotocol.StepWriteImage,
 		Percent:   100,

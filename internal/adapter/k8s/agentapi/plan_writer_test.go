@@ -100,7 +100,7 @@ func planWriterFixture(
 			SerialNumber: "disk-serial",
 			MinSizeBytes: 64 * 1024 * 1024 * 1024,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            "oci://registry.test.walnuts.dev/os@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			ManifestDigest: digest.FromString("manifest").String(),
 			Generation:     1,

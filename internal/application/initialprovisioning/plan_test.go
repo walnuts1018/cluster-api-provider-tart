@@ -62,6 +62,7 @@ func TestBuildProvisionPlanProducesValidatedSignedPlan(t *testing.T) {
 	if plan.OperationType != agentprotocol.OperationTypeProvision ||
 		plan.HostUID != string(host.UID) ||
 		plan.Bootstrap == nil ||
+		plan.Artifact == nil ||
 		plan.Bootstrap.MachineUID != "capi-machine-uid" ||
 		plan.Artifact.Ref != machine.Spec.Image.Ref ||
 		plan.Artifact.ManifestDigest != manifestDigest.String() ||

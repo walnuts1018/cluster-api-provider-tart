@@ -84,7 +84,7 @@ func BuildProvisionPlan(
 			WWN:          input.Host.Spec.RootDeviceHints.WWN,
 			MinSizeBytes: input.Host.Spec.RootDeviceHints.MinSizeBytes,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            input.Machine.Spec.Image.Ref,
 			ManifestDigest: manifestDigest.String(),
 			Generation:     manifest.Generation,

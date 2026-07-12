@@ -87,7 +87,7 @@ func BuildUpdatePlan(
 			WWN:          input.Host.Spec.RootDeviceHints.WWN,
 			MinSizeBytes: input.Host.Spec.RootDeviceHints.MinSizeBytes,
 		},
-		Artifact: agentprotocol.Artifact{
+		Artifact: &agentprotocol.Artifact{
 			Ref:            input.TartMachine.Spec.Image.Ref,
 			ManifestDigest: manifestDigest.String(),
 			Generation:     manifest.Generation,

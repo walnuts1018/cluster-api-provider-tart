@@ -385,6 +385,154 @@ func TestTartHostOperationReconcilerはBootReport未着をBoot失敗試行とし
 	}
 }
 
+func TestTartHostOperationReconcilerはClean開始時にHostをCleaningへ移す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-clean-start",
+			Namespace: "default",
+			UID:       types.UID("machine-clean-start-uid"),
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{
+			DeletionPolicy: infrastructurev1beta1.DeletionPolicyRetainData,
+		},
+	}
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeClean
+	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, machine, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          hostPhase,
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.cleaning {
+		t.Fatal("MarkHostCleaningForDeletion() was not called")
+	}
+	if hostPhase.provisioning || hostPhase.updating {
+		t.Fatalf("unexpected host phase calls = %#v", hostPhase)
+	}
+}
+
+func TestTartHostOperationReconcilerはRetainData完了時にHostをRetainedへ移す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-clean",
+			Namespace: "default",
+			UID:       types.UID("machine-clean-uid"),
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{
+			DeletionPolicy: infrastructurev1beta1.DeletionPolicyRetainData,
+		},
+	}
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeClean
+	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, machine, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: hostPhase,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.retained {
+		t.Fatal("MarkHostRetained() was not called")
+	}
+}
+
+func TestTartHostOperationReconcilerはRetainState完了時にHostをDetachedへ移す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-detach",
+			Namespace: "default",
+			UID:       types.UID("machine-detach-uid"),
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{
+			DeletionPolicy: infrastructurev1beta1.DeletionPolicyRetainState,
+		},
+	}
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeClean
+	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, machine, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: hostPhase,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.detached {
+		t.Fatal("MarkHostDetached() was not called")
+	}
+}
+
 type successfulOperationPowerOn struct{}
 
 func (successfulOperationPowerOn) PowerOn(
@@ -402,6 +550,10 @@ type recordingOperationHostPhase struct {
 	updating     bool
 	provisioned  bool
 	recovery     bool
+	cleaning     bool
+	available    bool
+	retained     bool
+	detached     bool
 }
 
 type recordingOperationDriverCapabilities struct {
@@ -509,10 +661,36 @@ func (phase *recordingOperationHostPhase) MarkHostRecoveryRequired(
 	return nil
 }
 
-func (*recordingOperationHostPhase) MarkHostAvailable(
+func (phase *recordingOperationHostPhase) MarkHostAvailable(
 	context.Context,
 	*infrastructurev1beta1.TartHost,
 ) error {
+	phase.available = true
+	return nil
+}
+
+func (phase *recordingOperationHostPhase) MarkHostCleaningForDeletion(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+	infrastructurev1beta1.DeletionPolicy,
+) error {
+	phase.cleaning = true
+	return nil
+}
+
+func (phase *recordingOperationHostPhase) MarkHostRetained(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+) error {
+	phase.retained = true
+	return nil
+}
+
+func (phase *recordingOperationHostPhase) MarkHostDetached(
+	context.Context,
+	*infrastructurev1beta1.TartHost,
+) error {
+	phase.detached = true
 	return nil
 }
 

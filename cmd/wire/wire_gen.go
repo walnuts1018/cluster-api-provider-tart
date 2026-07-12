@@ -19,6 +19,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	bootstraptoken2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	host2 "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
@@ -54,7 +55,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	v1beta1hostService := v1beta1host.NewService(k8sClient)
 	operationService := operation.NewService(k8sClient)
 	orchestrator := initialprovisioning.NewOrchestrator(allocationService, v1beta1hostService, operationService)
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator)
+	cleaningOrchestrator := cleaning.NewOrchestrator(v1beta1hostService, operationService)
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, allocationService, observer, orchestrator, cleaningOrchestrator)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
 	driverstateService := driverstate.NewService(driverService, driverService, v1beta1hostService)
@@ -150,12 +152,14 @@ func provideTartMachineV1Beta1Reconciler(
 	hostReferences controller.HostReferenceService,
 	nodeHealth controller.NodeHealthObserver,
 	provisioner controller.ProvisionOrchestrator,
+	cleaner controller.CleaningOrchestrator,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,
+		Cleaner:        cleaner,
 	}
 }
 

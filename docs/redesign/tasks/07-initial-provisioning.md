@@ -68,7 +68,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 
 | 受け入れ条件 | 状況 | 証跡または残作業 |
 |---|---|---|
-| 1 | 一部実装 | Host予約、Provision Operation作成、WoL、Health Gate判定をcontrollerへ接続。OS Artifact Manifest取得とPlan Secret生成の接続、実機bootは未実装 |
+| 1 | 一部実装 | Host予約、Provision Operation作成、WoL、Health Gate判定をcontrollerへ接続。Node health未達時は`AwaitingHealth`を維持し、全条件成立時だけOperation、Host、TartMachineを完了順序で収束させる単体テストを追加済み。OS Artifact Manifest取得とPlan Secret生成の接続、実機bootは未実装 |
 | 2 | 一部実装 | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録以降の4再起動pointは未検証 |
 | 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。OS上のBootstrap Adapterはpayload digest一致の成功markerがある場合に再適用しない。BootReport/Operation Statusは成功markerのpayload digestを保持する。実機first-boot unit経由の再送確認は未検証 |
 | 4 | 実装済み | `EvaluateReadiness`とTartMachine controllerの単体テストでproviderID不一致時にProvisionedへ遷移しないことを確認 |

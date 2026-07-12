@@ -79,7 +79,7 @@
 - [x] `WipeAll`、`RetainData`、`RetainState`をPlanの許可Disk Roleへ写像するtable testを追加する。
 - [x] disk容量からWipeAll deadlineを算出する純粋関数と境界値テストを追加する。
 - [x] TartMachine削除時にCleaning Operationを作成し、完了までfinalizerを保持する。
-- [ ] `machineRef=nil`の手動WipeAllを同じOperation reconcilerで処理する。
+- [x] `machineRef=nil`の手動WipeAllを同じOperation reconcilerで処理する。
 - [x] 完了後のHost phaseをそれぞれAvailable、Retained、DetachedへPatchする。
 - [ ] 対象packageのテストを実行し、変更をコミットする。
 

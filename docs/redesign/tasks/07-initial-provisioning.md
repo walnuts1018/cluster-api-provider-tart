@@ -79,7 +79,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 | 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
 | 12 | 一部実装 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eは未検証 |
 | 13 | 未検証 | Runtime Extension無効時のCAPI Machine置換E2Eが必要 |
-| 14-15 | 一部実装 | `machineRef=nil` の手動 WipeAll はAdmission/Controllerの結線が未完了。disk容量別deadline算出はcontroller/applicationへ実装済み |
+| 14-15 | 一部実装 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。disk容量別deadline算出はcontroller/applicationへ実装済み。Agent側disk処理と実機確認は未完 |
 
 実装済みの補助機能:
 

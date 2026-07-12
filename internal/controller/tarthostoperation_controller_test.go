@@ -437,6 +437,82 @@ func TestTartHostOperationReconcilerはClean開始時にHostをCleaningへ移す
 	}
 }
 
+func TestTartHostOperationReconcilerは手動WipeAll開始時にAvailableHostをCleaningへ移す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Status.Phase = infrastructurev1beta1.TartHostPhaseAvailable
+	host.Status.LastStablePhase = infrastructurev1beta1.TartHostPhaseAvailable
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeWipeAll
+	operation.Spec.MachineRef = nil
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            successfulOperationPowerOn{},
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          hostPhase,
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.cleaning {
+		t.Fatal("MarkHostCleaningForDeletion() was not called")
+	}
+	if hostPhase.provisioning || hostPhase.updating {
+		t.Fatalf("unexpected host phase calls = %#v", hostPhase)
+	}
+}
+
+func TestTartHostOperationReconcilerは手動WipeAll完了時にHostをAvailableへ戻す(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Status.Phase = infrastructurev1beta1.TartHostPhaseCleaning
+	host.Status.LastStablePhase = infrastructurev1beta1.TartHostPhaseAvailable
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeWipeAll
+	operation.Spec.MachineRef = nil
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: hostPhase,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !hostPhase.available {
+		t.Fatal("MarkHostAvailable() was not called")
+	}
+}
+
 func TestTartHostOperationReconcilerはRetainData完了時にHostをRetainedへ移す(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {

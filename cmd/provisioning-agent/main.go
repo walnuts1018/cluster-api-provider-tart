@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 
 	provisioningagent "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
+	agentbootstrap "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/bootstrap"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/inventory"
@@ -49,20 +51,24 @@ import (
 const defaultSystemUUIDPath = "/sys/class/dmi/id/product_uuid"
 
 type config struct {
-	controllerURL   string
-	operationUID    string
-	hostUID         string
-	systemUUID      string
-	bootMAC         string
-	tlsCAFile       string
-	planKeyID       string
-	planKeyFile     string
-	artifactKeyID   string
-	artifactKeyFile string
-	registryConfig  string
-	preflight       bool
-	prepareLayout   bool
-	writePayloads   bool
+	controllerURL    string
+	operationUID     string
+	hostUID          string
+	systemUUID       string
+	bootMAC          string
+	tlsCAFile        string
+	planKeyID        string
+	planKeyFile      string
+	artifactKeyID    string
+	artifactKeyFile  string
+	registryConfig   string
+	preflight        bool
+	prepareLayout    bool
+	writePayloads    bool
+	applyBootstrap   bool
+	stateDir         string
+	bootstrapWorkDir string
+	bootstrapAdapter string
 }
 
 func main() {
@@ -217,6 +223,47 @@ func run(ctx context.Context, args []string) error {
 		// TODO: verity root hashとboot trial metadataの検証・更新後に通常Agent実行へ昇格する。
 		return nil
 	}
+	if cfg.applyBootstrap {
+		if validatedPlan.Value().Bootstrap == nil {
+			slog.Info("Provisioning Agent bootstrap apply skipped because Plan has no bootstrap target", "operation_uid", cfg.operationUID)
+			return nil
+		}
+		bootstrapService, err := agentbootstrap.NewService(
+			cfg.stateDir,
+			cfg.bootstrapWorkDir,
+			commandBootstrapApplier{path: cfg.bootstrapAdapter},
+			time.Now,
+		)
+		if err != nil {
+			return err
+		}
+		applied, err := bootstrapService.Applied(cfg.operationUID)
+		if err != nil {
+			return fmt.Errorf("check bootstrap success marker: %w", err)
+		}
+		if applied {
+			slog.Info("Provisioning Agent bootstrap apply skipped because success marker already exists", "operation_uid", cfg.operationUID)
+			return nil
+		}
+		bundle, err := apiClient.FetchBootstrap(operationContext, cfg.operationUID, registration.SessionToken)
+		if err != nil {
+			return err
+		}
+		if bundle.MachineUID != validatedPlan.Value().Bootstrap.MachineUID ||
+			bundle.Format != validatedPlan.Value().Bootstrap.Format {
+			return errors.New("bootstrap Bundle does not match Plan target")
+		}
+		if err := bootstrapService.Apply(operationContext, bundle); err != nil {
+			return err
+		}
+		slog.Info(
+			"Provisioning Agent bootstrap applied",
+			"operation_uid", cfg.operationUID,
+			"format", bundle.Format,
+			"payload_digest", bundle.PayloadDigest,
+		)
+		return nil
+	}
 	slog.Info(
 		"Provisioning Agent preflight completed",
 		"operation_uid", cfg.operationUID,
@@ -253,6 +300,20 @@ func parseConfig(args []string) (config, error) {
 		false,
 		"Verify the signed OS Artifact, prepare the layout, write OS/Verity payloads, and read them back. Provision mode destroys the selected disk.",
 	)
+	flags.BoolVar(
+		&cfg.applyBootstrap,
+		"apply-bootstrap-only",
+		false,
+		"Fetch the single-use Bootstrap Bundle, run the local cloud-config adapter, and delete the applied payload original.",
+	)
+	flags.StringVar(&cfg.stateDir, "state-dir", "/var/lib/tart", "State directory used by the installed OS bootstrap adapter.")
+	flags.StringVar(&cfg.bootstrapWorkDir, "bootstrap-work-dir", "/run/tart/bootstrap", "Temporary directory for the Bootstrap payload original.")
+	flags.StringVar(
+		&cfg.bootstrapAdapter,
+		"bootstrap-adapter",
+		"/usr/libexec/tart/apply-cloud-config",
+		"Local executable that applies cloud-config. The payload path is passed as the only argument.",
+	)
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -260,13 +321,13 @@ func parseConfig(args []string) (config, error) {
 		return config{}, errors.New("unexpected positional arguments")
 	}
 	modeCount := 0
-	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads} {
+	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads, cfg.applyBootstrap} {
 		if enabled {
 			modeCount++
 		}
 	}
 	if modeCount != 1 {
-		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, or --write-payloads-only is required")
+		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, --write-payloads-only, or --apply-bootstrap-only is required")
 	}
 	required := map[string]string{
 		"controller-url":   cfg.controllerURL,
@@ -287,6 +348,16 @@ func parseConfig(args []string) (config, error) {
 			return config{}, errors.New("--artifact-key-id is required with --write-payloads-only")
 		case cfg.artifactKeyFile == "":
 			return config{}, errors.New("--artifact-key-file is required with --write-payloads-only")
+		}
+	}
+	if cfg.applyBootstrap {
+		switch {
+		case cfg.stateDir == "":
+			return config{}, errors.New("--state-dir is required with --apply-bootstrap-only")
+		case cfg.bootstrapWorkDir == "":
+			return config{}, errors.New("--bootstrap-work-dir is required with --apply-bootstrap-only")
+		case cfg.bootstrapAdapter == "":
+			return config{}, errors.New("--bootstrap-adapter is required with --apply-bootstrap-only")
 		}
 	}
 	return cfg, nil
@@ -342,4 +413,20 @@ func newHTTPClient(caFile string) (*http.Client, error) {
 	}
 	transport.TLSClientConfig = tlsConfig
 	return &http.Client{Transport: transport}, nil
+}
+
+type commandBootstrapApplier struct {
+	path string
+}
+
+func (applier commandBootstrapApplier) ApplyCloudConfig(
+	ctx context.Context,
+	payloadPath string,
+	_ agentprotocol.BootstrapBundle,
+) error {
+	command := exec.CommandContext(ctx, applier.path, payloadPath)
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("run cloud-config bootstrap adapter: %w", err)
+	}
+	return nil
 }

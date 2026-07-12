@@ -70,11 +70,11 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 |---|---|---|
 | 1 | 一部実装 | Host予約、Provision Operation作成、WoL、Health Gate判定をcontrollerへ接続。OS Artifact Manifest取得とPlan Secret生成の接続、実機bootは未実装 |
 | 2 | 一部実装 | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録以降の4再起動pointは未検証 |
-| 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。Bootstrap Adapterの実機側成功marker処理は未実装 |
+| 3 | 一部実装 | Agent progressの冪等化はTask 04/06で実装済み。OS上のBootstrap Adapterはpayload digest一致の成功markerがある場合に再適用しない。実機first-boot unit経由の再送確認は未検証 |
 | 4 | 実装済み | `EvaluateReadiness`とTartMachine controllerの単体テストでproviderID不一致時にProvisionedへ遷移しないことを確認 |
-| 5 | 一部実装 | Bootstrap Bundle生成と`cloud-config` format検証はAgent APIへ接続済み。OS上のcloud-config Adapter失敗時の実機挙動は未検証 |
+| 5 | 一部実装 | Bootstrap Bundle生成と`cloud-config` format検証はAgent APIへ接続済み。OS上のBootstrap Adapter失敗時はpayload原本を保持する単体テストを追加済み。実機挙動は未検証 |
 | 6 | 実装済み | v1beta1 Agent APIはSession TokenをSecretではなく`TartHostOperation.status`のhash/expiry/consumedで保持し、`ClaimBootstrap`成功時に消費済みへ遷移する。`BootstrapDelivered`で新Sessionからの再取得も拒否 |
-| 7 | 未実装 | Bootstrap payload原本をOS上での適用成功時に実機ディスクから削除するAgent側処理が必要 |
+| 7 | 一部実装 | Provisioning Agentに`--apply-bootstrap-only`を追加し、Bundleを一時fileへ保存、local cloud-config adapter成功後にpayload原本を削除し、payload digest/adapter version/適用時刻だけをState markerへ残す処理を実装。OS imageへのadapter実体とfirst-boot systemd unit組み込みは未実装 |
 | 8-10 | 未実装 | Cleaning PlanとAgent側disk処理の実装が必要 |
 | 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
 | 12 | 一部実装 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eは未検証 |
@@ -90,6 +90,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
 - Gate通過後のOperation=`Succeeded`、Host=`Provisioned`、TartMachine=`Provisioned`への再試行可能な収束
 - 初期Provisioning完了時に、観測済みKubernetes versionを
   `TartMachine.status.installedDistributionVersion`へ保存する接続
+- OS上で動くProvisioning AgentのBootstrap適用モード。`cloud-config` Bundleのpayload原本を一時保存し、local adapter成功後だけ削除する。成功markerにはpayload digest、Machine UID、Operation UID、adapter version、適用時刻を保存する
 
 ## 対象外
 

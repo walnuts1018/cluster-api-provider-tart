@@ -92,6 +92,7 @@ CAPI object作成からUbuntu 24.04 kubeadm Nodeが`Ready=True`になるまで�
   `TartMachine.status.installedDistributionVersion`へ保存する接続
 - OS上で動くProvisioning AgentのBootstrap適用モード。`cloud-config` Bundleのpayload原本を一時保存し、local adapter成功後だけ削除する。成功markerにはpayload digest、Machine UID、Operation UID、adapter version、適用時刻を保存する
 - BootReport protocolと`TartHostOperation.status.lastBootReport`の`bootstrapPayloadDigest`。`bootstrapApplied=true`の場合はpayload digestが必須で、digestなしではProvisioning完了Gateを通過しない
+- OS上で動くProvisioning AgentのBootReport送信モード。State上のBootstrap成功markerを読み、payload digestを`bootstrapPayloadDigest`としてAgent APIへ送信する
 
 ## 対象外
 

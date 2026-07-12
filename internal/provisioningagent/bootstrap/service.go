@@ -75,14 +75,25 @@ func NewService(stateDir, workDir string, applier Applier, now Clock) (*Service,
 }
 
 func (service *Service) Applied(operationUID string) (bool, error) {
-	marker, err := service.readMarker()
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
+	marker, found, err := service.Marker(operationUID)
 	if err != nil {
 		return false, err
 	}
-	return marker.OperationUID == operationUID, nil
+	return found && marker.OperationUID == operationUID, nil
+}
+
+func (service *Service) Marker(operationUID string) (AppliedMarker, bool, error) {
+	marker, err := service.readMarker()
+	if errors.Is(err, os.ErrNotExist) {
+		return AppliedMarker{}, false, nil
+	}
+	if err != nil {
+		return AppliedMarker{}, false, err
+	}
+	if marker.OperationUID != operationUID {
+		return AppliedMarker{}, false, nil
+	}
+	return marker, true, nil
 }
 
 func (service *Service) Apply(ctx context.Context, bundle agentprotocol.BootstrapBundle) error {

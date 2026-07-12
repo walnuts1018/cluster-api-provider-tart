@@ -51,24 +51,30 @@ import (
 const defaultSystemUUIDPath = "/sys/class/dmi/id/product_uuid"
 
 type config struct {
-	controllerURL    string
-	operationUID     string
-	hostUID          string
-	systemUUID       string
-	bootMAC          string
-	tlsCAFile        string
-	planKeyID        string
-	planKeyFile      string
-	artifactKeyID    string
-	artifactKeyFile  string
-	registryConfig   string
-	preflight        bool
-	prepareLayout    bool
-	writePayloads    bool
-	applyBootstrap   bool
-	stateDir         string
-	bootstrapWorkDir string
-	bootstrapAdapter string
+	controllerURL      string
+	operationUID       string
+	hostUID            string
+	systemUUID         string
+	bootMAC            string
+	tlsCAFile          string
+	planKeyID          string
+	planKeyFile        string
+	artifactKeyID      string
+	artifactKeyFile    string
+	registryConfig     string
+	preflight          bool
+	prepareLayout      bool
+	writePayloads      bool
+	applyBootstrap     bool
+	reportBoot         bool
+	stateDir           string
+	bootstrapWorkDir   string
+	bootstrapAdapter   string
+	bootID             string
+	activeSlot         string
+	artifactGeneration uint64
+	stateMounted       bool
+	dataMounted        bool
 }
 
 func main() {
@@ -264,6 +270,45 @@ func run(ctx context.Context, args []string) error {
 		)
 		return nil
 	}
+	if cfg.reportBoot {
+		bootstrapService, err := agentbootstrap.NewService(
+			cfg.stateDir,
+			cfg.bootstrapWorkDir,
+			commandBootstrapApplier{path: cfg.bootstrapAdapter},
+			time.Now,
+		)
+		if err != nil {
+			return err
+		}
+		marker, bootstrapApplied, err := bootstrapService.Marker(cfg.operationUID)
+		if err != nil {
+			return fmt.Errorf("read bootstrap success marker: %w", err)
+		}
+		if err := apiClient.ReportBoot(operationContext, registration.SessionToken, agentprotocol.BootReportRequest{
+			APIVersion:             agentprotocol.APIVersion,
+			OperationUID:           cfg.operationUID,
+			PlanDigest:             registration.PlanDigest,
+			BootID:                 cfg.bootID,
+			ActiveSlot:             cfg.activeSlot,
+			ArtifactGeneration:     cfg.artifactGeneration,
+			StateMounted:           cfg.stateMounted,
+			DataMounted:            cfg.dataMounted,
+			BootstrapApplied:       bootstrapApplied,
+			BootstrapPayloadDigest: marker.PayloadDigest,
+		}); err != nil {
+			return err
+		}
+		slog.Info(
+			"Provisioning Agent boot report submitted",
+			"operation_uid", cfg.operationUID,
+			"active_slot", cfg.activeSlot,
+			"artifact_generation", cfg.artifactGeneration,
+			"state_mounted", cfg.stateMounted,
+			"data_mounted", cfg.dataMounted,
+			"bootstrap_applied", bootstrapApplied,
+		)
+		return nil
+	}
 	slog.Info(
 		"Provisioning Agent preflight completed",
 		"operation_uid", cfg.operationUID,
@@ -306,6 +351,12 @@ func parseConfig(args []string) (config, error) {
 		false,
 		"Fetch the single-use Bootstrap Bundle, run the local cloud-config adapter, and delete the applied payload original.",
 	)
+	flags.BoolVar(
+		&cfg.reportBoot,
+		"report-boot-only",
+		false,
+		"Report installed OS boot state, mount state, and Bootstrap success marker digest to the Agent API.",
+	)
 	flags.StringVar(&cfg.stateDir, "state-dir", "/var/lib/tart", "State directory used by the installed OS bootstrap adapter.")
 	flags.StringVar(&cfg.bootstrapWorkDir, "bootstrap-work-dir", "/run/tart/bootstrap", "Temporary directory for the Bootstrap payload original.")
 	flags.StringVar(
@@ -314,6 +365,11 @@ func parseConfig(args []string) (config, error) {
 		"/usr/libexec/tart/apply-cloud-config",
 		"Local executable that applies cloud-config. The payload path is passed as the only argument.",
 	)
+	flags.StringVar(&cfg.bootID, "boot-id", "", "Installed OS boot ID observed by the first-boot reporter.")
+	flags.StringVar(&cfg.activeSlot, "active-slot", "", "Installed OS active slot observed by the first-boot reporter.")
+	flags.Uint64Var(&cfg.artifactGeneration, "artifact-generation", 0, "Installed OS Artifact generation observed by the first-boot reporter.")
+	flags.BoolVar(&cfg.stateMounted, "state-mounted", false, "Set when the first-boot reporter observed the State filesystem mounted.")
+	flags.BoolVar(&cfg.dataMounted, "data-mounted", false, "Set when the first-boot reporter observed the Data filesystem mounted.")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -321,13 +377,13 @@ func parseConfig(args []string) (config, error) {
 		return config{}, errors.New("unexpected positional arguments")
 	}
 	modeCount := 0
-	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads, cfg.applyBootstrap} {
+	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads, cfg.applyBootstrap, cfg.reportBoot} {
 		if enabled {
 			modeCount++
 		}
 	}
 	if modeCount != 1 {
-		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, --write-payloads-only, or --apply-bootstrap-only is required")
+		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, --write-payloads-only, --apply-bootstrap-only, or --report-boot-only is required")
 	}
 	required := map[string]string{
 		"controller-url":   cfg.controllerURL,
@@ -358,6 +414,20 @@ func parseConfig(args []string) (config, error) {
 			return config{}, errors.New("--bootstrap-work-dir is required with --apply-bootstrap-only")
 		case cfg.bootstrapAdapter == "":
 			return config{}, errors.New("--bootstrap-adapter is required with --apply-bootstrap-only")
+		}
+	}
+	if cfg.reportBoot {
+		switch {
+		case cfg.stateDir == "":
+			return config{}, errors.New("--state-dir is required with --report-boot-only")
+		case cfg.bootstrapWorkDir == "":
+			return config{}, errors.New("--bootstrap-work-dir is required with --report-boot-only")
+		case cfg.bootID == "":
+			return config{}, errors.New("--boot-id is required with --report-boot-only")
+		case cfg.activeSlot != "A" && cfg.activeSlot != "B":
+			return config{}, errors.New("--active-slot must be A or B with --report-boot-only")
+		case cfg.artifactGeneration == 0:
+			return config{}, errors.New("--artifact-generation is required with --report-boot-only")
 		}
 	}
 	return cfg, nil

@@ -151,11 +151,13 @@ func targetDiskRoles(target slotdomain.Slot) ([]agentprotocol.DiskRole, error) {
 	switch target {
 	case slotdomain.A:
 		return []agentprotocol.DiskRole{
+			agentprotocol.DiskRoleBoot,
 			agentprotocol.DiskRoleOSA,
 			agentprotocol.DiskRoleVerityA,
 		}, nil
 	case slotdomain.B:
 		return []agentprotocol.DiskRole{
+			agentprotocol.DiskRoleBoot,
 			agentprotocol.DiskRoleOSB,
 			agentprotocol.DiskRoleVerityB,
 		}, nil

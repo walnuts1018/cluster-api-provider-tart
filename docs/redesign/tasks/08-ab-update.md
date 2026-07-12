@@ -162,10 +162,13 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - update failure時にOperation ID、Host名、Operation type、failure reasonを含むEvent、
   `operation_type`/`phase`/`result`/`rollback` label付きMetric、
   Operation IDとfailure reasonを持つTrace attributeを出す処理
+- Update PlanにBoot roleを含め、Provisioning Agentがtarget slot、rollback slot、
+  Artifact Generation、最大試行回数をtyped requestとしてboot trial driverへ渡す処理
+- Provisioning Agentのcommand adapterがboot device pathとslot情報を固定引数で受け取り、
+  boot trial metadata更新を外部driverへ委譲する処理
 
 未実装・未検証:
 
-- boot trial metadataを操作するDriver adapter
 - controllerからprivate OCI Registryを参照するcredential設定。現時点のManifest解決は
   digest固定参照と署名検証を必須とし、匿名Registryに限定する
 - QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証

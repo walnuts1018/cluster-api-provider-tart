@@ -37,6 +37,7 @@ import (
 	provisioningagent "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
 	agentbootstrap "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/bootstrap"
+	boottrial "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/boottrial"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/inventory"
@@ -62,6 +63,7 @@ type config struct {
 	artifactKeyID      string
 	artifactKeyFile    string
 	registryConfig     string
+	bootTrialDriver    string
 	preflight          bool
 	prepareLayout      bool
 	writePayloads      bool
@@ -218,6 +220,9 @@ func run(ctx context.Context, args []string) error {
 				)
 			},
 		)
+		if cfg.bootTrialDriver != "" {
+			targetWriter.SetBootTrialDriver(boottrial.NewCommandDriver(cfg.bootTrialDriver, nil))
+		}
 		if err := provisioningagent.NewService(targetWriter).Execute(operationContext, validatedPlan, devices); err != nil {
 			return err
 		}
@@ -229,7 +234,7 @@ func run(ctx context.Context, args []string) error {
 			attributes = append(attributes, "artifact_generation", validatedPlan.Value().Artifact.Generation)
 		}
 		slog.Info("Provisioning Agent payloads written and verified", attributes...)
-		// TODO: verity root hashとboot trial metadataの検証・更新後に通常Agent実行へ昇格する。
+		// TODO: boot試行から再起動までを含む通常Agent実行へ昇格する条件が揃うまで、書込み診断を維持する。
 		return nil
 	}
 	if cfg.applyBootstrap {
@@ -335,6 +340,7 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&cfg.artifactKeyID, "artifact-key-id", "", "Trusted OS Artifact signing key ID.")
 	flags.StringVar(&cfg.artifactKeyFile, "artifact-key-file", "", "PEM Ed25519 public key used to verify OS Artifacts.")
 	flags.StringVar(&cfg.registryConfig, "registry-config", "", "Optional Docker-compatible registry credential file.")
+	flags.StringVar(&cfg.bootTrialDriver, "boot-trial-driver", "", "Optional executable that writes boot trial metadata for Update Plans.")
 	flags.BoolVar(&cfg.preflight, "preflight-only", false, "Validate registration, signed Plan, and disk selection without writing.")
 	flags.BoolVar(
 		&cfg.prepareLayout,

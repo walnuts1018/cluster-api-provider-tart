@@ -99,6 +99,9 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
   OS/Verity layer descriptorを検証してからpayload streamを公開
 - `internal/provisioningagent/writer`: ProvisionではOS-A/Verity-A、UpdateではInactive
   OS/Verity Slotだけを選び、partition容量の事前検証後にpayloadを書込み・read-back検証
+- `internal/provisioningagent/boottrial`: Update PlanのBoot roleから解決したboot deviceへ対して、
+  target slot、rollback slot、Artifact Generation、試行回数をtyped requestとして
+  外部driverへ渡すcommand adapter
 - `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
   Plan digestとEd25519署名をAgent側で検証
 - `internal/provisioningagent/progress`: register responseの保存済みsequenceから再開し、同一requestを
@@ -139,7 +142,7 @@ controller起動時に検証する。信頼する公開鍵はArtifactと別のre
 - Provisioning Agentを含む実Agent Artifactのbuild/publishとcontroller Podへのread-only mount
 - HTTPS対応iPXE binaryから実Agent Artifactを起動し、initramfsが`provisioning-agent`へ
   kernel command lineを渡す実機またはOVMF試験
-- verity root hash検証、boot trial metadata更新、failure injection
+- verity root hash検証、boot trial metadataを更新する実driverの接続、failure injection
 - 実クラスタでのleader切替試験
 
 ## 対象外

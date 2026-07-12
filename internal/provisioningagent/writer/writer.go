@@ -25,6 +25,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
+	boottrial "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/boottrial"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/layout"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/payload"
@@ -62,11 +63,12 @@ type Progress struct {
 type ProgressReporter func(context.Context, Progress) error
 
 type Writer struct {
-	layout   LayoutPreparer
-	fetcher  ArtifactFetcher
-	opener   DeviceOpener
-	sanitize Sanitizer
-	progress ProgressReporter
+	layout    LayoutPreparer
+	fetcher   ArtifactFetcher
+	opener    DeviceOpener
+	sanitize  Sanitizer
+	progress  ProgressReporter
+	bootTrial boottrial.Driver
 }
 
 func New(
@@ -92,6 +94,10 @@ func NewWithSanitizer(
 		sanitize: sanitizer,
 		progress: progress,
 	}
+}
+
+func (writer *Writer) SetBootTrialDriver(driver boottrial.Driver) {
+	writer.bootTrial = driver
 }
 
 func (writer *Writer) WriteTargets(
@@ -152,6 +158,9 @@ func (writer *Writer) WriteTargets(
 	); err != nil {
 		return err
 	}
+	if err := writer.configureBootTrial(ctx, plan.Value(), targetRoles, resolved); err != nil {
+		return err
+	}
 	if err := writer.report(ctx, Progress{
 		Step:      agentprotocol.StepWriteImage,
 		Percent:   100,
@@ -165,6 +174,46 @@ func (writer *Writer) WriteTargets(
 		Completed: true,
 	}); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (writer *Writer) configureBootTrial(
+	ctx context.Context,
+	plan agentprotocol.Plan,
+	targets payloadTargets,
+	resolved map[agentprotocol.DiskRole]layout.RoleDevice,
+) error {
+	if plan.OperationType != agentprotocol.OperationTypeUpdate {
+		return nil
+	}
+	if writer.bootTrial == nil {
+		return errors.New("boot trial driver is required for Update")
+	}
+	allowed := make(map[agentprotocol.DiskRole]struct{}, len(plan.AllowedTargetRoles))
+	for _, role := range plan.AllowedTargetRoles {
+		allowed[role] = struct{}{}
+	}
+	if _, ok := allowed[agentprotocol.DiskRoleBoot]; !ok {
+		return errors.New("Update Plan must allow Boot role for boot trial metadata")
+	}
+	bootDevice, ok := resolved[agentprotocol.DiskRoleBoot]
+	if !ok {
+		return errors.New("partition layout does not contain role \"Boot\"")
+	}
+	if plan.Artifact == nil {
+		return errors.New("plan artifact is required")
+	}
+	request := boottrial.Request{
+		BootDevicePath:     bootDevice.DevicePath,
+		ActiveSlot:         plan.ActiveSlot,
+		TargetSlot:         slotForRole(targets.os),
+		RollbackSlot:       plan.ActiveSlot,
+		ArtifactGeneration: plan.Artifact.Generation,
+		MaxAttempts:        boottrial.MaxAttempts,
+	}
+	if err := writer.bootTrial.Configure(ctx, request); err != nil {
+		return fmt.Errorf("configure boot trial metadata: %w", err)
 	}
 	return nil
 }
@@ -366,6 +415,23 @@ func selectPayloadTargets(plan agentprotocol.ValidatedPlan) (payloadTargets, err
 		return payloadTargets{}, fmt.Errorf("plan does not allow target role %q", expected.verity)
 	}
 	return expected, nil
+}
+
+func slotForRole(role agentprotocol.DiskRole) string {
+	switch role {
+	case agentprotocol.DiskRoleBoot,
+		agentprotocol.DiskRoleVerityA,
+		agentprotocol.DiskRoleVerityB,
+		agentprotocol.DiskRoleState,
+		agentprotocol.DiskRoleData:
+		return ""
+	case agentprotocol.DiskRoleOSA:
+		return "A"
+	case agentprotocol.DiskRoleOSB:
+		return "B"
+	default:
+		return ""
+	}
 }
 
 func validateProfileCapacity(targets payloadTargets, imageSize, veritySize int64) error {

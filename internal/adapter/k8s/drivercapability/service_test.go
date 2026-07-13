@@ -57,7 +57,7 @@ func TestServiceObserveAndPersistStopsOnDiscoveryError(t *testing.T) {
 	service := NewService(discoverer, writer)
 
 	err := service.ObserveAndPersist(
-		context.Background(),
+		t.Context(),
 		driverdomain.Redfish,
 		testTarget(t),
 		&infrastructurev1beta1.TartHost{},

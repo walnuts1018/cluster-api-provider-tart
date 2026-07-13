@@ -16,6 +16,7 @@ package distributionlifecycle
 
 import (
 	"fmt"
+	"slices"
 
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 )
@@ -66,10 +67,5 @@ func formatCompletedSteps(completed []domain.Step) []string {
 }
 
 func stepInPlan(step domain.Step, planSteps []domain.Step) bool {
-	for _, candidate := range planSteps {
-		if candidate == step {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(planSteps, step)
 }

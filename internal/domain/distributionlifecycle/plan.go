@@ -14,7 +14,10 @@
 
 package distributionlifecycle
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // PlanInputはDistribution Lifecycle Plan生成に必要な不変入力である。
 type PlanInput struct {
@@ -98,10 +101,8 @@ func RecordPlanStep(completed []Step, step Step, planSteps []Step) ([]Step, Step
 	if stepIndex < 0 {
 		return nil, StepDecision{}, fmt.Errorf("lifecycle step %q is not part of this plan", step)
 	}
-	for _, existing := range completed {
-		if existing == step {
-			return append([]Step(nil), completed...), StepDecision{AlreadyCompleted: true}, nil
-		}
+	if slices.Contains(completed, step) {
+		return append([]Step(nil), completed...), StepDecision{AlreadyCompleted: true}, nil
 	}
 	if stepIndex != len(completed) {
 		return nil, StepDecision{}, fmt.Errorf("lifecycle step %q cannot be recorded before %q", step, planSteps[len(completed)])

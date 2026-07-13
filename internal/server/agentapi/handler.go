@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -330,12 +331,7 @@ func (handler *Handler) nodeLifecycleProgress(writer http.ResponseWriter, reques
 }
 
 func nodeLifecyclePlanContainsStep(plan distributiondomain.Plan, completedStep distributiondomain.Step) bool {
-	for _, step := range plan.Steps {
-		if step == completedStep {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(plan.Steps, completedStep)
 }
 
 func (handler *Handler) progress(writer http.ResponseWriter, request *http.Request) {

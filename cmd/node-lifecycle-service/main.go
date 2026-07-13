@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 
 	kubeadmadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/kubeadm"
@@ -196,10 +197,8 @@ func parseConfig(args []string) (config, error) {
 
 func parseStep(value string) (domain.Step, error) {
 	step := domain.Step(value)
-	for _, candidate := range domain.LifecycleSteps() {
-		if candidate == step {
-			return step, nil
-		}
+	if slices.Contains(domain.LifecycleSteps(), step) {
+		return step, nil
 	}
 	return "", fmt.Errorf("unknown lifecycle step %q", value)
 }

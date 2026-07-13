@@ -96,7 +96,7 @@ func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
 	}
 	reporter := &recordingLifecycleProgressReporter{}
 	if err := reportStepOutcome(
-		context.Background(),
+		t.Context(),
 		reporter,
 		"session-token",
 		cfg,
@@ -111,7 +111,7 @@ func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
 
 	stepErr := errors.New("step failed")
 	if err := reportStepOutcome(
-		context.Background(),
+		t.Context(),
 		reporter,
 		"session-token",
 		cfg,

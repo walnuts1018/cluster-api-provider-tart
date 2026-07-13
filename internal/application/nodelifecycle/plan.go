@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"time"
 
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
@@ -170,12 +171,7 @@ func (plan ValidatedPlan) Digest() (digest.Digest, error) {
 }
 
 func knownStep(step domain.Step) bool {
-	for _, candidate := range domain.LifecycleSteps() {
-		if candidate == step {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(domain.LifecycleSteps(), step)
 }
 
 func decodeStrict(data []byte, target any) error {

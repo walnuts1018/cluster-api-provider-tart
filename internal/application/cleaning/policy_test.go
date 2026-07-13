@@ -146,7 +146,7 @@ func TestOrchestratorはWipeAll削除時に容量連動deadlineを設定する(t
 	orchestrator := NewOrchestrator(hostPhase, operations)
 	orchestrator.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
 
-	operation, err := orchestrator.StartCleaning(context.Background(), machine, host)
+	operation, err := orchestrator.StartCleaning(t.Context(), machine, host)
 	if err != nil {
 		t.Fatalf("StartCleaning() error = %v", err)
 	}

@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
@@ -570,10 +571,8 @@ func bootOverrideValue(system systemResource, target driverdomain.BootTarget) (s
 	default:
 		return "", driverdomain.NewError(driverdomain.ErrorUnsupported, fmt.Errorf("unknown boot target %q", target))
 	}
-	for _, allowed := range system.Boot.Allowed {
-		if allowed == want {
-			return want, nil
-		}
+	if slices.Contains(system.Boot.Allowed, want) {
+		return want, nil
 	}
 	return "", driverdomain.NewError(driverdomain.ErrorUnsupported, fmt.Errorf("boot target %q is not supported", target))
 }
@@ -685,29 +684,20 @@ func (session *session) request(ctx context.Context, method string, path string,
 }
 
 func contains(values []int, want int) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }
 
 func classifyHTTPError(err error) error {
-	var unknownAuthorityError x509.UnknownAuthorityError
-	if errors.As(err, &unknownAuthorityError) {
+	if _, ok := errors.AsType[x509.UnknownAuthorityError](err); ok {
 		return driverdomain.NewError(driverdomain.ErrorTLSVerificationFailed, err)
 	}
-	var hostnameError x509.HostnameError
-	if errors.As(err, &hostnameError) {
+	if _, ok := errors.AsType[x509.HostnameError](err); ok {
 		return driverdomain.NewError(driverdomain.ErrorTLSVerificationFailed, err)
 	}
-	var certificateInvalidError x509.CertificateInvalidError
-	if errors.As(err, &certificateInvalidError) {
+	if _, ok := errors.AsType[x509.CertificateInvalidError](err); ok {
 		return driverdomain.NewError(driverdomain.ErrorTLSVerificationFailed, err)
 	}
-	var opError *driverdomain.Error
-	if errors.As(err, &opError) {
+	if _, ok := errors.AsType[*driverdomain.Error](err); ok {
 		return err
 	}
 	return driverdomain.NewError(driverdomain.ErrorTemporary, err)

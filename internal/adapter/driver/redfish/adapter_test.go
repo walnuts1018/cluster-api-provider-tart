@@ -16,7 +16,6 @@ package redfish
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -43,7 +42,7 @@ func TestAdapterDiscoversCapabilitiesWithSessionAuthentication(t *testing.T) {
 	fixture := &redfishFixture{}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	got, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{})
+	got, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{})
 	if err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
@@ -72,7 +71,7 @@ func TestAdapterFallsBackToBasicAuthenticationOnlyWhenSessionIsUnsupported(t *te
 	fixture := &redfishFixture{sessionUnsupported: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	if _, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{}); err != nil {
+	if _, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{}); err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
 	if !fixture.usedBasicAuth {
@@ -86,7 +85,7 @@ func TestAdapterRejectsAuthenticationFailureWithoutBasicFallback(t *testing.T) {
 	fixture := &redfishFixture{sessionAuthFails: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
-	if _, err := adapter.DiscoverCapabilities(context.Background(), driverdomain.Redfish, target, applicationdriver.Invocation{}); !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
+	if _, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{}); !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
 		t.Fatalf("DiscoverCapabilities() error = %v, want AuthenticationFailed", err)
 	}
 	if fixture.usedBasicAuth {
@@ -146,7 +145,7 @@ func TestAdapterMountIsIdempotentForSameOperation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseID() error = %v", err)
 	}
-	if err := adapter.Mount(context.Background(), target, artifact, operationID); err != nil {
+	if err := adapter.Mount(t.Context(), target, artifact, operationID); err != nil {
 		t.Fatalf("Mount() error = %v", err)
 	}
 	if fixture.insertCount != 0 {
@@ -172,7 +171,7 @@ func TestAdapterMountRejectsConflictingMedia(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseID() error = %v", err)
 	}
-	if err := adapter.Mount(context.Background(), target, artifact, operationID); !driverdomain.IsErrorKind(err, driverdomain.ErrorConflict) {
+	if err := adapter.Mount(t.Context(), target, artifact, operationID); !driverdomain.IsErrorKind(err, driverdomain.ErrorConflict) {
 		t.Fatalf("Mount() error = %v, want Conflict", err)
 	}
 }
@@ -187,7 +186,7 @@ func TestAdapterSetsOneTimeBootOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseID() error = %v", err)
 	}
-	if err := adapter.SetNextBoot(context.Background(), target, driverdomain.BootTargetHTTP, operationID); err != nil {
+	if err := adapter.SetNextBoot(t.Context(), target, driverdomain.BootTargetHTTP, operationID); err != nil {
 		t.Fatalf("SetNextBoot() error = %v", err)
 	}
 	boot, ok := fixture.lastBootPatch["Boot"].(map[string]any)
@@ -215,7 +214,7 @@ func TestAdapterObservesBootState(t *testing.T) {
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
 	target := testTarget(t, nil)
 
-	state, err := adapter.ObserveBootState(context.Background(), target)
+	state, err := adapter.ObserveBootState(t.Context(), target)
 	if err != nil {
 		t.Fatalf("ObserveBootState() error = %v", err)
 	}

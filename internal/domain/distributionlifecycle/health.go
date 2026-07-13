@@ -14,6 +14,8 @@
 
 package distributionlifecycle
 
+import "slices"
+
 // HealthInputはDistribution Lifecycle Commit前の観測値である。
 type HealthInput struct {
 	NodeReady     bool
@@ -44,12 +46,7 @@ type HealthResult struct {
 }
 
 func (result HealthResult) HasFailure(failure HealthFailure) bool {
-	for _, candidate := range result.Failures {
-		if candidate == failure {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(result.Failures, failure)
 }
 
 // EvaluateHealthはNode観測値からDistribution LifecycleをCommit可能か判定する。

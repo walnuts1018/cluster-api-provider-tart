@@ -16,7 +16,6 @@ package machineexecution
 
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
@@ -35,52 +34,6 @@ type provisionedMachine struct {
 	Machine *infrastructurev1beta1.TartMachine
 	State   machinelifecycledomain.MachineState
 }
-
-type provisionReferenceResult interface {
-	isProvisionReferenceResult()
-}
-
-type provisionReferenceReady struct{}
-
-type provisionReferenceBlocked struct{}
-
-type updateOperationStepResult interface {
-	isUpdateOperationStepResult()
-}
-
-type updateOperationTerminalHandled struct{}
-
-type updateOperationNeedsNodeHealth struct{}
-
-type updateHealthResult interface {
-	isUpdateHealthResult()
-}
-
-type updateHealthTerminalHandled struct{}
-
-type updateHealthStatusChanged struct{}
-
-type nodeHealthResult interface {
-	isNodeHealthResult()
-}
-
-type nodeHealthObserved struct {
-	Observation machinehealthdomain.NodeObservation
-}
-
-type nodeHealthUnavailable struct{}
-
-func (provisionReferenceReady) isProvisionReferenceResult()   {}
-func (provisionReferenceBlocked) isProvisionReferenceResult() {}
-
-func (updateOperationTerminalHandled) isUpdateOperationStepResult() {}
-func (updateOperationNeedsNodeHealth) isUpdateOperationStepResult() {}
-
-func (updateHealthTerminalHandled) isUpdateHealthResult() {}
-func (updateHealthStatusChanged) isUpdateHealthResult()   {}
-
-func (nodeHealthObserved) isNodeHealthResult()    {}
-func (nodeHealthUnavailable) isNodeHealthResult() {}
 
 func machineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {
 	provisioned := machine.Status.Initialization.Provisioned != nil && *machine.Status.Initialization.Provisioned

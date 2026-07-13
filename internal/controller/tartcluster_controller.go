@@ -31,16 +31,15 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
 	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
 // TartClusterReconciler reconciles a TartCluster object
 type TartClusterReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
-	Finalizer *resourcefinalizer.Workflow
-	Status    *clusterstatus.Workflow
+	Lifecycle *clusterlifecycle.Workflow
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;create;update;patch;delete
@@ -67,32 +66,27 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
-	if !cluster.DeletionTimestamp.IsZero() {
-		if _, err := r.finalizerWorkflow().Release(ctx, &cluster); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
-
-	if _, err := r.finalizerWorkflow().Ensure(ctx, &cluster); err != nil {
+	result, err := r.lifecycleWorkflow().Reconcile(ctx, &cluster)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-
-	if err := r.reconcileNormal(ctx, &cluster); err != nil {
-		return ctrl.Result{}, err
-	}
+	logClusterLifecycle(ctx, &cluster, result)
 
 	return ctrl.Result{}, nil
 }
 
-func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
-	log := logf.FromContext(ctx)
-	result, err := r.statusWorkflow().Reconcile(ctx, cluster)
-	if err != nil {
-		return err
+func logClusterLifecycle(
+	ctx context.Context,
+	cluster *infrastructurev1beta1.TartCluster,
+	result clusterlifecycle.Result,
+) {
+	reconciled, ok := result.(clusterlifecycle.ResultActiveReconciled)
+	if !ok {
+		return
 	}
 
-	switch observed := result.(type) {
+	log := logf.FromContext(ctx)
+	switch observed := reconciled.Status.(type) {
 	case clusterstatus.ResultSkippedMissingClusterLabel:
 		log.V(4).Info("TartCluster missing cluster label, skipping", "cluster", cluster.Name)
 	case clusterstatus.ResultSkippedClusterNotFound:
@@ -100,22 +94,13 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 	case clusterstatus.ResultSkippedPausedCluster:
 		log.V(4).Info("Cluster is paused, skipping reconciliation", "cluster", observed.ClusterName)
 	}
-
-	return nil
 }
 
-func (r *TartClusterReconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
-	if r.Finalizer != nil {
-		return r.Finalizer
+func (r *TartClusterReconciler) lifecycleWorkflow() *clusterlifecycle.Workflow {
+	if r.Lifecycle != nil {
+		return r.Lifecycle
 	}
-	return resourcefinalizer.NewTartClusterWorkflow(r.Client)
-}
-
-func (r *TartClusterReconciler) statusWorkflow() *clusterstatus.Workflow {
-	if r.Status != nil {
-		return r.Status
-	}
-	return clusterstatus.NewWorkflow(r.Client)
+	return clusterlifecycle.NewWorkflow(r.Client)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -21,6 +21,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
@@ -115,7 +116,7 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 	return &controller.TartMachineTemplateReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
-		Finalizer: resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient),
+		Lifecycle: machinetemplatelifecycle.NewWorkflow(k8sClient),
 	}
 }
 

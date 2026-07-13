@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
+	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -33,7 +33,7 @@ import (
 type TartMachineTemplateReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
-	Finalizer *resourcefinalizer.Workflow
+	Lifecycle *machinetemplatelifecycle.Workflow
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachinetemplates,verbs=get;list;watch;create;update;patch;delete
@@ -59,25 +59,18 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
-	if !template.DeletionTimestamp.IsZero() {
-		if _, err := r.finalizerWorkflow().Release(ctx, &template); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
-
-	if _, err := r.finalizerWorkflow().Ensure(ctx, &template); err != nil {
+	if _, err := r.lifecycleWorkflow().Reconcile(ctx, &template); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *TartMachineTemplateReconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
-	if r.Finalizer != nil {
-		return r.Finalizer
+func (r *TartMachineTemplateReconciler) lifecycleWorkflow() *machinetemplatelifecycle.Workflow {
+	if r.Lifecycle != nil {
+		return r.Lifecycle
 	}
-	return resourcefinalizer.NewTartMachineTemplateWorkflow(r.Client)
+	return machinetemplatelifecycle.NewWorkflow(r.Client)
 }
 
 // SetupWithManager sets up the controller with the Manager.

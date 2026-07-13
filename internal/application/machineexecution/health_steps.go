@@ -63,7 +63,7 @@ func (workflow *Workflow) planObservedNodeHealthStatus(
 	original *infrastructurev1beta1.TartMachine,
 ) (machineStatusPatchResult, error) {
 	state := machineState(machine)
-	operationReference, err := workflow.referencedOperation(ctx, machine, "health gate")
+	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "health gate")
 	if err != nil {
 		return nil, err
 	}

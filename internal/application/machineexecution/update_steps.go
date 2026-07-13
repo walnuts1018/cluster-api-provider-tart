@@ -33,7 +33,7 @@ func (workflow *Workflow) reconcileUpdateOperationStep(
 	provisioned provisionedMachine,
 ) (updateOperationStepResult, error) {
 	machine := provisioned.Machine
-	operationReference, err := workflow.referencedOperation(ctx, machine, "update outcome")
+	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "update outcome")
 	if err != nil {
 		return nil, err
 	}

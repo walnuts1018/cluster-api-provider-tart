@@ -154,7 +154,7 @@ func (workflow *Workflow) resumeProvisionOperationStep(
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	operationReference, err := workflow.referencedOperation(ctx, machine, "provision progress")
+	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "provision progress")
 	if err != nil {
 		return err
 	}
@@ -246,7 +246,11 @@ func (workflow *Workflow) completeProvisionStep(
 	if workflow.Provisioner == nil {
 		return fmt.Errorf("complete Provisioning: Provisioner is not configured")
 	}
-	host, err := workflow.referencedHost(ctx, machine, "health gate")
+	hostReference, err := workflow.resolveHostReferenceStep(ctx, machine, "health gate")
+	if err != nil {
+		return err
+	}
+	host, err := resolvedHost(hostReference, "health gate")
 	if err != nil {
 		return err
 	}

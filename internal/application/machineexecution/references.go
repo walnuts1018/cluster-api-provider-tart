@@ -26,25 +26,7 @@ import (
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 )
 
-type operationReferenceResult interface {
-	isOperationReferenceResult()
-}
-
-type operationReferenceAbsent struct{}
-
-type operationReferenceResolved struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-}
-
-type operationReferenceStale struct {
-	Reference *infrastructurev1beta1.ResourceReference
-}
-
-func (operationReferenceAbsent) isOperationReferenceResult()   {}
-func (operationReferenceResolved) isOperationReferenceResult() {}
-func (operationReferenceStale) isOperationReferenceResult()    {}
-
-func (workflow *Workflow) referencedOperation(
+func (workflow *Workflow) resolveOperationReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
@@ -71,13 +53,13 @@ func (workflow *Workflow) referencedOperation(
 	return operationReferenceResolved{Operation: operation}, nil
 }
 
-func (workflow *Workflow) referencedHost(
+func (workflow *Workflow) resolveHostReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
-) (*infrastructurev1beta1.TartHost, error) {
+) (hostReferenceResult, error) {
 	if machine.Status.HostRef == nil {
-		return nil, fmt.Errorf("TartHost reference is missing for %s", purpose)
+		return hostReferenceMissing{}, nil
 	}
 	host := &infrastructurev1beta1.TartHost{}
 	hostKey := client.ObjectKey{
@@ -95,7 +77,21 @@ func (workflow *Workflow) referencedHost(
 			host.UID,
 		)
 	}
-	return host, nil
+	return hostReferenceResolved{Host: host}, nil
+}
+
+func resolvedHost(
+	reference hostReferenceResult,
+	purpose string,
+) (*infrastructurev1beta1.TartHost, error) {
+	switch reference := reference.(type) {
+	case hostReferenceResolved:
+		return reference.Host, nil
+	case hostReferenceMissing:
+		return nil, fmt.Errorf("TartHost reference is missing for %s", purpose)
+	default:
+		return nil, fmt.Errorf("unknown TartHost reference result for %s: %T", purpose, reference)
+	}
 }
 
 func (workflow *Workflow) transitionOperationPhase(
@@ -103,15 +99,44 @@ func (workflow *Workflow) transitionOperationPhase(
 	operation *infrastructurev1beta1.TartHostOperation,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
+	patchResult := planOperationPhaseTransition(operation, target)
+	return workflow.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation phase")
+}
+
+func planOperationPhaseTransition(
+	operation *infrastructurev1beta1.TartHostOperation,
+	target infrastructurev1beta1.TartHostOperationPhase,
+) operationStatusPatchResult {
 	original := operation.DeepCopy()
+	statusChanged := operation.Status.Phase != target
 	operation.Status.Phase = target
 	if operation.Status.ObservedGeneration < operation.Generation {
+		statusChanged = true
 		operation.Status.ObservedGeneration = operation.Generation
 	}
-	if err := workflow.Status().Patch(ctx, operation, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("set TartHostOperation phase: %w", err)
+	if !statusChanged {
+		return operationStatusPatchAlreadyApplied{}
 	}
-	return nil
+	return operationStatusPatchRequired{Original: original}
+}
+
+func (workflow *Workflow) patchPlannedOperationStatusStep(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	patchResult operationStatusPatchResult,
+	purpose string,
+) error {
+	switch patchResult := patchResult.(type) {
+	case operationStatusPatchAlreadyApplied:
+		return nil
+	case operationStatusPatchRequired:
+		if err := workflow.Status().Patch(ctx, operation, client.MergeFrom(patchResult.Original)); err != nil {
+			return fmt.Errorf("%s: %w", purpose, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown TartHostOperation status patch result: %T", patchResult)
+	}
 }
 
 func (workflow *Workflow) transitionUpdateFailurePhase(
@@ -120,16 +145,22 @@ func (workflow *Workflow) transitionUpdateFailurePhase(
 	failedPhase infrastructurev1beta1.TartHostOperationPhase,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
+	patchResult := planUpdateFailurePhaseTransition(operation, failedPhase, target)
+	return workflow.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation update failure phase")
+}
+
+func planUpdateFailurePhaseTransition(
+	operation *infrastructurev1beta1.TartHostOperation,
+	failedPhase infrastructurev1beta1.TartHostOperationPhase,
+	target infrastructurev1beta1.TartHostOperationPhase,
+) operationStatusPatchResult {
 	original := operation.DeepCopy()
 	operation.Status.Phase = target
 	appupdate.UpdateFailureCondition(&operation.Status, operation.Generation, failedPhase, target)
 	if operation.Status.ObservedGeneration < operation.Generation {
 		operation.Status.ObservedGeneration = operation.Generation
 	}
-	if err := workflow.Status().Patch(ctx, operation, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("set TartHostOperation update failure phase: %w", err)
-	}
-	return nil
+	return operationStatusPatchRequired{Original: original}
 }
 
 func operationKey(ref *infrastructurev1beta1.ResourceReference) types.NamespacedName {

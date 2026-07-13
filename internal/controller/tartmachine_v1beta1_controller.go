@@ -31,27 +31,20 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 type TartMachineV1Beta1Reconciler struct {
 	client.Client
 	MachineWorkflow *machineexecution.Workflow
+	DeleteWorkflow  *machinedeletion.Workflow
 	HostReferences  machineexecution.HostReferenceService
 	NodeHealth      machineexecution.NodeHealthObserver
 	Provisioner     machineexecution.ProvisionWorkflow
-	Cleaner         CleaningWorkflow
+	Cleaner         machinedeletion.CleaningWorkflow
 	Recorder        record.EventRecorder
-}
-
-type CleaningWorkflow interface {
-	StartCleaning(
-		ctx context.Context,
-		machine *infrastructurev1beta1.TartMachine,
-		host *infrastructurev1beta1.TartHost,
-	) (*infrastructurev1beta1.TartHostOperation, error)
 }
 
 const tartMachineCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmachine-cleanup"
@@ -101,6 +94,13 @@ func (r *TartMachineV1Beta1Reconciler) machineWorkflow() *machineexecution.Workf
 	return machineexecution.NewWorkflow(r.Client, r.HostReferences, r.NodeHealth, r.Provisioner, r.Recorder)
 }
 
+func (r *TartMachineV1Beta1Reconciler) deleteWorkflow() *machinedeletion.Workflow {
+	if r.DeleteWorkflow != nil {
+		return r.DeleteWorkflow
+	}
+	return machinedeletion.NewWorkflow(r.Client, r.Cleaner)
+}
+
 func (r *TartMachineV1Beta1Reconciler) ensureFinalizer(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
@@ -123,78 +123,18 @@ func (r *TartMachineV1Beta1Reconciler) reconcileDelete(
 	if !controllerutil.ContainsFinalizer(machine, tartMachineCleanupFinalizer) {
 		return nil
 	}
-	if machine.Status.HostRef == nil {
-		return r.removeFinalizer(ctx, machine)
-	}
-
-	host := &infrastructurev1beta1.TartHost{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: machine.Status.HostRef.Namespace,
-		Name:      machine.Status.HostRef.Name,
-	}, host); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.removeFinalizer(ctx, machine)
-		}
-		return fmt.Errorf("get TartHost for delete reconcile: %w", err)
-	}
-	if host.UID != machine.Status.HostRef.UID {
-		return r.removeFinalizer(ctx, machine)
-	}
-
-	if machine.Status.OperationRef == nil {
-		if r.Cleaner == nil {
-			return fmt.Errorf("start Cleaning operation: Cleaner is not configured")
-		}
-		operation, err := r.Cleaner.StartCleaning(ctx, machine, host)
-		if err != nil {
-			return err
-		}
-		original := machine.DeepCopy()
-		machine.Status.OperationRef = &infrastructurev1beta1.ResourceReference{
-			Namespace: operation.Namespace,
-			Name:      operation.Name,
-			UID:       operation.UID,
-		}
-		if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-			return fmt.Errorf("persist Cleaning operation reference: %w", err)
-		}
-		return nil
-	}
-
-	operation := &infrastructurev1beta1.TartHostOperation{}
-	if err := r.Get(ctx, client.ObjectKey{
-		Namespace: machine.Status.OperationRef.Namespace,
-		Name:      machine.Status.OperationRef.Name,
-	}, operation); err != nil {
-		if apierrors.IsNotFound(err) {
-			original := machine.DeepCopy()
-			machine.Status.OperationRef = nil
-			if patchErr := r.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
-				return fmt.Errorf("clear missing Cleaning operation reference: %w", patchErr)
-			}
-			return nil
-		}
-		return fmt.Errorf("get Cleaning operation: %w", err)
-	}
-	if operation.UID != machine.Status.OperationRef.UID {
-		original := machine.DeepCopy()
-		machine.Status.OperationRef = nil
-		if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-			return fmt.Errorf("clear mismatched Cleaning operation reference: %w", err)
-		}
-		return nil
-	}
-	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
+	result, err := r.deleteWorkflow().Reconcile(ctx, machine)
 	if err != nil {
-		return fmt.Errorf("parse Cleaning operation phase: %w", err)
+		return err
 	}
-	if !phase.Terminal() {
+	switch result.(type) {
+	case machinedeletion.ResultFinalizerReady:
+		return r.removeFinalizer(ctx, machine)
+	case machinedeletion.ResultWaiting:
 		return nil
+	default:
+		return fmt.Errorf("unknown TartMachine deletion result: %T", result)
 	}
-	if phase != operationdomain.PhaseSucceeded {
-		return fmt.Errorf("Cleaning operation finished in %s", phase)
-	}
-	return r.removeFinalizer(ctx, machine)
 }
 
 func (r *TartMachineV1Beta1Reconciler) removeFinalizer(

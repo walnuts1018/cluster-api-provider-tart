@@ -18,6 +18,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
@@ -117,7 +118,7 @@ func provideTartMachineV1Beta1Reconciler(
 	hostReferences machineexecution.HostReferenceService,
 	nodeHealth machineexecution.NodeHealthObserver,
 	provisioner machineexecution.ProvisionWorkflow,
-	cleaner controller.CleaningWorkflow,
+	cleaner machinedeletion.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -128,7 +129,7 @@ func provideTartMachineV1Beta1Reconciler(
 	}
 }
 
-func provideCleaningWorkflow() controller.CleaningWorkflow {
+func provideCleaningWorkflow() machinedeletion.CleaningWorkflow {
 	return nil
 }
 

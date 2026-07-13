@@ -80,6 +80,46 @@ func TestDecideOperationはMachineとOperationの状態からCommandを選ぶ(t 
 	}
 }
 
+func TestDecideLifecycleはTartMachine全体の観測状態をCommandへ写像する(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		observed ObservedState
+		want     LifecycleCommand
+	}{
+		{
+			name:     "削除中でないMachineはActive reconcileへ進む",
+			observed: ObservedActive{},
+			want:     CommandReconcileActive{},
+		},
+		{
+			name:     "削除中でFinalizerがあるMachineは削除Workflowへ進む",
+			observed: ObservedDeleting{FinalizerPresent: true},
+			want:     CommandFinalizeDeleting{},
+		},
+		{
+			name:     "削除中でFinalizerがないMachineは何もしない",
+			observed: ObservedDeleting{FinalizerPresent: false},
+			want:     CommandIgnoreDeleting{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := DecideLifecycle(tt.observed)
+			if err != nil {
+				t.Fatalf("DecideLifecycle() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("DecideLifecycle() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDecideProvisionはOperationRefの有無から開始と再開を選ぶ(t *testing.T) {
 	t.Parallel()
 

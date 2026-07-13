@@ -26,6 +26,16 @@ type MachineState struct {
 	HasOperation bool
 }
 
+type ObservedState interface {
+	isObservedState()
+}
+
+type ObservedActive struct{}
+
+type ObservedDeleting struct {
+	FinalizerPresent bool
+}
+
 type OperationState struct {
 	Kind  operationdomain.Kind
 	Phase operationdomain.Phase
@@ -39,6 +49,10 @@ type Readiness struct {
 
 type MachineCommand interface {
 	isMachineCommand()
+}
+
+type LifecycleCommand interface {
+	isLifecycleCommand()
 }
 
 type OperationCommand interface {
@@ -59,6 +73,10 @@ type UpdateHealthCommand interface {
 
 type CommandObserveProvisionedMachine struct{}
 type CommandEnsureProvisionReference struct{}
+
+type CommandReconcileActive struct{}
+type CommandFinalizeDeleting struct{}
+type CommandIgnoreDeleting struct{}
 
 type CommandStartProvision struct{}
 type CommandResumeProvisionOperation struct{}
@@ -98,6 +116,13 @@ const (
 func (CommandObserveProvisionedMachine) isMachineCommand() {}
 func (CommandEnsureProvisionReference) isMachineCommand()  {}
 
+func (CommandReconcileActive) isLifecycleCommand()  {}
+func (CommandFinalizeDeleting) isLifecycleCommand() {}
+func (CommandIgnoreDeleting) isLifecycleCommand()   {}
+
+func (ObservedActive) isObservedState()   {}
+func (ObservedDeleting) isObservedState() {}
+
 func (CommandStartProvision) isProvisionCommand()           {}
 func (CommandResumeProvisionOperation) isProvisionCommand() {}
 
@@ -118,6 +143,20 @@ func DecideMachine(state MachineState) MachineCommand {
 		return CommandObserveProvisionedMachine{}
 	}
 	return CommandEnsureProvisionReference{}
+}
+
+func DecideLifecycle(observed ObservedState) (LifecycleCommand, error) {
+	switch observed := observed.(type) {
+	case ObservedActive:
+		return CommandReconcileActive{}, nil
+	case ObservedDeleting:
+		if !observed.FinalizerPresent {
+			return CommandIgnoreDeleting{}, nil
+		}
+		return CommandFinalizeDeleting{}, nil
+	default:
+		return nil, fmt.Errorf("unknown TartMachine lifecycle observation: %T", observed)
+	}
 }
 
 func DecideProvision(state MachineState) ProvisionCommand {

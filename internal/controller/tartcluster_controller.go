@@ -31,19 +31,19 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
 // TartClusterReconciler reconciles a TartCluster object
 type TartClusterReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Finalizer *resourcefinalizer.Workflow
 }
-
-const tartClusterFinalizer = "infrastructure.cluster.x-k8s.io/tartcluster"
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
@@ -70,13 +70,13 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 	if !cluster.DeletionTimestamp.IsZero() {
-		if err := r.reconcileDelete(ctx, &cluster); err != nil {
+		if _, err := r.finalizerWorkflow().Release(ctx, &cluster); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.ensureFinalizer(ctx, &cluster); err != nil {
+	if _, err := r.finalizerWorkflow().Ensure(ctx, &cluster); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -165,24 +165,11 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 	return r.Status().Patch(ctx, cluster, client.MergeFrom(original))
 }
 
-func (r *TartClusterReconciler) ensureFinalizer(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
-	if controllerutil.ContainsFinalizer(cluster, tartClusterFinalizer) {
-		return nil
+func (r *TartClusterReconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
+	if r.Finalizer != nil {
+		return r.Finalizer
 	}
-
-	original := cluster.DeepCopy()
-	controllerutil.AddFinalizer(cluster, tartClusterFinalizer)
-	return r.Patch(ctx, cluster, client.MergeFrom(original))
-}
-
-func (r *TartClusterReconciler) reconcileDelete(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
-	if !controllerutil.ContainsFinalizer(cluster, tartClusterFinalizer) {
-		return nil
-	}
-
-	original := cluster.DeepCopy()
-	controllerutil.RemoveFinalizer(cluster, tartClusterFinalizer)
-	return r.Patch(ctx, cluster, client.MergeFrom(original))
+	return resourcefinalizer.NewTartClusterWorkflow(r.Client)
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -32,7 +32,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	machinefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -40,7 +40,7 @@ type TartMachineV1Beta1Reconciler struct {
 	client.Client
 	MachineWorkflow *machineexecution.Workflow
 	DeleteWorkflow  *machinedeletion.Workflow
-	Finalizer       *machinefinalizer.Workflow
+	Finalizer       *resourcefinalizer.Workflow
 	HostReferences  machineexecution.HostReferenceService
 	NodeHealth      machineexecution.NodeHealthObserver
 	Provisioner     machineexecution.ProvisionWorkflow
@@ -100,11 +100,11 @@ func (r *TartMachineV1Beta1Reconciler) deleteWorkflow() *machinedeletion.Workflo
 	return machinedeletion.NewWorkflow(r.Client, r.Cleaner)
 }
 
-func (r *TartMachineV1Beta1Reconciler) finalizerWorkflow() *machinefinalizer.Workflow {
+func (r *TartMachineV1Beta1Reconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
 	if r.Finalizer != nil {
 		return r.Finalizer
 	}
-	return machinefinalizer.NewWorkflow(r.Client)
+	return resourcefinalizer.NewTartMachineWorkflow(r.Client)
 }
 
 func (r *TartMachineV1Beta1Reconciler) reconcileDelete(

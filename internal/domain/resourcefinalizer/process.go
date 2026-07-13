@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machinefinalizer
+package resourcefinalizer
 
 import "fmt"
 
@@ -57,7 +57,7 @@ func Decide(desired DesiredState, observed ObservedState) (Command, error) {
 		case ObservedAbsent:
 			return CommandAdd{}, nil
 		default:
-			return nil, fmt.Errorf("unknown TartMachine finalizer observed state: %T", observed)
+			return nil, fmt.Errorf("unknown resource finalizer observed state: %T", observed)
 		}
 	case DesiredAbsent:
 		switch observed.(type) {
@@ -66,9 +66,9 @@ func Decide(desired DesiredState, observed ObservedState) (Command, error) {
 		case ObservedAbsent:
 			return CommandNoop{}, nil
 		default:
-			return nil, fmt.Errorf("unknown TartMachine finalizer observed state: %T", observed)
+			return nil, fmt.Errorf("unknown resource finalizer observed state: %T", observed)
 		}
 	default:
-		return nil, fmt.Errorf("unknown TartMachine finalizer desired state: %T", desired)
+		return nil, fmt.Errorf("unknown resource finalizer desired state: %T", desired)
 	}
 }

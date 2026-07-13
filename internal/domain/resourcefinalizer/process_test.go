@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machinefinalizer
+package resourcefinalizer
 
 import (
 	"reflect"
@@ -66,5 +66,21 @@ func TestDecideは期待するFinalizer状態への操作だけを返す(t *test
 				t.Fatalf("Decide() = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseNameは空のFinalizer名を拒否する(t *testing.T) {
+	t.Parallel()
+
+	if _, err := ParseName(""); err == nil {
+		t.Fatal("ParseName(\"\") error = nil, want error")
+	}
+
+	got, err := ParseName("infrastructure.cluster.x-k8s.io/example")
+	if err != nil {
+		t.Fatalf("ParseName() error = %v", err)
+	}
+	if got.String() != "infrastructure.cluster.x-k8s.io/example" {
+		t.Fatalf("ParseName().String() = %q", got.String())
 	}
 }

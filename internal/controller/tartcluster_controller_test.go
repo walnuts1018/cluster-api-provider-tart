@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
 var _ = Describe("TartCluster Controller", func() {
@@ -71,7 +72,7 @@ var _ = Describe("TartCluster Controller", func() {
 	AfterEach(func() {
 		tartCluster := &infrastructurev1beta1.TartCluster{}
 		if err := k8sClient.Get(ctx, typeNamespacedName, tartCluster); err == nil {
-			controllerutil.RemoveFinalizer(tartCluster, tartClusterFinalizer)
+			controllerutil.RemoveFinalizer(tartCluster, resourcefinalizer.TartClusterFinalizer)
 			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, tartCluster)).To(Succeed())
 			Eventually(func() error {
@@ -162,7 +163,7 @@ var _ = Describe("TartCluster Controller", func() {
 		It("should add the finalizer to the TartCluster", func() {
 			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
-			Expect(tartCluster.Finalizers).NotTo(ContainElement(tartClusterFinalizer))
+			Expect(tartCluster.Finalizers).NotTo(ContainElement(resourcefinalizer.TartClusterFinalizer))
 
 			controllerReconciler := &TartClusterReconciler{
 				Client: k8sClient,
@@ -176,7 +177,7 @@ var _ = Describe("TartCluster Controller", func() {
 
 			updated := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Finalizers).To(ContainElement(tartClusterFinalizer))
+			Expect(updated.Finalizers).To(ContainElement(resourcefinalizer.TartClusterFinalizer))
 		})
 	})
 
@@ -184,7 +185,7 @@ var _ = Describe("TartCluster Controller", func() {
 		BeforeEach(func() {
 			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
-			tartCluster.Finalizers = []string{tartClusterFinalizer}
+			tartCluster.Finalizers = []string{resourcefinalizer.TartClusterFinalizer}
 			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())
 		})
 

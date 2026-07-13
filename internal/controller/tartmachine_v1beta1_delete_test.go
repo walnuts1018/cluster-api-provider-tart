@@ -27,7 +27,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
-	machinefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
 func TestTartMachineV1Beta1Reconcilerは削除時にCleaningOperationを開始する(t *testing.T) {
@@ -40,7 +40,7 @@ func TestTartMachineV1Beta1Reconcilerは削除時にCleaningOperationを開始�
 			Name:              "machine-clean",
 			Namespace:         "default",
 			UID:               types.UID("machine-clean-uid"),
-			Finalizers:        []string{machinefinalizer.TartMachineCleanupFinalizer},
+			Finalizers:        []string{resourcefinalizer.TartMachineCleanupFinalizer},
 			DeletionTimestamp: &now,
 		},
 		Spec: infrastructurev1beta1.TartMachineSpec{
@@ -123,7 +123,7 @@ func TestTartMachineV1Beta1Reconcilerは削除時にCleaningOperationを開始�
 	if current.Status.OperationRef == nil || current.Status.OperationRef.UID != operation.UID {
 		t.Fatalf("operationRef = %#v, want %q", current.Status.OperationRef, operation.UID)
 	}
-	if len(current.Finalizers) != 1 || current.Finalizers[0] != machinefinalizer.TartMachineCleanupFinalizer {
+	if len(current.Finalizers) != 1 || current.Finalizers[0] != resourcefinalizer.TartMachineCleanupFinalizer {
 		t.Fatalf("finalizers = %v, want cleanup finalizer", current.Finalizers)
 	}
 }
@@ -138,7 +138,7 @@ func TestTartMachineV1Beta1ReconcilerはCleaning完了後にFinalizerを外す(t
 			Name:              "machine-clean-finished",
 			Namespace:         "default",
 			UID:               types.UID("machine-clean-finished-uid"),
-			Finalizers:        []string{machinefinalizer.TartMachineCleanupFinalizer},
+			Finalizers:        []string{resourcefinalizer.TartMachineCleanupFinalizer},
 			DeletionTimestamp: &now,
 		},
 		Status: infrastructurev1beta1.TartMachineStatus{

@@ -23,19 +23,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
 // TartMachineTemplateReconciler reconciles a TartMachineTemplate object
 type TartMachineTemplateReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme    *runtime.Scheme
+	Finalizer *resourcefinalizer.Workflow
 }
-
-const tartMachineTemplateFinalizer = "infrastructure.cluster.x-k8s.io/tartmachinetemplate"
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachinetemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachinetemplates/status,verbs=get;update;patch
@@ -61,37 +60,24 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 	if !template.DeletionTimestamp.IsZero() {
-		if err := r.reconcileDelete(ctx, &template); err != nil {
+		if _, err := r.finalizerWorkflow().Release(ctx, &template); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
 
-	if err := r.ensureFinalizer(ctx, &template); err != nil {
+	if _, err := r.finalizerWorkflow().Ensure(ctx, &template); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
 }
 
-func (r *TartMachineTemplateReconciler) ensureFinalizer(ctx context.Context, template *infrastructurev1beta1.TartMachineTemplate) error {
-	if controllerutil.ContainsFinalizer(template, tartMachineTemplateFinalizer) {
-		return nil
+func (r *TartMachineTemplateReconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
+	if r.Finalizer != nil {
+		return r.Finalizer
 	}
-
-	original := template.DeepCopy()
-	controllerutil.AddFinalizer(template, tartMachineTemplateFinalizer)
-	return r.Patch(ctx, template, client.MergeFrom(original))
-}
-
-func (r *TartMachineTemplateReconciler) reconcileDelete(ctx context.Context, template *infrastructurev1beta1.TartMachineTemplate) error {
-	if !controllerutil.ContainsFinalizer(template, tartMachineTemplateFinalizer) {
-		return nil
-	}
-
-	original := template.DeepCopy()
-	controllerutil.RemoveFinalizer(template, tartMachineTemplateFinalizer)
-	return r.Patch(ctx, template, client.MergeFrom(original))
+	return resourcefinalizer.NewTartMachineTemplateWorkflow(r.Client)
 }
 
 // SetupWithManager sets up the controller with the Manager.

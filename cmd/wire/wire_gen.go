@@ -20,8 +20,8 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -39,8 +39,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	operationService := operation.NewService(k8sClient)
 	workflow := initialprovisioning.NewWorkflow(service, v1beta1hostService, operationService)
 	cleaningWorkflow := provideCleaningWorkflow()
-	machinefinalizerWorkflow := machinefinalizer.NewWorkflow(k8sClient)
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow, machinefinalizerWorkflow)
+	resourcefinalizerWorkflow := provideTartMachineFinalizer(k8sClient)
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow, resourcefinalizerWorkflow)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -103,15 +103,17 @@ func provideDriverRegistry(
 
 func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
 	return &controller.TartClusterReconciler{
-		Client: k8sClient,
-		Scheme: scheme,
+		Client:    k8sClient,
+		Scheme:    scheme,
+		Finalizer: resourcefinalizer.NewTartClusterWorkflow(k8sClient),
 	}
 }
 
 func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartMachineTemplateReconciler {
 	return &controller.TartMachineTemplateReconciler{
-		Client: k8sClient,
-		Scheme: scheme,
+		Client:    k8sClient,
+		Scheme:    scheme,
+		Finalizer: resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient),
 	}
 }
 
@@ -121,7 +123,7 @@ func provideTartMachineV1Beta1Reconciler(
 	nodeHealth machineexecution.NodeHealthObserver,
 	provisioner machineexecution.ProvisionWorkflow,
 	cleaner machinedeletion.CleaningWorkflow,
-	finalizer *machinefinalizer.Workflow,
+	finalizer *resourcefinalizer.Workflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -135,6 +137,10 @@ func provideTartMachineV1Beta1Reconciler(
 
 func provideCleaningWorkflow() machinedeletion.CleaningWorkflow {
 	return nil
+}
+
+func provideTartMachineFinalizer(k8sClient client.Client) *resourcefinalizer.Workflow {
+	return resourcefinalizer.NewTartMachineWorkflow(k8sClient)
 }
 
 func provideTartHostOperationReconciler(

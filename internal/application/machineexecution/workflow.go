@@ -75,6 +75,26 @@ type Workflow struct {
 	Recorder       record.EventRecorder
 }
 
+type activeMachine struct {
+	Machine *infrastructurev1beta1.TartMachine
+	State   machinelifecycledomain.MachineState
+}
+
+type provisioningMachine struct {
+	Machine *infrastructurev1beta1.TartMachine
+	State   machinelifecycledomain.MachineState
+}
+
+type provisionedMachine struct {
+	Machine *infrastructurev1beta1.TartMachine
+	State   machinelifecycledomain.MachineState
+}
+
+type nodeHealthObservation struct {
+	Observation machinehealthdomain.NodeObservation
+	Observed    bool
+}
+
 func NewWorkflow(
 	k8sClient client.Client,
 	hostReferences HostReferenceService,
@@ -95,21 +115,31 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	switch machinelifecycledomain.DecideMachine(machineState(machine)) {
+	return workflow.reconcileActive(ctx, activeMachine{
+		Machine: machine,
+		State:   machineState(machine),
+	})
+}
+
+func (workflow *Workflow) reconcileActive(
+	ctx context.Context,
+	active activeMachine,
+) error {
+	switch machinelifecycledomain.DecideMachine(active.State) {
 	case machinelifecycledomain.CommandObserveProvisionedMachine{}:
-		updateHandled, err := workflow.reconcileUpdateOperation(ctx, machine)
-		if err != nil {
-			return err
-		}
-		if updateHandled {
-			return nil
-		}
-		return workflow.reconcileNodeHealth(ctx, machine)
+		return workflow.reconcileProvisioned(ctx, provisionedMachine(active))
 	case machinelifecycledomain.CommandEnsureProvisionReference{}:
+		return workflow.reconcileProvisioning(ctx, provisioningMachine(active))
 	default:
 		return fmt.Errorf("unknown TartMachine command")
 	}
+}
 
+func (workflow *Workflow) reconcileProvisioning(
+	ctx context.Context,
+	provisioning provisioningMachine,
+) error {
+	machine := provisioning.Machine
 	shouldContinue, err := workflow.ensureProvisionReference(ctx, machine)
 	if err != nil {
 		return err
@@ -118,7 +148,7 @@ func (workflow *Workflow) Reconcile(
 		return nil
 	}
 
-	switch machinelifecycledomain.DecideProvision(machineState(machine)) {
+	switch machinelifecycledomain.DecideProvision(provisioning.State) {
 	case machinelifecycledomain.CommandStartProvision{}:
 		if err := workflow.reconcileProvisionStart(ctx, machine); err != nil {
 			return err
@@ -132,6 +162,20 @@ func (workflow *Workflow) Reconcile(
 	}
 
 	return workflow.reconcileNodeHealth(ctx, machine)
+}
+
+func (workflow *Workflow) reconcileProvisioned(
+	ctx context.Context,
+	provisioned provisionedMachine,
+) error {
+	updateHandled, err := workflow.reconcileUpdateOperation(ctx, provisioned)
+	if err != nil {
+		return err
+	}
+	if updateHandled {
+		return nil
+	}
+	return workflow.reconcileNodeHealth(ctx, provisioned.Machine)
 }
 
 func (workflow *Workflow) ensureProvisionReference(
@@ -166,8 +210,9 @@ func (workflow *Workflow) ensureProvisionReference(
 
 func (workflow *Workflow) reconcileUpdateOperation(
 	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
+	provisioned provisionedMachine,
 ) (bool, error) {
+	machine := provisioned.Machine
 	operation, ok, err := workflow.referencedOperation(ctx, machine, "update outcome")
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -179,18 +224,18 @@ func (workflow *Workflow) reconcileUpdateOperation(
 		return false, nil
 	}
 
-	command, err := operationCommand(true, operation)
+	command, err := operationCommand(provisioned.State.Provisioned, operation)
 	if err != nil {
 		return false, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
-	updateTerminal, ok := command.(machinelifecycledomain.CommandApplyUpdateTerminal)
-	if !ok {
+	switch command := command.(type) {
+	case machinelifecycledomain.CommandApplyUpdateTerminal:
+		return true, workflow.applyUpdateTerminal(ctx, machine, operation, command.Outcome)
+	case machinelifecycledomain.CommandObserveUpdateHealth, machinelifecycledomain.CommandObserveNodeHealth:
 		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected Update TartHostOperation command: %T", command)
 	}
-	if err := workflow.applyUpdateTerminal(ctx, machine, operation, updateTerminal.Outcome); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (workflow *Workflow) applyUpdateTerminal(
@@ -367,15 +412,11 @@ func (workflow *Workflow) reconcileNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	if workflow.NodeHealth == nil {
-		return nil
-	}
-
-	observation, observed, err := workflow.NodeHealth.Observe(ctx, machine)
+	nodeHealth, err := workflow.observeNodeHealth(ctx, machine)
 	if err != nil {
-		return fmt.Errorf("observe workload Node health: %w", err)
+		return err
 	}
-	if !observed {
+	if !nodeHealth.Observed {
 		return nil
 	}
 
@@ -386,11 +427,11 @@ func (workflow *Workflow) reconcileNodeHealth(
 		return err
 	}
 	if !state.Provisioned && hasOperation {
-		if err := workflow.applyProvisionHealth(ctx, machine, operation, observation); err != nil {
+		if err := workflow.applyProvisionHealth(ctx, machine, operation, nodeHealth.Observation); err != nil {
 			return err
 		}
 	} else if state.Provisioned && hasOperation {
-		terminalHandled, err := workflow.applyUpdateHealth(ctx, machine, operation, observation)
+		terminalHandled, err := workflow.applyUpdateHealth(ctx, machine, operation, nodeHealth.Observation)
 		if err != nil {
 			return err
 		}
@@ -398,13 +439,27 @@ func (workflow *Workflow) reconcileNodeHealth(
 			return nil
 		}
 	} else {
-		machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+		machine.Status = applicationhealth.StatusWithNodeHealth(machine, nodeHealth.Observation)
 	}
 
 	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return fmt.Errorf("set TartMachine Node health condition: %w", err)
 	}
 	return nil
+}
+
+func (workflow *Workflow) observeNodeHealth(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (nodeHealthObservation, error) {
+	if workflow.NodeHealth == nil {
+		return nodeHealthObservation{}, nil
+	}
+	observation, observed, err := workflow.NodeHealth.Observe(ctx, machine)
+	if err != nil {
+		return nodeHealthObservation{}, fmt.Errorf("observe workload Node health: %w", err)
+	}
+	return nodeHealthObservation{Observation: observation, Observed: observed}, nil
 }
 
 func (workflow *Workflow) applyProvisionHealth(
@@ -421,31 +476,48 @@ func (workflow *Workflow) applyProvisionHealth(
 	})
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandCompleteProvision:
-		if workflow.Provisioner == nil {
-			return fmt.Errorf("complete Provisioning: Provisioner is not configured")
-		}
-		host, err := workflow.referencedHost(ctx, machine, "health gate")
-		if err != nil {
-			return err
-		}
-		if err := workflow.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
-			return err
-		}
-		machine.Status = appprovisioning.StatusWithProvisioned(
-			machine,
-			machine.Status.Addresses,
-			observation.ExpectedVersion,
-		)
+		return workflow.completeProvisionStep(ctx, machine, operation, observation)
 	case machinelifecycledomain.CommandSetProvisionHealthPending:
-		machine.Status = appprovisioning.StatusWithHealthGatePending(
-			machine,
-			command.Reason,
-			command.Message,
-		)
+		workflow.setProvisionHealthPendingStep(machine, command)
 	default:
 		return fmt.Errorf("unknown Provision health command: %T", command)
 	}
 	return nil
+}
+
+func (workflow *Workflow) completeProvisionStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) error {
+	if workflow.Provisioner == nil {
+		return fmt.Errorf("complete Provisioning: Provisioner is not configured")
+	}
+	host, err := workflow.referencedHost(ctx, machine, "health gate")
+	if err != nil {
+		return err
+	}
+	if err := workflow.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
+		return err
+	}
+	machine.Status = appprovisioning.StatusWithProvisioned(
+		machine,
+		machine.Status.Addresses,
+		observation.ExpectedVersion,
+	)
+	return nil
+}
+
+func (workflow *Workflow) setProvisionHealthPendingStep(
+	machine *infrastructurev1beta1.TartMachine,
+	command machinelifecycledomain.CommandSetProvisionHealthPending,
+) {
+	machine.Status = appprovisioning.StatusWithHealthGatePending(
+		machine,
+		command.Reason,
+		command.Message,
+	)
 }
 
 func (workflow *Workflow) applyUpdateHealth(
@@ -460,30 +532,7 @@ func (workflow *Workflow) applyUpdateHealth(
 	}
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandObserveUpdateHealth:
-		healthCommand := machinelifecycledomain.DecideUpdateHealth(machinehealthdomain.EvaluateNode(observation))
-		switch healthCommand.(type) {
-		case machinelifecycledomain.CommandCompleteUpdate:
-			if err := workflow.transitionOperationPhase(
-				ctx,
-				operation,
-				infrastructurev1beta1.TartHostOperationPhaseSucceeded,
-			); err != nil {
-				return false, err
-			}
-			machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
-		case machinelifecycledomain.CommandRollbackUpdate:
-			if err := workflow.transitionUpdateFailurePhase(
-				ctx,
-				operation,
-				infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
-				infrastructurev1beta1.TartHostOperationPhaseRollingBack,
-			); err != nil {
-				return false, err
-			}
-			machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
-		default:
-			return false, fmt.Errorf("unknown Update health command: %T", healthCommand)
-		}
+		return false, workflow.applyUpdateHealthGate(ctx, machine, operation, observation)
 	case machinelifecycledomain.CommandObserveNodeHealth:
 		machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
 	case machinelifecycledomain.CommandApplyUpdateTerminal:
@@ -495,6 +544,57 @@ func (workflow *Workflow) applyUpdateHealth(
 		return false, fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
 	}
 	return false, nil
+}
+
+func (workflow *Workflow) applyUpdateHealthGate(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) error {
+	healthCommand := machinelifecycledomain.DecideUpdateHealth(machinehealthdomain.EvaluateNode(observation))
+	switch healthCommand.(type) {
+	case machinelifecycledomain.CommandCompleteUpdate:
+		return workflow.completeUpdateStep(ctx, machine, operation)
+	case machinelifecycledomain.CommandRollbackUpdate:
+		return workflow.rollbackUpdateStep(ctx, machine, operation, observation)
+	default:
+		return fmt.Errorf("unknown Update health command: %T", healthCommand)
+	}
+}
+
+func (workflow *Workflow) completeUpdateStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	if err := workflow.transitionOperationPhase(
+		ctx,
+		operation,
+		infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+	); err != nil {
+		return err
+	}
+	machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
+	return nil
+}
+
+func (workflow *Workflow) rollbackUpdateStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) error {
+	if err := workflow.transitionUpdateFailurePhase(
+		ctx,
+		operation,
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		infrastructurev1beta1.TartHostOperationPhaseRollingBack,
+	); err != nil {
+		return err
+	}
+	machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+	return nil
 }
 
 func machineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {

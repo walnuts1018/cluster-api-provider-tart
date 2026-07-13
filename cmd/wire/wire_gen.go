@@ -18,6 +18,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -133,13 +134,13 @@ func provideCleaningWorkflow() controller.CleaningWorkflow {
 func provideTartHostOperationReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
-	powerOn controller.OperationPowerOnService,
-	prepareBoot controller.OperationBootPreparationService,
-	hostPhase controller.OperationHostPhaseService,
-	targets controller.OperationDriverTargetBuilder,
-	driverCapabilities controller.OperationDriverCapabilityObserver,
-	driverPowerState controller.OperationDriverPowerStateObserver,
-	driverBootState controller.OperationDriverBootStateObserver,
+	powerOn operationexecution.PowerOnService,
+	prepareBoot operationexecution.BootPreparationService,
+	hostPhase operationexecution.HostPhaseService,
+	targets operationexecution.DriverTargetBuilder,
+	driverCapabilities operationexecution.DriverCapabilityObserver,
+	driverPowerState operationexecution.DriverPowerStateObserver,
+	driverBootState operationexecution.DriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,

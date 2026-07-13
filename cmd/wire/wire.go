@@ -18,6 +18,7 @@ import (
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 )
@@ -99,13 +100,13 @@ func provideCleaningWorkflow() controller.CleaningWorkflow {
 func provideTartHostOperationReconciler(
 	k8sClient client.Client,
 	scheme *runtime.Scheme,
-	powerOn controller.OperationPowerOnService,
-	prepareBoot controller.OperationBootPreparationService,
-	hostPhase controller.OperationHostPhaseService,
-	targets controller.OperationDriverTargetBuilder,
-	driverCapabilities controller.OperationDriverCapabilityObserver,
-	driverPowerState controller.OperationDriverPowerStateObserver,
-	driverBootState controller.OperationDriverBootStateObserver,
+	powerOn operationexecution.PowerOnService,
+	prepareBoot operationexecution.BootPreparationService,
+	hostPhase operationexecution.HostPhaseService,
+	targets operationexecution.DriverTargetBuilder,
+	driverCapabilities operationexecution.DriverCapabilityObserver,
+	driverPowerState operationexecution.DriverPowerStateObserver,
+	driverBootState operationexecution.DriverBootStateObserver,
 ) *controller.TartHostOperationReconciler {
 	return &controller.TartHostOperationReconciler{
 		Client:             k8sClient,
@@ -153,13 +154,13 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		wire.Bind(new(appprovisioning.HostReserveService), new(*k8sallocation.Service)),
 		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),
-		wire.Bind(new(controller.OperationPowerOnService), new(*applicationdriver.Service)),
-		wire.Bind(new(controller.OperationBootPreparationService), new(*applicationdriver.Service)),
-		wire.Bind(new(controller.OperationHostPhaseService), new(*k8sv1beta1host.Service)),
-		wire.Bind(new(controller.OperationDriverTargetBuilder), new(*k8sdrivertarget.Service)),
-		wire.Bind(new(controller.OperationDriverCapabilityObserver), new(*k8sdrivercapability.Service)),
-		wire.Bind(new(controller.OperationDriverPowerStateObserver), new(*k8sdriverstate.Service)),
-		wire.Bind(new(controller.OperationDriverBootStateObserver), new(*k8sdriverstate.Service)),
+		wire.Bind(new(operationexecution.PowerOnService), new(*applicationdriver.Service)),
+		wire.Bind(new(operationexecution.BootPreparationService), new(*applicationdriver.Service)),
+		wire.Bind(new(operationexecution.HostPhaseService), new(*k8sv1beta1host.Service)),
+		wire.Bind(new(operationexecution.DriverTargetBuilder), new(*k8sdrivertarget.Service)),
+		wire.Bind(new(operationexecution.DriverCapabilityObserver), new(*k8sdrivercapability.Service)),
+		wire.Bind(new(operationexecution.DriverPowerStateObserver), new(*k8sdriverstate.Service)),
+		wire.Bind(new(operationexecution.DriverBootStateObserver), new(*k8sdriverstate.Service)),
 		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
 		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(k8sdriverstate.PowerStateObserver), new(*applicationdriver.Service)),

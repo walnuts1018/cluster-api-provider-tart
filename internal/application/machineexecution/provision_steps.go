@@ -69,71 +69,143 @@ func (workflow *Workflow) startProvisionStep(
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	if workflow.Provisioner == nil {
-		log.V(4).Info("Provisioner not configured, skipping provisioning",
-			"machine", client.ObjectKeyFromObject(machine).String(),
-		)
+	dependency := workflow.resolveProvisionStartDependencyStep(ctx, machine)
+	var provisioner ProvisionWorkflow
+	switch dependency := dependency.(type) {
+	case provisionStartDependencyUnavailable:
 		return nil
+	case provisionStartDependencyAvailable:
+		provisioner = dependency.Provisioner
+	default:
+		return fmt.Errorf("unknown Provision start dependency result: %T", dependency)
 	}
 
-	bootstrapReady, err := workflow.isBootstrapReady(ctx, machine)
+	readiness, err := workflow.checkBootstrapReadinessStep(ctx, machine)
 	if err != nil {
 		return fmt.Errorf("check bootstrap readiness: %w", err)
 	}
-	if !bootstrapReady {
+	switch readiness.(type) {
+	case bootstrapDataWaiting:
 		log.V(4).Info("Bootstrap data not yet ready, waiting",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 		)
-		original := machine.DeepCopy()
-		machine.Status = appprovisioning.StatusWithWaitingForBootstrap(machine)
-		if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-			return fmt.Errorf("set WaitingForBootstrap status: %w", err)
+		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusWaitingForBootstrap{}); err != nil {
+			return err
 		}
 		return nil
+	case bootstrapDataReady:
+	default:
+		return fmt.Errorf("unknown Bootstrap readiness result: %T", readiness)
 	}
 
-	started, err := workflow.Provisioner.Start(ctx, machine, placeholderPlanDigest)
-	if errors.Is(err, appprovisioning.ErrNoAvailableHost) {
-		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
-		original := machine.DeepCopy()
-		machine.Status = appprovisioning.StatusWithNoAvailableHost(machine)
-		if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-			return fmt.Errorf("set NoAvailableHost status: %w", err)
-		}
-		return nil
-	}
+	reservation, err := workflow.reserveProvisionHostStep(ctx, provisioner, machine)
 	if err != nil {
-		return fmt.Errorf("reserve host and start operation: %w", err)
-	}
-	if err := workflow.ensureProviderID(ctx, machine, started.Host); err != nil {
 		return err
 	}
+	switch reservation := reservation.(type) {
+	case provisionHostReservationNoHost:
+		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
+		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusNoAvailableHost{}); err != nil {
+			return err
+		}
+		return nil
+	case provisionHostReservationStarted:
+		started := reservation.Started
+		if _, err := workflow.ensureProviderIDStep(ctx, machine, started.Host); err != nil {
+			return err
+		}
 
-	original := machine.DeepCopy()
-	machine.Status = appprovisioning.StatusWithHostReserved(machine, started.Host, started.Operation)
-	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("set TartMachine HostRef/OperationRef: %w", err)
+		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusHostReserved{
+			Host:      started.Host,
+			Operation: started.Operation,
+		}); err != nil {
+			return err
+		}
+
+		log.Info("TartMachine host reserved and operation started",
+			"machine", client.ObjectKeyFromObject(machine).String(),
+			"host", client.ObjectKeyFromObject(started.Host).String(),
+			"operation", client.ObjectKeyFromObject(started.Operation).String(),
+		)
+	default:
+		return fmt.Errorf("unknown Provision host reservation result: %T", reservation)
 	}
-
-	log.Info("TartMachine host reserved and operation started",
-		"machine", client.ObjectKeyFromObject(machine).String(),
-		"host", client.ObjectKeyFromObject(started.Host).String(),
-		"operation", client.ObjectKeyFromObject(started.Operation).String(),
-	)
 	return nil
 }
 
-func (workflow *Workflow) ensureProviderID(
+func (workflow *Workflow) applyProvisionStartStatusPatchStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	patch provisionStartStatusPatch,
+) error {
+	result, err := workflow.patchProvisionStartStatusStep(ctx, machine, patch)
+	if err != nil {
+		return err
+	}
+	switch result.(type) {
+	case provisionStartStatusPatched:
+		return nil
+	default:
+		return fmt.Errorf("unknown Provision start status patch result: %T", result)
+	}
+}
+
+func (workflow *Workflow) resolveProvisionStartDependencyStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) provisionStartDependencyResult {
+	if workflow.Provisioner != nil {
+		return provisionStartDependencyAvailable{Provisioner: workflow.Provisioner}
+	}
+	logf.FromContext(ctx).V(4).Info("Provisioner not configured, skipping provisioning",
+		"machine", client.ObjectKeyFromObject(machine).String(),
+	)
+	return provisionStartDependencyUnavailable{}
+}
+
+func (workflow *Workflow) checkBootstrapReadinessStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (bootstrapReadinessResult, error) {
+	coreMachine, err := util.GetOwnerMachine(ctx, workflow.Client, machine.ObjectMeta)
+	if err != nil {
+		return nil, fmt.Errorf("get owner Machine: %w", err)
+	}
+	if coreMachine == nil || coreMachine.Spec.Bootstrap.DataSecretName == nil {
+		return bootstrapDataWaiting{}, nil
+	}
+	return bootstrapDataReady{}, nil
+}
+
+func (workflow *Workflow) reserveProvisionHostStep(
+	ctx context.Context,
+	provisioner ProvisionWorkflow,
+	machine *infrastructurev1beta1.TartMachine,
+) (provisionHostReservationResult, error) {
+	started, err := provisioner.Start(ctx, machine, placeholderPlanDigest)
+	if errors.Is(err, appprovisioning.ErrNoAvailableHost) {
+		return provisionHostReservationNoHost{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reserve host and start operation: %w", err)
+	}
+	if started.Host == nil || started.Operation == nil {
+		return nil, fmt.Errorf("reserve host and start operation: Provisioner returned incomplete start result")
+	}
+	return provisionHostReservationStarted{Started: started}, nil
+}
+
+func (workflow *Workflow) ensureProviderIDStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
-) error {
+) (providerIDStepResult, error) {
 	expected := fmt.Sprintf("tart://%s", host.Name)
 	if machine.Spec.ProviderID == expected {
-		return nil
+		return providerIDAlreadySet{}, nil
 	}
 	if machine.Spec.ProviderID != "" {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"TartMachine providerID %q does not match reserved TartHost %q",
 			machine.Spec.ProviderID,
 			host.Name,
@@ -142,9 +214,31 @@ func (workflow *Workflow) ensureProviderID(
 	original := machine.DeepCopy()
 	machine.Spec.ProviderID = expected
 	if err := workflow.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("set TartMachine providerID: %w", err)
+		return nil, fmt.Errorf("set TartMachine providerID: %w", err)
 	}
-	return nil
+	return providerIDPatched{}, nil
+}
+
+func (workflow *Workflow) patchProvisionStartStatusStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	patch provisionStartStatusPatch,
+) (provisionStartStatusPatchResult, error) {
+	original := machine.DeepCopy()
+	switch patch := patch.(type) {
+	case provisionStartStatusWaitingForBootstrap:
+		machine.Status = appprovisioning.StatusWithWaitingForBootstrap(machine)
+	case provisionStartStatusNoAvailableHost:
+		machine.Status = appprovisioning.StatusWithNoAvailableHost(machine)
+	case provisionStartStatusHostReserved:
+		machine.Status = appprovisioning.StatusWithHostReserved(machine, patch.Host, patch.Operation)
+	default:
+		return nil, fmt.Errorf("unknown Provision start status patch: %T", patch)
+	}
+	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return nil, fmt.Errorf("patch Provision start status: %w", err)
+	}
+	return provisionStartStatusPatched{}, nil
 }
 
 func (workflow *Workflow) resumeProvisionOperationStep(
@@ -274,18 +368,4 @@ func (workflow *Workflow) setProvisionHealthPendingStep(
 		command.Reason,
 		command.Message,
 	)
-}
-
-func (workflow *Workflow) isBootstrapReady(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-) (bool, error) {
-	coreMachine, err := util.GetOwnerMachine(ctx, workflow.Client, machine.ObjectMeta)
-	if err != nil {
-		return false, fmt.Errorf("get owner Machine: %w", err)
-	}
-	if coreMachine == nil {
-		return false, nil
-	}
-	return coreMachine.Spec.Bootstrap.DataSecretName != nil, nil
 }

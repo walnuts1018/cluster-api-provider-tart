@@ -14,6 +14,11 @@
 
 package machineexecution
 
+import (
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+)
+
 type provisionReferenceResult interface {
 	isProvisionReferenceResult()
 }
@@ -24,3 +29,76 @@ type provisionReferenceBlocked struct{}
 
 func (provisionReferenceReady) isProvisionReferenceResult()   {}
 func (provisionReferenceBlocked) isProvisionReferenceResult() {}
+
+type provisionStartDependencyResult interface {
+	isProvisionStartDependencyResult()
+}
+
+type provisionStartDependencyUnavailable struct{}
+
+type provisionStartDependencyAvailable struct {
+	Provisioner ProvisionWorkflow
+}
+
+func (provisionStartDependencyUnavailable) isProvisionStartDependencyResult() {}
+func (provisionStartDependencyAvailable) isProvisionStartDependencyResult()   {}
+
+type bootstrapReadinessResult interface {
+	isBootstrapReadinessResult()
+}
+
+type bootstrapDataReady struct{}
+
+type bootstrapDataWaiting struct{}
+
+func (bootstrapDataReady) isBootstrapReadinessResult()   {}
+func (bootstrapDataWaiting) isBootstrapReadinessResult() {}
+
+type provisionHostReservationResult interface {
+	isProvisionHostReservationResult()
+}
+
+type provisionHostReservationNoHost struct{}
+
+type provisionHostReservationStarted struct {
+	Started appprovisioning.StartResult
+}
+
+func (provisionHostReservationNoHost) isProvisionHostReservationResult()  {}
+func (provisionHostReservationStarted) isProvisionHostReservationResult() {}
+
+type providerIDStepResult interface {
+	isProviderIDStepResult()
+}
+
+type providerIDAlreadySet struct{}
+
+type providerIDPatched struct{}
+
+func (providerIDAlreadySet) isProviderIDStepResult() {}
+func (providerIDPatched) isProviderIDStepResult()    {}
+
+type provisionStartStatusPatch interface {
+	isProvisionStartStatusPatch()
+}
+
+type provisionStartStatusWaitingForBootstrap struct{}
+
+type provisionStartStatusNoAvailableHost struct{}
+
+type provisionStartStatusHostReserved struct {
+	Host      *infrastructurev1beta1.TartHost
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (provisionStartStatusWaitingForBootstrap) isProvisionStartStatusPatch() {}
+func (provisionStartStatusNoAvailableHost) isProvisionStartStatusPatch()     {}
+func (provisionStartStatusHostReserved) isProvisionStartStatusPatch()        {}
+
+type provisionStartStatusPatchResult interface {
+	isProvisionStartStatusPatchResult()
+}
+
+type provisionStartStatusPatched struct{}
+
+func (provisionStartStatusPatched) isProvisionStartStatusPatchResult() {}

@@ -40,23 +40,23 @@ type StepResult struct {
 	SnapshotRef string
 }
 
-// ServiceはDistribution Lifecycle PlanのStepをDriverへdispatchする。
-type Service struct {
+// WorkflowはDistribution Lifecycle PlanのStepをDriverへdispatchする。
+type Workflow struct {
 	driver DistributionLifecycleDriver
 }
 
-// NewServiceはDistribution Lifecycle Serviceを作る。
-func NewService(driver DistributionLifecycleDriver) *Service {
-	return &Service{driver: driver}
+// NewWorkflowはDistribution Lifecycle Workflowを作る。
+func NewWorkflow(driver DistributionLifecycleDriver) *Workflow {
+	return &Workflow{driver: driver}
 }
 
 // RunStepは任意commandではなく、Plan内の既知StepだけをDriverへdispatchする。
-func (service *Service) RunStep(
+func (workflow *Workflow) RunStep(
 	ctx context.Context,
 	plan domain.Plan,
 	step domain.Step,
 ) (StepResult, error) {
-	if service.driver == nil {
+	if workflow.driver == nil {
 		return StepResult{}, fmt.Errorf("DistributionLifecycleDriver is required")
 	}
 	if !stepInPlan(step, plan.Steps) {
@@ -68,9 +68,9 @@ func (service *Service) RunStep(
 
 	switch step {
 	case domain.StepPreflightCompleted:
-		return StepResult{}, service.driver.Preflight(ctx, plan)
+		return StepResult{}, workflow.driver.Preflight(ctx, plan)
 	case domain.StepSnapshotCreated:
-		snapshot, err := service.driver.CreateSnapshot(ctx, plan)
+		snapshot, err := workflow.driver.CreateSnapshot(ctx, plan)
 		if err != nil {
 			return StepResult{}, err
 		}
@@ -82,9 +82,9 @@ func (service *Service) RunStep(
 		}
 		return StepResult{SnapshotRef: snapshot.Ref}, nil
 	case domain.StepKubeadmApplied:
-		return StepResult{}, service.driver.Apply(ctx, plan)
+		return StepResult{}, workflow.driver.Apply(ctx, plan)
 	case domain.StepHealthVerified:
-		return StepResult{}, service.driver.Verify(ctx, plan)
+		return StepResult{}, workflow.driver.Verify(ctx, plan)
 	case domain.StepTargetSlotWritten, domain.StepTargetSlotBooted, domain.StepCommitted:
 		return StepResult{}, fmt.Errorf("lifecycle step %q is handled by the OS update controller", step)
 	default:

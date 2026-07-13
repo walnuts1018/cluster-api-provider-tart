@@ -21,9 +21,9 @@ import (
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 )
 
-func TestServiceはLifecycleStepをDriverの型付き操作へDispatchする(t *testing.T) {
+func TestWorkflowはLifecycleStepをDriverの型付き操作へDispatchする(t *testing.T) {
 	driver := &recordingDriver{snapshot: SnapshotResult{Ref: "etcd-snapshot-1", RestoreVerified: true}}
-	service := NewService(driver)
+	workflow := NewWorkflow(driver)
 	plan := controlPlanePlan(t)
 
 	for _, step := range []domain.Step{
@@ -32,7 +32,7 @@ func TestServiceはLifecycleStepをDriverの型付き操作へDispatchする(t *
 		domain.StepKubeadmApplied,
 		domain.StepHealthVerified,
 	} {
-		if _, err := service.RunStep(t.Context(), plan, step); err != nil {
+		if _, err := workflow.RunStep(t.Context(), plan, step); err != nil {
 			t.Fatalf("RunStep(%q) error = %v", step, err)
 		}
 	}
@@ -53,22 +53,22 @@ func TestServiceはLifecycleStepをDriverの型付き操作へDispatchする(t *
 	}
 }
 
-func TestServiceはRestoreTestに失敗したSnapshotを拒否する(t *testing.T) {
+func TestWorkflowはRestoreTestに失敗したSnapshotを拒否する(t *testing.T) {
 	driver := &recordingDriver{snapshot: SnapshotResult{Ref: "etcd-snapshot-1"}}
-	service := NewService(driver)
+	workflow := NewWorkflow(driver)
 
-	result, err := service.RunStep(t.Context(), controlPlanePlan(t), domain.StepSnapshotCreated)
+	result, err := workflow.RunStep(t.Context(), controlPlanePlan(t), domain.StepSnapshotCreated)
 	if err == nil {
 		t.Fatalf("RunStep(SnapshotCreated) result=%#v, want restore test error", result)
 	}
 }
 
-func TestServiceはSnapshotRefなしにKubeadmApplyを実行しない(t *testing.T) {
+func TestWorkflowはSnapshotRefなしにKubeadmApplyを実行しない(t *testing.T) {
 	driver := &recordingDriver{snapshot: SnapshotResult{Ref: "etcd-snapshot-1", RestoreVerified: true}}
-	service := NewService(driver)
+	workflow := NewWorkflow(driver)
 	plan := controlPlanePlanWithoutSnapshot(t)
 
-	if _, err := service.RunStep(t.Context(), plan, domain.StepKubeadmApplied); err == nil {
+	if _, err := workflow.RunStep(t.Context(), plan, domain.StepKubeadmApplied); err == nil {
 		t.Fatal("RunStep(KubeadmApplied) error = nil, want SnapshotRef required")
 	}
 	if len(driver.calls) != 0 {

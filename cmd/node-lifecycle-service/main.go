@@ -103,8 +103,8 @@ func run(ctx context.Context, args []string) error {
 		SnapshotDir: cfg.snapshotDir,
 		NodeName:    cfg.nodeName,
 	})
-	service := distribution.NewService(kubeadmadapter.NewDriver(runtime))
-	result, stepErr := service.RunStep(ctx, domainPlan, cfg.step)
+	workflow := distribution.NewWorkflow(kubeadmadapter.NewDriver(runtime))
+	result, stepErr := workflow.RunStep(ctx, domainPlan, cfg.step)
 	if err := reportStepOutcome(ctx, apiClient, sessionToken, cfg, result, stepErr); err != nil {
 		return err
 	}

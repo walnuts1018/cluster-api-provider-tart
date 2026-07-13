@@ -26,7 +26,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-func TestServiceは署名済みPlanだけを実行する(t *testing.T) {
+func TestWorkflowは署名済みPlanだけを実行する(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey() error = %v", err)
@@ -41,9 +41,9 @@ func TestServiceは署名済みPlanだけを実行する(t *testing.T) {
 		t.Fatalf("Sign() error = %v", err)
 	}
 	runner := &recordingRunner{}
-	service := NewService(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
+	workflow := NewWorkflow(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
 
-	result, err := service.RunSignedStep(
+	result, err := workflow.RunSignedStep(
 		t.Context(),
 		SignedPlan{Plan: plan, Signature: signature},
 		domain.StepPreflightCompleted,
@@ -59,7 +59,7 @@ func TestServiceは署名済みPlanだけを実行する(t *testing.T) {
 	}
 }
 
-func TestServiceは改ざん済みPlanを実行しない(t *testing.T) {
+func TestWorkflowは改ざん済みPlanを実行しない(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey() error = %v", err)
@@ -75,9 +75,9 @@ func TestServiceは改ざん済みPlanを実行しない(t *testing.T) {
 	}
 	plan.TargetVersion = "v1.36.1"
 	runner := &recordingRunner{}
-	service := NewService(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
+	workflow := NewWorkflow(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
 
-	if _, err := service.RunSignedStep(
+	if _, err := workflow.RunSignedStep(
 		t.Context(),
 		SignedPlan{Plan: plan, Signature: signature},
 		domain.StepPreflightCompleted,
@@ -89,7 +89,7 @@ func TestServiceは改ざん済みPlanを実行しない(t *testing.T) {
 	}
 }
 
-func TestServiceはSnapshotRefなしにKubeadmAppliedを実行しない(t *testing.T) {
+func TestWorkflowはSnapshotRefなしにKubeadmAppliedを実行しない(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey() error = %v", err)
@@ -111,9 +111,9 @@ func TestServiceはSnapshotRefなしにKubeadmAppliedを実行しない(t *testi
 		t.Fatalf("Sign() error = %v", err)
 	}
 	runner := &recordingRunner{}
-	service := NewService(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
+	workflow := NewWorkflow(agentprotocol.StaticTrustStore{"lifecycle-key": publicKey}, runner)
 
-	if _, err := service.RunSignedStep(
+	if _, err := workflow.RunSignedStep(
 		t.Context(),
 		SignedPlan{Plan: plan, Signature: signature},
 		domain.StepKubeadmApplied,

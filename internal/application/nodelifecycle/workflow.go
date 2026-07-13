@@ -28,32 +28,32 @@ type StepRunner interface {
 	RunStep(context.Context, domain.Plan, domain.Step) (distribution.StepResult, error)
 }
 
-type Service struct {
+type Workflow struct {
 	trustStore agentprotocol.TrustStore
 	runner     StepRunner
 }
 
-func NewService(trustStore agentprotocol.TrustStore, runner StepRunner) *Service {
-	return &Service{trustStore: trustStore, runner: runner}
+func NewWorkflow(trustStore agentprotocol.TrustStore, runner StepRunner) *Workflow {
+	return &Workflow{trustStore: trustStore, runner: runner}
 }
 
 // RunSignedStepは署名済みPlanだけを受理し、未署名または改ざん済みPlanを実行しない。
-func (service *Service) RunSignedStep(
+func (workflow *Workflow) RunSignedStep(
 	ctx context.Context,
 	signed SignedPlan,
 	step domain.Step,
 ) (distribution.StepResult, error) {
-	if service.trustStore == nil {
+	if workflow.trustStore == nil {
 		return distribution.StepResult{}, fmt.Errorf("lifecycle plan trust store is required")
 	}
-	if service.runner == nil {
+	if workflow.runner == nil {
 		return distribution.StepResult{}, fmt.Errorf("lifecycle step runner is required")
 	}
 	validated, err := ValidatePlan(signed.Plan)
 	if err != nil {
 		return distribution.StepResult{}, err
 	}
-	if err := VerifySignature(validated, signed.Signature, service.trustStore); err != nil {
+	if err := VerifySignature(validated, signed.Signature, workflow.trustStore); err != nil {
 		return distribution.StepResult{}, err
 	}
 	plan, err := validated.DomainPlan()
@@ -63,5 +63,5 @@ func (service *Service) RunSignedStep(
 	if err := domain.ReadyForStep(plan, step); err != nil {
 		return distribution.StepResult{}, err
 	}
-	return service.runner.RunStep(ctx, plan, step)
+	return workflow.runner.RunStep(ctx, plan, step)
 }

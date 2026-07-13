@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/otel/trace"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -32,30 +31,42 @@ import (
 func (workflow *Workflow) reconcileUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
-) (bool, error) {
+) (updateOperationStepResult, error) {
 	machine := provisioned.Machine
-	operation, ok, err := workflow.referencedOperation(ctx, machine, "update outcome")
+	operationReference, err := workflow.referencedOperation(ctx, machine, "update outcome")
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
+		return nil, err
+	}
+	switch reference := operationReference.(type) {
+	case operationReferenceAbsent, operationReferenceStale:
+		return updateOperationNeedsNodeHealth{}, nil
+	case operationReferenceResolved:
+		if reference.Operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
+			return updateOperationNeedsNodeHealth{}, nil
 		}
-		return false, err
+		return workflow.reconcileResolvedUpdateOperationStep(ctx, provisioned, reference.Operation)
+	default:
+		return nil, fmt.Errorf("unknown Operation reference result for update outcome: %T", operationReference)
 	}
-	if !ok || operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-		return false, nil
-	}
+}
 
+func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
+	ctx context.Context,
+	provisioned provisionedMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (updateOperationStepResult, error) {
 	command, err := operationCommand(provisioned.State.Provisioned, operation)
 	if err != nil {
-		return false, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
+		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandApplyUpdateTerminal:
-		return true, workflow.applyUpdateTerminalStep(ctx, machine, operation, command.Outcome)
+		return updateOperationTerminalHandled{},
+			workflow.applyUpdateTerminalStep(ctx, provisioned.Machine, operation, command.Outcome)
 	case machinelifecycledomain.CommandObserveUpdateHealth, machinelifecycledomain.CommandObserveNodeHealth:
-		return false, nil
+		return updateOperationNeedsNodeHealth{}, nil
 	default:
-		return false, fmt.Errorf("unexpected Update TartHostOperation command: %T", command)
+		return nil, fmt.Errorf("unexpected Update TartHostOperation command: %T", command)
 	}
 }
 

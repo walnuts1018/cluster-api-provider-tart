@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -25,28 +26,49 @@ import (
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 )
 
+type operationReferenceResult interface {
+	isOperationReferenceResult()
+}
+
+type operationReferenceAbsent struct{}
+
+type operationReferenceResolved struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+type operationReferenceStale struct {
+	Reference *infrastructurev1beta1.ResourceReference
+}
+
+func (operationReferenceAbsent) isOperationReferenceResult()   {}
+func (operationReferenceResolved) isOperationReferenceResult() {}
+func (operationReferenceStale) isOperationReferenceResult()    {}
+
 func (workflow *Workflow) referencedOperation(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
-) (*infrastructurev1beta1.TartHostOperation, bool, error) {
+) (operationReferenceResult, error) {
 	if machine.Status.OperationRef == nil {
-		return nil, false, nil
+		return operationReferenceAbsent{}, nil
 	}
 	operation := &infrastructurev1beta1.TartHostOperation{}
 	key := operationKey(machine.Status.OperationRef)
 	if err := workflow.Get(ctx, key, operation); err != nil {
-		return nil, false, fmt.Errorf("get TartHostOperation for %s: %w", purpose, err)
+		if apierrors.IsNotFound(err) {
+			return operationReferenceStale{Reference: machine.Status.OperationRef.DeepCopy()}, nil
+		}
+		return nil, fmt.Errorf("get TartHostOperation for %s: %w", purpose, err)
 	}
 	if operation.UID != machine.Status.OperationRef.UID {
-		return nil, false, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"TartHostOperation UID mismatch for %s: expected %s, got %s",
 			purpose,
 			machine.Status.OperationRef.UID,
 			operation.UID,
 		)
 	}
-	return operation, true, nil
+	return operationReferenceResolved{Operation: operation}, nil
 }
 
 func (workflow *Workflow) referencedHost(

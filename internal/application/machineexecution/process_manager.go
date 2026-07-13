@@ -50,12 +50,16 @@ func (workflow *Workflow) reconcileProvisioning(
 	ctx context.Context,
 	provisioning provisioningMachine,
 ) error {
-	shouldContinue, err := workflow.ensureProvisionReferenceStep(ctx, provisioning)
+	referenceResult, err := workflow.ensureProvisionReferenceStep(ctx, provisioning)
 	if err != nil {
 		return err
 	}
-	if !shouldContinue {
+	switch referenceResult.(type) {
+	case provisionReferenceBlocked:
 		return nil
+	case provisionReferenceReady:
+	default:
+		return fmt.Errorf("unknown Provision reference result: %T", referenceResult)
 	}
 
 	switch machinelifecycledomain.DecideProvision(provisioning.State) {
@@ -78,12 +82,16 @@ func (workflow *Workflow) reconcileProvisioned(
 	ctx context.Context,
 	provisioned provisionedMachine,
 ) error {
-	updateHandled, err := workflow.reconcileUpdateOperationStep(ctx, provisioned)
+	updateResult, err := workflow.reconcileUpdateOperationStep(ctx, provisioned)
 	if err != nil {
 		return err
 	}
-	if updateHandled {
+	switch updateResult.(type) {
+	case updateOperationTerminalHandled:
 		return nil
+	case updateOperationNeedsNodeHealth:
+	default:
+		return fmt.Errorf("unknown Update operation result: %T", updateResult)
 	}
 	return workflow.observeNodeHealthStep(ctx, provisioned.Machine)
 }

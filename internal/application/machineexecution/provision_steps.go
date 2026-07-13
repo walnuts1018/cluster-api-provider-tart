@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/cluster-api/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -35,32 +34,32 @@ import (
 func (workflow *Workflow) ensureProvisionReferenceStep(
 	ctx context.Context,
 	provisioning provisioningMachine,
-) (bool, error) {
+) (provisionReferenceResult, error) {
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 	if workflow.HostReferences == nil {
-		return false, fmt.Errorf("ensure TartMachine host reference: HostReferences is not configured")
+		return nil, fmt.Errorf("ensure TartMachine host reference: HostReferences is not configured")
 	}
 	result, err := workflow.HostReferences.EnsureMachineHostReference(ctx, machine)
 	if errors.Is(err, allocationdomain.ErrConflict) {
 		original := machine.DeepCopy()
 		machine.Status = applicationallocation.StatusWithAllocationConflict(machine, err.Error())
 		if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
-			return false, fmt.Errorf("set TartMachine AllocationConflict condition: %w", patchErr)
+			return nil, fmt.Errorf("set TartMachine AllocationConflict condition: %w", patchErr)
 		}
 		log.Info("TartMachine allocation conflict detected",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"error", err.Error(),
 		)
-		return false, nil
+		return provisionReferenceBlocked{}, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("ensure TartMachine host reference: %w", err)
+		return nil, fmt.Errorf("ensure TartMachine host reference: %w", err)
 	}
 	if result == allocationdomain.ReferenceRepaired {
 		log.Info("Repaired TartMachine host reference", "machine", client.ObjectKeyFromObject(machine).String())
 	}
-	return true, nil
+	return provisionReferenceReady{}, nil
 }
 
 func (workflow *Workflow) startProvisionStep(
@@ -155,26 +154,37 @@ func (workflow *Workflow) resumeProvisionOperationStep(
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	operation, ok, err := workflow.referencedOperation(ctx, machine, "provision progress")
+	operationReference, err := workflow.referencedOperation(ctx, machine, "provision progress")
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("Referenced TartHostOperation not found, clearing OperationRef",
-				"machine", client.ObjectKeyFromObject(machine).String(),
-				"operation", operationKey(machine.Status.OperationRef).String(),
-			)
-			original := machine.DeepCopy()
-			machine.Status.OperationRef = nil
-			if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
-				return fmt.Errorf("clear stale OperationRef: %w", patchErr)
-			}
-			return nil
-		}
 		return err
 	}
-	if !ok {
+	switch reference := operationReference.(type) {
+	case operationReferenceStale:
+		log.Info("Referenced TartHostOperation not found, clearing OperationRef",
+			"machine", client.ObjectKeyFromObject(machine).String(),
+			"operation", operationKey(reference.Reference).String(),
+		)
+		original := machine.DeepCopy()
+		machine.Status.OperationRef = nil
+		if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
+			return fmt.Errorf("clear stale OperationRef: %w", patchErr)
+		}
 		return nil
+	case operationReferenceAbsent:
+		return nil
+	case operationReferenceResolved:
+		return workflow.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
+	default:
+		return fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
 	}
+}
 
+func (workflow *Workflow) resumeResolvedProvisionOperationStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	log := logf.FromContext(ctx)
 	command, err := operationCommand(false, operation)
 	if err != nil {
 		return fmt.Errorf("decide TartHostOperation progress: %w", err)

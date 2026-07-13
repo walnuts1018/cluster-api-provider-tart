@@ -33,30 +33,50 @@ func (workflow *Workflow) observeNodeHealthStep(
 	if err != nil {
 		return err
 	}
-	if !nodeHealth.Observed {
+	switch nodeHealth := nodeHealth.(type) {
+	case nodeHealthUnavailable:
 		return nil
+	case nodeHealthObserved:
+		return workflow.applyObservedNodeHealth(ctx, machine, nodeHealth.Observation)
+	default:
+		return fmt.Errorf("unknown Node health result: %T", nodeHealth)
 	}
+}
 
+func (workflow *Workflow) applyObservedNodeHealth(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	observation machinehealthdomain.NodeObservation,
+) error {
 	original := machine.DeepCopy()
 	state := machineState(machine)
-	operation, hasOperation, err := workflow.referencedOperation(ctx, machine, "health gate")
+	operationReference, err := workflow.referencedOperation(ctx, machine, "health gate")
 	if err != nil {
 		return err
 	}
-	if !state.Provisioned && hasOperation {
-		if err := workflow.applyProvisionHealth(ctx, machine, operation, nodeHealth.Observation); err != nil {
-			return err
+	switch reference := operationReference.(type) {
+	case operationReferenceResolved:
+		if !state.Provisioned {
+			if err := workflow.applyProvisionHealth(ctx, machine, reference.Operation, observation); err != nil {
+				return err
+			}
+		} else {
+			healthResult, err := workflow.applyUpdateHealth(ctx, machine, reference.Operation, observation)
+			if err != nil {
+				return err
+			}
+			switch healthResult.(type) {
+			case updateHealthTerminalHandled:
+				return nil
+			case updateHealthStatusChanged:
+			default:
+				return fmt.Errorf("unknown Update health result: %T", healthResult)
+			}
 		}
-	} else if state.Provisioned && hasOperation {
-		terminalHandled, err := workflow.applyUpdateHealth(ctx, machine, operation, nodeHealth.Observation)
-		if err != nil {
-			return err
-		}
-		if terminalHandled {
-			return nil
-		}
-	} else {
-		machine.Status = applicationhealth.StatusWithNodeHealth(machine, nodeHealth.Observation)
+	case operationReferenceAbsent, operationReferenceStale:
+		machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+	default:
+		return fmt.Errorf("unknown Operation reference result for health gate: %T", operationReference)
 	}
 
 	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
@@ -68,15 +88,18 @@ func (workflow *Workflow) observeNodeHealthStep(
 func (workflow *Workflow) observeNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (nodeHealthObservation, error) {
+) (nodeHealthResult, error) {
 	if workflow.NodeHealth == nil {
-		return nodeHealthObservation{}, nil
+		return nodeHealthUnavailable{}, nil
 	}
 	observation, observed, err := workflow.NodeHealth.Observe(ctx, machine)
 	if err != nil {
-		return nodeHealthObservation{}, fmt.Errorf("observe workload Node health: %w", err)
+		return nil, fmt.Errorf("observe workload Node health: %w", err)
 	}
-	return nodeHealthObservation{Observation: observation, Observed: observed}, nil
+	if !observed {
+		return nodeHealthUnavailable{}, nil
+	}
+	return nodeHealthObserved{Observation: observation}, nil
 }
 
 func (workflow *Workflow) applyUpdateHealth(
@@ -84,25 +107,25 @@ func (workflow *Workflow) applyUpdateHealth(
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
-) (bool, error) {
+) (updateHealthResult, error) {
 	command, err := operationCommand(true, operation)
 	if err != nil {
-		return false, fmt.Errorf("decide Update health gate: %w", err)
+		return nil, fmt.Errorf("decide Update health gate: %w", err)
 	}
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandObserveUpdateHealth:
-		return false, workflow.applyUpdateHealthGate(ctx, machine, operation, observation)
+		return updateHealthStatusChanged{}, workflow.applyUpdateHealthGate(ctx, machine, operation, observation)
 	case machinelifecycledomain.CommandObserveNodeHealth:
 		machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
 	case machinelifecycledomain.CommandApplyUpdateTerminal:
 		if err := workflow.applyUpdateTerminalStep(ctx, machine, operation, command.Outcome); err != nil {
-			return false, err
+			return nil, err
 		}
-		return true, nil
+		return updateHealthTerminalHandled{}, nil
 	default:
-		return false, fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
+		return nil, fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
 	}
-	return false, nil
+	return updateHealthStatusChanged{}, nil
 }
 
 func (workflow *Workflow) applyUpdateHealthGate(

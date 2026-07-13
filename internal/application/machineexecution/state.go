@@ -36,10 +36,51 @@ type provisionedMachine struct {
 	State   machinelifecycledomain.MachineState
 }
 
-type nodeHealthObservation struct {
-	Observation machinehealthdomain.NodeObservation
-	Observed    bool
+type provisionReferenceResult interface {
+	isProvisionReferenceResult()
 }
+
+type provisionReferenceReady struct{}
+
+type provisionReferenceBlocked struct{}
+
+type updateOperationStepResult interface {
+	isUpdateOperationStepResult()
+}
+
+type updateOperationTerminalHandled struct{}
+
+type updateOperationNeedsNodeHealth struct{}
+
+type updateHealthResult interface {
+	isUpdateHealthResult()
+}
+
+type updateHealthTerminalHandled struct{}
+
+type updateHealthStatusChanged struct{}
+
+type nodeHealthResult interface {
+	isNodeHealthResult()
+}
+
+type nodeHealthObserved struct {
+	Observation machinehealthdomain.NodeObservation
+}
+
+type nodeHealthUnavailable struct{}
+
+func (provisionReferenceReady) isProvisionReferenceResult()   {}
+func (provisionReferenceBlocked) isProvisionReferenceResult() {}
+
+func (updateOperationTerminalHandled) isUpdateOperationStepResult() {}
+func (updateOperationNeedsNodeHealth) isUpdateOperationStepResult() {}
+
+func (updateHealthTerminalHandled) isUpdateHealthResult() {}
+func (updateHealthStatusChanged) isUpdateHealthResult()   {}
+
+func (nodeHealthObserved) isNodeHealthResult()    {}
+func (nodeHealthUnavailable) isNodeHealthResult() {}
 
 func machineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {
 	provisioned := machine.Status.Initialization.Provisioned != nil && *machine.Status.Initialization.Provisioned

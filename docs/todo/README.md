@@ -9,3 +9,5 @@
 - [ ] Private Registry用のCredential情報のコントローラ設定対応
 - [ ] Kubeadm RuntimeのNode Health監視の細分化（`static Pod`, `etcd quorum`, `API health` の個別観測への分割）
 - [ ] wireの代わりにkessokuを使う
+- [ ] lint error直す
+- [ ] GitHub ActionsでE2Eテストを実行できるようにする

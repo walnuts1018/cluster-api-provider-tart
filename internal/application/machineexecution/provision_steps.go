@@ -337,26 +337,94 @@ func (workflow *Workflow) completeProvisionStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	if workflow.Provisioner == nil {
+	dependency := workflow.resolveProvisionCompletionDependencyStep()
+	var provisioner ProvisionWorkflow
+	switch dependency := dependency.(type) {
+	case provisionCompletionDependencyAvailable:
+		provisioner = dependency.Provisioner
+	case provisionCompletionDependencyMissing:
 		return fmt.Errorf("complete Provisioning: Provisioner is not configured")
+	default:
+		return fmt.Errorf("unknown Provision completion dependency result: %T", dependency)
 	}
-	hostReference, err := workflow.resolveHostReferenceStep(ctx, machine, "health gate")
+
+	hostResult, err := workflow.resolveProvisionCompletionHostStep(ctx, machine)
 	if err != nil {
 		return err
+	}
+	var host *infrastructurev1beta1.TartHost
+	switch hostResult := hostResult.(type) {
+	case provisionCompletionHostResolved:
+		host = hostResult.Host
+	default:
+		return fmt.Errorf("unknown Provision completion host result: %T", hostResult)
+	}
+
+	completion, err := completeProvisionOperationStep(ctx, provisioner, host, operation)
+	if err != nil {
+		return err
+	}
+	switch completion.(type) {
+	case provisionCompletionEffectApplied:
+	default:
+		return fmt.Errorf("unknown Provision completion effect result: %T", completion)
+	}
+
+	status := planProvisionedStatusStep(machine, observation)
+	switch status := status.(type) {
+	case provisionedStatusPlanned:
+		machine.Status = status.Status
+	default:
+		return fmt.Errorf("unknown Provisioned status result: %T", status)
+	}
+	return nil
+}
+
+func (workflow *Workflow) resolveProvisionCompletionDependencyStep() provisionCompletionDependencyResult {
+	if workflow.Provisioner == nil {
+		return provisionCompletionDependencyMissing{}
+	}
+	return provisionCompletionDependencyAvailable{Provisioner: workflow.Provisioner}
+}
+
+func (workflow *Workflow) resolveProvisionCompletionHostStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (provisionCompletionHostResult, error) {
+	hostReference, err := workflow.resolveHostReferenceStep(ctx, machine, "health gate")
+	if err != nil {
+		return nil, err
 	}
 	host, err := resolvedHost(hostReference, "health gate")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := workflow.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
-		return err
+	return provisionCompletionHostResolved{Host: host}, nil
+}
+
+func completeProvisionOperationStep(
+	ctx context.Context,
+	provisioner ProvisionWorkflow,
+	host *infrastructurev1beta1.TartHost,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (provisionCompletionEffectResult, error) {
+	if err := provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
+		return nil, err
 	}
-	machine.Status = appprovisioning.StatusWithProvisioned(
-		machine,
-		machine.Status.Addresses,
-		observation.ExpectedVersion,
-	)
-	return nil
+	return provisionCompletionEffectApplied{}, nil
+}
+
+func planProvisionedStatusStep(
+	machine *infrastructurev1beta1.TartMachine,
+	observation machinehealthdomain.NodeObservation,
+) provisionedStatusResult {
+	return provisionedStatusPlanned{
+		Status: appprovisioning.StatusWithProvisioned(
+			machine,
+			machine.Status.Addresses,
+			observation.ExpectedVersion,
+		),
+	}
 }
 
 func (workflow *Workflow) setProvisionHealthPendingStep(

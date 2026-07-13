@@ -102,3 +102,44 @@ type provisionStartStatusPatchResult interface {
 type provisionStartStatusPatched struct{}
 
 func (provisionStartStatusPatched) isProvisionStartStatusPatchResult() {}
+
+type provisionCompletionDependencyResult interface {
+	isProvisionCompletionDependencyResult()
+}
+
+type provisionCompletionDependencyAvailable struct {
+	Provisioner ProvisionWorkflow
+}
+
+type provisionCompletionDependencyMissing struct{}
+
+func (provisionCompletionDependencyAvailable) isProvisionCompletionDependencyResult() {}
+func (provisionCompletionDependencyMissing) isProvisionCompletionDependencyResult()   {}
+
+type provisionCompletionHostResult interface {
+	isProvisionCompletionHostResult()
+}
+
+type provisionCompletionHostResolved struct {
+	Host *infrastructurev1beta1.TartHost
+}
+
+func (provisionCompletionHostResolved) isProvisionCompletionHostResult() {}
+
+type provisionCompletionEffectResult interface {
+	isProvisionCompletionEffectResult()
+}
+
+type provisionCompletionEffectApplied struct{}
+
+func (provisionCompletionEffectApplied) isProvisionCompletionEffectResult() {}
+
+type provisionedStatusResult interface {
+	isProvisionedStatusResult()
+}
+
+type provisionedStatusPlanned struct {
+	Status infrastructurev1beta1.TartMachineStatus
+}
+
+func (provisionedStatusPlanned) isProvisionedStatusResult() {}

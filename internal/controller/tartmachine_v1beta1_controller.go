@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/cluster-api/util"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -33,6 +32,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
+	machinefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -40,14 +40,13 @@ type TartMachineV1Beta1Reconciler struct {
 	client.Client
 	MachineWorkflow *machineexecution.Workflow
 	DeleteWorkflow  *machinedeletion.Workflow
+	Finalizer       *machinefinalizer.Workflow
 	HostReferences  machineexecution.HostReferenceService
 	NodeHealth      machineexecution.NodeHealthObserver
 	Provisioner     machineexecution.ProvisionWorkflow
 	Cleaner         machinedeletion.CleaningWorkflow
 	Recorder        record.EventRecorder
 }
-
-const tartMachineCleanupFinalizer = "infrastructure.cluster.x-k8s.io/tartmachine-cleanup"
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
@@ -77,7 +76,7 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 	if !machine.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.reconcileDelete(ctx, machine)
 	}
-	if err := r.ensureFinalizer(ctx, machine); err != nil {
+	if _, err := r.finalizerWorkflow().Ensure(ctx, machine); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -101,26 +100,18 @@ func (r *TartMachineV1Beta1Reconciler) deleteWorkflow() *machinedeletion.Workflo
 	return machinedeletion.NewWorkflow(r.Client, r.Cleaner)
 }
 
-func (r *TartMachineV1Beta1Reconciler) ensureFinalizer(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-) error {
-	if controllerutil.ContainsFinalizer(machine, tartMachineCleanupFinalizer) {
-		return nil
+func (r *TartMachineV1Beta1Reconciler) finalizerWorkflow() *machinefinalizer.Workflow {
+	if r.Finalizer != nil {
+		return r.Finalizer
 	}
-	original := machine.DeepCopy()
-	controllerutil.AddFinalizer(machine, tartMachineCleanupFinalizer)
-	if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("add TartMachine cleanup finalizer: %w", err)
-	}
-	return nil
+	return machinefinalizer.NewWorkflow(r.Client)
 }
 
 func (r *TartMachineV1Beta1Reconciler) reconcileDelete(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	if !controllerutil.ContainsFinalizer(machine, tartMachineCleanupFinalizer) {
+	if !r.finalizerWorkflow().Present(machine) {
 		return nil
 	}
 	result, err := r.deleteWorkflow().Reconcile(ctx, machine)
@@ -129,24 +120,13 @@ func (r *TartMachineV1Beta1Reconciler) reconcileDelete(
 	}
 	switch result.(type) {
 	case machinedeletion.ResultFinalizerReady:
-		return r.removeFinalizer(ctx, machine)
+		_, err := r.finalizerWorkflow().Release(ctx, machine)
+		return err
 	case machinedeletion.ResultWaiting:
 		return nil
 	default:
 		return fmt.Errorf("unknown TartMachine deletion result: %T", result)
 	}
-}
-
-func (r *TartMachineV1Beta1Reconciler) removeFinalizer(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-) error {
-	original := machine.DeepCopy()
-	controllerutil.RemoveFinalizer(machine, tartMachineCleanupFinalizer)
-	if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("remove TartMachine cleanup finalizer: %w", err)
-	}
-	return nil
 }
 
 func (r *TartMachineV1Beta1Reconciler) SetupWithManager(mgr ctrl.Manager) error {

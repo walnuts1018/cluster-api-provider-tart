@@ -20,6 +20,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -38,7 +39,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	operationService := operation.NewService(k8sClient)
 	workflow := initialprovisioning.NewWorkflow(service, v1beta1hostService, operationService)
 	cleaningWorkflow := provideCleaningWorkflow()
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow)
+	machinefinalizerWorkflow := machinefinalizer.NewWorkflow(k8sClient)
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow, machinefinalizerWorkflow)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -119,9 +121,11 @@ func provideTartMachineV1Beta1Reconciler(
 	nodeHealth machineexecution.NodeHealthObserver,
 	provisioner machineexecution.ProvisionWorkflow,
 	cleaner machinedeletion.CleaningWorkflow,
+	finalizer *machinefinalizer.Workflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
+		Finalizer:      finalizer,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,

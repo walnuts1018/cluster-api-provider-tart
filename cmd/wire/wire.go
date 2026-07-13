@@ -20,6 +20,7 @@ import (
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
+	machinefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinefinalizer"
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -85,9 +86,11 @@ func provideTartMachineV1Beta1Reconciler(
 	nodeHealth machineexecution.NodeHealthObserver,
 	provisioner machineexecution.ProvisionWorkflow,
 	cleaner machinedeletion.CleaningWorkflow,
+	finalizer *machinefinalizer.Workflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
+		Finalizer:      finalizer,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,
@@ -150,6 +153,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8sv1beta1host.NewService,
 
 		appprovisioning.NewWorkflow,
+		machinefinalizer.NewWorkflow,
 		wire.Bind(new(machineexecution.HostReferenceService), new(*k8sallocation.Service)),
 		wire.Bind(new(machineexecution.NodeHealthObserver), new(*k8smachinehealth.Observer)),
 		wire.Bind(new(machineexecution.ProvisionWorkflow), new(*appprovisioning.Workflow)),

@@ -144,8 +144,13 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - KubernetesBinary Update Operation作成時にworker/control plane別Node Lifecycle Planを生成し、
   `TartHostOperation.spec.nodeLifecyclePlanDigest`とOperation所有のimmutable Secretへ保存する接続
 - `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
+- `docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
+  `RecoveryRequired` と `SnapshotRef` を前提にした手動復旧 Runbook を追加
+- `internal/adapter/k8s/distributionlifecycle/status_store_test.go` に、
+  7つの永続化Stepごとにfresh processから同じ完了報告を再送しても`completedSteps`を重複記録しない
+  回帰テストを追加
 
 未実装・未検証:
 
-- 7つの各Step直後のcontrollerまたはNode再起動検証
-- Recovery Runbookと実機/E2E検証
+- 7つの各Step直後のcontrollerまたはNode再起動の実機/E2E検証
+- Recovery Runbookの実機/E2E実行記録

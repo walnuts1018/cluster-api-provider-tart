@@ -15,6 +15,7 @@
 package distributionlifecycle
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -187,6 +188,62 @@ func TestStatusStoreはStateMigration失敗時にRecoveryRequiredへ遷移しSna
 	}
 }
 
+func TestStatusStoreは各永続化Stepの直後に再実行されても重複記録しない(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	operation := testOperation()
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(operation).
+		Build()
+	plan := controlPlanePlan(t)
+	snapshotRef := &infrastructurev1beta1.ResourceReference{
+		Namespace: operation.Namespace,
+		Name:      "etcd-snapshot-1",
+		UID:       types.UID("snapshot-uid"),
+	}
+	steps := []domain.Step{
+		domain.StepPreflightCompleted,
+		domain.StepSnapshotCreated,
+		domain.StepTargetSlotWritten,
+		domain.StepKubeadmApplied,
+		domain.StepTargetSlotBooted,
+		domain.StepHealthVerified,
+		domain.StepCommitted,
+	}
+	wantCompleted := make([]string, 0, len(steps))
+
+	for index, step := range steps {
+		store := NewStatusStore(k8sClient)
+		stepSnapshotRef := (*infrastructurev1beta1.ResourceReference)(nil)
+		if step == domain.StepSnapshotCreated {
+			stepSnapshotRef = snapshotRef
+		}
+		current := getOperation(t, k8sClient, operation)
+
+		if err := store.RecordStep(t.Context(), current, plan, step, stepSnapshotRef); err != nil {
+			t.Fatalf("RecordStep(%q) error = %v", step, err)
+		}
+
+		wantCompleted = append(wantCompleted, string(step))
+		assertRecordedStepState(t, k8sClient, operation, wantCompleted, step, snapshotRef)
+
+		store = NewStatusStore(k8sClient)
+		current = getOperation(t, k8sClient, operation)
+		if err := store.RecordStep(t.Context(), current, plan, step, stepSnapshotRef); err != nil {
+			t.Fatalf("RecordStep(%q duplicate) error = %v", step, err)
+		}
+		assertRecordedStepState(t, k8sClient, operation, wantCompleted, step, snapshotRef)
+
+		if got := len(getOperation(t, k8sClient, operation).Status.CompletedSteps); got != index+1 {
+			t.Fatalf("completedSteps length = %d, want %d after duplicate %q", got, index+1, step)
+		}
+	}
+}
+
 func testOperation() *infrastructurev1beta1.TartHostOperation {
 	return &infrastructurev1beta1.TartHostOperation{
 		ObjectMeta: metav1.ObjectMeta{
@@ -254,4 +311,47 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func getOperation(
+	t *testing.T,
+	k8sClient client.Client,
+	operation *infrastructurev1beta1.TartHostOperation,
+) *infrastructurev1beta1.TartHostOperation {
+	t.Helper()
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	return current
+}
+
+func assertRecordedStepState(
+	t *testing.T,
+	k8sClient client.Client,
+	operation *infrastructurev1beta1.TartHostOperation,
+	wantCompleted []string,
+	step domain.Step,
+	snapshotRef *infrastructurev1beta1.ResourceReference,
+) {
+	t.Helper()
+	current := getOperation(t, k8sClient, operation)
+	if !equalStrings(current.Status.CompletedSteps, wantCompleted) {
+		t.Fatalf("completedSteps = %#v, want %#v", current.Status.CompletedSteps, wantCompleted)
+	}
+	if step == domain.StepSnapshotCreated || slices.Contains(wantCompleted, string(domain.StepSnapshotCreated)) {
+		if current.Status.SnapshotRef == nil || current.Status.SnapshotRef.Name != snapshotRef.Name {
+			t.Fatalf("snapshotRef = %#v, want retained snapshot", current.Status.SnapshotRef)
+		}
+	}
+	if current.Status.LifecyclePhase != string(phaseForStep(step)) {
+		t.Fatalf("lifecyclePhase = %q, want %q", current.Status.LifecyclePhase, phaseForStep(step))
+	}
+	wantPhase := infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating
+	if step == domain.StepCommitted {
+		wantPhase = infrastructurev1beta1.TartHostOperationPhaseSucceeded
+	}
+	if current.Status.Phase != wantPhase {
+		t.Fatalf("phase = %q, want %q", current.Status.Phase, wantPhase)
+	}
 }

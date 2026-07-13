@@ -149,6 +149,15 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - `internal/adapter/k8s/distributionlifecycle/status_store_test.go` に、
   7つの永続化Stepごとにfresh processから同じ完了報告を再送しても`completedSteps`を重複記録しない
   回帰テストを追加
+- `internal/server/agentapi/handler_test.go` に、
+  7つのNode Lifecycle Step成功報告をfresh handlerごとに再送し、
+  `completedSteps`、`lifecyclePhase`、`snapshotRef`、`phase`が再起動後も同じStatusへ収束する
+  統合テストを追加
+- `internal/server/agentapi/handler_test.go` に、
+  `StateMigration` が `KubeadmApplied` で失敗した時に `RecoveryRequired` と `SnapshotRef` 保持へ
+  収束する統合テストを追加
+- `docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md` に、
+  repository 内で再現可能な再起動耐性と `RecoveryRequired` の証跡を追加
 
 未実装・未検証:
 

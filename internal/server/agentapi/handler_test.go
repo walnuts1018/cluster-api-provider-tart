@@ -408,6 +408,221 @@ func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T)
 	}
 }
 
+func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を重複記録しない(t *testing.T) {
+	state := newAuthenticatedHandlerState(
+		t,
+		nil,
+		nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    "operation-uid",
+			CurrentVersion: "v1.34.0",
+			TargetVersion:  "v1.35.0",
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleControlPlane,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps: []distributiondomain.Step{
+				distributiondomain.StepPreflightCompleted,
+				distributiondomain.StepSnapshotCreated,
+				distributiondomain.StepTargetSlotWritten,
+				distributiondomain.StepKubeadmApplied,
+				distributiondomain.StepTargetSlotBooted,
+				distributiondomain.StepHealthVerified,
+				distributiondomain.StepCommitted,
+			},
+		},
+		nil,
+	)
+	steps := []struct {
+		step               distributiondomain.Step
+		snapshotRef        string
+		wantSnapshotRef    string
+		wantLifecyclePhase string
+		wantPhase          infrastructurev1beta1.TartHostOperationPhase
+	}{
+		{
+			step:               distributiondomain.StepPreflightCompleted,
+			wantLifecyclePhase: "Preflight",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepSnapshotCreated,
+			snapshotRef:        "etcd-snapshot-1",
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Snapshot",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepTargetSlotWritten,
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Apply",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepKubeadmApplied,
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Apply",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepTargetSlotBooted,
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Apply",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepHealthVerified,
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Verify",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		},
+		{
+			step:               distributiondomain.StepCommitted,
+			wantSnapshotRef:    "etcd-snapshot-1",
+			wantLifecyclePhase: "Apply",
+			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+		},
+	}
+	wantCompleted := make([]string, 0, len(steps))
+
+	for _, test := range steps {
+		body := agentprotocol.NodeLifecycleProgressRequest{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: "operation-uid",
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(test.step),
+			Result:       agentprotocol.NodeLifecycleResultSucceeded,
+			SnapshotRef:  test.snapshotRef,
+		}
+		response := performJSONRequest(
+			t,
+			state.newHandler(),
+			http.MethodPost,
+			"/v1/operations/operation-uid/node-lifecycle-progress",
+			state.token,
+			body,
+		)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+		}
+
+		wantCompleted = append(wantCompleted, string(test.step))
+		assertOperationStatus(
+			t,
+			state.k8sClient,
+			state.key,
+			wantCompleted,
+			test.wantLifecyclePhase,
+			test.wantPhase,
+			test.wantSnapshotRef,
+		)
+
+		response = performJSONRequest(
+			t,
+			state.newHandler(),
+			http.MethodPost,
+			"/v1/operations/operation-uid/node-lifecycle-progress",
+			state.token,
+			body,
+		)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("duplicate status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+		}
+		assertOperationStatus(
+			t,
+			state.k8sClient,
+			state.key,
+			wantCompleted,
+			test.wantLifecyclePhase,
+			test.wantPhase,
+			test.wantSnapshotRef,
+		)
+	}
+}
+
+func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する(t *testing.T) {
+	state := newAuthenticatedHandlerState(
+		t,
+		nil,
+		nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    "operation-uid",
+			CurrentVersion: "v1.34.0",
+			TargetVersion:  "v1.35.0",
+			UpdateClass:    distributiondomain.UpdateClassStateMigration,
+			NodeRole:       distributiondomain.NodeRoleControlPlane,
+			SnapshotRef:    "etcd-snapshot-1",
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps: []distributiondomain.Step{
+				distributiondomain.StepPreflightCompleted,
+				distributiondomain.StepSnapshotCreated,
+				distributiondomain.StepKubeadmApplied,
+			},
+		},
+		func(operation *infrastructurev1beta1.TartHostOperation) {
+			operation.Spec.UpdateClass = infrastructurev1beta1.UpdateClassStateMigration
+		},
+	)
+
+	for _, body := range []agentprotocol.NodeLifecycleProgressRequest{
+		{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: "operation-uid",
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepPreflightCompleted),
+			Result:       agentprotocol.NodeLifecycleResultSucceeded,
+		},
+		{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: "operation-uid",
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepSnapshotCreated),
+			Result:       agentprotocol.NodeLifecycleResultSucceeded,
+			SnapshotRef:  "etcd-snapshot-1",
+		},
+	} {
+		response := performJSONRequest(
+			t,
+			state.newHandler(),
+			http.MethodPost,
+			"/v1/operations/operation-uid/node-lifecycle-progress",
+			state.token,
+			body,
+		)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+		}
+	}
+
+	response := performJSONRequest(
+		t,
+		state.newHandler(),
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		state.token,
+		agentprotocol.NodeLifecycleProgressRequest{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: "operation-uid",
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepKubeadmApplied),
+			Result:       agentprotocol.NodeLifecycleResultFailed,
+		},
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+
+	current := getOperation(t, state.k8sClient, state.key)
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired {
+		t.Fatalf("phase = %q, want RecoveryRequired", current.Status.Phase)
+	}
+	if current.Status.SnapshotRef == nil || current.Status.SnapshotRef.Name != "etcd-snapshot-1" {
+		t.Fatalf("snapshotRef = %#v, want retained etcd-snapshot-1", current.Status.SnapshotRef)
+	}
+	if got := current.Status.CompletedSteps; len(got) != 2 || got[0] != "PreflightCompleted" || got[1] != "SnapshotCreated" {
+		t.Fatalf("completedSteps = %#v, want PreflightCompleted/SnapshotCreated retained", got)
+	}
+}
+
 func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T) {
 	handler, _, _ := newAuthenticatedHandler(t, nil)
 	credential := "credential-that-must-not-be-reflected"
@@ -747,9 +962,49 @@ func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
 
 func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handler, string, client.Client) {
 	t.Helper()
+	state := newAuthenticatedHandlerState(
+		t,
+		bootstrap,
+		nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    "operation-uid",
+			CurrentVersion: "v1.34.0",
+			TargetVersion:  "v1.35.0",
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleWorker,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+		},
+		nil,
+	)
+	return state.newHandler(), state.token, state.k8sClient
+}
+
+type authenticatedHandlerState struct {
+	token          string
+	k8sClient      client.Client
+	key            client.ObjectKey
+	operation      *infrastructurev1beta1.TartHostOperation
+	now            time.Time
+	bootstrap      BootstrapProvider
+	nodePlan       nodelifecycle.Plan
+	nodePlanDigest string
+}
+
+func newAuthenticatedHandlerState(
+	t *testing.T,
+	bootstrap BootstrapProvider,
+	nodePlan nodelifecycle.Plan,
+	mutateOperation func(*infrastructurev1beta1.TartHostOperation),
+) authenticatedHandlerState {
+	t.Helper()
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	operation := &infrastructurev1beta1.TartHostOperation{
-		ObjectMeta: metav1.ObjectMeta{Namespace: key.Namespace, Name: key.Name},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: key.Namespace,
+			Name:      key.Name,
+			UID:       types.UID("operation-object-uid"),
+		},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
 			OperationID: "operation-uid",
 			PlanDigest:  testPlanDigest,
@@ -760,15 +1015,8 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 			},
 		},
 	}
-	nodePlan := nodelifecycle.Plan{
-		APIVersion:     nodelifecycle.APIVersion,
-		OperationID:    "operation-uid",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-		NodeRole:       distributiondomain.NodeRoleWorker,
-		Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
-		Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+	if mutateOperation != nil {
+		mutateOperation(operation)
 	}
 	validatedNodePlan, err := nodelifecycle.ValidatePlan(nodePlan)
 	if err != nil {
@@ -794,17 +1042,31 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}
+	return authenticatedHandlerState{
+		token:          token.BearerValue(),
+		k8sClient:      k8sClient,
+		key:            key,
+		operation:      operation,
+		now:            now,
+		bootstrap:      bootstrap,
+		nodePlan:       nodePlan,
+		nodePlanDigest: nodePlanDigest.String(),
+	}
+}
+
+func (state authenticatedHandlerState) newHandler() *Handler {
+	sessions := k8sagentsession.NewService(state.k8sClient, agentsessiondomain.DefaultTTL)
 	return NewHandler(Config{
-		Operations:           staticResolver{key: key, operation: operation},
+		Operations:           staticResolver{key: state.key, operation: state.operation},
 		RegistrationVerifier: allowRegistration{},
 		Sessions:             sessions,
-		Progress:             k8sagentprogress.NewService(k8sClient),
+		Progress:             k8sagentprogress.NewService(state.k8sClient),
 		Plans:                staticPlan{},
-		NodeLifecyclePlans:   staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{Plan: nodePlan}},
-		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(k8sClient),
-		Bootstrap:            bootstrap,
-		Now:                  func() time.Time { return now },
-	}), token.BearerValue(), k8sClient
+		NodeLifecyclePlans:   staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{Plan: state.nodePlan}},
+		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(state.k8sClient),
+		Bootstrap:            state.bootstrap,
+		Now:                  func() time.Time { return state.now },
+	})
 }
 
 func mustPlanDigest(plan agentprotocol.Plan) string {
@@ -840,4 +1102,49 @@ func performJSONRequest(
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func getOperation(t *testing.T, k8sClient client.Client, key client.ObjectKey) *infrastructurev1beta1.TartHostOperation {
+	t.Helper()
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), key, current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	return current
+}
+
+func assertOperationStatus(
+	t *testing.T,
+	k8sClient client.Client,
+	key client.ObjectKey,
+	wantCompleted []string,
+	wantLifecyclePhase string,
+	wantPhase infrastructurev1beta1.TartHostOperationPhase,
+	wantSnapshotRef string,
+) {
+	t.Helper()
+	current := getOperation(t, k8sClient, key)
+	if len(current.Status.CompletedSteps) != len(wantCompleted) {
+		t.Fatalf("completedSteps = %#v, want %#v", current.Status.CompletedSteps, wantCompleted)
+	}
+	for index, step := range wantCompleted {
+		if current.Status.CompletedSteps[index] != step {
+			t.Fatalf("completedSteps = %#v, want %#v", current.Status.CompletedSteps, wantCompleted)
+		}
+	}
+	if current.Status.LifecyclePhase != wantLifecyclePhase {
+		t.Fatalf("lifecyclePhase = %q, want %q", current.Status.LifecyclePhase, wantLifecyclePhase)
+	}
+	if current.Status.Phase != wantPhase {
+		t.Fatalf("phase = %q, want %q", current.Status.Phase, wantPhase)
+	}
+	if wantSnapshotRef == "" {
+		if current.Status.SnapshotRef != nil {
+			t.Fatalf("snapshotRef = %#v, want nil", current.Status.SnapshotRef)
+		}
+		return
+	}
+	if current.Status.SnapshotRef == nil || current.Status.SnapshotRef.Name != wantSnapshotRef {
+		t.Fatalf("snapshotRef = %#v, want %q", current.Status.SnapshotRef, wantSnapshotRef)
+	}
 }

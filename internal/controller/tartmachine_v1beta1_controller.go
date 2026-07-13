@@ -40,6 +40,7 @@ import (
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
+	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
@@ -124,8 +125,9 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// すでにProvisioned済みの場合はUpdate Operationを先に反映し、必要ならNodeHealthを観察する。
-	if isProvisioned(machine) {
+	machineState := tartMachineState(machine)
+	switch machinelifecycledomain.DecideMachine(machineState) {
+	case machinelifecycledomain.CommandObserveProvisionedMachine{}:
 		updateHandled, err := r.reconcileUpdateOperation(ctx, machine)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -133,7 +135,14 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 		if updateHandled {
 			return ctrl.Result{}, nil
 		}
-		return r.reconcileNodeHealth(ctx, machine)
+		if err := r.reconcileNodeHealth(ctx, machine); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	case machinelifecycledomain.CommandEnsureProvisionReference{}:
+		// 未ProvisionedのMachineだけがHost割当とProvision Operation作成を進める。
+	default:
+		return ctrl.Result{}, fmt.Errorf("unknown TartMachine command")
 	}
 
 	// HostRef修復と一貫性チェック
@@ -154,11 +163,13 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 		log.Info("Repaired TartMachine host reference", "machine", req.String())
 	}
 
-	// プロビジョニングフローの実行
-	if machine.Status.OperationRef == nil {
+	switch machinelifecycledomain.DecideProvision(tartMachineState(machine)) {
+	case machinelifecycledomain.CommandStartProvision{}:
 		err = r.reconcileProvisionStart(ctx, machine)
-	} else {
+	case machinelifecycledomain.CommandResumeProvisionOperation{}:
 		err = r.reconcileOperation(ctx, machine)
+	default:
+		return ctrl.Result{}, fmt.Errorf("unknown TartMachine provision command")
 	}
 
 	if err != nil {
@@ -166,7 +177,10 @@ func (r *TartMachineV1Beta1Reconciler) Reconcile(ctx context.Context, req ctrl.R
 	}
 
 	// 常にNodeHealthを観察し、Provisionedへの遷移やProviderIDMismatchの検出を行う
-	return r.reconcileNodeHealth(ctx, machine)
+	if err := r.reconcileNodeHealth(ctx, machine); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *TartMachineV1Beta1Reconciler) ensureFinalizer(
@@ -300,34 +314,49 @@ func (r *TartMachineV1Beta1Reconciler) reconcileUpdateOperation(
 		return false, nil
 	}
 
-	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
+	command, err := machinelifecycleOperationCommand(true, operation)
 	if err != nil {
-		return false, fmt.Errorf("parse Update TartHostOperation phase: %w", err)
+		return false, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
-	if !phase.Terminal() {
+	updateTerminal, ok := command.(machinelifecycledomain.CommandApplyUpdateTerminal)
+	if !ok {
 		return false, nil
 	}
+	if err := r.applyUpdateTerminal(ctx, machine, operation, updateTerminal.Outcome); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
+func (r *TartMachineV1Beta1Reconciler) applyUpdateTerminal(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	outcome machinelifecycledomain.UpdateOutcome,
+) error {
 	original := machine.DeepCopy()
-	switch phase {
-	case operationdomain.PhaseSucceeded:
+	switch outcome {
+	case machinelifecycledomain.UpdateOutcomeSucceeded:
 		machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
 		appupdate.RecordUpdateOutcome(ctx, operation, "succeeded")
-	case operationdomain.PhaseFailed:
+	case machinelifecycledomain.UpdateOutcomeRolledBack:
 		machine.Status = appupdate.StatusWithUpdateRolledBack(machine, operation)
 		appupdate.RecordUpdateOutcome(ctx, operation, "failed")
-	case operationdomain.PhaseRecoveryRequired:
+	case machinelifecycledomain.UpdateOutcomeRecoveryRequired:
 		machine.Status = appupdate.StatusWithUpdateRecoveryRequired(machine, operation)
 		appupdate.RecordUpdateOutcome(ctx, operation, "recovery_required")
+	default:
+		return fmt.Errorf("unknown TartMachine update outcome: %q", outcome)
 	}
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return false, fmt.Errorf("set TartMachine Update status: %w", err)
+		return fmt.Errorf("set TartMachine Update status: %w", err)
 	}
-	if phase == operationdomain.PhaseFailed || phase == operationdomain.PhaseRecoveryRequired {
+	if outcome == machinelifecycledomain.UpdateOutcomeRolledBack ||
+		outcome == machinelifecycledomain.UpdateOutcomeRecoveryRequired {
 		trace.SpanFromContext(ctx).SetAttributes(appupdate.FailureTraceAttributes(operation)...)
 		r.recordUpdateFailureEvent(machine, operation)
 	}
-	return true, nil
+	return nil
 }
 
 // isProvisioned はTartMachineがすでにProvisioned済みかどうかを返す。
@@ -471,34 +500,32 @@ func (r *TartMachineV1Beta1Reconciler) reconcileOperation(
 		return nil
 	}
 
-	if operation.Status.Phase == "" {
-		// Phase未設定はまだPendingで開始前
-		return nil
-	}
-	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
+	command, err := machinelifecycleOperationCommand(false, operation)
 	if err != nil {
-		return fmt.Errorf("parse TartHostOperation phase: %w", err)
+		return fmt.Errorf("decide TartHostOperation progress: %w", err)
 	}
 
-	switch phase {
-	case operationdomain.PhaseFailed, operationdomain.PhaseRecoveryRequired:
-		// OperationがFailed: 失敗としてマークする
+	switch command := command.(type) {
+	case machinelifecycledomain.CommandMarkProvisionFailed:
 		log.Info("TartHostOperation failed",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", operationKey.String(),
-			"phase", phase,
+			"phase", operation.Status.Phase,
 		)
 		original := machine.DeepCopy()
 		machine.Status = appprovisioning.StatusWithProvisionFailed(machine,
-			"OperationFailed",
-			fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, phase),
+			command.Reason,
+			fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, operation.Status.Phase),
 		)
 		if patchErr := r.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
 			return fmt.Errorf("set provision failed status: %w", patchErr)
 		}
+	case machinelifecycledomain.CommandObserveProvisionHealth:
+		return nil
+	default:
+		return fmt.Errorf("unexpected TartMachine provisioning command: %T", command)
 	}
 
-	// その他のPhaseは進行中または成功（成功の場合は呼び出し元でNodeHealthへ進む）
 	return nil
 }
 
@@ -506,40 +533,36 @@ func (r *TartMachineV1Beta1Reconciler) reconcileOperation(
 func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (ctrl.Result, error) {
+) error {
 	if r.NodeHealth == nil {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	observation, observed, err := r.NodeHealth.Observe(ctx, machine)
 	if err != nil {
-		return ctrl.Result{}, fmt.Errorf("observe workload Node health: %w", err)
+		return fmt.Errorf("observe workload Node health: %w", err)
 	}
 	if !observed {
-		return ctrl.Result{}, nil
+		return nil
 	}
 
 	original := machine.DeepCopy()
-	if !isProvisioned(machine) && machine.Status.OperationRef != nil {
-		operation := &infrastructurev1beta1.TartHostOperation{}
-		key := client.ObjectKey{
-			Namespace: machine.Status.OperationRef.Namespace,
-			Name:      machine.Status.OperationRef.Name,
-		}
-		if err := r.Get(ctx, key, operation); err != nil {
-			return ctrl.Result{}, fmt.Errorf("get TartHostOperation for health gate: %w", err)
-		}
-		if operation.UID != machine.Status.OperationRef.UID {
-			return ctrl.Result{}, fmt.Errorf(
-				"TartHostOperation UID mismatch for health gate: expected %s, got %s",
-				machine.Status.OperationRef.UID,
-				operation.UID,
-			)
-		}
+	machineState := tartMachineState(machine)
+	operation, hasOperation, err := r.referencedOperation(ctx, machine, "health gate")
+	if err != nil {
+		return err
+	}
+	if !machineState.Provisioned && hasOperation {
 		readiness := appprovisioning.EvaluateReadiness(operation, observation)
-		if readiness.Ready {
+		command := machinelifecycledomain.DecideProvisionHealth(machinelifecycledomain.Readiness{
+			Ready:   readiness.Ready,
+			Reason:  readiness.Reason,
+			Message: readiness.Message,
+		})
+		switch command := command.(type) {
+		case machinelifecycledomain.CommandCompleteProvision:
 			if r.Provisioner == nil {
-				return ctrl.Result{}, fmt.Errorf("complete Provisioning: Provisioner is not configured")
+				return fmt.Errorf("complete Provisioning: Provisioner is not configured")
 			}
 			host := &infrastructurev1beta1.TartHost{}
 			hostKey := client.ObjectKey{
@@ -547,71 +570,72 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 				Name:      machine.Status.HostRef.Name,
 			}
 			if err := r.Get(ctx, hostKey, host); err != nil {
-				return ctrl.Result{}, fmt.Errorf("get TartHost for health gate: %w", err)
+				return fmt.Errorf("get TartHost for health gate: %w", err)
 			}
 			if host.UID != machine.Status.HostRef.UID {
-				return ctrl.Result{}, fmt.Errorf(
+				return fmt.Errorf(
 					"TartHost UID mismatch for health gate: expected %s, got %s",
 					machine.Status.HostRef.UID,
 					host.UID,
 				)
 			}
 			if err := r.Provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 			machine.Status = appprovisioning.StatusWithProvisioned(
 				machine,
 				machine.Status.Addresses,
 				observation.ExpectedVersion,
 			)
-		} else {
+		case machinelifecycledomain.CommandSetProvisionHealthPending:
 			machine.Status = appprovisioning.StatusWithHealthGatePending(
 				machine,
-				readiness.Reason,
-				readiness.Message,
+				command.Reason,
+				command.Message,
 			)
+		default:
+			return fmt.Errorf("unknown Provision health command: %T", command)
 		}
-	} else if isProvisioned(machine) && machine.Status.OperationRef != nil {
-		operation := &infrastructurev1beta1.TartHostOperation{}
-		key := client.ObjectKey{
-			Namespace: machine.Status.OperationRef.Namespace,
-			Name:      machine.Status.OperationRef.Name,
+	} else if machineState.Provisioned && hasOperation {
+		command, err := machinelifecycleOperationCommand(true, operation)
+		if err != nil {
+			return fmt.Errorf("decide Update health gate: %w", err)
 		}
-		if err := r.Get(ctx, key, operation); err != nil {
-			return ctrl.Result{}, fmt.Errorf("get Update TartHostOperation for health gate: %w", err)
-		}
-		if operation.UID != machine.Status.OperationRef.UID {
-			return ctrl.Result{}, fmt.Errorf(
-				"TartHostOperation UID mismatch for update health gate: expected %s, got %s",
-				machine.Status.OperationRef.UID,
-				operation.UID,
-			)
-		}
-		if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate &&
-			operation.Status.Phase == infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth {
-			health := machinehealthdomain.EvaluateNode(observation)
-			if health.Ready {
+		switch command := command.(type) {
+		case machinelifecycledomain.CommandObserveUpdateHealth:
+			healthCommand := machinelifecycledomain.DecideUpdateHealth(machinehealthdomain.EvaluateNode(observation))
+			switch healthCommand.(type) {
+			case machinelifecycledomain.CommandCompleteUpdate:
 				if err := r.transitionOperationPhase(
 					ctx,
 					operation,
 					infrastructurev1beta1.TartHostOperationPhaseSucceeded,
 				); err != nil {
-					return ctrl.Result{}, err
+					return err
 				}
 				machine.Status = appupdate.StatusWithUpdateSucceeded(machine, operation)
-			} else {
+			case machinelifecycledomain.CommandRollbackUpdate:
 				if err := r.transitionUpdateFailurePhase(
 					ctx,
 					operation,
 					infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
 					infrastructurev1beta1.TartHostOperationPhaseRollingBack,
 				); err != nil {
-					return ctrl.Result{}, err
+					return err
 				}
 				machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+			default:
+				return fmt.Errorf("unknown Update health command: %T", healthCommand)
 			}
-		} else {
+		case machinelifecycledomain.CommandObserveNodeHealth:
 			machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+		case machinelifecycledomain.CommandApplyUpdateTerminal:
+			if err := r.applyUpdateTerminal(ctx, machine, operation, command.Outcome); err != nil {
+				return err
+			}
+			return nil
+		default:
+			return fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
 		}
 	} else {
 		// 既存のStatusにNodeHealth Conditionを反映する
@@ -619,9 +643,64 @@ func (r *TartMachineV1Beta1Reconciler) reconcileNodeHealth(
 	}
 
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return ctrl.Result{}, fmt.Errorf("set TartMachine Node health condition: %w", err)
+		return fmt.Errorf("set TartMachine Node health condition: %w", err)
 	}
-	return ctrl.Result{}, nil
+	return nil
+}
+
+func tartMachineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {
+	return machinelifecycledomain.MachineState{
+		Provisioned:  isProvisioned(machine),
+		HasOperation: machine.Status.OperationRef != nil,
+	}
+}
+
+func machinelifecycleOperationCommand(
+	provisioned bool,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (machinelifecycledomain.OperationCommand, error) {
+	kind, err := operationdomain.ParseKind(string(operation.Spec.Type))
+	if err != nil {
+		return nil, err
+	}
+	var phase operationdomain.Phase
+	if operation.Status.Phase != "" {
+		phase, err = operationdomain.ParsePhase(string(operation.Status.Phase))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return machinelifecycledomain.DecideOperation(
+		machinelifecycledomain.MachineState{Provisioned: provisioned, HasOperation: true},
+		machinelifecycledomain.OperationState{Kind: kind, Phase: phase},
+	)
+}
+
+func (r *TartMachineV1Beta1Reconciler) referencedOperation(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	purpose string,
+) (*infrastructurev1beta1.TartHostOperation, bool, error) {
+	if machine.Status.OperationRef == nil {
+		return nil, false, nil
+	}
+	operation := &infrastructurev1beta1.TartHostOperation{}
+	key := client.ObjectKey{
+		Namespace: machine.Status.OperationRef.Namespace,
+		Name:      machine.Status.OperationRef.Name,
+	}
+	if err := r.Get(ctx, key, operation); err != nil {
+		return nil, false, fmt.Errorf("get TartHostOperation for %s: %w", purpose, err)
+	}
+	if operation.UID != machine.Status.OperationRef.UID {
+		return nil, false, fmt.Errorf(
+			"TartHostOperation UID mismatch for %s: expected %s, got %s",
+			purpose,
+			machine.Status.OperationRef.UID,
+			operation.UID,
+		)
+	}
+	return operation, true, nil
 }
 
 func (r *TartMachineV1Beta1Reconciler) recordUpdateFailureEvent(

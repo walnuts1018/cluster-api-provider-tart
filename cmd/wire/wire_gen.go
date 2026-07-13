@@ -16,6 +16,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
@@ -106,6 +107,7 @@ func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Schem
 		Client:    k8sClient,
 		Scheme:    scheme,
 		Finalizer: resourcefinalizer.NewTartClusterWorkflow(k8sClient),
+		Status:    clusterstatus.NewWorkflow(k8sClient),
 	}
 }
 

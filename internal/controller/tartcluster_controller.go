@@ -16,16 +16,12 @@ package controller
 
 import (
 	"context"
-	"fmt"
-	"reflect"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -35,6 +31,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
 	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
@@ -43,6 +40,7 @@ type TartClusterReconciler struct {
 	client.Client
 	Scheme    *runtime.Scheme
 	Finalizer *resourcefinalizer.Workflow
+	Status    *clusterstatus.Workflow
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;create;update;patch;delete
@@ -89,80 +87,21 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
 	log := logf.FromContext(ctx)
-	clusterName, ok := cluster.Labels[clusterv1.ClusterNameLabel]
-	if !ok {
+	result, err := r.statusWorkflow().Reconcile(ctx, cluster)
+	if err != nil {
+		return err
+	}
+
+	switch observed := result.(type) {
+	case clusterstatus.ResultSkippedMissingClusterLabel:
 		log.V(4).Info("TartCluster missing cluster label, skipping", "cluster", cluster.Name)
-		return nil
+	case clusterstatus.ResultSkippedClusterNotFound:
+		log.V(4).Info("Cluster not found, skipping reconciliation", "cluster", observed.ClusterName)
+	case clusterstatus.ResultSkippedPausedCluster:
+		log.V(4).Info("Cluster is paused, skipping reconciliation", "cluster", observed.ClusterName)
 	}
 
-	// Fetch the corresponding CAPI Cluster to check control plane status
-	var capiCluster clusterv1.Cluster
-	if err := r.Get(ctx, types.NamespacedName{Namespace: cluster.Namespace, Name: clusterName}, &capiCluster); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get Cluster: %w", err)
-		}
-		log.V(4).Info("Cluster not found, skipping reconciliation", "cluster", cluster.Name)
-		return nil
-	}
-
-	if isClusterPaused(&capiCluster) {
-		log.V(4).Info("Cluster is paused, skipping reconciliation", "cluster", clusterName)
-		return nil
-	}
-
-	original := cluster.DeepCopy()
-
-	cluster.Status.ObservedGeneration = cluster.Generation
-
-	provisioned := true
-	cluster.Status.Initialization.Provisioned = &provisioned
-
-	controlPlaneReady := apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
-
-	// Set conditions
-	apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-		Type:               "InfrastructureProvisioned",
-		Status:             metav1.ConditionTrue,
-		Reason:             "Provisioned",
-		Message:            "TartCluster infrastructure is provisioned",
-		ObservedGeneration: cluster.Generation,
-	})
-
-	if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady") {
-		apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-			Type:               "ControlPlaneReady",
-			Status:             metav1.ConditionFalse,
-			Reason:             "ControlPlaneNotReady",
-			Message:            "Control plane is not ready yet",
-			ObservedGeneration: cluster.Generation,
-		})
-	}
-
-	if controlPlaneReady {
-		apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionTrue,
-			Reason:             "Ready",
-			Message:            "TartCluster is ready",
-			ObservedGeneration: cluster.Generation,
-		})
-	}
-
-	if !controlPlaneReady {
-		apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
-			Type:               "Ready",
-			Status:             metav1.ConditionFalse,
-			Reason:             "NotReady",
-			Message:            "TartCluster is not ready yet",
-			ObservedGeneration: cluster.Generation,
-		})
-	}
-
-	if reflect.DeepEqual(original.Status, cluster.Status) {
-		return nil
-	}
-
-	return r.Status().Patch(ctx, cluster, client.MergeFrom(original))
+	return nil
 }
 
 func (r *TartClusterReconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
@@ -170,6 +109,13 @@ func (r *TartClusterReconciler) finalizerWorkflow() *resourcefinalizer.Workflow 
 		return r.Finalizer
 	}
 	return resourcefinalizer.NewTartClusterWorkflow(r.Client)
+}
+
+func (r *TartClusterReconciler) statusWorkflow() *clusterstatus.Workflow {
+	if r.Status != nil {
+		return r.Status
+	}
+	return clusterstatus.NewWorkflow(r.Client)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -210,15 +156,4 @@ func (r *TartClusterReconciler) clusterToTartCluster(ctx context.Context, obj cl
 		})
 	}
 	return requests
-}
-
-// isClusterPaused checks if a CAPI Cluster is paused via spec.paused or the paused annotation.
-func isClusterPaused(cluster *clusterv1.Cluster) bool {
-	if cluster.Spec.Paused != nil && *cluster.Spec.Paused {
-		return true
-	}
-	if _, ok := cluster.Annotations[clusterv1.PausedAnnotation]; ok {
-		return true
-	}
-	return false
 }

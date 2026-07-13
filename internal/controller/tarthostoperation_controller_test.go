@@ -150,8 +150,8 @@ func TestTartHostOperationReconcilerはPowerOn前にBootStateを観測する(t *
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	host := operationTestHost()
-	host.Spec.Management.PowerDriver = "redfish"
-	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.PowerDriver = redfishDriverName
+	host.Spec.Management.BootDriver = redfishDriverName
 	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
 		Endpoint: "https://bmc.example.test",
 	}
@@ -193,8 +193,8 @@ func TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再�
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	host := operationTestHost()
-	host.Spec.Management.PowerDriver = "redfish"
-	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.PowerDriver = redfishDriverName
+	host.Spec.Management.BootDriver = redfishDriverName
 	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
 		Endpoint: "https://bmc.example.test",
 	}
@@ -234,8 +234,8 @@ func TestTartHostOperationReconcilerはRedfishPreferredBootTransportをPrepareBo
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	host := operationTestHost()
-	host.Spec.Management.PowerDriver = "redfish"
-	host.Spec.Management.BootDriver = "redfish"
+	host.Spec.Management.PowerDriver = redfishDriverName
+	host.Spec.Management.BootDriver = redfishDriverName
 	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
 		Endpoint:               "https://bmc.example.test",
 		PreferredBootTransport: infrastructurev1beta1.BootTransportRedfishPXE,

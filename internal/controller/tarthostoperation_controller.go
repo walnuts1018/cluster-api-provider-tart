@@ -145,6 +145,7 @@ type OperationDriverBootStateObserver interface {
 const (
 	// operationDeadlineRequeueInterval はDeadline超過を確認する間隔。
 	operationDeadlineRequeueInterval = 1 * time.Minute
+	redfishDriverName                = "redfish"
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthostoperations,verbs=get;list;watch;update;patch
@@ -153,8 +154,6 @@ const (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 
 func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
-
 	ctx, span := telemetry.Tracer.Start(ctx, "TartHostOperation.Reconcile")
 	span.SetAttributes(
 		attribute.String("kubernetes.resource.name", req.Name),
@@ -183,80 +182,94 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 			return ctrl.Result{}, err
 		}
 	}
-	decision, err := operationdomain.DecideNextStep(operationdomain.WorkflowInput{
-		Kind:     kind,
-		Phase:    phase,
-		Deadline: operation.Spec.Deadline.Time,
-		Now:      time.Now(),
+	cleaningPolicy, err := r.operationCleaningPolicy(ctx, &operation)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	decision, err := operationdomain.Process(operationdomain.ProcessInput{
+		State: operationdomain.ProcessState{
+			Kind:           kind,
+			Phase:          phase,
+			CleaningPolicy: cleaningPolicy,
+			Deadline:       operation.Spec.Deadline.Time,
+		},
+		Now: time.Now(),
 	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	switch selected := decision.Step.(type) {
-	case operationdomain.StepInitializePending:
-		return ctrl.Result{}, r.transitionPhase(ctx, &operation, infrastructurev1beta1.TartHostOperationPhasePending)
-	case operationdomain.StepPrepareBoot:
-		return ctrl.Result{}, r.handlePending(ctx, &operation)
-	case operationdomain.StepObserveActive:
-		if err := r.observeActiveOperationDriverState(ctx, &operation); err != nil {
+	return r.executeOperationCommand(ctx, req, &operation, decision.Command)
+}
+
+func (r *TartHostOperationReconciler) executeOperationCommand(
+	ctx context.Context,
+	req ctrl.Request,
+	operation *infrastructurev1beta1.TartHostOperation,
+	command operationdomain.Command,
+) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	switch selected := command.(type) {
+	case operationdomain.CommandInitializePending:
+		return ctrl.Result{}, r.transitionPhase(ctx, operation, apiOperationPhase(selected.Target))
+	case operationdomain.CommandPrepareBoot:
+		return ctrl.Result{}, r.prepareOperationBoot(ctx, operation, selected.Host)
+	case operationdomain.CommandObserveActive:
+		if err := r.observeActiveOperationDriverState(ctx, operation); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
-	case operationdomain.StepAwaitMachineHealth:
+	case operationdomain.CommandAwaitMachineHealth:
 		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
-	case operationdomain.StepCompleteWipeAll:
-		return ctrl.Result{}, r.handleWipeAllAwaitingHealth(ctx, &operation)
-	case operationdomain.StepCompleteCleaning:
-		return ctrl.Result{}, r.handleCleaningAwaitingHealth(ctx, &operation)
-	case operationdomain.StepHandleTerminal:
-		if err := r.handleTerminal(ctx, &operation, selected.Phase); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	case operationdomain.StepFailDeadlineExceeded:
+	case operationdomain.CommandCompleteWipeAll:
+		return ctrl.Result{}, r.completeOperationWithHostCommand(ctx, operation, selected.Host, selected.Target)
+	case operationdomain.CommandCompleteCleaning:
+		return ctrl.Result{}, r.completeOperationWithHostCommand(ctx, operation, selected.Host, selected.Target)
+	case operationdomain.CommandHandleTerminal:
+		return ctrl.Result{}, r.applyHostCommand(ctx, operation, selected.Host)
+	case operationdomain.CommandFailDeadlineExceeded:
 		log.Info("TartHostOperation deadline exceeded",
 			"operation", req.String(),
 			"deadline", operation.Spec.Deadline.Time,
 			"phase", operation.Status.Phase,
 		)
-		return ctrl.Result{}, r.handleDeadlineExceeded(ctx, &operation)
-	case operationdomain.StepIgnore:
+		return ctrl.Result{}, r.applyDeadlineOutcome(ctx, operation, selected.Outcome)
+	case operationdomain.CommandIgnore:
 		log.V(4).Info("TartHostOperation in unhandled phase, skipping",
 			"operation", req.String(),
 			"phase", operation.Status.Phase,
 		)
 		return ctrl.Result{}, nil
 	default:
-		return ctrl.Result{}, fmt.Errorf("unknown TartHostOperation workflow step %T", selected)
+		return ctrl.Result{}, fmt.Errorf("unknown TartHostOperation workflow command %T", selected)
 	}
 }
 
-func (r *TartHostOperationReconciler) handleTerminal(
+func (r *TartHostOperationReconciler) operationCleaningPolicy(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
-	phase operationdomain.Phase,
-) error {
-	if operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-		return nil
+) (operationdomain.CleaningPolicy, error) {
+	switch operation.Spec.Type {
+	case infrastructurev1beta1.OperationTypeClean, infrastructurev1beta1.OperationTypeWipeAll:
+		policy, err := r.cleaningPolicy(ctx, operation)
+		if err != nil {
+			return operationdomain.CleaningPolicyUnspecified, err
+		}
+		return domainCleaningPolicy(policy), nil
+	case infrastructurev1beta1.OperationTypeProvision,
+		infrastructurev1beta1.OperationTypeUpdate,
+		infrastructurev1beta1.OperationTypeRollback,
+		infrastructurev1beta1.OperationTypeRecovery:
+		return operationdomain.CleaningPolicyUnspecified, nil
 	}
-	host, err := r.getHost(ctx, operation)
-	if err != nil {
-		return err
-	}
-	switch phase {
-	case operationdomain.PhaseSucceeded, operationdomain.PhaseFailed:
-		return r.HostPhase.MarkHostProvisioned(ctx, host)
-	case operationdomain.PhaseRecoveryRequired:
-		return r.HostPhase.MarkHostRecoveryRequired(ctx, host)
-	default:
-		return nil
-	}
+	return operationdomain.CleaningPolicyUnspecified, nil
 }
 
-func (r *TartHostOperationReconciler) handlePending(
+func (r *TartHostOperationReconciler) prepareOperationBoot(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
+	hostCommand operationdomain.HostCommand,
 ) error {
 	log := logf.FromContext(ctx)
 
@@ -336,39 +349,91 @@ func (r *TartHostOperationReconciler) handlePending(
 		return fmt.Errorf("power on TartHost: %w", err)
 	}
 
-	// Hostのフェーズ更新とOperation Phase遷移を行う。
-	var markHostPhase func(context.Context, *infrastructurev1beta1.TartHost) error
-	targetHostPhase := infrastructurev1beta1.TartHostPhaseProvisioning
-	switch operation.Spec.Type {
-	case infrastructurev1beta1.OperationTypeUpdate:
-		markHostPhase = r.HostPhase.MarkHostUpdating
-		targetHostPhase = infrastructurev1beta1.TartHostPhaseUpdating
-	case infrastructurev1beta1.OperationTypeClean:
-		policy, err := r.cleaningPolicy(ctx, operation)
-		if err != nil {
-			return err
-		}
-		markHostPhase = func(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
-			return r.HostPhase.MarkHostCleaningForDeletion(ctx, host, policy)
-		}
-		targetHostPhase = infrastructurev1beta1.TartHostPhaseCleaning
-	case infrastructurev1beta1.OperationTypeWipeAll:
-		markHostPhase = func(ctx context.Context, host *infrastructurev1beta1.TartHost) error {
-			return r.HostPhase.MarkHostCleaningForDeletion(ctx, host, infrastructurev1beta1.DeletionPolicyWipeAll)
-		}
-		targetHostPhase = infrastructurev1beta1.TartHostPhaseCleaning
-	default:
-		markHostPhase = r.HostPhase.MarkHostProvisioning
-	}
-	if err := markHostPhase(ctx, host); err != nil {
+	if err := r.applyHostCommandToHost(ctx, operation, host, hostCommand); err != nil {
 		log.Error(err, "Failed to mark TartHost for Operation",
 			"host", client.ObjectKeyFromObject(host).String(),
-			"phase", targetHostPhase,
 		)
 		return err
 	}
 
 	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+}
+
+func (r *TartHostOperationReconciler) completeOperationWithHostCommand(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	hostCommand operationdomain.HostCommand,
+	target operationdomain.Phase,
+) error {
+	if err := r.applyHostCommand(ctx, operation, hostCommand); err != nil {
+		return err
+	}
+	return r.transitionPhase(ctx, operation, apiOperationPhase(target))
+}
+
+func (r *TartHostOperationReconciler) applyHostCommand(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	command operationdomain.HostCommand,
+) error {
+	if _, ok := command.(operationdomain.HostNoop); ok {
+		return nil
+	}
+	host, err := r.getHost(ctx, operation)
+	if err != nil {
+		return err
+	}
+	return r.applyHostCommandToHost(ctx, operation, host, command)
+}
+
+func (r *TartHostOperationReconciler) applyHostCommandToHost(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	host *infrastructurev1beta1.TartHost,
+	command operationdomain.HostCommand,
+) error {
+	switch selected := command.(type) {
+	case operationdomain.HostNoop:
+		return nil
+	case operationdomain.HostMarkProvisioning:
+		return r.HostPhase.MarkHostProvisioning(ctx, host)
+	case operationdomain.HostMarkUpdating:
+		return r.HostPhase.MarkHostUpdating(ctx, host)
+	case operationdomain.HostMarkCleaning:
+		return r.HostPhase.MarkHostCleaningForDeletion(ctx, host, apiCleaningPolicy(selected.Policy))
+	case operationdomain.HostMarkAvailable:
+		return r.HostPhase.MarkHostAvailable(ctx, host)
+	case operationdomain.HostMarkRetained:
+		return r.HostPhase.MarkHostRetained(ctx, host)
+	case operationdomain.HostMarkDetached:
+		return r.HostPhase.MarkHostDetached(ctx, host)
+	case operationdomain.HostMarkProvisioned:
+		return r.HostPhase.MarkHostProvisioned(ctx, host)
+	case operationdomain.HostMarkRecoveryRequired:
+		return r.HostPhase.MarkHostRecoveryRequired(ctx, host)
+	default:
+		return fmt.Errorf("unknown TartHostOperation host command %T for %s", selected, client.ObjectKeyFromObject(operation).String())
+	}
+}
+
+func (r *TartHostOperationReconciler) applyDeadlineOutcome(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	outcome operationdomain.DeadlineOutcome,
+) error {
+	switch selected := outcome.(type) {
+	case operationdomain.DeadlineMarkFailed:
+		if selected.WithUpdateFailure {
+			return r.transitionUpdateFailurePhase(ctx, operation, apiOperationPhase(selected.FailedPhase), infrastructurev1beta1.TartHostOperationPhaseFailed)
+		}
+		return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseFailed)
+	case operationdomain.DeadlineRecordBootFailure:
+		return r.handleBootTrialDeadlineExceeded(ctx, operation)
+	case operationdomain.DeadlineTransitionFailure:
+		return r.transitionUpdateFailurePhase(ctx, operation, apiOperationPhase(selected.FailedPhase), apiOperationPhase(selected.Target))
+	default:
+		return fmt.Errorf("unknown TartHostOperation deadline outcome %T", selected)
+	}
 }
 
 func (r *TartHostOperationReconciler) prepareBoot(
@@ -379,36 +444,38 @@ func (r *TartHostOperationReconciler) prepareBoot(
 	operationID operationdomain.ID,
 	invocation applicationdriver.Invocation,
 ) error {
-	if r.PrepareBoot == nil || host.Spec.Management.BootDriver != "redfish" {
+	if r.PrepareBoot == nil || host.Spec.Management.BootDriver != redfishDriverName {
 		return nil
 	}
-	preferred, err := preferredBootTarget(host)
+	preferred, ok, err := preferredBootTarget(host)
 	if err != nil {
 		return err
 	}
-	_, err = r.PrepareBoot.PrepareBoot(ctx, driverName, target, operationID, preferred, invocation)
+	var targetOverride *driverdomain.BootTarget
+	if ok {
+		targetOverride = &preferred
+	}
+	_, err = r.PrepareBoot.PrepareBoot(ctx, driverName, target, operationID, targetOverride, invocation)
 	return err
 }
 
-func preferredBootTarget(host *infrastructurev1beta1.TartHost) (*driverdomain.BootTarget, error) {
+func preferredBootTarget(host *infrastructurev1beta1.TartHost) (driverdomain.BootTarget, bool, error) {
 	if host.Spec.Management.Redfish == nil {
-		return nil, nil
+		return "", false, nil
 	}
 	switch host.Spec.Management.Redfish.PreferredBootTransport {
 	case "":
-		return nil, nil
+		return "", false, nil
 	case infrastructurev1beta1.BootTransportRedfishHTTPBoot:
-		target := driverdomain.BootTargetHTTP
-		return &target, nil
+		return driverdomain.BootTargetHTTP, true, nil
 	case infrastructurev1beta1.BootTransportRedfishPXE:
-		target := driverdomain.BootTargetPXE
-		return &target, nil
+		return driverdomain.BootTargetPXE, true, nil
 	case infrastructurev1beta1.BootTransportRedfishVirtualMedia:
-		target := driverdomain.BootTargetVirtualMedia
-		return &target, nil
-	default:
-		return nil, fmt.Errorf("unsupported Redfish preferred boot transport %q", host.Spec.Management.Redfish.PreferredBootTransport)
+		return driverdomain.BootTargetVirtualMedia, true, nil
+	case infrastructurev1beta1.BootTransportIPXE:
+		return "", false, fmt.Errorf("unsupported Redfish preferred boot transport %q", host.Spec.Management.Redfish.PreferredBootTransport)
 	}
+	return "", false, fmt.Errorf("unsupported Redfish preferred boot transport %q", host.Spec.Management.Redfish.PreferredBootTransport)
 }
 
 func (r *TartHostOperationReconciler) driverTarget(
@@ -458,7 +525,7 @@ func (r *TartHostOperationReconciler) observeDriverBootState(
 	target driverdomain.HostTarget,
 	invocation applicationdriver.Invocation,
 ) error {
-	if r.DriverBootState == nil || host.Spec.Management.BootDriver != "redfish" {
+	if r.DriverBootState == nil || host.Spec.Management.BootDriver != redfishDriverName {
 		return nil
 	}
 	return r.DriverBootState.ObserveBootAndPersist(ctx, driverName, target, host, invocation)
@@ -505,50 +572,6 @@ func (r *TartHostOperationReconciler) observeActiveOperationDriverState(
 	return nil
 }
 
-func (r *TartHostOperationReconciler) handleWipeAllAwaitingHealth(
-	ctx context.Context,
-	operation *infrastructurev1beta1.TartHostOperation,
-) error {
-	// WipeAll完了後はHostをAvailableに戻す。ConsumerRefも除去する。
-	host, err := r.getHost(ctx, operation)
-	if err != nil {
-		return err
-	}
-
-	if err := r.HostPhase.MarkHostAvailable(ctx, host); err != nil {
-		return fmt.Errorf("mark TartHost available after WipeAll: %w", err)
-	}
-
-	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
-}
-
-func (r *TartHostOperationReconciler) handleCleaningAwaitingHealth(
-	ctx context.Context,
-	operation *infrastructurev1beta1.TartHostOperation,
-) error {
-	host, err := r.getHost(ctx, operation)
-	if err != nil {
-		return err
-	}
-	policy, err := r.cleaningPolicy(ctx, operation)
-	if err != nil {
-		return err
-	}
-	switch policy {
-	case infrastructurev1beta1.DeletionPolicyRetainData:
-		if err := r.HostPhase.MarkHostRetained(ctx, host); err != nil {
-			return fmt.Errorf("mark TartHost retained after Cleaning: %w", err)
-		}
-	case infrastructurev1beta1.DeletionPolicyRetainState:
-		if err := r.HostPhase.MarkHostDetached(ctx, host); err != nil {
-			return fmt.Errorf("mark TartHost detached after Cleaning: %w", err)
-		}
-	default:
-		return fmt.Errorf("unsupported cleaning policy %q for Clean operation", policy)
-	}
-	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
-}
-
 func (r *TartHostOperationReconciler) cleaningPolicy(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -570,6 +593,37 @@ func (r *TartHostOperationReconciler) cleaningPolicy(
 		return "", fmt.Errorf("TartMachine UID mismatch: expected %s, got %s", operation.Spec.MachineRef.UID, machine.UID)
 	}
 	return machine.Spec.DeletionPolicy, nil
+}
+
+func domainCleaningPolicy(policy infrastructurev1beta1.DeletionPolicy) operationdomain.CleaningPolicy {
+	switch policy {
+	case infrastructurev1beta1.DeletionPolicyRetainData:
+		return operationdomain.CleaningPolicyRetainData
+	case infrastructurev1beta1.DeletionPolicyRetainState:
+		return operationdomain.CleaningPolicyRetainState
+	case infrastructurev1beta1.DeletionPolicyWipeAll:
+		return operationdomain.CleaningPolicyWipeAll
+	default:
+		return operationdomain.CleaningPolicyUnspecified
+	}
+}
+
+func apiCleaningPolicy(policy operationdomain.CleaningPolicy) infrastructurev1beta1.DeletionPolicy {
+	switch policy {
+	case operationdomain.CleaningPolicyUnspecified:
+		return ""
+	case operationdomain.CleaningPolicyRetainData:
+		return infrastructurev1beta1.DeletionPolicyRetainData
+	case operationdomain.CleaningPolicyRetainState:
+		return infrastructurev1beta1.DeletionPolicyRetainState
+	case operationdomain.CleaningPolicyWipeAll:
+		return infrastructurev1beta1.DeletionPolicyWipeAll
+	}
+	return ""
+}
+
+func apiOperationPhase(phase operationdomain.Phase) infrastructurev1beta1.TartHostOperationPhase {
+	return infrastructurev1beta1.TartHostOperationPhase(phase)
 }
 
 func (r *TartHostOperationReconciler) getHost(
@@ -606,51 +660,6 @@ func (r *TartHostOperationReconciler) transitionPhase(
 		}
 		return r.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
-}
-
-func (r *TartHostOperationReconciler) markFailed(
-	ctx context.Context,
-	operation *infrastructurev1beta1.TartHostOperation,
-) error {
-	if operation.Spec.Type == infrastructurev1beta1.OperationTypeUpdate {
-		return r.transitionUpdateFailurePhase(
-			ctx,
-			operation,
-			operation.Status.Phase,
-			infrastructurev1beta1.TartHostOperationPhaseFailed,
-		)
-	}
-	return r.transitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseFailed)
-}
-
-func (r *TartHostOperationReconciler) handleDeadlineExceeded(
-	ctx context.Context,
-	operation *infrastructurev1beta1.TartHostOperation,
-) error {
-	if operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-		return r.markFailed(ctx, operation)
-	}
-
-	switch operation.Status.Phase {
-	case infrastructurev1beta1.TartHostOperationPhaseBootTrial:
-		return r.handleBootTrialDeadlineExceeded(ctx, operation)
-	case infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
-		return r.transitionUpdateFailurePhase(
-			ctx,
-			operation,
-			infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
-			infrastructurev1beta1.TartHostOperationPhaseRollingBack,
-		)
-	case infrastructurev1beta1.TartHostOperationPhaseRollingBack:
-		return r.transitionUpdateFailurePhase(
-			ctx,
-			operation,
-			infrastructurev1beta1.TartHostOperationPhaseRollingBack,
-			infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired,
-		)
-	default:
-		return r.markFailed(ctx, operation)
-	}
 }
 
 func (r *TartHostOperationReconciler) handleBootTrialDeadlineExceeded(

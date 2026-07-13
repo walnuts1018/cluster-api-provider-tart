@@ -20,99 +20,174 @@ import (
 	"time"
 )
 
-func TestDecideNextStepはPhaseとOperationKindから次Stepを選ぶ(t *testing.T) {
+func TestProcessはPhaseとOperationKindから次Commandを選ぶ(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name  string
-		input WorkflowInput
-		want  Step
+		input ProcessState
+		want  Command
 	}{
 		{
 			name: "未開始OperationはPending初期化",
-			input: WorkflowInput{
+			input: ProcessState{
 				Kind: KindProvision,
-				Now:  now,
 			},
-			want: StepInitializePending{},
+			want: CommandInitializePending{Target: PhasePending},
 		},
 		{
 			name: "Pendingはboot準備",
-			input: WorkflowInput{
+			input: ProcessState{
 				Kind:  KindProvision,
 				Phase: PhasePending,
-				Now:   now,
 			},
-			want: StepPrepareBoot{},
+			want: CommandPrepareBoot{Host: HostMarkProvisioning{}},
 		},
 		{
 			name: "active phaseはdriver再観測",
-			input: WorkflowInput{
+			input: ProcessState{
 				Kind:  KindUpdate,
 				Phase: PhaseWriting,
-				Now:   now,
 			},
-			want: StepObserveActive{},
+			want: CommandObserveActive{},
 		},
 		{
 			name: "WipeAllのAwaitingHealthはhost解放",
-			input: WorkflowInput{
+			input: ProcessState{
 				Kind:  KindWipeAll,
 				Phase: PhaseAwaitingHealth,
-				Now:   now,
 			},
-			want: StepCompleteWipeAll{},
+			want: CommandCompleteWipeAll{Host: HostMarkAvailable{}, Target: PhaseSucceeded},
 		},
 		{
 			name: "ProvisionのAwaitingHealthはMachine側のhealth待ち",
-			input: WorkflowInput{
+			input: ProcessState{
 				Kind:  KindProvision,
 				Phase: PhaseAwaitingHealth,
-				Now:   now,
 			},
-			want: StepAwaitMachineHealth{},
+			want: CommandAwaitMachineHealth{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := DecideNextStep(tt.input)
+			got, err := Process(ProcessInput{State: tt.input, Now: now})
 			if err != nil {
-				t.Fatalf("DecideNextStep() error = %v", err)
+				t.Fatalf("Process() error = %v", err)
 			}
-			if got.Step != tt.want {
-				t.Fatalf("DecideNextStep().Step = %#v, want %#v", got.Step, tt.want)
+			if got.Command != tt.want {
+				t.Fatalf("Process().Command = %#v, want %#v", got.Command, tt.want)
 			}
 			if len(got.Events) != 1 {
-				t.Fatalf("DecideNextStep().Events length = %d, want 1", len(got.Events))
+				t.Fatalf("Process().Events length = %d, want 1", len(got.Events))
 			}
 		})
 	}
 }
 
-func TestDecideNextStepはDeadline超過を優先する(t *testing.T) {
+func TestProcessはDeadline超過を優先する(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
-	got, err := DecideNextStep(WorkflowInput{
-		Kind:     KindUpdate,
-		Phase:    PhaseWriting,
-		Deadline: now.Add(-time.Second),
-		Now:      now,
+	got, err := Process(ProcessInput{
+		State: ProcessState{
+			Kind:     KindUpdate,
+			Phase:    PhaseWriting,
+			Deadline: now.Add(-time.Second),
+		},
+		Now: now,
 	})
 	if err != nil {
-		t.Fatalf("DecideNextStep() error = %v", err)
+		t.Fatalf("Process() error = %v", err)
 	}
-	if got.Step != (StepFailDeadlineExceeded{}) {
-		t.Fatalf("DecideNextStep().Step = %#v, want StepFailDeadlineExceeded", got.Step)
+	want := CommandFailDeadlineExceeded{Outcome: DeadlineMarkFailed{
+		WithUpdateFailure: true,
+		FailedPhase:       PhaseWriting,
+	}}
+	if got.Command != want {
+		t.Fatalf("Process().Command = %#v, want %#v", got.Command, want)
 	}
 	if len(got.Events) != 1 {
-		t.Fatalf("DecideNextStep().Events length = %d, want 1", len(got.Events))
+		t.Fatalf("Process().Events length = %d, want 1", len(got.Events))
 	}
 	if _, ok := got.Events[0].(EventDeadlineExceeded); !ok {
-		t.Fatalf("DecideNextStep().Events[0] = %#v, want EventDeadlineExceeded", got.Events[0])
+		t.Fatalf("Process().Events[0] = %#v, want EventDeadlineExceeded", got.Events[0])
+	}
+}
+
+func TestProcessはOperation種別とPolicyからHostCommandを決める(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		state  ProcessState
+		expect Command
+	}{
+		{
+			name: "Update開始はUpdatingへ移す",
+			state: ProcessState{
+				Kind:  KindUpdate,
+				Phase: PhasePending,
+			},
+			expect: CommandPrepareBoot{Host: HostMarkUpdating{}},
+		},
+		{
+			name: "Clean開始はDeletionPolicy付きCleaningへ移す",
+			state: ProcessState{
+				Kind:           KindClean,
+				Phase:          PhasePending,
+				CleaningPolicy: CleaningPolicyRetainData,
+			},
+			expect: CommandPrepareBoot{Host: HostMarkCleaning{Policy: CleaningPolicyRetainData}},
+		},
+		{
+			name: "RetainStateのClean完了はDetachedへ移す",
+			state: ProcessState{
+				Kind:           KindClean,
+				Phase:          PhaseAwaitingHealth,
+				CleaningPolicy: CleaningPolicyRetainState,
+			},
+			expect: CommandCompleteCleaning{Host: HostMarkDetached{}, Target: PhaseSucceeded},
+		},
+		{
+			name: "UpdateのRecoveryRequiredはHostもRecoveryRequiredへ移す",
+			state: ProcessState{
+				Kind:  KindUpdate,
+				Phase: PhaseRecoveryRequired,
+			},
+			expect: CommandHandleTerminal{Host: HostMarkRecoveryRequired{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := Process(ProcessInput{State: tt.state, Now: now})
+			if err != nil {
+				t.Fatalf("Process() error = %v", err)
+			}
+			if got.Command != tt.expect {
+				t.Fatalf("Process().Command = %#v, want %#v", got.Command, tt.expect)
+			}
+		})
+	}
+}
+
+func TestProcessはCleanのPolicy未解決を拒否する(t *testing.T) {
+	t.Parallel()
+
+	_, err := Process(ProcessInput{
+		State: ProcessState{
+			Kind:  KindClean,
+			Phase: PhaseAwaitingHealth,
+		},
+		Now: time.Date(2026, 7, 13, 10, 0, 0, 0, time.UTC),
+	})
+	if !errors.Is(err, ErrUnknownCleaningPolicy) {
+		t.Fatalf("Process() error = %v, want ErrUnknownCleaningPolicy", err)
 	}
 }
 

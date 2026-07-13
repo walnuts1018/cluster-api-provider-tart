@@ -16,7 +16,6 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
@@ -34,9 +33,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	observer := machinehealth.NewObserver(k8sClient)
 	v1beta1hostService := v1beta1host.NewService(k8sClient)
 	operationService := operation.NewService(k8sClient)
-	orchestrator := initialprovisioning.NewOrchestrator(service, v1beta1hostService, operationService)
-	cleaningOrchestrator := cleaning.NewOrchestrator(v1beta1hostService, operationService)
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, orchestrator, cleaningOrchestrator)
+	workflow := initialprovisioning.NewWorkflow(service, v1beta1hostService, operationService)
+	cleaningWorkflow := provideCleaningWorkflow()
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -115,8 +114,8 @@ func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences controller.HostReferenceService,
 	nodeHealth controller.NodeHealthObserver,
-	provisioner controller.ProvisionOrchestrator,
-	cleaner controller.CleaningOrchestrator,
+	provisioner controller.ProvisionWorkflow,
+	cleaner controller.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -125,6 +124,10 @@ func provideTartMachineV1Beta1Reconciler(
 		Provisioner:    provisioner,
 		Cleaner:        cleaner,
 	}
+}
+
+func provideCleaningWorkflow() controller.CleaningWorkflow {
+	return nil
 }
 
 func provideTartHostOperationReconciler(

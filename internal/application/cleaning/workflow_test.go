@@ -38,10 +38,9 @@ func TestWorkflowはOperation作成後に一致する署名済みCleaningPlanを
 
 	hostPhase := &recordingHostPhase{}
 	operations := &workflowOperationService{}
-	orchestrator := NewOrchestrator(hostPhase, operations)
-	orchestrator.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
 	writer := &workflowPlanWriter{}
-	workflow := NewWorkflow(orchestrator, writer, cleaningPlanSigner(t))
+	workflow := NewWorkflow(hostPhase, operations, writer, cleaningPlanSigner(t))
+	workflow.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
 
 	started, err := workflow.StartCleaning(t.Context(), machine, host)
 	if err != nil {
@@ -75,10 +74,9 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じCleaningPlan�
 
 	hostPhase := &recordingHostPhase{}
 	operations := &workflowOperationService{}
-	orchestrator := NewOrchestrator(hostPhase, operations)
-	orchestrator.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
 	writer := &workflowPlanWriter{}
-	workflow := NewWorkflow(orchestrator, writer, cleaningPlanSigner(t))
+	workflow := NewWorkflow(hostPhase, operations, writer, cleaningPlanSigner(t))
+	workflow.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
 
 	first, err := workflow.StartCleaning(t.Context(), machine, host)
 	if err != nil {
@@ -86,7 +84,7 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じCleaningPlan�
 	}
 	firstDigest := writer.planDigest(t)
 
-	orchestrator.now = func() time.Time { return time.Date(2026, 7, 12, 11, 0, 0, 0, time.UTC) }
+	workflow.now = func() time.Time { return time.Date(2026, 7, 12, 11, 0, 0, 0, time.UTC) }
 	second, err := workflow.StartCleaning(t.Context(), machine, host)
 	if err != nil {
 		t.Fatalf("second StartCleaning() error = %v", err)
@@ -153,4 +151,19 @@ func (writer *workflowPlanWriter) planDigest(t *testing.T) string {
 		t.Fatalf("Plan.Digest() error = %v", err)
 	}
 	return digest.String()
+}
+
+type recordingHostPhase struct {
+	called bool
+	policy infrastructurev1beta1.DeletionPolicy
+}
+
+func (r *recordingHostPhase) MarkHostCleaningForDeletion(
+	_ context.Context,
+	_ *infrastructurev1beta1.TartHost,
+	policy infrastructurev1beta1.DeletionPolicy,
+) error {
+	r.called = true
+	r.policy = policy
+	return nil
 }

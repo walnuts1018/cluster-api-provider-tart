@@ -46,6 +46,14 @@ type NodeLifecyclePlanWriter interface {
 	) error
 }
 
+// OperationStarterはOperation作成の永続化境界である。
+type OperationStarter interface {
+	Start(
+		context.Context,
+		*infrastructurev1beta1.TartHostOperation,
+	) (*infrastructurev1beta1.TartHostOperation, error)
+}
+
 // PlanSignerはAgent Plan専用の署名鍵を保持する。
 type PlanSigner struct {
 	KeyID      string
@@ -56,6 +64,59 @@ type PlanSigner struct {
 type WorkflowInput struct {
 	StartInput
 	Manifest artifact.ValidatedManifest
+}
+
+type Step interface {
+	isInPlaceUpdateStep()
+}
+
+type StepStartOperation struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (StepStartOperation) isInPlaceUpdateStep() {}
+
+type StepPersistAgentPlan struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Plan      agentprotocol.ValidatedPlan
+	Signature agentprotocol.Signature
+}
+
+func (StepPersistAgentPlan) isInPlaceUpdateStep() {}
+
+type StepPersistNodeLifecyclePlan struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Plan      nodelifecycleapp.ValidatedPlan
+	Signature agentprotocol.Signature
+}
+
+func (StepPersistNodeLifecyclePlan) isInPlaceUpdateStep() {}
+
+type Event interface {
+	isInPlaceUpdateEvent()
+}
+
+type EventOperationStarted struct {
+	OperationID string
+}
+
+func (EventOperationStarted) isInPlaceUpdateEvent() {}
+
+type EventAgentPlanPersisted struct {
+	OperationID string
+}
+
+func (EventAgentPlanPersisted) isInPlaceUpdateEvent() {}
+
+type EventNodeLifecyclePlanPersisted struct {
+	OperationID string
+}
+
+func (EventNodeLifecyclePlanPersisted) isInPlaceUpdateEvent() {}
+
+type StartResult struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Events    []Event
 }
 
 // WorkflowはUpdate Operation作成と署名済みPlan保存を順序付ける。
@@ -93,41 +154,41 @@ func (workflow *Workflow) SetNodeLifecyclePlanWriter(
 func (workflow *Workflow) Start(
 	ctx context.Context,
 	input WorkflowInput,
-) (*infrastructurev1beta1.TartHostOperation, error) {
+) (StartResult, error) {
 	draft, err := BuildOperationDraft(input.StartInput)
 	if err != nil {
-		return nil, err
+		return StartResult{}, err
 	}
 	candidatePlan, err := workflow.buildPlan(input, draft)
 	if err != nil {
-		return nil, err
+		return StartResult{}, err
 	}
 	draft.Spec.PlanDigest = candidatePlan.Digest.String()
-	candidateNodePlan, err := workflow.buildNodeLifecyclePlan(input, draft)
+	candidateNodePlan, hasCandidateNodePlan, err := workflow.buildNodeLifecyclePlan(input, draft)
 	if err != nil {
-		return nil, err
+		return StartResult{}, err
 	}
-	if candidateNodePlan != nil {
+	if hasCandidateNodePlan {
 		draft.Spec.NodeLifecyclePlanDigest = candidateNodePlan.Digest.String()
 	}
 
 	started, err := workflow.operations.Start(ctx, draft)
 	if err != nil {
-		return nil, fmt.Errorf("start Update Operation: %w", err)
+		return StartResult{}, fmt.Errorf("start Update Operation: %w", err)
 	}
 	persistedPlan, err := workflow.buildPlan(input, started)
 	if err != nil {
-		return nil, err
+		return StartResult{}, err
 	}
 	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
-		return nil, fmt.Errorf("stored Update Operation Plan digest does not match regenerated Plan")
+		return StartResult{}, fmt.Errorf("stored Update Operation Plan digest does not match regenerated Plan")
 	}
-	persistedNodePlan, err := workflow.buildNodeLifecyclePlan(input, started)
+	persistedNodePlan, hasPersistedNodePlan, err := workflow.buildNodeLifecyclePlan(input, started)
 	if err != nil {
-		return nil, err
+		return StartResult{}, err
 	}
-	if persistedNodePlan != nil && persistedNodePlan.Digest.String() != started.Spec.NodeLifecyclePlanDigest {
-		return nil, fmt.Errorf("stored Update Operation Node Lifecycle Plan digest does not match regenerated Plan")
+	if hasPersistedNodePlan && persistedNodePlan.Digest.String() != started.Spec.NodeLifecyclePlanDigest {
+		return StartResult{}, fmt.Errorf("stored Update Operation Node Lifecycle Plan digest does not match regenerated Plan")
 	}
 	if err := workflow.plans.Write(
 		ctx,
@@ -135,11 +196,15 @@ func (workflow *Workflow) Start(
 		persistedPlan.Plan,
 		persistedPlan.Signature,
 	); err != nil {
-		return nil, fmt.Errorf("persist Update Plan: %w", err)
+		return StartResult{}, fmt.Errorf("persist Update Plan: %w", err)
 	}
-	if persistedNodePlan != nil {
+	events := []Event{
+		EventOperationStarted{OperationID: started.Spec.OperationID},
+		EventAgentPlanPersisted{OperationID: started.Spec.OperationID},
+	}
+	if hasPersistedNodePlan {
 		if workflow.nodeLifecyclePlans == nil {
-			return nil, fmt.Errorf("Node Lifecycle Plan writer is required for KubernetesBinary update")
+			return StartResult{}, fmt.Errorf("Node Lifecycle Plan writer is required for KubernetesBinary update")
 		}
 		if err := workflow.nodeLifecyclePlans.Write(
 			ctx,
@@ -147,10 +212,14 @@ func (workflow *Workflow) Start(
 			persistedNodePlan.Plan,
 			persistedNodePlan.Signature,
 		); err != nil {
-			return nil, fmt.Errorf("persist Node Lifecycle Plan: %w", err)
+			return StartResult{}, fmt.Errorf("persist Node Lifecycle Plan: %w", err)
 		}
+		events = append(events, EventNodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
 	}
-	return started, nil
+	return StartResult{
+		Operation: started,
+		Events:    events,
+	}, nil
 }
 
 func (workflow *Workflow) buildPlan(
@@ -176,12 +245,12 @@ func (workflow *Workflow) buildPlan(
 func (workflow *Workflow) buildNodeLifecyclePlan(
 	input WorkflowInput,
 	operation *infrastructurev1beta1.TartHostOperation,
-) (*nodelifecycleapp.BuiltPlan, error) {
+) (nodelifecycleapp.BuiltPlan, bool, error) {
 	if operation.Spec.UpdateClass == infrastructurev1beta1.UpdateClassOSOnly {
-		return nil, nil
+		return nodelifecycleapp.BuiltPlan{}, false, nil
 	}
 	if operation.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
-		return nil, fmt.Errorf("unsupported distribution lifecycle update class %q", operation.Spec.UpdateClass)
+		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("unsupported distribution lifecycle update class %q", operation.Spec.UpdateClass)
 	}
 	nodeRole := input.NodeRole
 	if nodeRole == "" {
@@ -195,7 +264,7 @@ func (workflow *Workflow) buildNodeLifecyclePlan(
 		NodeRole:       nodeRole,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("build Node Lifecycle domain Plan: %w", err)
+		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("build Node Lifecycle domain Plan: %w", err)
 	}
 	built, err := nodelifecycleapp.BuildSignedPlan(
 		plan,
@@ -204,7 +273,7 @@ func (workflow *Workflow) buildNodeLifecyclePlan(
 		workflow.nodeLifecycleSigner.PrivateKey,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("build signed Node Lifecycle Plan: %w", err)
+		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("build signed Node Lifecycle Plan: %w", err)
 	}
-	return &built, nil
+	return built, true, nil
 }

@@ -44,46 +44,11 @@ type OperationService interface {
 	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
 }
 
-type Orchestrator struct {
-	hostPhase  HostPhaseService
-	operations OperationService
-	now        func() time.Time
-}
-
-func NewOrchestrator(
-	hostPhase HostPhaseService,
-	operations OperationService,
-) *Orchestrator {
-	return &Orchestrator{
-		hostPhase:  hostPhase,
-		operations: operations,
-		now:        time.Now,
-	}
-}
-
-func (o *Orchestrator) StartCleaning(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-	host *infrastructurev1beta1.TartHost,
-) (*infrastructurev1beta1.TartHostOperation, error) {
-	if err := o.hostPhase.MarkHostCleaningForDeletion(ctx, host, machine.Spec.DeletionPolicy); err != nil {
-		return nil, fmt.Errorf("mark TartHost cleaning: %w", err)
-	}
-	desired, err := o.buildDesiredOperation(machine, host, "")
-	if err != nil {
-		return nil, err
-	}
-	operation, err := o.operations.Start(ctx, desired)
-	if err != nil {
-		return nil, fmt.Errorf("start Cleaning operation: %w", err)
-	}
-	return operation, nil
-}
-
-func (o *Orchestrator) buildDesiredOperation(
+func BuildOperationDraft(
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
 	planDigest string,
+	now time.Time,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
 	desiredObjectsDigest, err := cleaningObjectsDigest(machine, host)
 	if err != nil {
@@ -94,10 +59,10 @@ func (o *Orchestrator) buildDesiredOperation(
 		return nil, err
 	}
 	operationType := infrastructurev1beta1.OperationTypeClean
-	deadline := o.now().Add(defaultCleaningDeadline)
+	deadline := now.Add(defaultCleaningDeadline)
 	if machine.Spec.DeletionPolicy == infrastructurev1beta1.DeletionPolicyWipeAll {
 		operationType = infrastructurev1beta1.OperationTypeWipeAll
-		deadline = o.now().Add(WipeAllDeadline(observedRootDiskSize(host)))
+		deadline = now.Add(WipeAllDeadline(observedRootDiskSize(host)))
 	}
 	return &infrastructurev1beta1.TartHostOperation{
 		ObjectMeta: metav1.ObjectMeta{

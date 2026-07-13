@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"time"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
@@ -37,21 +38,64 @@ type PlanSigner struct {
 	PrivateKey ed25519.PrivateKey
 }
 
+type Step interface {
+	isCleaningStep()
+}
+
+type StepMarkHostCleaning struct{}
+
+func (StepMarkHostCleaning) isCleaningStep() {}
+
+type StepStartOperation struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (StepStartOperation) isCleaningStep() {}
+
+type StepPersistPlan struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Plan      agentprotocol.ValidatedPlan
+	Signature agentprotocol.Signature
+}
+
+func (StepPersistPlan) isCleaningStep() {}
+
+type Event interface {
+	isCleaningEvent()
+}
+
+type EventOperationStarted struct {
+	OperationID string
+}
+
+func (EventOperationStarted) isCleaningEvent() {}
+
+type EventPlanPersisted struct {
+	OperationID string
+}
+
+func (EventPlanPersisted) isCleaningEvent() {}
+
 type Workflow struct {
-	orchestrator *Orchestrator
-	plans        PlanWriter
-	signer       PlanSigner
+	hostPhase  HostPhaseService
+	operations OperationService
+	plans      PlanWriter
+	signer     PlanSigner
+	now        func() time.Time
 }
 
 func NewWorkflow(
-	orchestrator *Orchestrator,
+	hostPhase HostPhaseService,
+	operations OperationService,
 	plans PlanWriter,
 	signer PlanSigner,
 ) *Workflow {
 	return &Workflow{
-		orchestrator: orchestrator,
-		plans:        plans,
-		signer:       signer,
+		hostPhase:  hostPhase,
+		operations: operations,
+		plans:      plans,
+		signer:     signer,
+		now:        time.Now,
 	}
 }
 
@@ -60,10 +104,10 @@ func (workflow *Workflow) StartCleaning(
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
-	if err := workflow.orchestrator.hostPhase.MarkHostCleaningForDeletion(ctx, host, machine.Spec.DeletionPolicy); err != nil {
+	if err := workflow.hostPhase.MarkHostCleaningForDeletion(ctx, host, machine.Spec.DeletionPolicy); err != nil {
 		return nil, fmt.Errorf("mark TartHost cleaning: %w", err)
 	}
-	draft, err := workflow.orchestrator.buildDesiredOperation(machine, host, "")
+	draft, err := BuildOperationDraft(machine, host, "", workflow.now())
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +117,7 @@ func (workflow *Workflow) StartCleaning(
 	}
 	draft.Spec.PlanDigest = candidatePlan.Digest.String()
 
-	started, err := workflow.orchestrator.operations.Start(ctx, draft)
+	started, err := workflow.operations.Start(ctx, draft)
 	if err != nil {
 		return nil, fmt.Errorf("start Cleaning operation: %w", err)
 	}

@@ -30,16 +30,19 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
+const targetKubernetesVersion = "v1.35.0"
+
 func TestWorkflowはOperation作成後に一致する署名済みPlanを保存する(t *testing.T) {
 	input := workflowInput(t)
 	starter := &workflowOperationStarter{}
 	writer := &recordingPlanWriter{}
 	workflow := NewWorkflow(starter, writer, testPlanSigner(t))
 
-	started, err := workflow.Start(t.Context(), input)
+	result, err := workflow.Start(t.Context(), input)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
+	started := result.Operation
 
 	if started.UID == "" {
 		t.Fatal("started Operation UID is empty")
@@ -57,6 +60,9 @@ func TestWorkflowはOperation作成後に一致する署名済みPlanを保存�
 	if digest.String() != started.Spec.PlanDigest {
 		t.Fatalf("Plan digest = %q, want %q", digest, started.Spec.PlanDigest)
 	}
+	if len(result.Events) != 2 {
+		t.Fatalf("Events = %#v, want operation and agent plan events", result.Events)
+	}
 }
 
 func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生成する(t *testing.T) {
@@ -65,17 +71,19 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生
 	writer := &recordingPlanWriter{}
 	workflow := NewWorkflow(starter, writer, testPlanSigner(t))
 
-	first, err := workflow.Start(t.Context(), input)
+	firstResult, err := workflow.Start(t.Context(), input)
 	if err != nil {
 		t.Fatalf("first Start() error = %v", err)
 	}
+	first := firstResult.Operation
 	firstPlanDigest := writer.planDigest(t)
 
 	input.Now = input.Now.Add(time.Hour)
-	second, err := workflow.Start(t.Context(), input)
+	secondResult, err := workflow.Start(t.Context(), input)
 	if err != nil {
 		t.Fatalf("second Start() error = %v", err)
 	}
+	second := secondResult.Operation
 
 	if first.UID != second.UID {
 		t.Fatalf("Operation UID = %q, want existing %q", second.UID, first.UID)
@@ -88,9 +96,9 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生
 func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t *testing.T) {
 	input := workflowInput(t)
 	input.CurrentDistributionVersion = "v1.34.0"
-	input.TargetDistributionVersion = "v1.35.0"
-	input.Machine.Spec.Version = "v1.35.0"
-	input.Manifest = updateManifestWithKubernetesVersion(t, "v1.35.0")
+	input.TargetDistributionVersion = targetKubernetesVersion
+	input.Machine.Spec.Version = targetKubernetesVersion
+	input.Manifest = updateManifestWithKubernetesVersion(t, targetKubernetesVersion)
 	input.NodeRole = distributiondomain.NodeRoleWorker
 	starter := &workflowOperationStarter{}
 	agentWriter := &recordingPlanWriter{}
@@ -98,10 +106,11 @@ func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t 
 	workflow := NewWorkflow(starter, agentWriter, testPlanSigner(t))
 	workflow.SetNodeLifecyclePlanWriter(nodeWriter, testPlanSigner(t))
 
-	started, err := workflow.Start(t.Context(), input)
+	result, err := workflow.Start(t.Context(), input)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
+	started := result.Operation
 
 	if started.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
 		t.Fatalf("UpdateClass = %q, want KubernetesBinary", started.Spec.UpdateClass)
@@ -115,7 +124,7 @@ func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t 
 	nodePlan := nodeWriter.plan.Value()
 	if nodePlan.NodeRole != distributiondomain.NodeRoleWorker ||
 		nodePlan.CurrentVersion != "v1.34.0" ||
-		nodePlan.TargetVersion != "v1.35.0" {
+		nodePlan.TargetVersion != targetKubernetesVersion {
 		t.Fatalf("Node Lifecycle Plan = %#v, want worker v1.34.0 -> v1.35.0", nodePlan)
 	}
 	digest, err := nodeWriter.plan.Digest()
@@ -124,6 +133,9 @@ func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t 
 	}
 	if digest.String() != started.Spec.NodeLifecyclePlanDigest {
 		t.Fatalf("Node Lifecycle Plan digest = %q, want %q", digest, started.Spec.NodeLifecyclePlanDigest)
+	}
+	if len(result.Events) != 3 {
+		t.Fatalf("Events = %#v, want operation, agent plan, and node lifecycle plan events", result.Events)
 	}
 }
 

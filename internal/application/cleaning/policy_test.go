@@ -15,7 +15,6 @@
 package cleaning
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -111,7 +110,7 @@ func TestWipeAllDeadlineは観測ディスク容量に応じて伸びる(t *test
 	}
 }
 
-func TestOrchestratorはWipeAll削除時に容量連動deadlineを設定する(t *testing.T) {
+func TestBuildOperationDraftはWipeAll削除時に容量連動deadlineを設定する(t *testing.T) {
 	t.Parallel()
 
 	host := &infrastructurev1beta1.TartHost{
@@ -141,51 +140,17 @@ func TestOrchestratorはWipeAll削除時に容量連動deadlineを設定する(t
 			DeletionPolicy: infrastructurev1beta1.DeletionPolicyWipeAll,
 		},
 	}
-	hostPhase := &recordingHostPhase{}
-	operations := &recordingOperationService{}
-	orchestrator := NewOrchestrator(hostPhase, operations)
-	orchestrator.now = func() time.Time { return time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) }
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC)
 
-	operation, err := orchestrator.StartCleaning(t.Context(), machine, host)
+	operation, err := BuildOperationDraft(machine, host, "", now)
 	if err != nil {
-		t.Fatalf("StartCleaning() error = %v", err)
-	}
-	if !hostPhase.called {
-		t.Fatal("MarkHostCleaningForDeletion() was not called")
+		t.Fatalf("BuildOperationDraft() error = %v", err)
 	}
 	if operation.Spec.Type != infrastructurev1beta1.OperationTypeWipeAll {
 		t.Fatalf("operation type = %q, want WipeAll", operation.Spec.Type)
 	}
-	wantDeadline := metav1.NewTime(orchestrator.now().Add(10*time.Hour + 20*time.Minute))
+	wantDeadline := metav1.NewTime(now.Add(10*time.Hour + 20*time.Minute))
 	if !operation.Spec.Deadline.Equal(&wantDeadline) {
 		t.Fatalf("deadline = %s, want %s", operation.Spec.Deadline, wantDeadline)
 	}
-}
-
-type recordingHostPhase struct {
-	called bool
-	policy infrastructurev1beta1.DeletionPolicy
-}
-
-func (r *recordingHostPhase) MarkHostCleaningForDeletion(
-	_ context.Context,
-	_ *infrastructurev1beta1.TartHost,
-	policy infrastructurev1beta1.DeletionPolicy,
-) error {
-	r.called = true
-	r.policy = policy
-	return nil
-}
-
-type recordingOperationService struct {
-	last *infrastructurev1beta1.TartHostOperation
-}
-
-func (r *recordingOperationService) Start(
-	_ context.Context,
-	desired *infrastructurev1beta1.TartHostOperation,
-) (*infrastructurev1beta1.TartHostOperation, error) {
-	r.last = desired.DeepCopy()
-	r.last.UID = types.UID("operation-a-uid")
-	return r.last, nil
 }

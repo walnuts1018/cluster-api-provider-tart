@@ -15,7 +15,6 @@
 package inplaceupdate
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -49,40 +48,6 @@ type StartInput struct {
 	TargetDistributionVersion  string
 	NodeRole                   distributiondomain.NodeRole
 	Now                        time.Time
-}
-
-// OperationStarterはOperation作成の永続化境界である。
-type OperationStarter interface {
-	Start(
-		context.Context,
-		*infrastructurev1beta1.TartHostOperation,
-	) (*infrastructurev1beta1.TartHostOperation, error)
-}
-
-// OrchestratorはUpdate Operationの生成と冪等な開始を組み立てる。
-type Orchestrator struct {
-	operations OperationStarter
-}
-
-// NewOrchestratorはUpdate Orchestratorを生成する。
-func NewOrchestrator(operations OperationStarter) *Orchestrator {
-	return &Orchestrator{operations: operations}
-}
-
-// Startは同じdesired objectsに対して同じOperation IDを使ってOperationを開始する。
-func (orchestrator *Orchestrator) Start(
-	ctx context.Context,
-	input StartInput,
-) (*infrastructurev1beta1.TartHostOperation, error) {
-	operation, err := BuildOperation(input)
-	if err != nil {
-		return nil, err
-	}
-	started, err := orchestrator.operations.Start(ctx, operation)
-	if err != nil {
-		return nil, fmt.Errorf("start Update Operation: %w", err)
-	}
-	return started, nil
 }
 
 // BuildOperationは検証済み入力からOSOnly Update Operationを構築する。
@@ -269,7 +234,7 @@ func desiredObjectsDigest(input StartInput) (string, error) {
 
 func bootstrapSpec(extension runtime.RawExtension) (any, error) {
 	if len(extension.Raw) == 0 && extension.Object == nil {
-		return nil, nil
+		return map[string]any{}, nil
 	}
 	raw := extension.Raw
 	if len(raw) == 0 {

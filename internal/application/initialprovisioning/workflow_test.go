@@ -83,35 +83,35 @@ func TestDesiredObjectsDigestIsStableAndChangesWithMachineSpec(t *testing.T) {
 	}
 }
 
-func TestOrchestratorMapsNoMatchingHost(t *testing.T) {
+func TestWorkflowMapsNoMatchingHost(t *testing.T) {
 	t.Parallel()
 
-	orchestrator := NewOrchestrator(
+	workflow := NewWorkflow(
 		hostReserveStub{err: allocationdomain.ErrNoMatchingHost},
 		hostPhaseStub{},
 		operationServiceStub{},
 	)
-	_, _, err := orchestrator.ReserveAndStartOperation(
+	_, err := workflow.Start(
 		t.Context(),
 		testMachine(),
 		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	)
 	if !errors.Is(err, ErrNoAvailableHost) {
-		t.Fatalf("ReserveAndStartOperation() error = %v, want %v", err, ErrNoAvailableHost)
+		t.Fatalf("Start() error = %v, want %v", err, ErrNoAvailableHost)
 	}
 }
 
-func TestOrchestratorCompletesProvisioningInOperationThenHostOrder(t *testing.T) {
+func TestWorkflowCompletesProvisioningInOperationThenHostOrder(t *testing.T) {
 	t.Parallel()
 
 	var calls []string
-	orchestrator := NewOrchestrator(
+	workflow := NewWorkflow(
 		hostReserveStub{},
 		hostPhaseStub{markProvisioned: func() { calls = append(calls, "host") }},
 		operationServiceStub{completeProvision: func() { calls = append(calls, "operation") }},
 	)
 
-	if err := orchestrator.CompleteProvisioning(
+	if err := workflow.CompleteProvisioning(
 		t.Context(),
 		&infrastructurev1beta1.TartHost{},
 		&infrastructurev1beta1.TartHostOperation{},
@@ -123,11 +123,11 @@ func TestOrchestratorCompletesProvisioningInOperationThenHostOrder(t *testing.T)
 	}
 }
 
-func TestOrchestratorStopsProvisionCompletionWhenOperationCompletionFails(t *testing.T) {
+func TestWorkflowStopsProvisionCompletionWhenOperationCompletionFails(t *testing.T) {
 	t.Parallel()
 
 	hostMarked := false
-	orchestrator := NewOrchestrator(
+	workflow := NewWorkflow(
 		hostReserveStub{},
 		hostPhaseStub{
 			markProvisioned: func() { hostMarked = true },
@@ -137,7 +137,7 @@ func TestOrchestratorStopsProvisionCompletionWhenOperationCompletionFails(t *tes
 		},
 	)
 
-	err := orchestrator.CompleteProvisioning(
+	err := workflow.CompleteProvisioning(
 		t.Context(),
 		&infrastructurev1beta1.TartHost{},
 		&infrastructurev1beta1.TartHostOperation{},

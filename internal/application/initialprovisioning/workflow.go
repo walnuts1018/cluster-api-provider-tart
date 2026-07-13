@@ -66,15 +66,15 @@ type OperationService interface {
 
 // CompleteProvisioning はOperationとHostを最終状態へ順に収束させる。
 // Operationを先に完了させ、再試行時はSucceededを冪等に受け入れる。
-func (o *Orchestrator) CompleteProvisioning(
+func (workflow *Workflow) CompleteProvisioning(
 	ctx context.Context,
 	host *infrastructurev1beta1.TartHost,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
-	if err := o.operations.CompleteProvision(ctx, operation); err != nil {
+	if err := workflow.operations.CompleteProvision(ctx, operation); err != nil {
 		return fmt.Errorf("complete Provision operation: %w", err)
 	}
-	if err := o.hostPhase.MarkHostProvisioned(ctx, host); err != nil {
+	if err := workflow.hostPhase.MarkHostProvisioned(ctx, host); err != nil {
 		return fmt.Errorf("mark TartHost provisioned: %w", err)
 	}
 	return nil
@@ -85,68 +85,150 @@ type SessionTokenIssuer interface {
 	Issue(ctx context.Context, key client.ObjectKey, hostUID, operationUID string, now time.Time) (agentsessiondomain.Token, time.Time, error)
 }
 
-// Orchestrator はv1beta1 TartMachineの初期Provisioningを組み立てる。
-type Orchestrator struct {
+// Stepは初期Provisioning Workflowが外部へ要求する副作用である。
+type Step interface {
+	isInitialProvisioningStep()
+}
+
+type StepReserveHost struct {
+	Requirements allocationdomain.Requirements
+}
+
+func (StepReserveHost) isInitialProvisioningStep() {}
+
+type StepMarkHostReserved struct {
+	Host *infrastructurev1beta1.TartHost
+}
+
+func (StepMarkHostReserved) isInitialProvisioningStep() {}
+
+type StepStartOperation struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (StepStartOperation) isInitialProvisioningStep() {}
+
+type StepCompleteOperation struct{}
+
+func (StepCompleteOperation) isInitialProvisioningStep() {}
+
+type StepMarkHostProvisioned struct{}
+
+func (StepMarkHostProvisioned) isInitialProvisioningStep() {}
+
+type Event interface {
+	isInitialProvisioningEvent()
+}
+
+type EventHostReserved struct {
+	HostName string
+}
+
+func (EventHostReserved) isInitialProvisioningEvent() {}
+
+type EventOperationStarted struct {
+	OperationID string
+}
+
+func (EventOperationStarted) isInitialProvisioningEvent() {}
+
+type EventProvisioningCompleted struct{}
+
+func (EventProvisioningCompleted) isInitialProvisioningEvent() {}
+
+type StartResult struct {
+	Host      *infrastructurev1beta1.TartHost
+	Operation *infrastructurev1beta1.TartHostOperation
+	Events    []Event
+}
+
+// Workflow はv1beta1 TartMachineの初期Provisioningを組み立てる。
+type Workflow struct {
 	hostReserve HostReserveService
 	hostPhase   HostPhaseService
 	operations  OperationService
 }
 
-// NewOrchestrator はOrchestratorを生成する。
-func NewOrchestrator(
+// NewWorkflow は初期Provisioning Workflowを生成する。
+func NewWorkflow(
 	hostReserve HostReserveService,
 	hostPhase HostPhaseService,
 	operations OperationService,
-) *Orchestrator {
-	return &Orchestrator{
+) *Workflow {
+	return &Workflow{
 		hostReserve: hostReserve,
 		hostPhase:   hostPhase,
 		operations:  operations,
 	}
 }
 
-// ReserveAndStartOperation はHostを選択・予約してProvision Operationを作成する。
+// Start はHostを選択・予約してProvision Operationを作成する。
 //
 // 冪等性: 同じmachine/hostのOperationが既に存在する場合は既存のOperationを返す。
 // 呼び出し元はHostRef/OperationRefをStatus Patchで永続化する責務を持つ。
-func (o *Orchestrator) ReserveAndStartOperation(
+func (workflow *Workflow) Start(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	planDigest string,
-) (*infrastructurev1beta1.TartHost, *infrastructurev1beta1.TartHostOperation, error) {
+) (StartResult, error) {
 	requirements, err := requirementsForMachine(machine)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build allocation requirements: %w", err)
+		return StartResult{}, fmt.Errorf("build allocation requirements: %w", err)
 	}
 
-	host, err := o.hostReserve.Reserve(ctx, machine, requirements)
+	reserveStep := StepReserveHost{
+		Requirements: requirements,
+	}
+	host, err := workflow.hostReserve.Reserve(ctx, machine, reserveStep.Requirements)
 	if err != nil {
 		if errors.Is(err, allocationdomain.ErrNoMatchingHost) {
-			return nil, nil, ErrNoAvailableHost
+			return StartResult{}, ErrNoAvailableHost
 		}
-		return nil, nil, fmt.Errorf("reserve TartHost: %w", err)
+		return StartResult{}, fmt.Errorf("reserve TartHost: %w", err)
 	}
 	if host == nil {
-		return nil, nil, ErrNoAvailableHost
+		return StartResult{}, ErrNoAvailableHost
 	}
 
-	// Host StatusをReservedに更新する
-	if err := o.hostPhase.ReserveForMachine(ctx, host, machine); err != nil {
-		return nil, nil, fmt.Errorf("mark TartHost reserved: %w", err)
+	if err := workflow.hostPhase.ReserveForMachine(ctx, host, machine); err != nil {
+		return StartResult{}, fmt.Errorf("mark TartHost reserved: %w", err)
 	}
 
-	// Operation IDはHostUID/MachineUIDから決定論的に生成する
-	// 再起動後も同じMachine/Hostに対して同一のUIDが生成されることを保証する
+	desired, err := BuildOperationDraft(machine, host, planDigest)
+	if err != nil {
+		return StartResult{}, err
+	}
+
+	operation, err := workflow.operations.Start(ctx, desired)
+	if err != nil {
+		return StartResult{}, fmt.Errorf("start TartHostOperation: %w", err)
+	}
+
+	return StartResult{
+		Host:      host,
+		Operation: operation,
+		Events: []Event{
+			EventHostReserved{HostName: host.Name},
+			EventOperationStarted{OperationID: operation.Spec.OperationID},
+		},
+	}, nil
+}
+
+func BuildOperationDraft(
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	planDigest string,
+) (*infrastructurev1beta1.TartHostOperation, error) {
 	operationUID, err := deterministicOperationUID(host, machine)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	deadline := metav1.NewTime(time.Now().Add(defaultOperationDeadline))
 	desiredMachine := machine.DeepCopy()
 	expectedProviderID := fmt.Sprintf("tart://%s", host.Name)
 	if desiredMachine.Spec.ProviderID != "" && desiredMachine.Spec.ProviderID != expectedProviderID {
-		return nil, nil, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"TartMachine providerID %q does not match reserved TartHost %q",
 			desiredMachine.Spec.ProviderID,
 			host.Name,
@@ -155,9 +237,9 @@ func (o *Orchestrator) ReserveAndStartOperation(
 	desiredMachine.Spec.ProviderID = expectedProviderID
 	objectsDigest, err := desiredObjectsDigest(desiredMachine)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build desired objects digest: %w", err)
+		return nil, fmt.Errorf("build desired objects digest: %w", err)
 	}
-	desired := &infrastructurev1beta1.TartHostOperation{
+	return &infrastructurev1beta1.TartHostOperation{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: machine.Namespace,
 		},
@@ -178,14 +260,7 @@ func (o *Orchestrator) ReserveAndStartOperation(
 			DesiredObjectsDigest: objectsDigest,
 			Deadline:             deadline,
 		},
-	}
-
-	operation, err := o.operations.Start(ctx, desired)
-	if err != nil {
-		return nil, nil, fmt.Errorf("start TartHostOperation: %w", err)
-	}
-
-	return host, operation, nil
+	}, nil
 }
 
 // requirementsForMachine はTartMachineからAllocation Requirementsを構築する。

@@ -31,6 +31,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
+	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	applicationallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineallocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
@@ -308,7 +309,7 @@ func TestTartMachineV1Beta1ReconcilerResumesOperationAfterHostReferenceRepair(t 
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	if provisioner.calls != 1 {
-		t.Fatalf("ReserveAndStartOperation() calls = %d, want 1", provisioner.calls)
+		t.Fatalf("Start() calls = %d, want 1", provisioner.calls)
 	}
 
 	current := &infrastructurev1beta1.TartMachine{}
@@ -880,13 +881,16 @@ func (s *provisionOrchestratorStub) CompleteProvisioning(
 	return nil
 }
 
-func (s *provisionOrchestratorStub) ReserveAndStartOperation(
+func (s *provisionOrchestratorStub) Start(
 	context.Context,
 	*infrastructurev1beta1.TartMachine,
 	string,
-) (*infrastructurev1beta1.TartHost, *infrastructurev1beta1.TartHostOperation, error) {
+) (appprovisioning.StartResult, error) {
 	s.calls++
-	return s.host, s.operation, nil
+	return appprovisioning.StartResult{
+		Host:      s.host,
+		Operation: s.operation,
+	}, nil
 }
 
 func (s nodeHealthObserverStub) Observe(

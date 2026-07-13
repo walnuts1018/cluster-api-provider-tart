@@ -41,7 +41,7 @@ type WorkflowStarter interface {
 	Start(
 		context.Context,
 		application.WorkflowInput,
-	) (*infrastructurev1beta1.TartHostOperation, error)
+	) (application.StartResult, error)
 }
 
 // ServiceはUpdateMachine requestをlive Kubernetes stateへ接続する。
@@ -105,7 +105,7 @@ func (service *Service) Start(
 	}
 	value := manifest.Value()
 	machine := request.Desired.Machine.DeepCopy()
-	return service.workflow.Start(ctx, application.WorkflowInput{
+	started, err := service.workflow.Start(ctx, application.WorkflowInput{
 		StartInput: application.StartInput{
 			Machine:                    machine,
 			TartMachine:                live,
@@ -120,6 +120,10 @@ func (service *Service) Start(
 		},
 		Manifest: manifest,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return started.Operation, nil
 }
 
 func nodeRole(machine *clusterv1.Machine) distributiondomain.NodeRole {

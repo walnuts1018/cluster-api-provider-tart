@@ -51,13 +51,13 @@ type HostReferenceService interface {
 	) (allocationdomain.ReferenceResult, error)
 }
 
-// ProvisionOrchestrator はv1beta1 TartMachineの初期Provisioningを組み立てる。
-type ProvisionOrchestrator interface {
-	ReserveAndStartOperation(
+// ProvisionWorkflow はv1beta1 TartMachineの初期Provisioningを進める。
+type ProvisionWorkflow interface {
+	Start(
 		ctx context.Context,
 		machine *infrastructurev1beta1.TartMachine,
 		planDigest string,
-	) (*infrastructurev1beta1.TartHost, *infrastructurev1beta1.TartHostOperation, error)
+	) (appprovisioning.StartResult, error)
 	CompleteProvisioning(
 		ctx context.Context,
 		host *infrastructurev1beta1.TartHost,
@@ -69,12 +69,12 @@ type TartMachineV1Beta1Reconciler struct {
 	client.Client
 	HostReferences HostReferenceService
 	NodeHealth     NodeHealthObserver
-	Provisioner    ProvisionOrchestrator
-	Cleaner        CleaningOrchestrator
+	Provisioner    ProvisionWorkflow
+	Cleaner        CleaningWorkflow
 	Recorder       record.EventRecorder
 }
 
-type CleaningOrchestrator interface {
+type CleaningWorkflow interface {
 	StartCleaning(
 		ctx context.Context,
 		machine *infrastructurev1beta1.TartMachine,
@@ -369,7 +369,7 @@ func (r *TartMachineV1Beta1Reconciler) reconcileProvisionStart(
 	//       タスク8以降でPlan生成と署名を実装する。
 	const placeholderPlanDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-	host, operation, err := r.Provisioner.ReserveAndStartOperation(ctx, machine, placeholderPlanDigest)
+	started, err := r.Provisioner.Start(ctx, machine, placeholderPlanDigest)
 	if errors.Is(err, appprovisioning.ErrNoAvailableHost) {
 		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
 		original := machine.DeepCopy()
@@ -383,21 +383,21 @@ func (r *TartMachineV1Beta1Reconciler) reconcileProvisionStart(
 	if err != nil {
 		return fmt.Errorf("reserve host and start operation: %w", err)
 	}
-	if err := r.ensureProviderID(ctx, machine, host); err != nil {
+	if err := r.ensureProviderID(ctx, machine, started.Host); err != nil {
 		return err
 	}
 
 	// HostRef/OperationRefをStatusに永続化する
 	original := machine.DeepCopy()
-	machine.Status = appprovisioning.StatusWithHostReserved(machine, host, operation)
+	machine.Status = appprovisioning.StatusWithHostReserved(machine, started.Host, started.Operation)
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return fmt.Errorf("set TartMachine HostRef/OperationRef: %w", err)
 	}
 
 	log.Info("TartMachine host reserved and operation started",
 		"machine", client.ObjectKeyFromObject(machine).String(),
-		"host", client.ObjectKeyFromObject(host).String(),
-		"operation", client.ObjectKeyFromObject(operation).String(),
+		"host", client.ObjectKeyFromObject(started.Host).String(),
+		"operation", client.ObjectKeyFromObject(started.Operation).String(),
 	)
 	return nil
 }

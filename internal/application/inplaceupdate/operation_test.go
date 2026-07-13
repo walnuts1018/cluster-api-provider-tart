@@ -15,8 +15,6 @@
 package inplaceupdate
 
 import (
-	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -121,33 +119,6 @@ func TestBuildOperationは更新前提違反を拒否する(t *testing.T) {
 	}
 }
 
-func TestOrchestratorは同じ要求100回を1つのOperationへ収束させる(t *testing.T) {
-	store := &memoryOperationStarter{}
-	orchestrator := NewOrchestrator(store)
-	input := updateInput()
-
-	var wait sync.WaitGroup
-	wait.Add(100)
-	errors := make(chan error, 100)
-	for range 100 {
-		go func() {
-			defer wait.Done()
-			_, err := orchestrator.Start(t.Context(), input)
-			errors <- err
-		}()
-	}
-	wait.Wait()
-	close(errors)
-	for err := range errors {
-		if err != nil {
-			t.Errorf("Start() error = %v", err)
-		}
-	}
-	if store.count() != 1 {
-		t.Fatalf("Operation count = %d, want 1", store.count())
-	}
-}
-
 func updateInput() StartInput {
 	machine := &clusterv1.Machine{
 		ObjectMeta: metav1.ObjectMeta{
@@ -222,31 +193,4 @@ func repeat(value string, count int) string {
 		result += value
 	}
 	return result
-}
-
-type memoryOperationStarter struct {
-	mutex      sync.Mutex
-	operations map[string]*infrastructurev1beta1.TartHostOperation
-}
-
-func (starter *memoryOperationStarter) Start(
-	_ context.Context,
-	desired *infrastructurev1beta1.TartHostOperation,
-) (*infrastructurev1beta1.TartHostOperation, error) {
-	starter.mutex.Lock()
-	defer starter.mutex.Unlock()
-	if starter.operations == nil {
-		starter.operations = map[string]*infrastructurev1beta1.TartHostOperation{}
-	}
-	if current, ok := starter.operations[desired.Spec.OperationID]; ok {
-		return current.DeepCopy(), nil
-	}
-	starter.operations[desired.Spec.OperationID] = desired.DeepCopy()
-	return desired.DeepCopy(), nil
-}
-
-func (starter *memoryOperationStarter) count() int {
-	starter.mutex.Lock()
-	defer starter.mutex.Unlock()
-	return len(starter.operations)
 }

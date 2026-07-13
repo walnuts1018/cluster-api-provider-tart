@@ -132,9 +132,9 @@ type recordingWorkflow struct {
 func (workflow *recordingWorkflow) Start(
 	_ context.Context,
 	input application.WorkflowInput,
-) (*infrastructurev1beta1.TartHostOperation, error) {
+) (application.StartResult, error) {
 	workflow.input = input
-	return workflow.operation, nil
+	return application.StartResult{Operation: workflow.operation}, nil
 }
 
 func updateRequest(

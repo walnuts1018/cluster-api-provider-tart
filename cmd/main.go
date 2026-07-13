@@ -367,12 +367,9 @@ func main() {
 			setupLog.Error(err, "Failed to load Agent Plan signing key for Cleaning workflow")
 			os.Exit(1)
 		}
-		cleaningOrchestrator := applicationcleaning.NewOrchestrator(
+		reconcilers.TartMachineV1Beta1.Cleaner = applicationcleaning.NewWorkflow(
 			k8sv1beta1host.NewService(mgr.GetClient()),
 			k8soperation.NewService(mgr.GetClient()),
-		)
-		reconcilers.TartMachineV1Beta1.Cleaner = applicationcleaning.NewWorkflow(
-			cleaningOrchestrator,
 			k8sagentapi.NewPlanWriter(mgr.GetClient()),
 			applicationcleaning.PlanSigner{
 				KeyID:      agentPlanKeyID,

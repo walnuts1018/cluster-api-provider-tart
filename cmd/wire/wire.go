@@ -18,6 +18,7 @@ import (
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -79,9 +80,9 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 
 func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
-	hostReferences controller.HostReferenceService,
-	nodeHealth controller.NodeHealthObserver,
-	provisioner controller.ProvisionWorkflow,
+	hostReferences machineexecution.HostReferenceService,
+	nodeHealth machineexecution.NodeHealthObserver,
+	provisioner machineexecution.ProvisionWorkflow,
 	cleaner controller.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
@@ -148,9 +149,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8sv1beta1host.NewService,
 
 		appprovisioning.NewWorkflow,
-		wire.Bind(new(controller.HostReferenceService), new(*k8sallocation.Service)),
-		wire.Bind(new(controller.NodeHealthObserver), new(*k8smachinehealth.Observer)),
-		wire.Bind(new(controller.ProvisionWorkflow), new(*appprovisioning.Workflow)),
+		wire.Bind(new(machineexecution.HostReferenceService), new(*k8sallocation.Service)),
+		wire.Bind(new(machineexecution.NodeHealthObserver), new(*k8smachinehealth.Observer)),
+		wire.Bind(new(machineexecution.ProvisionWorkflow), new(*appprovisioning.Workflow)),
 		wire.Bind(new(appprovisioning.HostReserveService), new(*k8sallocation.Service)),
 		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),

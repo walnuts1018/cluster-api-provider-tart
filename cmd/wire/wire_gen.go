@@ -18,6 +18,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -113,9 +114,9 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 
 func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
-	hostReferences controller.HostReferenceService,
-	nodeHealth controller.NodeHealthObserver,
-	provisioner controller.ProvisionWorkflow,
+	hostReferences machineexecution.HostReferenceService,
+	nodeHealth machineexecution.NodeHealthObserver,
+	provisioner machineexecution.ProvisionWorkflow,
 	cleaner controller.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{

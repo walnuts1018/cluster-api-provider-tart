@@ -12,7 +12,6 @@
 - [全体の実装計画](implementation-plan.md)
 - [Platform Profile一覧](platform-profiles/README.md)
 - [Runbook一覧](runbooks/README.md)
-- [v1alpha1からv1beta1への移行](migration-v1alpha1-to-v1beta1.md)
 - [ADR一覧](adr/README.md)
 - [タスク一覧](tasks/README.md)
 

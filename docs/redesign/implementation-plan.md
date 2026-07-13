@@ -74,7 +74,7 @@ Ubuntu 24.04 LTS
 ### 作成する成果物
 
 - Kubebuilderで追加・更新したCRD
-- defaulting/validation/conversion Webhook
+- defaulting/validation Webhook
 - Host/Operationの純粋な状態遷移関数
 - resourceVersionを使うHost予約Adapter
 - Power/Boot/VirtualMedia Port
@@ -85,7 +85,7 @@ Ubuntu 24.04 LTS
 - 100並列の予約試行で1つだけが同じHostを取得する。
 - 禁止状態遷移を全てtable testで拒否する。
 - WoL DriverがPowerOn以外のCapabilityを報告しない。
-- 既存v1alpha1 objectをstorage versionへ変換できる。
+- v1beta1だけがserved/storage versionとして公開され、旧flowの入口が残っていない。
 - controller packageがWoL/Redfish libraryを直接importしない。
 
 Task 02と03は別branchで並行実装できる。ただし、Capability名とOperation ID型はTask 02で先に確定する。
@@ -263,12 +263,10 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 
 ## 14. 移行と削除
 
-1. 新APIと旧flowをfeature gate下で共存させる。
-2. 新規Clusterの既定をAgent flowへ変更する。
-3. 既存objectをstorage versionへ変換する。
-4. 1リリースのdeprecated期間中、旧flow利用時にEventを出す。
-5. 旧flow利用objectが0件であることを移行toolで確認する。
-6. installer/whole-disk固有fieldとcodeを削除する。
+1. v1alpha1 API、旧flow、旧iPXE bootstrap serverを削除する。
+2. v1beta1を唯一のserved/storage versionとして再生成する。
+3. 新規Clusterの既定をAgent flowへ変更する。
+4. installer/whole-disk固有fieldとcodeを削除する。
 
 feature branch `feat/bare-metal-image-provisioning`のwhole-disk scriptをcherry-pickしてはならない。Task 05で確定したArtifact contractへ必要なpackage設定だけを移植する。
 

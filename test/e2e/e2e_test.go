@@ -474,46 +474,16 @@ spec:
 
 		It("should accept multi OS TartMachineTemplate samples", func() {
 			tests := []struct {
-				name       string
-				file       string
-				resource   string
-				wantFormat string
+				name      string
+				file      string
+				resource  string
+				wantImage string
 			}{
 				{
-					name:       "standalone Ubuntu NoCloud TartMachineTemplate",
-					file:       "config/samples/infrastructure_v1alpha1_tartmachinetemplate.yaml",
-					resource:   "tartmachinetemplate-sample",
-					wantFormat: "NoCloud",
-				},
-				{
-					name:       "kubeadm Ubuntu sample",
-					file:       "config/samples/cluster-kubeadm-ubuntu.yaml",
-					resource:   "tart-kubeadm-ubuntu-control-plane",
-					wantFormat: "NoCloud",
-				},
-				{
-					name:       "kubeadm Debian sample",
-					file:       "config/samples/cluster-kubeadm-debian.yaml",
-					resource:   "tart-kubeadm-debian-control-plane",
-					wantFormat: "Preseed",
-				},
-				{
-					name:       "k3s Ubuntu sample",
-					file:       "config/samples/cluster-k3s-ubuntu.yaml",
-					resource:   "tart-k3s-ubuntu-control-plane",
-					wantFormat: "NoCloud",
-				},
-				{
-					name:       "k3s Debian sample",
-					file:       "config/samples/cluster-k3s-debian.yaml",
-					resource:   "tart-k3s-debian-control-plane",
-					wantFormat: "Preseed",
-				},
-				{
-					name:       "Talos sample",
-					file:       "config/samples/cluster-talos.yaml",
-					resource:   "tart-talos-control-plane",
-					wantFormat: "Talos",
+					name:      "kubeadm Ubuntu sample",
+					file:      "config/samples/cluster-kubeadm-ubuntu.yaml",
+					resource:  "tart-kubeadm-ubuntu-control-plane",
+					wantImage: "oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				},
 			}
 
@@ -539,14 +509,14 @@ spec:
 				_, err := utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred(), "Failed to apply "+tt.name+" from "+tt.file)
 
-				By("validating bootstrap format for " + tt.name)
+				By("validating OS Artifact reference for " + tt.name)
 				cmd = exec.Command("kubectl", "get", "tartmachinetemplate", tt.resource,
 					"-n", namespace,
-					"-o", "jsonpath={.spec.template.spec.bootstrap.format}",
+					"-o", "jsonpath={.spec.template.spec.image.ref}",
 				)
 				output, err := utils.Run(cmd)
 				Expect(err).NotTo(HaveOccurred(), "Failed to get "+tt.resource)
-				Expect(output).To(Equal(tt.wantFormat))
+				Expect(output).To(Equal(tt.wantImage))
 			}
 		})
 	})

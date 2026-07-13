@@ -33,8 +33,8 @@ func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
 		requiredKinds []string
 	}{
 		{
-			name: "kubeadm ubuntu",
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
+			name: "kubeadm",
+			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm.yaml"),
 			requiredKinds: []string{
 				"Cluster",
 				"KubeadmControlPlane",
@@ -45,10 +45,13 @@ func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
 			},
 		},
 		{
-			name: "talos",
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
+			name: "kubeadm ubuntu",
+			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
 			requiredKinds: []string{
 				"Cluster",
+				"KubeadmControlPlane",
+				"KubeadmConfigTemplate",
+				"MachineDeployment",
 				"TartCluster",
 				"TartMachineTemplate",
 			},
@@ -67,60 +70,36 @@ func TestClusterTemplatesContainRequiredKinds(t *testing.T) {
 	}
 }
 
-func TestClusterTemplatesSetBootstrapFormat(t *testing.T) {
+func TestClusterTemplatesUseV1Beta1ArtifactModel(t *testing.T) {
 	t.Parallel()
 
 	assertFilesContain(t, "template", []fileExpectation{
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm.yaml"),
-			want: "format: NoCloud",
+			want: "apiVersion: infrastructure.cluster.x-k8s.io/v1beta1",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
-			want: "format: NoCloud",
+			want: "platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}",
 		},
 		{
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-debian.yaml"),
-			want: "format: Preseed",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-ubuntu.yaml"),
-			want: "format: NoCloud",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-k3s-debian.yaml"),
-			want: "format: Preseed",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "templates", "cluster-template-talos.yaml"),
-			want: "format: Talos",
+			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm.yaml"),
+			want: "ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:",
 		},
 	})
 }
 
-func TestSamplesSetBootstrapFormat(t *testing.T) {
+func TestSamplesUseV1Beta1ArtifactModel(t *testing.T) {
 	t.Parallel()
 
 	assertFilesContain(t, "sample", []fileExpectation{
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-ubuntu.yaml"),
-			want: "format: NoCloud",
+			want: "apiVersion: infrastructure.cluster.x-k8s.io/v1beta1",
 		},
 		{
-			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-debian.yaml"),
-			want: "format: Preseed",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-ubuntu.yaml"),
-			want: "format: NoCloud",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "samples", "cluster-k3s-debian.yaml"),
-			want: "format: Preseed",
-		},
-		{
-			path: filepath.Join("..", "..", "config", "samples", "cluster-talos.yaml"),
-			want: "format: Talos",
+			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-ubuntu.yaml"),
+			want: "platformProfile: amd64-uefi-ab/v1",
 		},
 	})
 }

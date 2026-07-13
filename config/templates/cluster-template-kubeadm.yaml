@@ -24,13 +24,16 @@ spec:
     kind: TartCluster
     name: ${CLUSTER_NAME}
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartCluster
 metadata:
   name: ${CLUSTER_NAME}
   labels:
     cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
-spec: {}
+spec:
+  artifactPolicy:
+    allowedRegistries:
+    - ${OS_ARTIFACT_REGISTRY:=registry.sample.walnuts.dev}
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
@@ -46,22 +49,19 @@ spec:
         kind: TartMachineTemplate
         name: ${CLUSTER_NAME}-control-plane
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartMachineTemplate
 metadata:
   name: ${CLUSTER_NAME}-control-plane
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${UBUNTU_KERNEL_URL}
-      initrd: ${UBUNTU_INITRD_URL}
-      bootstrap:
-        format: NoCloud
-      kernelParams:
-      - console=tty0
-      - ip=dhcp
-      - autoinstall
+      image:
+        ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}
+      updatePolicy:
+        mode: Replace
+      deletionPolicy: WipeAll
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -91,19 +91,16 @@ kind: KubeadmConfigTemplate
 metadata:
   name: ${CLUSTER_NAME}-md-0
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartMachineTemplate
 metadata:
   name: ${CLUSTER_NAME}-md-0
 spec:
   template:
     spec:
-      # NOTE: Default iPXE build may not support HTTPS. Use http if possible.
-      image: ${UBUNTU_KERNEL_URL}
-      initrd: ${UBUNTU_INITRD_URL}
-      bootstrap:
-        format: NoCloud
-      kernelParams:
-      - console=tty0
-      - ip=dhcp
-      - autoinstall
+      image:
+        ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}
+      updatePolicy:
+        mode: Replace
+      deletionPolicy: WipeAll

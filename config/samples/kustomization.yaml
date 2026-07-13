@@ -1,14 +1,7 @@
 ## Append samples of your project ##
 resources:
 - bootstrap-httproute.yaml
-- cluster-kubeadm-debian.yaml
 - cluster-kubeadm-ubuntu.yaml
-- cluster-k3s-debian.yaml
-- cluster-k3s-ubuntu.yaml
-- cluster-talos.yaml
-- infrastructure_v1alpha1_tarthost.yaml
-- infrastructure_v1alpha1_tartmachine.yaml
-- infrastructure_v1alpha1_tartmachinetemplate.yaml
 - infrastructure_v1beta1_tarthostoperation.yaml
 - infrastructure_v1beta1_tartcluster.yaml
 - infrastructure_v1beta1_tartclustertemplate.yaml

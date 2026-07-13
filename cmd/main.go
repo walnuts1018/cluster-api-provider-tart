@@ -39,13 +39,11 @@ import (
 	"k8s.io/klog/v2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
 	k8sagentapi "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentapi"
@@ -61,7 +59,6 @@ import (
 	applicationcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/registrycredential"
@@ -69,7 +66,6 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/bootstrapper"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/extension"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/server/ipxe"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/signingkey"
 	webhookv1beta1 "github.com/walnuts1018/cluster-api-provider-tart/internal/webhook/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
@@ -87,7 +83,6 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
-	utilruntime.Must(infrastructurev1alpha1.AddToScheme(scheme))
 	utilruntime.Must(infrastructurev1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -103,7 +98,6 @@ func main() {
 	var bootstrapBindAddress string
 	var bootstrapAdvertiseAddress string
 	var tftpBindAddress string
-	var assetsRoot string
 	var tftpRoot string
 	var agentAPIBindAddress string
 	var agentAPICertFile string
@@ -142,7 +136,6 @@ func main() {
 	flag.StringVar(&bootstrapBindAddress, "bootstrap-bind-address", "0.0.0.0", "The IP address the bootstrap (ProxyDHCP) server binds to. It will listen on both ports 67 and 4011. Use 0 to disable.")
 	flag.StringVar(&bootstrapAdvertiseAddress, "bootstrap-advertise-address", "", "The reachable IP address advertised to PXE/iPXE clients. Leave empty to auto-detect.")
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", ":69", "The address the TFTP server binds to.")
-	flag.StringVar(&assetsRoot, "assets-root", "/var/lib/tart/assets", "The root directory for HTTP-served boot assets.")
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/tftpboot", "The root directory for TFTP server.")
 	flag.StringVar(&agentAPIBindAddress, "agent-api-bind-address", "0", "The HTTPS address the Agent API binds to. Use 0 to disable.")
 	flag.StringVar(&agentAPICertFile, "agent-api-cert-file", "", "The Agent API TLS certificate file.")
@@ -313,35 +306,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &infrastructurev1alpha1.TartHost{}, "spec.macAddress", func(rawObj client.Object) []string {
-		host := rawObj.(*infrastructurev1alpha1.TartHost)
-		if mac, err := ipxe.NormalizeMAC(host.Spec.MACAddress); err == nil {
-			return []string{mac}
-		}
-		return nil
-	}); err != nil {
-		setupLog.Error(err, "Failed to create index for TartHost MACAddress")
-		os.Exit(1)
-	}
-
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &infrastructurev1alpha1.TartHost{}, "spec.bootMACAddress", func(rawObj client.Object) []string {
-		host := rawObj.(*infrastructurev1alpha1.TartHost)
-		if host.Spec.BootMACAddress != "" {
-			if mac, err := ipxe.NormalizeMAC(host.Spec.BootMACAddress); err == nil {
-				return []string{mac}
-			}
-		}
-		return nil
-	}); err != nil {
-		setupLog.Error(err, "Failed to create index for TartHost BootMACAddress")
-		os.Exit(1)
-	}
-
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &infrastructurev1alpha1.TartHost{}, "status.machineRef", controller.IndexTartHostByMachineRef); err != nil {
-		setupLog.Error(err, "Failed to create index for TartHost MachineRef")
-		os.Exit(1)
-	}
-
 	if agentAPIBindAddress != "0" {
 		if agentAPICertFile == "" || agentAPIKeyFile == "" {
 			setupLog.Error(nil, "Agent API TLS certificate and key are required")
@@ -362,6 +326,10 @@ func main() {
 		}
 	}
 	agentArtifactEnabled := agentArtifactRoot != ""
+	if ipxeBindAddress != "0" && !agentArtifactEnabled {
+		setupLog.Error(nil, "Agent Artifact delivery is required when the iPXE listener is enabled")
+		os.Exit(1)
+	}
 	if agentArtifactEnabled {
 		required := map[string]string{
 			"agent-api-url":                  agentAPIURL,
@@ -413,14 +381,6 @@ func main() {
 		)
 	}
 
-	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
-		os.Exit(1)
-	}
-	if err := reconcilers.TartMachine.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "TartMachine")
-		os.Exit(1)
-	}
 	if err := reconcilers.TartCluster.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartCluster")
 		os.Exit(1)
@@ -466,62 +426,55 @@ func main() {
 	}
 
 	if ipxeBindAddress != "0" {
-		if agentArtifactEnabled {
-			virtualMediaPath, err := optionalFilePath(filepath.Join(agentArtifactRoot, "virtual-media.iso"))
-			if err != nil {
-				setupLog.Error(err, "Failed to inspect Agent Artifact virtual media")
-				os.Exit(1)
+		virtualMediaPath, err := optionalFilePath(filepath.Join(agentArtifactRoot, "virtual-media.iso"))
+		if err != nil {
+			setupLog.Error(err, "Failed to inspect Agent Artifact virtual media")
+			os.Exit(1)
+		}
+		artifact, err := agentboot.LoadArtifact(agentboot.ArtifactFiles{
+			ManifestPath:     filepath.Join(agentArtifactRoot, "manifest.json"),
+			SignaturePath:    filepath.Join(agentArtifactRoot, "manifest.signature.json"),
+			KernelPath:       filepath.Join(agentArtifactRoot, "vmlinuz"),
+			InitrdPath:       filepath.Join(agentArtifactRoot, "initrd"),
+			VirtualMediaPath: virtualMediaPath,
+			KeyID:            agentArtifactKeyID,
+			PublicKeyPath:    agentArtifactPublicKeyFile,
+		})
+		if err != nil {
+			setupLog.Error(err, "Failed to verify Agent Artifact")
+			os.Exit(1)
+		}
+		if err := configureRedfishVirtualMedia(reconcilers.Driver, artifact, baseURL); err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
 			}
-			artifact, err := agentboot.LoadArtifact(agentboot.ArtifactFiles{
-				ManifestPath:     filepath.Join(agentArtifactRoot, "manifest.json"),
-				SignaturePath:    filepath.Join(agentArtifactRoot, "manifest.signature.json"),
-				KernelPath:       filepath.Join(agentArtifactRoot, "vmlinuz"),
-				InitrdPath:       filepath.Join(agentArtifactRoot, "initrd"),
-				VirtualMediaPath: virtualMediaPath,
-				KeyID:            agentArtifactKeyID,
-				PublicKeyPath:    agentArtifactPublicKeyFile,
-			})
-			if err != nil {
-				setupLog.Error(err, "Failed to verify Agent Artifact")
-				os.Exit(1)
+			setupLog.Error(err, "Failed to configure Redfish VirtualMedia Agent Artifact")
+			os.Exit(1)
+		}
+		handler, err := agentboot.NewHandler(agentboot.Config{
+			Resolver:        k8sagentboot.NewResolver(mgr.GetClient()),
+			Artifact:        artifact,
+			ArtifactBaseURL: baseURL,
+			AgentAPIURL:     agentAPIURL,
+		})
+		if err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
 			}
-			if err := configureRedfishVirtualMedia(reconcilers.Driver, artifact, baseURL); err != nil {
-				if closeErr := artifact.Close(); closeErr != nil {
-					setupLog.Error(closeErr, "Failed to close Agent Artifact")
-				}
-				setupLog.Error(err, "Failed to configure Redfish VirtualMedia Agent Artifact")
-				os.Exit(1)
+			setupLog.Error(err, "Failed to create Agent boot handler")
+			os.Exit(1)
+		}
+		if err := mgr.Add(agentboot.NewServer(
+			ipxeBindAddress,
+			agentBootCertFile,
+			agentBootKeyFile,
+			handler,
+		)); err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
 			}
-			handler, err := agentboot.NewHandler(agentboot.Config{
-				Resolver:        k8sagentboot.NewResolver(mgr.GetClient()),
-				Artifact:        artifact,
-				ArtifactBaseURL: baseURL,
-				AgentAPIURL:     agentAPIURL,
-			})
-			if err != nil {
-				if closeErr := artifact.Close(); closeErr != nil {
-					setupLog.Error(closeErr, "Failed to close Agent Artifact")
-				}
-				setupLog.Error(err, "Failed to create Agent boot handler")
-				os.Exit(1)
-			}
-			if err := mgr.Add(agentboot.NewServer(
-				ipxeBindAddress,
-				agentBootCertFile,
-				agentBootKeyFile,
-				handler,
-			)); err != nil {
-				if closeErr := artifact.Close(); closeErr != nil {
-					setupLog.Error(closeErr, "Failed to close Agent Artifact")
-				}
-				setupLog.Error(err, "Failed to add Agent boot server")
-				os.Exit(1)
-			}
-		} else {
-			if err := mgr.Add(ipxe.NewServer(mgr.GetClient(), reconcilers.TartMachine.TokenService, ipxeBindAddress, assetsRoot, baseURL)); err != nil {
-				setupLog.Error(err, "Failed to add iPXE server")
-				os.Exit(1)
-			}
+			setupLog.Error(err, "Failed to add Agent boot server")
+			os.Exit(1)
 		}
 	}
 	if agentAPIBindAddress != "0" {

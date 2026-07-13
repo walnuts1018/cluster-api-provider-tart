@@ -33,7 +33,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	// +kubebuilder:scaffold:imports
 )
@@ -65,7 +65,7 @@ var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	var err error
-	err = infrastructurev1alpha1.AddToScheme(scheme.Scheme)
+	err = infrastructurev1beta1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	err = clusterv1.AddToScheme(scheme.Scheme)
@@ -108,6 +108,9 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	if capiCRDDir != "" {
 		os.RemoveAll(capiCRDDir)
+	}
+	if testEnv == nil {
+		return
 	}
 	Eventually(func() error {
 		return testEnv.Stop()

@@ -2,8 +2,6 @@
 
 適切なタイミングで行うべきこと
 
-- [ ] v1alpha1の廃止
-- [ ] dmmfに沿った実装（Workflowベースの実装/イベント駆動アーキテクチャ）への変更
 - [ ] プロビジョニングプラン（Plan）の自動生成と署名フローの実装（現状は `placeholderPlanDigest` を使用）
 - [ ] Provisioning Agentの検証（`verity root hash` や `boot trial metadata`）と通常Agent実行フローの結合
 - [ ] HA（高可用性）構成・複数レプリカ化時のDHCP/TFTPネットワーク競合の解決やLeader Electionの考慮

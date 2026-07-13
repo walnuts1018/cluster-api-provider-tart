@@ -17,20 +17,20 @@ package wire
 import (
 	"testing"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestInitializeReconcilersSharesHostService(t *testing.T) {
+func TestInitializeReconcilersBuildsV1Beta1Composition(t *testing.T) {
 	t.Parallel()
 
 	testScheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(testScheme); err != nil {
 		t.Fatalf("failed to add core scheme: %v", err)
 	}
-	if err := infrastructurev1alpha1.AddToScheme(testScheme); err != nil {
+	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
 		t.Fatalf("failed to add infrastructure scheme: %v", err)
 	}
 
@@ -40,22 +40,13 @@ func TestInitializeReconcilersSharesHostService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitializeReconcilers returned error: %v", err)
 	}
-	if reconcilers.TartHost == nil {
-		t.Fatal("TartHost reconciler is nil")
+	if reconcilers.TartMachineV1Beta1 == nil {
+		t.Fatal("TartMachine v1beta1 reconciler is nil")
 	}
-	if reconcilers.TartMachine == nil {
-		t.Fatal("TartMachine reconciler is nil")
+	if reconcilers.TartHostOperation == nil {
+		t.Fatal("TartHostOperation reconciler is nil")
 	}
-	if reconcilers.TartHost.HostService == nil {
-		t.Fatal("TartHost host service is nil")
-	}
-	if reconcilers.TartMachine.HostService == nil {
-		t.Fatal("TartMachine host service is nil")
-	}
-	if reconcilers.TartMachine.Provisioning == nil {
-		t.Fatal("TartMachine provisioning service is nil")
-	}
-	if reconcilers.TartHost.HostService != reconcilers.TartMachine.HostService {
-		t.Fatal("expected reconcilers to share a single host service instance")
+	if reconcilers.Driver == nil {
+		t.Fatal("driver service is nil")
 	}
 }

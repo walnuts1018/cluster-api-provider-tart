@@ -28,7 +28,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/cluster-api/test/framework"
@@ -66,11 +66,16 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		manager = NewSimulatorManager()
 		macs := []string{"00:00:5e:00:53:00", "00:00:5e:00:53:01"}
 		for i, mac := range macs {
-			host := &infrastructurev1alpha1.TartHost{}
+			host := &infrastructurev1beta1.TartHost{}
 			host.Name = fmt.Sprintf("%s-host-%d", clusterName, i)
 			host.Namespace = namespace.Name
-			host.Spec.MACAddress = mac
-			host.Spec.BootMACAddress = mac
+			host.Spec.Identifiers.BootMACAddress = mac
+			host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
+			host.Spec.Firmware = infrastructurev1beta1.FirmwareUEFI
+			host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+			host.Spec.RootDeviceHints.MinSizeBytes = 64 * 1024 * 1024 * 1024
+			host.Spec.Management.PowerDriver = "wol"
+			host.Spec.Management.BootDriver = "ipxe"
 
 			Expect(bootstrapClusterProxy.GetClient().Create(ctx, host)).To(Succeed())
 

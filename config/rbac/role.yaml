@@ -10,11 +10,9 @@ rules:
   - secrets
   verbs:
   - create
-  - delete
   - get
   - list
   - patch
-  - update
   - watch
 - apiGroups:
   - cluster.x-k8s.io
@@ -30,8 +28,6 @@ rules:
   resources:
   - tartclusters
   - tarthostoperations
-  - tarthosts
-  - tartmachines
   - tartmachinetemplates
   verbs:
   - create
@@ -45,7 +41,6 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - tartclusters/finalizers
-  - tarthosts/finalizers
   - tartmachines/finalizers
   - tartmachinetemplates/finalizers
   verbs:
@@ -62,3 +57,21 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tarthosts
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tartmachines
+  verbs:
+  - get
+  - list
+  - watch

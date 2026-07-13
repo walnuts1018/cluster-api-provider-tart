@@ -10,27 +10,20 @@ import (
 	redfishadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/redfish"
 	woladapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
-	k8sbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootstraptoken"
 	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
 	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
-	k8shost "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/host"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
-	applicationbootstraptoken "github.com/walnuts1018/cluster-api-provider-tart/internal/application/bootstraptoken"
 	appcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
-	applicationhost "github.com/walnuts1018/cluster-api-provider-tart/internal/application/host"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
-	applicationprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/provisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 )
 
 type Reconcilers struct {
-	TartHost            *controller.TartHostReconciler
-	TartMachine         *controller.TartMachineReconciler
 	TartCluster         *controller.TartClusterReconciler
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
@@ -68,30 +61,6 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	return registry, nil
-}
-
-func provideTartHostReconciler(k8sClient client.Client, scheme *runtime.Scheme, hostService applicationhost.Service) *controller.TartHostReconciler {
-	return &controller.TartHostReconciler{
-		Client:      k8sClient,
-		Scheme:      scheme,
-		HostService: hostService,
-	}
-}
-
-func provideTartMachineReconciler(
-	k8sClient client.Client,
-	scheme *runtime.Scheme,
-	hostService applicationhost.Service,
-	tokenService applicationbootstraptoken.Service,
-	provisioningService applicationprovisioning.Service,
-) *controller.TartMachineReconciler {
-	return &controller.TartMachineReconciler{
-		Client:       k8sClient,
-		Scheme:       scheme,
-		HostService:  hostService,
-		TokenService: tokenService,
-		Provisioning: provisioningService,
-	}
 }
 
 func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
@@ -149,8 +118,6 @@ func provideTartHostOperationReconciler(
 }
 
 func provideReconcilers(
-	tartHost *controller.TartHostReconciler,
-	tartMachine *controller.TartMachineReconciler,
 	tartCluster *controller.TartClusterReconciler,
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
@@ -158,8 +125,6 @@ func provideReconcilers(
 	driverService *applicationdriver.Service,
 ) Reconcilers {
 	return Reconcilers{
-		TartHost:            tartHost,
-		TartMachine:         tartMachine,
 		TartCluster:         tartCluster,
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
@@ -170,8 +135,6 @@ func provideReconcilers(
 
 func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Reconcilers, error) {
 	wire.Build(
-		k8shost.NewService,
-		k8sbootstraptoken.NewService,
 		k8sdrivercapability.NewService,
 		k8sdriverstate.NewService,
 		k8sdrivertarget.NewService,
@@ -179,13 +142,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8smachinehealth.NewObserver,
 		k8soperation.NewService,
 		k8sv1beta1host.NewService,
-		wire.Bind(new(applicationhost.Service), new(*k8shost.Service)),
-		wire.Bind(new(applicationbootstraptoken.Service), new(*k8sbootstraptoken.Service)),
-		wire.Bind(new(applicationprovisioning.HostReader), new(*k8shost.Service)),
-		wire.Bind(new(applicationprovisioning.HostProvisioner), new(*k8shost.Service)),
-		wire.Bind(new(applicationprovisioning.PowerOnService), new(*applicationdriver.Service)),
 
-		// v1beta1 bindings
 		appcleaning.NewOrchestrator,
 		appprovisioning.NewOrchestrator,
 		wire.Bind(new(controller.HostReferenceService), new(*k8sallocation.Service)),
@@ -214,9 +171,6 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		redfishadapter.New,
 		provideDriverRegistry,
 		applicationdriver.NewService,
-		applicationprovisioning.NewService,
-		provideTartHostReconciler,
-		provideTartMachineReconciler,
 		provideTartClusterReconciler,
 		provideTartMachineTemplateReconciler,
 		provideTartMachineV1Beta1Reconciler,

@@ -24,13 +24,16 @@ spec:
     kind: TartCluster
     name: tart-kubeadm-ubuntu
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartCluster
 metadata:
   name: tart-kubeadm-ubuntu
   labels:
     cluster.x-k8s.io/cluster-name: tart-kubeadm-ubuntu
-spec: {}
+spec:
+  artifactPolicy:
+    allowedRegistries:
+    - registry.sample.walnuts.dev
 ---
 apiVersion: controlplane.cluster.x-k8s.io/v1beta2
 kind: KubeadmControlPlane
@@ -46,21 +49,19 @@ spec:
         kind: TartMachineTemplate
         name: tart-kubeadm-ubuntu-control-plane
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartMachineTemplate
 metadata:
   name: tart-kubeadm-ubuntu-control-plane
 spec:
   template:
     spec:
-      image: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
-      bootstrap:
-        format: NoCloud
-      kernelParams:
-      - console=tty0
-      - ip=dhcp
-      - autoinstall
+      image:
+        ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      platformProfile: amd64-uefi-ab/v1
+      updatePolicy:
+        mode: Replace
+      deletionPolicy: WipeAll
 ---
 apiVersion: cluster.x-k8s.io/v1beta2
 kind: MachineDeployment
@@ -90,29 +91,16 @@ kind: KubeadmConfigTemplate
 metadata:
   name: tart-kubeadm-ubuntu-md-0
 ---
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartMachineTemplate
 metadata:
   name: tart-kubeadm-ubuntu-md-0
 spec:
   template:
     spec:
-      image: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-vmlinuz-generic
-      initrd: http://cloud-images.ubuntu.com/releases/24.04/release/unpacked/ubuntu-24.04-server-cloudimg-amd64-initrd-generic
-      bootstrap:
-        format: NoCloud
-      kernelParams:
-      - console=tty0
-      - ip=dhcp
-      - autoinstall
----
-apiVersion: cluster.x-k8s.io/v1beta2
-kind: MachineHealthCheck
-metadata:
-  name: tart-kubeadm-ubuntu-md-0-health-check
-  namespace: default
-spec:
-  clusterName: tart-kubeadm-ubuntu
-  selector:
-    matchLabels:
-      cluster.x-k8s.io/cluster-name: tart-kubeadm-ubuntu
+      image:
+        ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      platformProfile: amd64-uefi-ab/v1
+      updatePolicy:
+        mode: Replace
+      deletionPolicy: WipeAll

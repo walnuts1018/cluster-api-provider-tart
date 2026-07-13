@@ -57,14 +57,22 @@ helm install capi-operator cluster-api-operator/cluster-api-operator \
 `TartHost` は、物理マシンと対応するリソースです。Cluster API が workload cluster を作成する際に、登録された `TartHost` を使ってプロビジョニングを行います。
 
 ```yaml
-apiVersion: infrastructure.cluster.x-k8s.io/v1alpha1
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartHost
 metadata:
   name: worker-01
 spec:
-  macAddress: "00:00:5e:00:53:01"
-  # PXE boot に使う NIC が `macAddress` と異なる場合は、`bootMacAddress` として指定してください
-  # bootMacAddress: "00:00:5e:00:53:02"
+  identifiers:
+    bootMACAddress: "00:00:5e:00:53:01"
+  architecture: amd64
+  firmware: UEFI
+  platformProfile: amd64-uefi-ab/v1
+  rootDeviceHints:
+    deviceName: /dev/disk/by-id/wwn-0x5000000000000001
+    minSizeBytes: 274877906944
+  management:
+    powerDriver: wol
+    bootDriver: ipxe
 ```
 
 ```bash
@@ -74,15 +82,12 @@ kubectl apply -f tart-host.yaml
 ## Step 3. kubeadm クラスタ用の sample manifest を確認する
 
 workload cluster の雛形は [config/samples/cluster-kubeadm-ubuntu.yaml](./config/samples/cluster-kubeadm-ubuntu.yaml) にあります。
-この sample は Ubuntu kubeadm 用の NoCloud bootstrap を既定としており、NoCloud seed URL は controller が iPXE script へ自動で追加します。
+この sample は v1beta1 の TartCluster/TartMachineTemplate を使い、digest固定のOCI OS Artifactを参照します。
 
 ## Step 5. workload cluster を作成する
 
 確認した `cluster.yaml` を management cluster に適用します。
 ここで初めて Tart Managerが物理マシンを起動・プロビジョニングし、kubeadm bootstrap を開始します。
-
-> [!IMPORTANT]
-> 既定の iPXE バイナリは HTTPS をサポートしていない場合があります。`cluster.yaml` 内の `image` や `initrd` の URL に `https://` を使用すると `3c092003` エラーが発生することがあります。その場合は `http://` を使用するか、HTTPS をサポートした iPXE バイナリを別途用意してください。
 
 ```bash
 kubectl apply -f cluster.yaml

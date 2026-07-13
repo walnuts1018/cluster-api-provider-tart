@@ -20,7 +20,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
 func TestNewSchemeRegistersBootstrapDependencies(t *testing.T) {
@@ -32,7 +32,7 @@ func TestNewSchemeRegistersBootstrapDependencies(t *testing.T) {
 		t.Fatalf("expected apps/v1 Deployment to be registered: %v", err)
 	}
 
-	if _, err := scheme.New(infrastructurev1alpha1.GroupVersion.WithKind("TartHost")); err != nil {
+	if _, err := scheme.New(infrastructurev1beta1.GroupVersion.WithKind("TartHost")); err != nil {
 		t.Fatalf("expected infrastructure API to be registered: %v", err)
 	}
 

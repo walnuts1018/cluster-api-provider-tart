@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
 var _ = Describe("TartCluster Controller", func() {
@@ -56,7 +56,7 @@ var _ = Describe("TartCluster Controller", func() {
 		}
 		Expect(k8sClient.Create(ctx, capiCluster)).To(Succeed())
 
-		tartCluster := &infrastructurev1alpha1.TartCluster{
+		tartCluster := &infrastructurev1beta1.TartCluster{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      tartClusterName,
 				Namespace: "default",
@@ -69,7 +69,7 @@ var _ = Describe("TartCluster Controller", func() {
 	})
 
 	AfterEach(func() {
-		tartCluster := &infrastructurev1alpha1.TartCluster{}
+		tartCluster := &infrastructurev1beta1.TartCluster{}
 		if err := k8sClient.Get(ctx, typeNamespacedName, tartCluster); err == nil {
 			controllerutil.RemoveFinalizer(tartCluster, tartClusterFinalizer)
 			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())
@@ -99,10 +99,10 @@ var _ = Describe("TartCluster Controller", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 
-		updated := &infrastructurev1alpha1.TartCluster{}
+		updated := &infrastructurev1beta1.TartCluster{}
 		Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-		Expect(updated.Status.Initialization.Bound).To(BeTrue())
-		Expect(updated.Status.Initialization.Provisioned).To(BeTrue())
+		Expect(updated.Status.Initialization.Provisioned).NotTo(BeNil())
+		Expect(*updated.Status.Initialization.Provisioned).To(BeTrue())
 	})
 
 	Context("When the associated Cluster has spec.paused=true", func() {
@@ -124,10 +124,9 @@ var _ = Describe("TartCluster Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			updated := &infrastructurev1alpha1.TartCluster{}
+			updated := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Status.Initialization.Bound).To(BeFalse())
-			Expect(updated.Status.Initialization.Provisioned).To(BeFalse())
+			Expect(updated.Status.Initialization.Provisioned).To(BeNil())
 		})
 	})
 
@@ -153,16 +152,15 @@ var _ = Describe("TartCluster Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			updated := &infrastructurev1alpha1.TartCluster{}
+			updated := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Status.Initialization.Bound).To(BeFalse())
-			Expect(updated.Status.Initialization.Provisioned).To(BeFalse())
+			Expect(updated.Status.Initialization.Provisioned).To(BeNil())
 		})
 	})
 
 	Context("When the finalizer is being added", func() {
 		It("should add the finalizer to the TartCluster", func() {
-			tartCluster := &infrastructurev1alpha1.TartCluster{}
+			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
 			Expect(tartCluster.Finalizers).NotTo(ContainElement(tartClusterFinalizer))
 
@@ -176,7 +174,7 @@ var _ = Describe("TartCluster Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			updated := &infrastructurev1alpha1.TartCluster{}
+			updated := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
 			Expect(updated.Finalizers).To(ContainElement(tartClusterFinalizer))
 		})
@@ -184,7 +182,7 @@ var _ = Describe("TartCluster Controller", func() {
 
 	Context("When deleting a TartCluster", func() {
 		BeforeEach(func() {
-			tartCluster := &infrastructurev1alpha1.TartCluster{}
+			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
 			tartCluster.Finalizers = []string{tartClusterFinalizer}
 			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())
@@ -196,7 +194,7 @@ var _ = Describe("TartCluster Controller", func() {
 				Scheme: k8sClient.Scheme(),
 			}
 
-			tartCluster := &infrastructurev1alpha1.TartCluster{}
+			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, tartCluster)).To(Succeed())
 
@@ -205,14 +203,14 @@ var _ = Describe("TartCluster Controller", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			err = k8sClient.Get(ctx, typeNamespacedName, &infrastructurev1alpha1.TartCluster{})
+			err = k8sClient.Get(ctx, typeNamespacedName, &infrastructurev1beta1.TartCluster{})
 			Expect(k8serrors.IsNotFound(err)).To(BeTrue())
 		})
 	})
 
 	Context("When TartCluster is missing the cluster label", func() {
 		BeforeEach(func() {
-			tartCluster := &infrastructurev1alpha1.TartCluster{}
+			tartCluster := &infrastructurev1beta1.TartCluster{}
 			Expect(k8sClient.Get(ctx, typeNamespacedName, tartCluster)).To(Succeed())
 			delete(tartCluster.Labels, clusterv1.ClusterNameLabel)
 			Expect(k8sClient.Update(ctx, tartCluster)).To(Succeed())

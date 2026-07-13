@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"reflect"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -60,7 +60,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	)
 	defer span.End()
 
-	var cluster infrastructurev1alpha1.TartCluster
+	var cluster infrastructurev1beta1.TartCluster
 	if err := r.Get(ctx, req.NamespacedName, &cluster); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -69,11 +69,6 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
-	if managedByV1Beta1(&cluster) {
-		logf.FromContext(ctx).V(4).Info("Skipping v1beta1-managed TartCluster in the legacy controller", "cluster", req.String())
-		return ctrl.Result{}, nil
-	}
-
 	if !cluster.DeletionTimestamp.IsZero() {
 		if err := r.reconcileDelete(ctx, &cluster); err != nil {
 			return ctrl.Result{}, err
@@ -92,7 +87,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *infrastructurev1alpha1.TartCluster) error {
+func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
 	log := logf.FromContext(ctx)
 	clusterName, ok := cluster.Labels[clusterv1.ClusterNameLabel]
 	if !ok {
@@ -117,16 +112,12 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 
 	original := cluster.DeepCopy()
 
-	// Update status based on cluster state
 	cluster.Status.ObservedGeneration = cluster.Generation
 
-	// Mark infrastructure as provisioned when the cluster exists
-	cluster.Status.Initialization.Bound = true
-	cluster.Status.Initialization.Provisioned = true
+	provisioned := true
+	cluster.Status.Initialization.Provisioned = &provisioned
 
-	// Check if control plane is ready
-	cluster.Status.Initialization.ControlPlaneReady = apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
-	cluster.Status.Ready = apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
+	controlPlaneReady := apimeta.IsStatusConditionTrue(cluster.Status.Conditions, "ControlPlaneReady")
 
 	// Set conditions
 	apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
@@ -147,7 +138,7 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 		})
 	}
 
-	if cluster.Status.Ready {
+	if controlPlaneReady {
 		apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionTrue,
@@ -157,7 +148,7 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 		})
 	}
 
-	if !cluster.Status.Ready {
+	if !controlPlaneReady {
 		apimeta.SetStatusCondition(&cluster.Status.Conditions, metav1.Condition{
 			Type:               "Ready",
 			Status:             metav1.ConditionFalse,
@@ -174,7 +165,7 @@ func (r *TartClusterReconciler) reconcileNormal(ctx context.Context, cluster *in
 	return r.Status().Patch(ctx, cluster, client.MergeFrom(original))
 }
 
-func (r *TartClusterReconciler) ensureFinalizer(ctx context.Context, cluster *infrastructurev1alpha1.TartCluster) error {
+func (r *TartClusterReconciler) ensureFinalizer(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
 	if controllerutil.ContainsFinalizer(cluster, tartClusterFinalizer) {
 		return nil
 	}
@@ -184,7 +175,7 @@ func (r *TartClusterReconciler) ensureFinalizer(ctx context.Context, cluster *in
 	return r.Patch(ctx, cluster, client.MergeFrom(original))
 }
 
-func (r *TartClusterReconciler) reconcileDelete(ctx context.Context, cluster *infrastructurev1alpha1.TartCluster) error {
+func (r *TartClusterReconciler) reconcileDelete(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) error {
 	if !controllerutil.ContainsFinalizer(cluster, tartClusterFinalizer) {
 		return nil
 	}
@@ -197,7 +188,7 @@ func (r *TartClusterReconciler) reconcileDelete(ctx context.Context, cluster *in
 // SetupWithManager sets up the controller with the Manager.
 func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrastructurev1alpha1.TartCluster{}).
+		For(&infrastructurev1beta1.TartCluster{}).
 		Watches(
 			&clusterv1.Cluster{},
 			handler.EnqueueRequestsFromMapFunc(r.clusterToTartCluster),
@@ -217,7 +208,7 @@ func (r *TartClusterReconciler) clusterToTartCluster(ctx context.Context, obj cl
 	labelMap := map[string]string{
 		clusterv1.ClusterNameLabel: cluster.Name,
 	}
-	var tartClusterList infrastructurev1alpha1.TartClusterList
+	var tartClusterList infrastructurev1beta1.TartClusterList
 	if err := r.List(ctx, &tartClusterList, client.MatchingLabels(labelMap)); err != nil {
 		return nil
 	}

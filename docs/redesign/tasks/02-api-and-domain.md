@@ -33,10 +33,10 @@ APIとDomainの実装を先行する。これはTask 02の依存完了またはP
 - `TartCluster`、`TartMachine`、`TartMachineTemplate`のcontract対応
 - `TartHost`のidentity、root device hint、Driver設定、consumerRef
 - `TartHostOperation` CRD
-- defaulting/validation/conversion Webhook
+- defaulting/validation Webhook
 - Host/Operation/SlotのDomain型と状態遷移関数
 - Host選択・予約Kubernetes Adapter
-- v1alpha1からstorage versionへの移行手順
+- v1alpha1 APIと旧flowの削除
 
 ## API要件
 
@@ -60,7 +60,7 @@ APIとDomainの実装を先行する。これはTask 02の依存完了またはP
 6. Architecture文書にないHost/Operation phase遷移を全て拒否する。
 7. Artifact参照がdigest固定でないobjectをAdmissionで拒否する。
 8. deadlineなしのOperationをAdmissionで拒否する。
-9. v1alpha1 fixtureをstorage versionへ変換し、失われるfieldを移行文書へ列挙する。
+9. v1alpha1 API、変換Webhook、旧flowのcontroller/server実装が残っていない。
 10. SSA dry-runがobjectを永続化せず、default結果を返す。
 11. providerIDとworkload Node providerIDの不一致を`Ready=False`にする。
 12. `allowedRegistries`が空、wildcardを含む、またはpathを含む`TartCluster`をAdmissionで拒否する。
@@ -75,7 +75,7 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 |---|---|---|
 | 02A | Host、Operation、SlotのDomain型と純粋な状態遷移 | 6 |
 | 02B | storage API、TartHostOperation CRD、Admission | 5、7、8、12、13 |
-| 02C | CAPI v1beta2 contract、defaulting、conversion、SSA | 9、10、11 |
+| 02C | CAPI v1beta2 contract、defaulting、SSA、v1alpha削除 | 9、10、11 |
 | 02D | Host選択、resourceVersionによる排他予約、参照修復 | 1、2、3、4 |
 | 02E | 移行手順、生成差分、全受け入れ条件の証跡 | 1から13 |
 
@@ -87,7 +87,7 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 - controller-gen実行差分
 - Domain table test名と結果
 - envtestの予約競合結果
-- conversion前後のYAML fixture
+- v1alpha1参照削除の検索結果
 - SSA dry-run test結果
 
 ## 実装状況
@@ -104,13 +104,13 @@ Task 02は複数の独立したCRDと、単独で検証可能な受け入れ条�
 | 6 | 実装済み | HostとOperationの全Phase組合せtable test |
 | 7 | 実装済み | v1beta1 Admissionのdigest固定OCI参照検証 |
 | 8 | 実装済み | v1beta1 AdmissionのOperation deadline検証 |
-| 9 | 実装済み | `api/v1alpha1/testdata/tartmachine-v1alpha1.yaml`と[v1alpha1からv1beta1への移行](../migration-v1alpha1-to-v1beta1.md) |
+| 9 | 実装済み | `api/v1alpha1`、旧v1alpha controller、旧iPXE bootstrap server、conversion patchを削除。`rg`で旧API importと旧sample参照が残っていないことを確認 |
 | 10 | E2E実装済み、未実行 | GitHub Actions用E2EでSSA dry-runの既定値と非永続化を検証。ローカル実行は禁止 |
 | 11 | 実装済み | v1beta1 ControllerがCAPI MachineのNode参照からworkload Nodeを取得し、providerID不一致を`Ready=False`へ反映する |
 | 12 | 実装済み | 空、wildcard、path、scheme、不正portをAdmission testで拒否 |
 | 13 | 実装済み | `TestTartHostOperationPreservesDesiredObjectsDigest` |
 
-v1beta1は変換Webhookを有効化して`served=true`にしたが、既存Controllerとの共存のため`storage=false`である。storage version切り替え条件は[v1alpha1からv1beta1への移行](../migration-v1alpha1-to-v1beta1.md)に従う。
+v1beta1は唯一のserved/storage versionである。v1alpha1との互換性維持、変換Webhook、旧flowとの共存は廃止した。
 
 ## 対象外
 

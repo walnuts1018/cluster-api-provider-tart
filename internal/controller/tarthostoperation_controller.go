@@ -172,65 +172,64 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		return ctrl.Result{}, err
 	}
 
-	// terminal Phaseは変更しない
-	phase, err := operationdomain.ParsePhase(string(operation.Status.Phase))
-	if err == nil && phase.Terminal() {
-		if err := r.handleTerminal(ctx, &operation, phase); err != nil {
+	kind, err := operationdomain.ParseKind(string(operation.Spec.Type))
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	var phase operationdomain.Phase
+	if operation.Status.Phase != "" {
+		phase, err = operationdomain.ParsePhase(string(operation.Status.Phase))
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	decision, err := operationdomain.DecideNextStep(operationdomain.WorkflowInput{
+		Kind:     kind,
+		Phase:    phase,
+		Deadline: operation.Spec.Deadline.Time,
+		Now:      time.Now(),
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	switch selected := decision.Step.(type) {
+	case operationdomain.StepInitializePending:
+		return ctrl.Result{}, r.transitionPhase(ctx, &operation, infrastructurev1beta1.TartHostOperationPhasePending)
+	case operationdomain.StepPrepareBoot:
+		return ctrl.Result{}, r.handlePending(ctx, &operation)
+	case operationdomain.StepObserveActive:
+		if err := r.observeActiveOperationDriverState(ctx, &operation); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
+	case operationdomain.StepAwaitMachineHealth:
+		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
+	case operationdomain.StepCompleteWipeAll:
+		return ctrl.Result{}, r.handleWipeAllAwaitingHealth(ctx, &operation)
+	case operationdomain.StepCompleteCleaning:
+		return ctrl.Result{}, r.handleCleaningAwaitingHealth(ctx, &operation)
+	case operationdomain.StepHandleTerminal:
+		if err := r.handleTerminal(ctx, &operation, selected.Phase); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
-	}
-
-	// Deadline超過時はOperation種別とphaseに応じて失敗状態へ遷移する。
-	if !operation.Spec.Deadline.IsZero() && time.Now().After(operation.Spec.Deadline.Time) {
+	case operationdomain.StepFailDeadlineExceeded:
 		log.Info("TartHostOperation deadline exceeded",
 			"operation", req.String(),
 			"deadline", operation.Spec.Deadline.Time,
 			"phase", operation.Status.Phase,
 		)
 		return ctrl.Result{}, r.handleDeadlineExceeded(ctx, &operation)
-	}
-
-	switch operation.Status.Phase {
-	case "":
-		// 初回Reconcile: PendingへPhaseを設定する
-		return ctrl.Result{}, r.transitionPhase(ctx, &operation, infrastructurev1beta1.TartHostOperationPhasePending)
-
-	case infrastructurev1beta1.TartHostOperationPhasePending:
-		// Pending → PreparingBoot: WoLを発火してHostをOperation種別に対応するPhaseへ移行
-		return ctrl.Result{}, r.handlePending(ctx, &operation)
-
-	case infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
-		infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
-		infrastructurev1beta1.TartHostOperationPhaseWriting,
-		infrastructurev1beta1.TartHostOperationPhaseVerifying,
-		infrastructurev1beta1.TartHostOperationPhaseBootTrial:
-		// これらのPhaseはAgent/Driverがphase報告経由で進める。
-		// OperationがDeadline内かどうかをrequeue間隔で確認する。
-		if err := r.observeActiveOperationDriverState(ctx, &operation); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
-
-	case infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
-		// WipeAll OperationはNodeRefなしでHostをAvailableに戻す特殊処理を行う。
-		// Provision/Update OperationはTartMachineV1Beta1ReconcilerがNode健全性を確認して完了させる。
-		if operation.Spec.Type == infrastructurev1beta1.OperationTypeWipeAll {
-			return ctrl.Result{}, r.handleWipeAllAwaitingHealth(ctx, &operation)
-		}
-		if operation.Spec.Type == infrastructurev1beta1.OperationTypeClean {
-			return ctrl.Result{}, r.handleCleaningAwaitingHealth(ctx, &operation)
-		}
-		return ctrl.Result{RequeueAfter: operationDeadlineRequeueInterval}, nil
-
-	default:
+	case operationdomain.StepIgnore:
 		log.V(4).Info("TartHostOperation in unhandled phase, skipping",
 			"operation", req.String(),
 			"phase", operation.Status.Phase,
 		)
+		return ctrl.Result{}, nil
+	default:
+		return ctrl.Result{}, fmt.Errorf("unknown TartHostOperation workflow step %T", selected)
 	}
-
-	return ctrl.Result{}, nil
 }
 
 func (r *TartHostOperationReconciler) handleTerminal(

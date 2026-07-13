@@ -24,9 +24,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	infrastructurev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1"
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -45,7 +44,6 @@ const tartMachineTemplateFinalizer = "infrastructure.cluster.x-k8s.io/tartmachin
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the template closer to the desired state.
 func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := logf.FromContext(ctx)
 	ctx, span := telemetry.Tracer.Start(ctx, "TartMachineTemplate.Reconcile")
 	span.SetAttributes(
 		attribute.String("kubernetes.resource.name", req.Name),
@@ -53,7 +51,7 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 	)
 	defer span.End()
 
-	var template infrastructurev1alpha1.TartMachineTemplate
+	var template infrastructurev1beta1.TartMachineTemplate
 	if err := r.Get(ctx, req.NamespacedName, &template); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
@@ -62,13 +60,6 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
-	if managedByV1Beta1(&template) {
-		log.V(4).Info("Skipping v1beta1-managed TartMachineTemplate in the legacy controller", "template", req.String())
-		return ctrl.Result{}, nil
-	}
-
-	log.V(4).Info("Reconciling TartMachineTemplate")
-
 	if !template.DeletionTimestamp.IsZero() {
 		if err := r.reconcileDelete(ctx, &template); err != nil {
 			return ctrl.Result{}, err
@@ -83,7 +74,7 @@ func (r *TartMachineTemplateReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *TartMachineTemplateReconciler) ensureFinalizer(ctx context.Context, template *infrastructurev1alpha1.TartMachineTemplate) error {
+func (r *TartMachineTemplateReconciler) ensureFinalizer(ctx context.Context, template *infrastructurev1beta1.TartMachineTemplate) error {
 	if controllerutil.ContainsFinalizer(template, tartMachineTemplateFinalizer) {
 		return nil
 	}
@@ -93,7 +84,7 @@ func (r *TartMachineTemplateReconciler) ensureFinalizer(ctx context.Context, tem
 	return r.Patch(ctx, template, client.MergeFrom(original))
 }
 
-func (r *TartMachineTemplateReconciler) reconcileDelete(ctx context.Context, template *infrastructurev1alpha1.TartMachineTemplate) error {
+func (r *TartMachineTemplateReconciler) reconcileDelete(ctx context.Context, template *infrastructurev1beta1.TartMachineTemplate) error {
 	if !controllerutil.ContainsFinalizer(template, tartMachineTemplateFinalizer) {
 		return nil
 	}
@@ -106,7 +97,7 @@ func (r *TartMachineTemplateReconciler) reconcileDelete(ctx context.Context, tem
 // SetupWithManager sets up the controller with the Manager.
 func (r *TartMachineTemplateReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&infrastructurev1alpha1.TartMachineTemplate{}).
+		For(&infrastructurev1beta1.TartMachineTemplate{}).
 		Named("tartmachinetemplate").
 		Complete(r)
 }

@@ -38,7 +38,7 @@ func TestTartMachineCRDAllowsRealisticBootParameters(t *testing.T) {
 	}
 }
 
-func TestTartMachineCRDDefaultsBootstrapFormatToNoCloud(t *testing.T) {
+func TestTartMachineCRDRequiresArtifactModel(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "infrastructure.cluster.x-k8s.io_tartmachines.yaml"))
 	if err != nil {
 		t.Fatalf("failed to read TartMachine CRD: %v", err)
@@ -46,8 +46,10 @@ func TestTartMachineCRDDefaultsBootstrapFormatToNoCloud(t *testing.T) {
 
 	text := string(data)
 	for _, want := range []string{
-		"bootstrap:\n                default: {}",
-		"format:\n                    default: NoCloud",
+		"ref:\n                    description: ref is a digest-pinned OCI artifact reference.",
+		"platformProfile:\n                description: platformProfile identifies the versioned platform configuration",
+		"mode: Replace",
+		"- deletionPolicy",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("CRD missing %q", want)
@@ -55,7 +57,7 @@ func TestTartMachineCRDDefaultsBootstrapFormatToNoCloud(t *testing.T) {
 	}
 }
 
-func TestTartMachineTemplateCRDDefaultsBootstrapFormatToNoCloud(t *testing.T) {
+func TestTartMachineTemplateCRDRequiresArtifactModel(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", "infrastructure.cluster.x-k8s.io_tartmachinetemplates.yaml"))
 	if err != nil {
 		t.Fatalf("failed to read TartMachineTemplate CRD: %v", err)
@@ -63,8 +65,10 @@ func TestTartMachineTemplateCRDDefaultsBootstrapFormatToNoCloud(t *testing.T) {
 
 	text := string(data)
 	for _, want := range []string{
-		"bootstrap:\n                        default: {}",
-		"format:\n                            default: NoCloud",
+		"ref:\n                            description: ref is a digest-pinned OCI artifact reference.",
+		"platformProfile:\n                        description: platformProfile identifies the versioned platform",
+		"mode: Replace",
+		"- deletionPolicy",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("CRD missing %q", want)

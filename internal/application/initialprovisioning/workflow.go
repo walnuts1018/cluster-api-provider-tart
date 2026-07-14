@@ -26,6 +26,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
+	initialprovisioninghandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/handler"
 	initialprovisioningmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/model"
 	initialprovisioningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/port"
 	initialprovisioningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/step"
@@ -56,13 +57,7 @@ func (workflow *Workflow) CompleteProvisioning(
 	host *infrastructurev1beta1.TartHost,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
-	if err := workflow.operations.CompleteProvision(ctx, operation); err != nil {
-		return fmt.Errorf("complete Provision operation: %w", err)
-	}
-	if err := workflow.hostPhase.MarkHostProvisioned(ctx, host); err != nil {
-		return fmt.Errorf("mark TartHost provisioned: %w", err)
-	}
-	return nil
+	return workflow.commands.CompleteProvisioning(ctx, host, operation)
 }
 
 type SessionTokenIssuer = initialprovisioningport.SessionTokenIssuer
@@ -83,9 +78,7 @@ type StartResult = initialprovisioningmodel.StartResult
 
 // Workflow はv1beta1 TartMachineの初期Provisioningを組み立てる。
 type Workflow struct {
-	hostReserve HostReserveService
-	hostPhase   HostPhaseService
-	operations  OperationService
+	commands *initialprovisioninghandler.CommandHandler
 }
 
 // NewWorkflow は初期Provisioning Workflowを生成する。
@@ -94,10 +87,9 @@ func NewWorkflow(
 	hostPhase HostPhaseService,
 	operations OperationService,
 ) *Workflow {
+	steps := initialprovisioningstep.NewExecutor(hostReserve, hostPhase, operations)
 	return &Workflow{
-		hostReserve: hostReserve,
-		hostPhase:   hostPhase,
-		operations:  operations,
+		commands: initialprovisioninghandler.NewCommandHandler(steps),
 	}
 }
 
@@ -118,19 +110,19 @@ func (workflow *Workflow) Start(
 	reserveStep := StepReserveHost{
 		Requirements: requirements,
 	}
-	host, err := workflow.hostReserve.Reserve(ctx, machine, reserveStep.Requirements)
+	host, err := workflow.commands.ReserveHost(ctx, machine, reserveStep)
 	if err != nil {
 		if errors.Is(err, allocationdomain.ErrNoMatchingHost) {
 			return StartResult{}, ErrNoAvailableHost
 		}
-		return StartResult{}, fmt.Errorf("reserve TartHost: %w", err)
+		return StartResult{}, err
 	}
 	if host == nil {
 		return StartResult{}, ErrNoAvailableHost
 	}
 
-	if err := workflow.hostPhase.ReserveForMachine(ctx, host, machine); err != nil {
-		return StartResult{}, fmt.Errorf("mark TartHost reserved: %w", err)
+	if err := workflow.commands.MarkHostReserved(ctx, machine, host); err != nil {
+		return StartResult{}, err
 	}
 
 	desired, err := BuildOperationDraft(machine, host, planDigest)
@@ -138,9 +130,9 @@ func (workflow *Workflow) Start(
 		return StartResult{}, err
 	}
 
-	operation, err := workflow.operations.Start(ctx, desired)
+	operation, err := workflow.commands.StartOperation(ctx, StepStartOperation{Operation: desired})
 	if err != nil {
-		return StartResult{}, fmt.Errorf("start TartHostOperation: %w", err)
+		return StartResult{}, err
 	}
 
 	return initialprovisioningmodel.StartResult{

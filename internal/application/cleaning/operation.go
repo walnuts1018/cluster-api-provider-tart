@@ -15,7 +15,6 @@
 package cleaning
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -31,18 +30,6 @@ import (
 const (
 	defaultCleaningDeadline = 30 * time.Minute
 )
-
-type HostPhaseService interface {
-	MarkHostCleaningForDeletion(
-		ctx context.Context,
-		host *infrastructurev1beta1.TartHost,
-		deletionPolicy infrastructurev1beta1.DeletionPolicy,
-	) error
-}
-
-type OperationService interface {
-	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
-}
 
 func BuildOperationDraft(
 	machine *infrastructurev1beta1.TartMachine,

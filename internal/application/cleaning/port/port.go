@@ -21,6 +21,18 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
+type HostPhaseService interface {
+	MarkHostCleaningForDeletion(
+		ctx context.Context,
+		host *infrastructurev1beta1.TartHost,
+		deletionPolicy infrastructurev1beta1.DeletionPolicy,
+	) error
+}
+
+type OperationService interface {
+	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
+}
+
 type PlanWriter interface {
 	Write(
 		context.Context,

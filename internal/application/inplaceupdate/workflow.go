@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
+	inplaceupdatehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/handler"
 	inplaceupdatemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/model"
 	inplaceupdateport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/port"
 	inplaceupdatestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/step"
@@ -56,10 +57,9 @@ type StartResult = inplaceupdatemodel.StartResult
 
 // WorkflowはUpdate Operation作成と署名済みPlan保存を順序付ける。
 type Workflow struct {
-	operations          OperationStarter
-	plans               PlanWriter
+	steps               *inplaceupdatestep.Executor
+	commands            *inplaceupdatehandler.CommandHandler
 	signer              PlanSigner
-	nodeLifecyclePlans  NodeLifecyclePlanWriter
 	nodeLifecycleSigner PlanSigner
 }
 
@@ -69,10 +69,11 @@ func NewWorkflow(
 	plans PlanWriter,
 	signer PlanSigner,
 ) *Workflow {
+	steps := inplaceupdatestep.NewExecutor(operations, plans)
 	return &Workflow{
-		operations: operations,
-		plans:      plans,
-		signer:     signer,
+		steps:    steps,
+		commands: inplaceupdatehandler.NewCommandHandler(steps),
+		signer:   signer,
 	}
 }
 
@@ -81,7 +82,7 @@ func (workflow *Workflow) SetNodeLifecyclePlanWriter(
 	plans NodeLifecyclePlanWriter,
 	signer PlanSigner,
 ) {
-	workflow.nodeLifecyclePlans = plans
+	workflow.steps.SetNodeLifecyclePlanWriter(plans)
 	workflow.nodeLifecycleSigner = signer
 }
 
@@ -107,9 +108,9 @@ func (workflow *Workflow) Start(
 		draft.Spec.NodeLifecyclePlanDigest = candidateNodePlan.Digest.String()
 	}
 
-	started, err := workflow.operations.Start(ctx, draft)
+	started, err := workflow.commands.StartOperation(ctx, StepStartOperation{Operation: draft})
 	if err != nil {
-		return StartResult{}, fmt.Errorf("start Update Operation: %w", err)
+		return StartResult{}, err
 	}
 	persistedPlan, err := buildSignedAgentPlanStep(input, started, workflow.signer)
 	if err != nil {
@@ -125,29 +126,24 @@ func (workflow *Workflow) Start(
 	if hasPersistedNodePlan && persistedNodePlan.Digest.String() != started.Spec.NodeLifecyclePlanDigest {
 		return StartResult{}, fmt.Errorf("stored Update Operation Node Lifecycle Plan digest does not match regenerated Plan")
 	}
-	if err := workflow.plans.Write(
-		ctx,
-		started,
-		persistedPlan.Plan,
-		persistedPlan.Signature,
-	); err != nil {
-		return StartResult{}, fmt.Errorf("persist Update Plan: %w", err)
+	if err := workflow.commands.PersistAgentPlan(ctx, StepPersistAgentPlan{
+		Operation: started,
+		Plan:      persistedPlan.Plan,
+		Signature: persistedPlan.Signature,
+	}); err != nil {
+		return StartResult{}, err
 	}
 	events := []inplaceupdateevent.Event{
 		EventOperationStarted{OperationID: started.Spec.OperationID},
 		EventAgentPlanPersisted{OperationID: started.Spec.OperationID},
 	}
 	if hasPersistedNodePlan {
-		if workflow.nodeLifecyclePlans == nil {
-			return StartResult{}, fmt.Errorf("Node Lifecycle Plan writer is required for KubernetesBinary update")
-		}
-		if err := workflow.nodeLifecyclePlans.Write(
-			ctx,
-			started,
-			persistedNodePlan.Plan,
-			persistedNodePlan.Signature,
-		); err != nil {
-			return StartResult{}, fmt.Errorf("persist Node Lifecycle Plan: %w", err)
+		if err := workflow.commands.PersistNodeLifecyclePlan(ctx, StepPersistNodeLifecyclePlan{
+			Operation: started,
+			Plan:      persistedNodePlan.Plan,
+			Signature: persistedNodePlan.Signature,
+		}); err != nil {
+			return StartResult{}, err
 		}
 		events = append(events, EventNodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
 	}

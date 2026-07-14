@@ -22,6 +22,7 @@
 ## 3. 依存ルール
 
 - Workflowは別のWorkflowを直接フィールドに持ってはならない。
+- Workflowのconstructorは別のWorkflowを生成してはならない。具象Workflowの組み合わせはcontrollerやcomposition rootで行う。
 - Workflowを順番に実行する必要がある場合は、controller、composition root、またはevent handlerの呼び出し側でpipelineとして並べる。
 - Workflowから別Workflow相当の処理を使う場合は、必要な操作だけを表すStep interfaceを定義して注入する。
 - HandlerはCommand/EventをStepへ写像する。Handler自体にKubernetes patchやdriver呼び出しを直接書かない。

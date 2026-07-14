@@ -18,12 +18,10 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
-	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
@@ -70,21 +68,6 @@ type Workflow struct {
 	finalizer FinalizerStep
 	execution ExecutionStep
 	deletion  DeletionStep
-}
-
-func NewWorkflow(
-	k8sClient client.Client,
-	hostReferences machineexecution.HostReferenceService,
-	nodeHealth machineexecution.NodeHealthObserver,
-	provisioner machineexecution.ProvisionWorkflow,
-	cleaner machinedeletion.CleaningWorkflow,
-	recorder record.EventRecorder,
-) *Workflow {
-	return NewWorkflowWithSteps(
-		resourcefinalizer.NewTartMachineWorkflow(k8sClient),
-		machineexecution.NewWorkflow(k8sClient, hostReferences, nodeHealth, provisioner, recorder),
-		machinedeletion.NewWorkflow(k8sClient, cleaner),
-	)
 }
 
 func NewWorkflowWithSteps(

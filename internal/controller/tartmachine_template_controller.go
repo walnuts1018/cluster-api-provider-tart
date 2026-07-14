@@ -26,6 +26,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
@@ -70,7 +71,7 @@ func (r *TartMachineTemplateReconciler) lifecycleWorkflow() *machinetemplatelife
 	if r.Lifecycle != nil {
 		return r.Lifecycle
 	}
-	return machinetemplatelifecycle.NewWorkflow(r.Client)
+	return machinetemplatelifecycle.NewWorkflowWithFinalizer(resourcefinalizer.NewTartMachineTemplateWorkflow(r.Client))
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -56,13 +56,6 @@ type Workflow struct {
 	status    StatusStep
 }
 
-func NewWorkflow(k8sClient client.Client) *Workflow {
-	return NewWorkflowWithSteps(
-		resourcefinalizer.NewTartClusterWorkflow(k8sClient),
-		clusterstatus.NewWorkflow(k8sClient),
-	)
-}
-
 func NewWorkflowWithSteps(finalizer FinalizerStep, status StatusStep) *Workflow {
 	return &Workflow{
 		finalizer: finalizer,

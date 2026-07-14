@@ -77,7 +77,7 @@ func (workflow *Workflow) StartCleaning(
 	if err != nil {
 		return nil, err
 	}
-	candidatePlan, err := workflow.buildPlan(host, machine.Spec.DeletionPolicy, draft)
+	candidatePlan, err := buildSignedCleaningPlanStep(host, machine.Spec.DeletionPolicy, draft, workflow.signer)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (workflow *Workflow) StartCleaning(
 	if err != nil {
 		return nil, fmt.Errorf("start Cleaning operation: %w", err)
 	}
-	persistedPlan, err := workflow.buildPlan(host, machine.Spec.DeletionPolicy, started)
+	persistedPlan, err := buildSignedCleaningPlanStep(host, machine.Spec.DeletionPolicy, started, workflow.signer)
 	if err != nil {
 		return nil, err
 	}
@@ -98,21 +98,4 @@ func (workflow *Workflow) StartCleaning(
 		return nil, fmt.Errorf("persist Cleaning Plan: %w", err)
 	}
 	return started, nil
-}
-
-func (workflow *Workflow) buildPlan(
-	host *infrastructurev1beta1.TartHost,
-	policy infrastructurev1beta1.DeletionPolicy,
-	operation *infrastructurev1beta1.TartHostOperation,
-) (SignedCleaningPlan, error) {
-	plan, err := BuildCleaningPlan(CleaningPlanInput{
-		OperationID:    operation.Spec.OperationID,
-		Host:           host,
-		DeletionPolicy: policy,
-		Deadline:       operation.Spec.Deadline.Time,
-	}, workflow.signer.KeyID, workflow.signer.PrivateKey)
-	if err != nil {
-		return SignedCleaningPlan{}, fmt.Errorf("build signed Cleaning Plan: %w", err)
-	}
-	return plan, nil
 }

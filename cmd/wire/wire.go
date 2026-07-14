@@ -17,6 +17,7 @@ import (
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
+	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
@@ -24,6 +25,7 @@ import (
 	machinelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle"
 	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 )
@@ -70,17 +72,22 @@ func provideDriverRegistry(
 
 func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
 	return &controller.TartClusterReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		Lifecycle: clusterlifecycle.NewWorkflow(k8sClient),
+		Client: k8sClient,
+		Scheme: scheme,
+		Lifecycle: clusterlifecycle.NewWorkflowWithSteps(
+			resourcefinalizer.NewTartClusterWorkflow(k8sClient),
+			clusterstatus.NewWorkflow(k8sClient),
+		),
 	}
 }
 
 func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartMachineTemplateReconciler {
 	return &controller.TartMachineTemplateReconciler{
-		Client:    k8sClient,
-		Scheme:    scheme,
-		Lifecycle: machinetemplatelifecycle.NewWorkflow(k8sClient),
+		Client: k8sClient,
+		Scheme: scheme,
+		Lifecycle: machinetemplatelifecycle.NewWorkflowWithFinalizer(
+			resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient),
+		),
 	}
 }
 
@@ -92,8 +99,12 @@ func provideTartMachineV1Beta1Reconciler(
 	cleaner machinedeletion.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
-		Client:         k8sClient,
-		Lifecycle:      machinelifecycle.NewWorkflow(k8sClient, hostReferences, nodeHealth, provisioner, cleaner, nil),
+		Client: k8sClient,
+		Lifecycle: machinelifecycle.NewWorkflowWithSteps(
+			resourcefinalizer.NewTartMachineWorkflow(k8sClient),
+			machineexecution.NewWorkflow(k8sClient, hostReferences, nodeHealth, provisioner, nil),
+			machinedeletion.NewWorkflow(k8sClient, cleaner),
+		),
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,

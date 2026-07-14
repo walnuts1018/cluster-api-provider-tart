@@ -49,10 +49,6 @@ type Workflow struct {
 	finalizer FinalizerStep
 }
 
-func NewWorkflow(k8sClient client.Client) *Workflow {
-	return NewWorkflowWithFinalizer(resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient))
-}
-
 func NewWorkflowWithFinalizer(finalizer FinalizerStep) *Workflow {
 	return &Workflow{
 		finalizer: finalizer,

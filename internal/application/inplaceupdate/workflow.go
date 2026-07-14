@@ -23,8 +23,6 @@ import (
 	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
 	inplaceupdateport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/port"
 	inplaceupdatestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/step"
-	nodelifecycleapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
@@ -99,12 +97,12 @@ func (workflow *Workflow) Start(
 	if err != nil {
 		return StartResult{}, err
 	}
-	candidatePlan, err := workflow.buildPlan(input, draft)
+	candidatePlan, err := buildSignedAgentPlanStep(input, draft, workflow.signer)
 	if err != nil {
 		return StartResult{}, err
 	}
 	draft.Spec.PlanDigest = candidatePlan.Digest.String()
-	candidateNodePlan, hasCandidateNodePlan, err := workflow.buildNodeLifecyclePlan(input, draft)
+	candidateNodePlan, hasCandidateNodePlan, err := buildSignedNodeLifecyclePlanStep(input, draft, workflow.nodeLifecycleSigner)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -116,14 +114,14 @@ func (workflow *Workflow) Start(
 	if err != nil {
 		return StartResult{}, fmt.Errorf("start Update Operation: %w", err)
 	}
-	persistedPlan, err := workflow.buildPlan(input, started)
+	persistedPlan, err := buildSignedAgentPlanStep(input, started, workflow.signer)
 	if err != nil {
 		return StartResult{}, err
 	}
 	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
 		return StartResult{}, fmt.Errorf("stored Update Operation Plan digest does not match regenerated Plan")
 	}
-	persistedNodePlan, hasPersistedNodePlan, err := workflow.buildNodeLifecyclePlan(input, started)
+	persistedNodePlan, hasPersistedNodePlan, err := buildSignedNodeLifecyclePlanStep(input, started, workflow.nodeLifecycleSigner)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -160,60 +158,4 @@ func (workflow *Workflow) Start(
 		Operation: started,
 		Events:    events,
 	}, nil
-}
-
-func (workflow *Workflow) buildPlan(
-	input WorkflowInput,
-	operation *infrastructurev1beta1.TartHostOperation,
-) (SignedUpdatePlan, error) {
-	plan, err := BuildUpdatePlan(UpdatePlanInput{
-		OperationID:              operation.Spec.OperationID,
-		Machine:                  input.Machine,
-		TartMachine:              input.TartMachine,
-		Host:                     input.Host,
-		Deadline:                 operation.Spec.Deadline.Time,
-		Manifest:                 input.Manifest,
-		TargetImageDigest:        input.TargetImageDigest,
-		TargetArtifactGeneration: input.TargetArtifactGeneration,
-	}, workflow.signer.KeyID, workflow.signer.PrivateKey)
-	if err != nil {
-		return SignedUpdatePlan{}, fmt.Errorf("build signed Update Plan: %w", err)
-	}
-	return plan, nil
-}
-
-func (workflow *Workflow) buildNodeLifecyclePlan(
-	input WorkflowInput,
-	operation *infrastructurev1beta1.TartHostOperation,
-) (nodelifecycleapp.BuiltPlan, bool, error) {
-	if operation.Spec.UpdateClass == infrastructurev1beta1.UpdateClassOSOnly {
-		return nodelifecycleapp.BuiltPlan{}, false, nil
-	}
-	if operation.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
-		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("unsupported distribution lifecycle update class %q", operation.Spec.UpdateClass)
-	}
-	nodeRole := input.NodeRole
-	if nodeRole == "" {
-		nodeRole = distributiondomain.NodeRoleWorker
-	}
-	plan, err := distributiondomain.BuildPlan(distributiondomain.PlanInput{
-		OperationID:    operation.Spec.OperationID,
-		CurrentVersion: currentDistributionVersion(input.StartInput),
-		TargetVersion:  targetDistributionVersion(input.StartInput),
-		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-		NodeRole:       nodeRole,
-	})
-	if err != nil {
-		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("build Node Lifecycle domain Plan: %w", err)
-	}
-	built, err := nodelifecycleapp.BuildSignedPlan(
-		plan,
-		operation.Spec.Deadline.Time,
-		workflow.nodeLifecycleSigner.KeyID,
-		workflow.nodeLifecycleSigner.PrivateKey,
-	)
-	if err != nil {
-		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("build signed Node Lifecycle Plan: %w", err)
-	}
-	return built, true, nil
 }

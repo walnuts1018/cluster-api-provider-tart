@@ -33,6 +33,7 @@ import (
 
 	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
 	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
 )
 
 // TartClusterReconciler reconciles a TartCluster object
@@ -100,7 +101,10 @@ func (r *TartClusterReconciler) lifecycleWorkflow() *clusterlifecycle.Workflow {
 	if r.Lifecycle != nil {
 		return r.Lifecycle
 	}
-	return clusterlifecycle.NewWorkflow(r.Client)
+	return clusterlifecycle.NewWorkflowWithSteps(
+		resourcefinalizer.NewTartClusterWorkflow(r.Client),
+		clusterstatus.NewWorkflow(r.Client),
+	)
 }
 
 // SetupWithManager sets up the controller with the Manager.

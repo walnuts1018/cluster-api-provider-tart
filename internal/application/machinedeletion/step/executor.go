@@ -34,10 +34,10 @@ type Observation struct {
 
 type Executor struct {
 	client.Client
-	Cleaner machinedeletionport.CleaningWorkflow
+	Cleaner machinedeletionport.CleaningStep
 }
 
-func NewExecutor(k8sClient client.Client, cleaner machinedeletionport.CleaningWorkflow) *Executor {
+func NewExecutor(k8sClient client.Client, cleaner machinedeletionport.CleaningStep) *Executor {
 	return &Executor{Client: k8sClient, Cleaner: cleaner}
 }
 

@@ -30,7 +30,7 @@ type HostReferenceService interface {
 	) (allocationdomain.ReferenceResult, error)
 }
 
-type ProvisionWorkflow interface {
+type ProvisionStep interface {
 	Start(
 		ctx context.Context,
 		machine *infrastructurev1beta1.TartMachine,

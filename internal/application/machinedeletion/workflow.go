@@ -27,7 +27,7 @@ import (
 	machinedeletiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinedeletion"
 )
 
-type CleaningWorkflow = machinedeletionport.CleaningWorkflow
+type CleaningStep = machinedeletionport.CleaningStep
 
 type Result = machinedeletionmodel.Result
 type ResultWaiting = machinedeletionmodel.ResultWaiting
@@ -38,7 +38,7 @@ type Workflow struct {
 	commands *machinedeletionhandler.CommandHandler
 }
 
-func NewWorkflow(k8sClient client.Client, cleaner CleaningWorkflow) *Workflow {
+func NewWorkflow(k8sClient client.Client, cleaner CleaningStep) *Workflow {
 	steps := machinedeletionstep.NewExecutor(k8sClient, cleaner)
 	return &Workflow{
 		steps:    steps,

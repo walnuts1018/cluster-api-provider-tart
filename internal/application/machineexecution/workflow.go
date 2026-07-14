@@ -24,7 +24,7 @@ import (
 const placeholderPlanDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 type HostReferenceService = machineexecutionport.HostReferenceService
-type ProvisionWorkflow = machineexecutionport.ProvisionWorkflow
+type ProvisionStep = machineexecutionport.ProvisionStep
 type NodeHealthObserver = machineexecutionport.NodeHealthObserver
 
 type Workflow struct {
@@ -35,7 +35,7 @@ type StepExecutor struct {
 	client.Client
 	HostReferences HostReferenceService
 	NodeHealth     NodeHealthObserver
-	Provisioner    ProvisionWorkflow
+	Provisioner    ProvisionStep
 	Recorder       record.EventRecorder
 }
 
@@ -43,7 +43,7 @@ func NewWorkflow(
 	k8sClient client.Client,
 	hostReferences HostReferenceService,
 	nodeHealth NodeHealthObserver,
-	provisioner ProvisionWorkflow,
+	provisioner ProvisionStep,
 	recorder record.EventRecorder,
 ) *Workflow {
 	return NewWorkflowWithSteps(NewStepExecutor(k8sClient, hostReferences, nodeHealth, provisioner, recorder))
@@ -59,7 +59,7 @@ func NewStepExecutor(
 	k8sClient client.Client,
 	hostReferences HostReferenceService,
 	nodeHealth NodeHealthObserver,
-	provisioner ProvisionWorkflow,
+	provisioner ProvisionStep,
 	recorder record.EventRecorder,
 ) *StepExecutor {
 	return &StepExecutor{

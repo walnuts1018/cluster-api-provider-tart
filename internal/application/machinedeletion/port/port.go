@@ -20,7 +20,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
-type CleaningWorkflow interface {
+type CleaningStep interface {
 	StartCleaning(
 		ctx context.Context,
 		machine *infrastructurev1beta1.TartMachine,

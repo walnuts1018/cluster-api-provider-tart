@@ -39,7 +39,7 @@ type provisionStartDependencyResult interface {
 type provisionStartDependencyUnavailable struct{}
 
 type provisionStartDependencyAvailable struct {
-	Provisioner ProvisionWorkflow
+	Provisioner ProvisionStep
 }
 
 func (provisionStartDependencyUnavailable) isProvisionStartDependencyResult() {}
@@ -50,7 +50,7 @@ type provisionCompletionDependencyResult interface {
 }
 
 type provisionCompletionDependencyAvailable struct {
-	Provisioner ProvisionWorkflow
+	Provisioner ProvisionStep
 }
 
 type provisionCompletionDependencyMissing struct{}
@@ -97,7 +97,7 @@ func (steps *StepExecutor) startProvisionStep(
 	log := logf.FromContext(ctx)
 
 	dependency := steps.resolveProvisionStartDependencyStep(ctx, machine)
-	var provisioner ProvisionWorkflow
+	var provisioner ProvisionStep
 	switch dependency := dependency.(type) {
 	case provisionStartDependencyUnavailable:
 		return nil
@@ -206,7 +206,7 @@ func (steps *StepExecutor) checkBootstrapReadinessStep(
 
 func (steps *StepExecutor) reserveProvisionHostStep(
 	ctx context.Context,
-	provisioner ProvisionWorkflow,
+	provisioner ProvisionStep,
 	machine *infrastructurev1beta1.TartMachine,
 ) (model.ProvisionHostReservationResult, error) {
 	started, err := provisioner.Start(ctx, machine, placeholderPlanDigest)
@@ -433,7 +433,7 @@ func (steps *StepExecutor) completeProvisionStep(
 	observation machinehealthdomain.NodeObservation,
 ) error {
 	dependency := steps.resolveProvisionCompletionDependencyStep()
-	var provisioner ProvisionWorkflow
+	var provisioner ProvisionStep
 	switch dependency := dependency.(type) {
 	case provisionCompletionDependencyAvailable:
 		provisioner = dependency.Provisioner
@@ -499,7 +499,7 @@ func (steps *StepExecutor) resolveProvisionCompletionHostStep(
 
 func completeProvisionOperationStep(
 	ctx context.Context,
-	provisioner ProvisionWorkflow,
+	provisioner ProvisionStep,
 	host *infrastructurev1beta1.TartHost,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (model.ProvisionCompletionEffectResult, error) {

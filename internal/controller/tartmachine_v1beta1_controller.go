@@ -45,8 +45,8 @@ type TartMachineV1Beta1Reconciler struct {
 	Finalizer       *resourcefinalizer.Workflow
 	HostReferences  machineexecution.HostReferenceService
 	NodeHealth      machineexecution.NodeHealthObserver
-	Provisioner     machineexecution.ProvisionWorkflow
-	Cleaner         machinedeletion.CleaningWorkflow
+	Provisioner     machineexecution.ProvisionStep
+	Cleaner         machinedeletion.CleaningStep
 	Recorder        record.EventRecorder
 }
 

@@ -47,10 +47,10 @@ func BuildCleaningPlan(
 		return SignedCleaningPlan{}, fmt.Errorf("TartHost is required")
 	}
 	if input.OperationID == "" {
-		return SignedCleaningPlan{}, fmt.Errorf("Operation ID is required")
+		return SignedCleaningPlan{}, fmt.Errorf("operation ID is required")
 	}
 	if input.Deadline.IsZero() {
-		return SignedCleaningPlan{}, fmt.Errorf("Operation deadline is required")
+		return SignedCleaningPlan{}, fmt.Errorf("operation deadline is required")
 	}
 	allowed, err := AllowedTargetRoles(input.DeletionPolicy)
 	if err != nil {

@@ -17,8 +17,8 @@ package inplaceupdate
 import (
 	"context"
 	"crypto/ed25519"
-	"fmt"
 
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
 	inplaceupdatehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/handler"
 	inplaceupdatemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/model"
@@ -95,56 +95,26 @@ func (workflow *Workflow) Start(
 	if err != nil {
 		return StartResult{}, err
 	}
-	candidatePlan, err := buildSignedAgentPlanStep(input, draft, workflow.signer)
-	if err != nil {
-		return StartResult{}, err
-	}
-	draft.Spec.PlanDigest = candidatePlan.Digest.String()
-	candidateNodePlan, hasCandidateNodePlan, err := buildSignedNodeLifecyclePlanStep(input, draft, workflow.nodeLifecycleSigner)
-	if err != nil {
-		return StartResult{}, err
-	}
-	if hasCandidateNodePlan {
-		draft.Spec.NodeLifecyclePlanDigest = candidateNodePlan.Digest.String()
-	}
 
-	started, err := workflow.commands.StartOperation(ctx, StepStartOperation{Operation: draft})
+	started, hasNodeLifecyclePlan, err := workflow.commands.Start(ctx, inplaceupdatehandler.StartCommand{
+		Operation: draft,
+		BuildAgentPlan: func(operation *infrastructurev1beta1.TartHostOperation) (inplaceupdatehandler.SignedAgentPlan, error) {
+			plan, err := buildSignedAgentPlanStep(input, operation, workflow.signer)
+			return inplaceupdatehandler.SignedAgentPlan(plan), err
+		},
+		BuildNodeLifecyclePlan: func(operation *infrastructurev1beta1.TartHostOperation) (inplaceupdatehandler.SignedNodeLifecyclePlan, bool, error) {
+			plan, ok, err := buildSignedNodeLifecyclePlanStep(input, operation, workflow.nodeLifecycleSigner)
+			return inplaceupdatehandler.SignedNodeLifecyclePlan(plan), ok, err
+		},
+	})
 	if err != nil {
-		return StartResult{}, err
-	}
-	persistedPlan, err := buildSignedAgentPlanStep(input, started, workflow.signer)
-	if err != nil {
-		return StartResult{}, err
-	}
-	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
-		return StartResult{}, fmt.Errorf("stored Update Operation Plan digest does not match regenerated Plan")
-	}
-	persistedNodePlan, hasPersistedNodePlan, err := buildSignedNodeLifecyclePlanStep(input, started, workflow.nodeLifecycleSigner)
-	if err != nil {
-		return StartResult{}, err
-	}
-	if hasPersistedNodePlan && persistedNodePlan.Digest.String() != started.Spec.NodeLifecyclePlanDigest {
-		return StartResult{}, fmt.Errorf("stored Update Operation Node Lifecycle Plan digest does not match regenerated Plan")
-	}
-	if err := workflow.commands.PersistAgentPlan(ctx, StepPersistAgentPlan{
-		Operation: started,
-		Plan:      persistedPlan.Plan,
-		Signature: persistedPlan.Signature,
-	}); err != nil {
 		return StartResult{}, err
 	}
 	events := []inplaceupdateevent.Event{
 		EventOperationStarted{OperationID: started.Spec.OperationID},
 		EventAgentPlanPersisted{OperationID: started.Spec.OperationID},
 	}
-	if hasPersistedNodePlan {
-		if err := workflow.commands.PersistNodeLifecyclePlan(ctx, StepPersistNodeLifecyclePlan{
-			Operation: started,
-			Plan:      persistedNodePlan.Plan,
-			Signature: persistedNodePlan.Signature,
-		}); err != nil {
-			return StartResult{}, err
-		}
+	if hasNodeLifecyclePlan {
 		events = append(events, EventNodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
 	}
 	return inplaceupdatemodel.StartResult{

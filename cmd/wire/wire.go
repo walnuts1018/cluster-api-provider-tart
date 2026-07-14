@@ -95,8 +95,8 @@ func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences machineexecution.HostReferenceService,
 	nodeHealth machineexecution.NodeHealthObserver,
-	provisioner machineexecution.ProvisionWorkflow,
-	cleaner machinedeletion.CleaningWorkflow,
+	provisioner machineexecution.ProvisionStep,
+	cleaner machinedeletion.CleaningStep,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client: k8sClient,
@@ -112,7 +112,7 @@ func provideTartMachineV1Beta1Reconciler(
 	}
 }
 
-func provideCleaningWorkflow() machinedeletion.CleaningWorkflow {
+func provideCleaningStep() machinedeletion.CleaningStep {
 	return nil
 }
 
@@ -169,7 +169,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		appprovisioning.NewWorkflow,
 		wire.Bind(new(machineexecution.HostReferenceService), new(*k8sallocation.Service)),
 		wire.Bind(new(machineexecution.NodeHealthObserver), new(*k8smachinehealth.Observer)),
-		wire.Bind(new(machineexecution.ProvisionWorkflow), new(*appprovisioning.Workflow)),
+		wire.Bind(new(machineexecution.ProvisionStep), new(*appprovisioning.Workflow)),
 		wire.Bind(new(appprovisioning.HostReserveService), new(*k8sallocation.Service)),
 		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
 		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),
@@ -193,7 +193,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		provideTartClusterReconciler,
 		provideTartMachineTemplateReconciler,
 		provideTartMachineV1Beta1Reconciler,
-		provideCleaningWorkflow,
+		provideCleaningStep,
 		provideTartHostOperationReconciler,
 		provideReconcilers,
 	)

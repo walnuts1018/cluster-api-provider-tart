@@ -42,8 +42,8 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	v1beta1hostService := v1beta1host.NewService(k8sClient)
 	operationService := operation.NewService(k8sClient)
 	workflow := initialprovisioning.NewWorkflow(service, v1beta1hostService, operationService)
-	cleaningWorkflow := provideCleaningWorkflow()
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningWorkflow)
+	cleaningStep := provideCleaningStep()
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningStep)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -124,8 +124,8 @@ func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences machineexecution.HostReferenceService,
 	nodeHealth machineexecution.NodeHealthObserver,
-	provisioner machineexecution.ProvisionWorkflow,
-	cleaner machinedeletion.CleaningWorkflow,
+	provisioner machineexecution.ProvisionStep,
+	cleaner machinedeletion.CleaningStep,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -137,7 +137,7 @@ func provideTartMachineV1Beta1Reconciler(
 	}
 }
 
-func provideCleaningWorkflow() machinedeletion.CleaningWorkflow {
+func provideCleaningStep() machinedeletion.CleaningStep {
 	return nil
 }
 

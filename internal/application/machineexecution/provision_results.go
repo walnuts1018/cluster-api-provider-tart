@@ -143,3 +143,44 @@ type provisionedStatusPlanned struct {
 }
 
 func (provisionedStatusPlanned) isProvisionedStatusResult() {}
+
+type provisionProgressReferenceResult interface {
+	isProvisionProgressReferenceResult()
+}
+
+type provisionProgressReferenceAbsent struct{}
+
+type provisionProgressReferenceStale struct {
+	Reference *infrastructurev1beta1.ResourceReference
+}
+
+type provisionProgressReferenceResolved struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (provisionProgressReferenceAbsent) isProvisionProgressReferenceResult()   {}
+func (provisionProgressReferenceStale) isProvisionProgressReferenceResult()    {}
+func (provisionProgressReferenceResolved) isProvisionProgressReferenceResult() {}
+
+type staleProvisionOperationReferenceCleared struct {
+	Reference *infrastructurev1beta1.ResourceReference
+}
+
+type provisionProgressDecisionResult interface {
+	isProvisionProgressDecisionResult()
+}
+
+type provisionProgressAwaitingHealth struct{}
+
+type provisionProgressFailed struct {
+	Reason  string
+	Message string
+}
+
+func (provisionProgressAwaitingHealth) isProvisionProgressDecisionResult() {}
+func (provisionProgressFailed) isProvisionProgressDecisionResult()         {}
+
+type provisionFailureStatusPatchResult struct {
+	Reason  string
+	Message string
+}

@@ -248,29 +248,65 @@ func (workflow *Workflow) resumeProvisionOperationStep(
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "provision progress")
+	operationReference, err := workflow.resolveProvisionProgressReferenceStep(ctx, machine)
 	if err != nil {
 		return err
 	}
 	switch reference := operationReference.(type) {
-	case operationReferenceStale:
+	case provisionProgressReferenceStale:
 		log.Info("Referenced TartHostOperation not found, clearing OperationRef",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", operationKey(reference.Reference).String(),
 		)
-		original := machine.DeepCopy()
-		machine.Status.OperationRef = nil
-		if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
-			return fmt.Errorf("clear stale OperationRef: %w", patchErr)
+		cleared, patchErr := workflow.clearStaleProvisionOperationReferenceStep(ctx, machine, reference.Reference)
+		if patchErr != nil {
+			return patchErr
 		}
+		log.V(4).Info("Cleared stale TartHostOperation reference",
+			"machine", client.ObjectKeyFromObject(machine).String(),
+			"operation", operationKey(cleared.Reference).String(),
+		)
 		return nil
-	case operationReferenceAbsent:
+	case provisionProgressReferenceAbsent:
 		return nil
-	case operationReferenceResolved:
+	case provisionProgressReferenceResolved:
 		return workflow.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
 	default:
 		return fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
 	}
+}
+
+func (workflow *Workflow) resolveProvisionProgressReferenceStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (provisionProgressReferenceResult, error) {
+	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "provision progress")
+	if err != nil {
+		return nil, err
+	}
+	switch reference := operationReference.(type) {
+	case operationReferenceAbsent:
+		return provisionProgressReferenceAbsent{}, nil
+	case operationReferenceStale:
+		return provisionProgressReferenceStale(reference), nil
+	case operationReferenceResolved:
+		return provisionProgressReferenceResolved(reference), nil
+	default:
+		return nil, fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
+	}
+}
+
+func (workflow *Workflow) clearStaleProvisionOperationReferenceStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	reference *infrastructurev1beta1.ResourceReference,
+) (staleProvisionOperationReferenceCleared, error) {
+	original := machine.DeepCopy()
+	machine.Status.OperationRef = nil
+	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return staleProvisionOperationReferenceCleared{}, fmt.Errorf("clear stale OperationRef: %w", err)
+	}
+	return staleProvisionOperationReferenceCleared{Reference: reference}, nil
 }
 
 func (workflow *Workflow) resumeResolvedProvisionOperationStep(
@@ -279,33 +315,71 @@ func (workflow *Workflow) resumeResolvedProvisionOperationStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	log := logf.FromContext(ctx)
-	command, err := operationCommand(false, operation)
+	decision, err := decideProvisionProgressStep(operation)
 	if err != nil {
 		return fmt.Errorf("decide TartHostOperation progress: %w", err)
 	}
 
-	switch command := command.(type) {
-	case machinelifecycledomain.CommandMarkProvisionFailed:
+	switch decision := decision.(type) {
+	case provisionProgressFailed:
 		log.Info("TartHostOperation failed",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", client.ObjectKeyFromObject(operation).String(),
 			"phase", operation.Status.Phase,
 		)
-		original := machine.DeepCopy()
-		machine.Status = appprovisioning.StatusWithProvisionFailed(machine,
-			command.Reason,
-			fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, operation.Status.Phase),
-		)
-		if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
-			return fmt.Errorf("set provision failed status: %w", patchErr)
+		patched, patchErr := workflow.patchProvisionFailureStatusStep(ctx, machine, decision)
+		if patchErr != nil {
+			return patchErr
 		}
-	case machinelifecycledomain.CommandObserveProvisionHealth:
+		log.V(4).Info("Patched TartMachine provision failure status",
+			"machine", client.ObjectKeyFromObject(machine).String(),
+			"reason", patched.Reason,
+			"message", patched.Message,
+		)
+	case provisionProgressAwaitingHealth:
 		return nil
 	default:
-		return fmt.Errorf("unexpected TartMachine provisioning command: %T", command)
+		return fmt.Errorf("unexpected TartMachine provisioning progress decision: %T", decision)
 	}
 
 	return nil
+}
+
+func decideProvisionProgressStep(
+	operation *infrastructurev1beta1.TartHostOperation,
+) (provisionProgressDecisionResult, error) {
+	command, err := operationCommand(false, operation)
+	if err != nil {
+		return nil, err
+	}
+	switch command := command.(type) {
+	case machinelifecycledomain.CommandMarkProvisionFailed:
+		return provisionProgressFailed{
+			Reason:  command.Reason,
+			Message: provisionFailureMessageStep(operation),
+		}, nil
+	case machinelifecycledomain.CommandObserveProvisionHealth:
+		return provisionProgressAwaitingHealth{}, nil
+	default:
+		return nil, fmt.Errorf("unexpected TartMachine provisioning command: %T", command)
+	}
+}
+
+func provisionFailureMessageStep(operation *infrastructurev1beta1.TartHostOperation) string {
+	return fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, operation.Status.Phase)
+}
+
+func (workflow *Workflow) patchProvisionFailureStatusStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	failure provisionProgressFailed,
+) (provisionFailureStatusPatchResult, error) {
+	original := machine.DeepCopy()
+	machine.Status = appprovisioning.StatusWithProvisionFailed(machine, failure.Reason, failure.Message)
+	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return provisionFailureStatusPatchResult{}, fmt.Errorf("set provision failed status: %w", err)
+	}
+	return provisionFailureStatusPatchResult(failure), nil
 }
 
 func (workflow *Workflow) applyProvisionHealth(

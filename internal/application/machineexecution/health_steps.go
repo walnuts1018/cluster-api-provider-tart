@@ -173,13 +173,54 @@ func (workflow *Workflow) applyUpdateHealthGate(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
+	decision, err := decideUpdateHealthGateStep(operation, observation)
+	if err != nil {
+		return err
+	}
+	result, err := workflow.applyUpdateHealthGateDecisionStep(ctx, machine, decision)
+	if err != nil {
+		return err
+	}
+	switch result.(type) {
+	case updateHealthGateCompleted, updateHealthGateRollbackStarted:
+		return nil
+	default:
+		return fmt.Errorf("unknown Update health gate effect result: %T", result)
+	}
+}
+
+func decideUpdateHealthGateStep(
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) (updateHealthGateDecisionResult, error) {
 	healthCommand := machinelifecycledomain.DecideUpdateHealth(machinehealthdomain.EvaluateNode(observation))
 	switch healthCommand.(type) {
 	case machinelifecycledomain.CommandCompleteUpdate:
-		return workflow.completeUpdateStep(ctx, machine, operation)
+		return updateHealthGateComplete{Operation: operation}, nil
 	case machinelifecycledomain.CommandRollbackUpdate:
-		return workflow.rollbackUpdateStep(ctx, machine, operation, observation)
+		return updateHealthGateRollback{Operation: operation, Observation: observation}, nil
 	default:
-		return fmt.Errorf("unknown Update health command: %T", healthCommand)
+		return nil, fmt.Errorf("unknown Update health command: %T", healthCommand)
+	}
+}
+
+func (workflow *Workflow) applyUpdateHealthGateDecisionStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	decision updateHealthGateDecisionResult,
+) (updateHealthGateEffectResult, error) {
+	switch decision := decision.(type) {
+	case updateHealthGateComplete:
+		if err := workflow.completeUpdateStep(ctx, machine, decision.Operation); err != nil {
+			return nil, err
+		}
+		return updateHealthGateCompleted{}, nil
+	case updateHealthGateRollback:
+		if err := workflow.rollbackUpdateStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
+			return nil, err
+		}
+		return updateHealthGateRollbackStarted{}, nil
+	default:
+		return nil, fmt.Errorf("unknown Update health gate decision result: %T", decision)
 	}
 }

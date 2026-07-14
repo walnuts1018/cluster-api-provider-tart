@@ -53,6 +53,27 @@ type healthGateUpdateTerminalRoute struct {
 	Outcome   machinelifecycledomain.UpdateOutcome
 }
 
+type updateHealthGateDecisionResult interface {
+	isUpdateHealthGateDecisionResult()
+}
+
+type updateHealthGateComplete struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+type updateHealthGateRollback struct {
+	Operation   *infrastructurev1beta1.TartHostOperation
+	Observation machinehealthdomain.NodeObservation
+}
+
+type updateHealthGateEffectResult interface {
+	isUpdateHealthGateEffectResult()
+}
+
+type updateHealthGateCompleted struct{}
+
+type updateHealthGateRollbackStarted struct{}
+
 type machineStatusPatchResult interface {
 	isMachineStatusPatchResult()
 }
@@ -70,6 +91,12 @@ func (healthGateNodeStatusRoute) isHealthGateRouteResult()     {}
 func (healthGateProvisionRoute) isHealthGateRouteResult()      {}
 func (healthGateUpdateRoute) isHealthGateRouteResult()         {}
 func (healthGateUpdateTerminalRoute) isHealthGateRouteResult() {}
+
+func (updateHealthGateComplete) isUpdateHealthGateDecisionResult() {}
+func (updateHealthGateRollback) isUpdateHealthGateDecisionResult() {}
+
+func (updateHealthGateCompleted) isUpdateHealthGateEffectResult()       {}
+func (updateHealthGateRollbackStarted) isUpdateHealthGateEffectResult() {}
 
 func (machineStatusPatchRequired) isMachineStatusPatchResult()       {}
 func (machineStatusPatchAlreadyApplied) isMachineStatusPatchResult() {}

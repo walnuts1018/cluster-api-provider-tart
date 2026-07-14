@@ -15,6 +15,7 @@
 package machineexecution
 
 import (
+	"strings"
 	"testing"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -94,6 +95,130 @@ func TestDecideProvisionedHealthGateRouteStep(t *testing.T) {
 				}
 			default:
 				t.Fatalf("unexpected wantRoute = %T", tt.wantRoute)
+			}
+		})
+	}
+}
+
+func TestDecideProvisionHealthGateStep(t *testing.T) {
+	tests := []struct {
+		name        string
+		operation   infrastructurev1beta1.TartHostOperation
+		observation machinehealthdomain.NodeObservation
+		want        any
+	}{
+		{
+			name: "bootとbootstrapとnode healthが揃うとProvision完了へ進む",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeProvision,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+					LastBootReport: &infrastructurev1beta1.BootReportStatus{
+						StateMounted:           true,
+						DataMounted:            true,
+						BootstrapApplied:       true,
+						BootstrapPayloadDigest: "sha256:" + strings.Repeat("d", 64),
+					},
+				},
+			},
+			observation: machinehealthdomain.NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-a",
+				NodeReady:         true,
+			},
+			want: provisionHealthGateComplete{},
+		},
+		{
+			name: "boot reportが未到達ならHealth Gate保留にする",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeProvision,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+				},
+			},
+			observation: machinehealthdomain.NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-a",
+				NodeReady:         true,
+			},
+			want: provisionHealthGatePending{Reason: "WaitingForBootReport"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decideProvisionHealthGateStep(tt.operation.DeepCopy(), tt.observation)
+			if err != nil {
+				t.Fatalf("decideProvisionHealthGateStep() error = %v", err)
+			}
+			switch want := tt.want.(type) {
+			case provisionHealthGateComplete:
+				if _, ok := got.(provisionHealthGateComplete); !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+			case provisionHealthGatePending:
+				pending, ok := got.(provisionHealthGatePending)
+				if !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+				if pending.Reason != want.Reason {
+					t.Fatalf("Reason = %q, want %q", pending.Reason, want.Reason)
+				}
+			default:
+				t.Fatalf("unexpected want = %T", tt.want)
+			}
+		})
+	}
+}
+
+func TestDecideUpdateHealthGateStep(t *testing.T) {
+	tests := []struct {
+		name        string
+		observation machinehealthdomain.NodeObservation
+		want        any
+	}{
+		{
+			name: "node healthが正常ならUpdate完了へ進む",
+			observation: machinehealthdomain.NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-a",
+				NodeReady:         true,
+			},
+			want: updateHealthGateComplete{},
+		},
+		{
+			name: "node healthが異常ならRollbackへ進む",
+			observation: machinehealthdomain.NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-b",
+				NodeReady:         true,
+			},
+			want: updateHealthGateRollback{},
+		},
+	}
+
+	operation := &infrastructurev1beta1.TartHostOperation{}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decideUpdateHealthGateStep(operation, tt.observation)
+			if err != nil {
+				t.Fatalf("decideUpdateHealthGateStep() error = %v", err)
+			}
+			switch want := tt.want.(type) {
+			case updateHealthGateComplete:
+				if _, ok := got.(updateHealthGateComplete); !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+			case updateHealthGateRollback:
+				if _, ok := got.(updateHealthGateRollback); !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+			default:
+				t.Fatalf("unexpected want = %T", tt.want)
 			}
 		})
 	}

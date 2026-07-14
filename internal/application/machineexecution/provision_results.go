@@ -17,6 +17,7 @@ package machineexecution
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
+	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 )
 
 type provisionReferenceResult interface {
@@ -143,6 +144,34 @@ type provisionedStatusPlanned struct {
 }
 
 func (provisionedStatusPlanned) isProvisionedStatusResult() {}
+
+type provisionHealthGateDecisionResult interface {
+	isProvisionHealthGateDecisionResult()
+}
+
+type provisionHealthGateComplete struct {
+	Operation   *infrastructurev1beta1.TartHostOperation
+	Observation machinehealthdomain.NodeObservation
+}
+
+type provisionHealthGatePending struct {
+	Reason  string
+	Message string
+}
+
+func (provisionHealthGateComplete) isProvisionHealthGateDecisionResult() {}
+func (provisionHealthGatePending) isProvisionHealthGateDecisionResult()  {}
+
+type provisionHealthGateEffectResult interface {
+	isProvisionHealthGateEffectResult()
+}
+
+type provisionHealthGateCompleted struct{}
+
+type provisionHealthGatePendingApplied struct{}
+
+func (provisionHealthGateCompleted) isProvisionHealthGateEffectResult()      {}
+func (provisionHealthGatePendingApplied) isProvisionHealthGateEffectResult() {}
 
 type provisionProgressReferenceResult interface {
 	isProvisionProgressReferenceResult()

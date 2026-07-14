@@ -388,6 +388,26 @@ func (workflow *Workflow) applyProvisionHealth(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
+	decision, err := decideProvisionHealthGateStep(operation, observation)
+	if err != nil {
+		return err
+	}
+	result, err := workflow.applyProvisionHealthGateDecisionStep(ctx, machine, decision)
+	if err != nil {
+		return err
+	}
+	switch result.(type) {
+	case provisionHealthGateCompleted, provisionHealthGatePendingApplied:
+		return nil
+	default:
+		return fmt.Errorf("unknown Provision health gate effect result: %T", result)
+	}
+}
+
+func decideProvisionHealthGateStep(
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) (provisionHealthGateDecisionResult, error) {
 	readiness := appprovisioning.EvaluateReadiness(operation, observation)
 	command := machinelifecycledomain.DecideProvisionHealth(machinelifecycledomain.Readiness{
 		Ready:   readiness.Ready,
@@ -396,13 +416,31 @@ func (workflow *Workflow) applyProvisionHealth(
 	})
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandCompleteProvision:
-		return workflow.completeProvisionStep(ctx, machine, operation, observation)
+		return provisionHealthGateComplete{Operation: operation, Observation: observation}, nil
 	case machinelifecycledomain.CommandSetProvisionHealthPending:
-		workflow.setProvisionHealthPendingStep(machine, command)
+		return provisionHealthGatePending{Reason: command.Reason, Message: command.Message}, nil
 	default:
-		return fmt.Errorf("unknown Provision health command: %T", command)
+		return nil, fmt.Errorf("unknown Provision health command: %T", command)
 	}
-	return nil
+}
+
+func (workflow *Workflow) applyProvisionHealthGateDecisionStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	decision provisionHealthGateDecisionResult,
+) (provisionHealthGateEffectResult, error) {
+	switch decision := decision.(type) {
+	case provisionHealthGateComplete:
+		if err := workflow.completeProvisionStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
+			return nil, err
+		}
+		return provisionHealthGateCompleted{}, nil
+	case provisionHealthGatePending:
+		workflow.setProvisionHealthPendingStep(machine, decision)
+		return provisionHealthGatePendingApplied{}, nil
+	default:
+		return nil, fmt.Errorf("unknown Provision health gate decision result: %T", decision)
+	}
 }
 
 func (workflow *Workflow) completeProvisionStep(
@@ -503,11 +541,11 @@ func planProvisionedStatusStep(
 
 func (workflow *Workflow) setProvisionHealthPendingStep(
 	machine *infrastructurev1beta1.TartMachine,
-	command machinelifecycledomain.CommandSetProvisionHealthPending,
+	pending provisionHealthGatePending,
 ) {
 	machine.Status = appprovisioning.StatusWithHealthGatePending(
 		machine,
-		command.Reason,
-		command.Message,
+		pending.Reason,
+		pending.Message,
 	)
 }

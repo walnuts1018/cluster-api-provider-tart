@@ -22,6 +22,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	cleaningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/event"
+	cleaningmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/model"
 	cleaningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/port"
 	cleaningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/step"
 )
@@ -41,6 +42,7 @@ type StepPersistPlan = cleaningstep.PersistPlan
 type Event = cleaningevent.Event
 type EventOperationStarted = cleaningevent.OperationStarted
 type EventPlanPersisted = cleaningevent.PlanPersisted
+type StartResult = cleaningmodel.StartResult
 
 type Workflow struct {
 	hostPhase  HostPhaseService
@@ -70,32 +72,50 @@ func (workflow *Workflow) StartCleaning(
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
+	result, err := workflow.startCleaning(ctx, machine, host)
+	if err != nil {
+		return nil, err
+	}
+	return result.Operation, nil
+}
+
+func (workflow *Workflow) startCleaning(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+) (cleaningmodel.StartResult, error) {
 	if err := workflow.hostPhase.MarkHostCleaningForDeletion(ctx, host, machine.Spec.DeletionPolicy); err != nil {
-		return nil, fmt.Errorf("mark TartHost cleaning: %w", err)
+		return cleaningmodel.StartResult{}, fmt.Errorf("mark TartHost cleaning: %w", err)
 	}
 	draft, err := BuildOperationDraft(machine, host, "", workflow.now())
 	if err != nil {
-		return nil, err
+		return cleaningmodel.StartResult{}, err
 	}
 	candidatePlan, err := buildSignedCleaningPlanStep(host, machine.Spec.DeletionPolicy, draft, workflow.signer)
 	if err != nil {
-		return nil, err
+		return cleaningmodel.StartResult{}, err
 	}
 	draft.Spec.PlanDigest = candidatePlan.Digest.String()
 
 	started, err := workflow.operations.Start(ctx, draft)
 	if err != nil {
-		return nil, fmt.Errorf("start Cleaning operation: %w", err)
+		return cleaningmodel.StartResult{}, fmt.Errorf("start Cleaning operation: %w", err)
 	}
 	persistedPlan, err := buildSignedCleaningPlanStep(host, machine.Spec.DeletionPolicy, started, workflow.signer)
 	if err != nil {
-		return nil, err
+		return cleaningmodel.StartResult{}, err
 	}
 	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
-		return nil, fmt.Errorf("stored Cleaning Operation Plan digest does not match regenerated Plan")
+		return cleaningmodel.StartResult{}, fmt.Errorf("stored Cleaning Operation Plan digest does not match regenerated Plan")
 	}
 	if err := workflow.plans.Write(ctx, started, persistedPlan.Plan, persistedPlan.Signature); err != nil {
-		return nil, fmt.Errorf("persist Cleaning Plan: %w", err)
+		return cleaningmodel.StartResult{}, fmt.Errorf("persist Cleaning Plan: %w", err)
 	}
-	return started, nil
+	return cleaningmodel.StartResult{
+		Operation: started,
+		Events: []cleaningevent.Event{
+			EventOperationStarted{OperationID: started.Spec.OperationID},
+			EventPlanPersisted{OperationID: started.Spec.OperationID},
+		},
+	}, nil
 }

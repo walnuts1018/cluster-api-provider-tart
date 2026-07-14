@@ -19,8 +19,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
-	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
+	inplaceupdatemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/model"
 	inplaceupdateport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/port"
 	inplaceupdatestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/step"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
@@ -52,10 +52,7 @@ type EventOperationStarted = inplaceupdateevent.OperationStarted
 type EventAgentPlanPersisted = inplaceupdateevent.AgentPlanPersisted
 type EventNodeLifecyclePlanPersisted = inplaceupdateevent.NodeLifecyclePlanPersisted
 
-type StartResult struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-	Events    []Event
-}
+type StartResult = inplaceupdatemodel.StartResult
 
 // WorkflowはUpdate Operation作成と署名済みPlan保存を順序付ける。
 type Workflow struct {
@@ -136,7 +133,7 @@ func (workflow *Workflow) Start(
 	); err != nil {
 		return StartResult{}, fmt.Errorf("persist Update Plan: %w", err)
 	}
-	events := []Event{
+	events := []inplaceupdateevent.Event{
 		EventOperationStarted{OperationID: started.Spec.OperationID},
 		EventAgentPlanPersisted{OperationID: started.Spec.OperationID},
 	}
@@ -154,7 +151,7 @@ func (workflow *Workflow) Start(
 		}
 		events = append(events, EventNodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
 	}
-	return StartResult{
+	return inplaceupdatemodel.StartResult{
 		Operation: started,
 		Events:    events,
 	}, nil

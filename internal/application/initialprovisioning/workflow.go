@@ -26,6 +26,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
+	initialprovisioningmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/model"
 	initialprovisioningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/port"
 	initialprovisioningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
@@ -78,11 +79,7 @@ type EventHostReserved = initialprovisioningevent.HostReserved
 type EventOperationStarted = initialprovisioningevent.OperationStarted
 type EventProvisioningCompleted = initialprovisioningevent.ProvisioningCompleted
 
-type StartResult struct {
-	Host      *infrastructurev1beta1.TartHost
-	Operation *infrastructurev1beta1.TartHostOperation
-	Events    []Event
-}
+type StartResult = initialprovisioningmodel.StartResult
 
 // Workflow はv1beta1 TartMachineの初期Provisioningを組み立てる。
 type Workflow struct {
@@ -146,10 +143,10 @@ func (workflow *Workflow) Start(
 		return StartResult{}, fmt.Errorf("start TartHostOperation: %w", err)
 	}
 
-	return StartResult{
+	return initialprovisioningmodel.StartResult{
 		Host:      host,
 		Operation: operation,
-		Events: []Event{
+		Events: []initialprovisioningevent.Event{
 			EventHostReserved{HostName: host.Name},
 			EventOperationStarted{OperationID: operation.Spec.OperationID},
 		},

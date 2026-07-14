@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package model
 
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -20,83 +20,83 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-type nodeHealthResult interface {
+type NodeHealthResult interface {
 	isNodeHealthResult()
 }
 
-type nodeHealthObserved struct {
+type NodeHealthObserved struct {
 	Observation machinehealthdomain.NodeObservation
 }
 
-type nodeHealthUnavailable struct{}
+type NodeHealthUnavailable struct{}
 
-type healthGateRouteResult interface {
+type HealthGateRouteResult interface {
 	isHealthGateRouteResult()
 }
 
-type healthGateNodeStatusRoute struct {
+type HealthGateNodeStatusRoute struct {
 	Observation machinehealthdomain.NodeObservation
 }
 
-type healthGateProvisionRoute struct {
+type HealthGateProvisionRoute struct {
 	Operation   *infrastructurev1beta1.TartHostOperation
 	Observation machinehealthdomain.NodeObservation
 }
 
-type healthGateUpdateRoute struct {
+type HealthGateUpdateRoute struct {
 	Operation   *infrastructurev1beta1.TartHostOperation
 	Observation machinehealthdomain.NodeObservation
 }
 
-type healthGateUpdateTerminalRoute struct {
+type HealthGateUpdateTerminalRoute struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 	Outcome   machinelifecycledomain.UpdateOutcome
 }
 
-type updateHealthGateDecisionResult interface {
+type UpdateHealthGateDecisionResult interface {
 	isUpdateHealthGateDecisionResult()
 }
 
-type updateHealthGateComplete struct {
+type UpdateHealthGateComplete struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 }
 
-type updateHealthGateRollback struct {
+type UpdateHealthGateRollback struct {
 	Operation   *infrastructurev1beta1.TartHostOperation
 	Observation machinehealthdomain.NodeObservation
 }
 
-type updateHealthGateEffectResult interface {
+type UpdateHealthGateEffectResult interface {
 	isUpdateHealthGateEffectResult()
 }
 
-type updateHealthGateCompleted struct{}
+type UpdateHealthGateCompleted struct{}
 
-type updateHealthGateRollbackStarted struct{}
+type UpdateHealthGateRollbackStarted struct{}
 
-type machineStatusPatchResult interface {
+type MachineStatusPatchResult interface {
 	isMachineStatusPatchResult()
 }
 
-type machineStatusPatchRequired struct {
+type MachineStatusPatchRequired struct {
 	Original *infrastructurev1beta1.TartMachine
 }
 
-type machineStatusPatchAlreadyApplied struct{}
+type MachineStatusPatchAlreadyApplied struct{}
 
-func (nodeHealthObserved) isNodeHealthResult()    {}
-func (nodeHealthUnavailable) isNodeHealthResult() {}
+func (NodeHealthObserved) isNodeHealthResult()    {}
+func (NodeHealthUnavailable) isNodeHealthResult() {}
 
-func (healthGateNodeStatusRoute) isHealthGateRouteResult()     {}
-func (healthGateProvisionRoute) isHealthGateRouteResult()      {}
-func (healthGateUpdateRoute) isHealthGateRouteResult()         {}
-func (healthGateUpdateTerminalRoute) isHealthGateRouteResult() {}
+func (HealthGateNodeStatusRoute) isHealthGateRouteResult()     {}
+func (HealthGateProvisionRoute) isHealthGateRouteResult()      {}
+func (HealthGateUpdateRoute) isHealthGateRouteResult()         {}
+func (HealthGateUpdateTerminalRoute) isHealthGateRouteResult() {}
 
-func (updateHealthGateComplete) isUpdateHealthGateDecisionResult() {}
-func (updateHealthGateRollback) isUpdateHealthGateDecisionResult() {}
+func (UpdateHealthGateComplete) isUpdateHealthGateDecisionResult() {}
+func (UpdateHealthGateRollback) isUpdateHealthGateDecisionResult() {}
 
-func (updateHealthGateCompleted) isUpdateHealthGateEffectResult()       {}
-func (updateHealthGateRollbackStarted) isUpdateHealthGateEffectResult() {}
+func (UpdateHealthGateCompleted) isUpdateHealthGateEffectResult()       {}
+func (UpdateHealthGateRollbackStarted) isUpdateHealthGateEffectResult() {}
 
-func (machineStatusPatchRequired) isMachineStatusPatchResult()       {}
-func (machineStatusPatchAlreadyApplied) isMachineStatusPatchResult() {}
+func (MachineStatusPatchRequired) isMachineStatusPatchResult()       {}
+func (MachineStatusPatchAlreadyApplied) isMachineStatusPatchResult() {}

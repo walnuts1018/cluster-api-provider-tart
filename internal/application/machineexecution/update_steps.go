@@ -33,7 +33,7 @@ import (
 func (steps *StepExecutor) reconcileUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
-) (updateOperationStepResult, error) {
+) (model.UpdateOperationStepResult, error) {
 	machine := provisioned.Machine
 	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "update outcome")
 	if err != nil {
@@ -41,10 +41,10 @@ func (steps *StepExecutor) reconcileUpdateOperationStep(
 	}
 	switch reference := operationReference.(type) {
 	case model.OperationReferenceAbsent, model.OperationReferenceStale:
-		return updateOperationNeedsNodeHealth{}, nil
+		return model.UpdateOperationNeedsNodeHealth{}, nil
 	case model.OperationReferenceResolved:
 		if reference.Operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-			return updateOperationNeedsNodeHealth{}, nil
+			return model.UpdateOperationNeedsNodeHealth{}, nil
 		}
 		return steps.reconcileResolvedUpdateOperationStep(ctx, provisioned, reference.Operation)
 	default:
@@ -56,44 +56,27 @@ func (steps *StepExecutor) reconcileResolvedUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
-) (updateOperationStepResult, error) {
-	decision, err := decideUpdateOperationStep(operation)
+) (model.UpdateOperationStepResult, error) {
+	decision, err := machineexecutionstep.DecideUpdateOperation(operation)
 	if err != nil {
 		return nil, err
 	}
 	return steps.applyUpdateOperationDecisionStep(ctx, provisioned.Machine, decision)
 }
 
-func decideUpdateOperationStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-) (updateOperationDecisionResult, error) {
-	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioned{}, operation)
-	if err != nil {
-		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
-	}
-	switch route := route.(type) {
-	case machineexecutionstep.OperationUpdateTerminalRoute:
-		return updateOperationApplyTerminal{Operation: route.Operation, Outcome: route.Outcome}, nil
-	case machineexecutionstep.OperationUpdateHealthRoute, machineexecutionstep.OperationNodeHealthRoute:
-		return updateOperationRouteNodeHealth{}, nil
-	default:
-		return nil, fmt.Errorf("unknown provisioned TartMachine route for Update Operation: %T", route)
-	}
-}
-
 func (steps *StepExecutor) applyUpdateOperationDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	decision updateOperationDecisionResult,
-) (updateOperationStepResult, error) {
+	decision model.UpdateOperationDecisionResult,
+) (model.UpdateOperationStepResult, error) {
 	switch decision := decision.(type) {
-	case updateOperationApplyTerminal:
+	case model.UpdateOperationApplyTerminal:
 		if err := steps.applyUpdateTerminalStep(ctx, machine, decision.Operation, decision.Outcome); err != nil {
 			return nil, err
 		}
-		return updateOperationTerminalHandled{}, nil
-	case updateOperationRouteNodeHealth:
-		return updateOperationNeedsNodeHealth{}, nil
+		return model.UpdateOperationTerminalHandled{}, nil
+	case model.UpdateOperationRouteNodeHealth:
+		return model.UpdateOperationNeedsNodeHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Update Operation decision result: %T", decision)
 	}

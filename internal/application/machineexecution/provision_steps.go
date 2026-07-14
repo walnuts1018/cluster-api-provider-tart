@@ -30,13 +30,38 @@ import (
 	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
-	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
+
+type provisionStartDependencyResult interface {
+	isProvisionStartDependencyResult()
+}
+
+type provisionStartDependencyUnavailable struct{}
+
+type provisionStartDependencyAvailable struct {
+	Provisioner ProvisionWorkflow
+}
+
+func (provisionStartDependencyUnavailable) isProvisionStartDependencyResult() {}
+func (provisionStartDependencyAvailable) isProvisionStartDependencyResult()   {}
+
+type provisionCompletionDependencyResult interface {
+	isProvisionCompletionDependencyResult()
+}
+
+type provisionCompletionDependencyAvailable struct {
+	Provisioner ProvisionWorkflow
+}
+
+type provisionCompletionDependencyMissing struct{}
+
+func (provisionCompletionDependencyAvailable) isProvisionCompletionDependencyResult() {}
+func (provisionCompletionDependencyMissing) isProvisionCompletionDependencyResult()   {}
 
 func (steps *StepExecutor) ensureProvisionReferenceStep(
 	ctx context.Context,
 	provisioning provisioningMachine,
-) (provisionReferenceResult, error) {
+) (model.ProvisionReferenceResult, error) {
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 	if steps.HostReferences == nil {
@@ -53,7 +78,7 @@ func (steps *StepExecutor) ensureProvisionReferenceStep(
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"error", err.Error(),
 		)
-		return provisionReferenceBlocked{}, nil
+		return model.ProvisionReferenceBlocked{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("ensure TartMachine host reference: %w", err)
@@ -61,7 +86,7 @@ func (steps *StepExecutor) ensureProvisionReferenceStep(
 	if result == allocationdomain.ReferenceRepaired {
 		log.Info("Repaired TartMachine host reference", "machine", client.ObjectKeyFromObject(machine).String())
 	}
-	return provisionReferenceReady{}, nil
+	return model.ProvisionReferenceReady{}, nil
 }
 
 func (steps *StepExecutor) startProvisionStep(
@@ -87,15 +112,15 @@ func (steps *StepExecutor) startProvisionStep(
 		return fmt.Errorf("check bootstrap readiness: %w", err)
 	}
 	switch readiness.(type) {
-	case bootstrapDataWaiting:
+	case model.BootstrapDataWaiting:
 		log.V(4).Info("Bootstrap data not yet ready, waiting",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 		)
-		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusWaitingForBootstrap{}); err != nil {
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusWaitingForBootstrap{}); err != nil {
 			return err
 		}
 		return nil
-	case bootstrapDataReady:
+	case model.BootstrapDataReady:
 	default:
 		return fmt.Errorf("unknown Bootstrap readiness result: %T", readiness)
 	}
@@ -105,19 +130,19 @@ func (steps *StepExecutor) startProvisionStep(
 		return err
 	}
 	switch reservation := reservation.(type) {
-	case provisionHostReservationNoHost:
+	case model.ProvisionHostReservationNoHost:
 		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
-		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusNoAvailableHost{}); err != nil {
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusNoAvailableHost{}); err != nil {
 			return err
 		}
 		return nil
-	case provisionHostReservationStarted:
+	case model.ProvisionHostReservationStarted:
 		started := reservation.Started
 		if _, err := steps.ensureProviderIDStep(ctx, machine, started.Host); err != nil {
 			return err
 		}
 
-		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusHostReserved{
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusHostReserved{
 			Host:      started.Host,
 			Operation: started.Operation,
 		}); err != nil {
@@ -138,14 +163,14 @@ func (steps *StepExecutor) startProvisionStep(
 func (steps *StepExecutor) applyProvisionStartStatusPatchStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	patch provisionStartStatusPatch,
+	patch model.ProvisionStartStatusPatch,
 ) error {
 	result, err := steps.patchProvisionStartStatusStep(ctx, machine, patch)
 	if err != nil {
 		return err
 	}
 	switch result.(type) {
-	case provisionStartStatusPatched:
+	case model.ProvisionStartStatusPatched:
 		return nil
 	default:
 		return fmt.Errorf("unknown Provision start status patch result: %T", result)
@@ -168,25 +193,25 @@ func (steps *StepExecutor) resolveProvisionStartDependencyStep(
 func (steps *StepExecutor) checkBootstrapReadinessStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (bootstrapReadinessResult, error) {
+) (model.BootstrapReadinessResult, error) {
 	coreMachine, err := util.GetOwnerMachine(ctx, steps.Client, machine.ObjectMeta)
 	if err != nil {
 		return nil, fmt.Errorf("get owner Machine: %w", err)
 	}
 	if coreMachine == nil || coreMachine.Spec.Bootstrap.DataSecretName == nil {
-		return bootstrapDataWaiting{}, nil
+		return model.BootstrapDataWaiting{}, nil
 	}
-	return bootstrapDataReady{}, nil
+	return model.BootstrapDataReady{}, nil
 }
 
 func (steps *StepExecutor) reserveProvisionHostStep(
 	ctx context.Context,
 	provisioner ProvisionWorkflow,
 	machine *infrastructurev1beta1.TartMachine,
-) (provisionHostReservationResult, error) {
+) (model.ProvisionHostReservationResult, error) {
 	started, err := provisioner.Start(ctx, machine, placeholderPlanDigest)
 	if errors.Is(err, appprovisioning.ErrNoAvailableHost) {
-		return provisionHostReservationNoHost{}, nil
+		return model.ProvisionHostReservationNoHost{}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reserve host and start operation: %w", err)
@@ -194,17 +219,17 @@ func (steps *StepExecutor) reserveProvisionHostStep(
 	if started.Host == nil || started.Operation == nil {
 		return nil, fmt.Errorf("reserve host and start operation: Provisioner returned incomplete start result")
 	}
-	return provisionHostReservationStarted{Started: started}, nil
+	return model.ProvisionHostReservationStarted{Started: started}, nil
 }
 
 func (steps *StepExecutor) ensureProviderIDStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
-) (providerIDStepResult, error) {
+) (model.ProviderIDStepResult, error) {
 	expected := fmt.Sprintf("tart://%s", host.Name)
 	if machine.Spec.ProviderID == expected {
-		return providerIDAlreadySet{}, nil
+		return model.ProviderIDAlreadySet{}, nil
 	}
 	if machine.Spec.ProviderID != "" {
 		return nil, fmt.Errorf(
@@ -218,21 +243,21 @@ func (steps *StepExecutor) ensureProviderIDStep(
 	if err := steps.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return nil, fmt.Errorf("set TartMachine providerID: %w", err)
 	}
-	return providerIDPatched{}, nil
+	return model.ProviderIDPatched{}, nil
 }
 
 func (steps *StepExecutor) patchProvisionStartStatusStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	patch provisionStartStatusPatch,
-) (provisionStartStatusPatchResult, error) {
+	patch model.ProvisionStartStatusPatch,
+) (model.ProvisionStartStatusPatchResult, error) {
 	original := machine.DeepCopy()
 	switch patch := patch.(type) {
-	case provisionStartStatusWaitingForBootstrap:
+	case model.ProvisionStartStatusWaitingForBootstrap:
 		machine.Status = appprovisioning.StatusWithWaitingForBootstrap(machine)
-	case provisionStartStatusNoAvailableHost:
+	case model.ProvisionStartStatusNoAvailableHost:
 		machine.Status = appprovisioning.StatusWithNoAvailableHost(machine)
-	case provisionStartStatusHostReserved:
+	case model.ProvisionStartStatusHostReserved:
 		machine.Status = appprovisioning.StatusWithHostReserved(machine, patch.Host, patch.Operation)
 	default:
 		return nil, fmt.Errorf("unknown Provision start status patch: %T", patch)
@@ -240,7 +265,7 @@ func (steps *StepExecutor) patchProvisionStartStatusStep(
 	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return nil, fmt.Errorf("patch Provision start status: %w", err)
 	}
-	return provisionStartStatusPatched{}, nil
+	return model.ProvisionStartStatusPatched{}, nil
 }
 
 func (steps *StepExecutor) resumeProvisionOperationStep(
@@ -255,7 +280,7 @@ func (steps *StepExecutor) resumeProvisionOperationStep(
 		return err
 	}
 	switch reference := operationReference.(type) {
-	case provisionProgressReferenceStale:
+	case model.ProvisionProgressReferenceStale:
 		log.Info("Referenced TartHostOperation not found, clearing OperationRef",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", operationKey(reference.Reference).String(),
@@ -269,9 +294,9 @@ func (steps *StepExecutor) resumeProvisionOperationStep(
 			"operation", operationKey(cleared.Reference).String(),
 		)
 		return nil
-	case provisionProgressReferenceAbsent:
+	case model.ProvisionProgressReferenceAbsent:
 		return nil
-	case provisionProgressReferenceResolved:
+	case model.ProvisionProgressReferenceResolved:
 		return steps.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
 	default:
 		return fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
@@ -281,18 +306,18 @@ func (steps *StepExecutor) resumeProvisionOperationStep(
 func (steps *StepExecutor) resolveProvisionProgressReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (provisionProgressReferenceResult, error) {
+) (model.ProvisionProgressReferenceResult, error) {
 	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "provision progress")
 	if err != nil {
 		return nil, err
 	}
 	switch reference := operationReference.(type) {
 	case model.OperationReferenceAbsent:
-		return provisionProgressReferenceAbsent{}, nil
+		return model.ProvisionProgressReferenceAbsent{}, nil
 	case model.OperationReferenceStale:
-		return provisionProgressReferenceStale{Reference: reference.Reference}, nil
+		return model.ProvisionProgressReferenceStale(reference), nil
 	case model.OperationReferenceResolved:
-		return provisionProgressReferenceResolved{Operation: reference.Operation}, nil
+		return model.ProvisionProgressReferenceResolved(reference), nil
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
 	}
@@ -302,13 +327,13 @@ func (steps *StepExecutor) clearStaleProvisionOperationReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	reference *infrastructurev1beta1.ResourceReference,
-) (staleProvisionOperationReferenceCleared, error) {
+) (model.StaleProvisionOperationReferenceCleared, error) {
 	original := machine.DeepCopy()
 	machine.Status.OperationRef = nil
 	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return staleProvisionOperationReferenceCleared{}, fmt.Errorf("clear stale OperationRef: %w", err)
+		return model.StaleProvisionOperationReferenceCleared{}, fmt.Errorf("clear stale OperationRef: %w", err)
 	}
-	return staleProvisionOperationReferenceCleared{Reference: reference}, nil
+	return model.StaleProvisionOperationReferenceCleared{Reference: reference}, nil
 }
 
 func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
@@ -317,13 +342,13 @@ func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	log := logf.FromContext(ctx)
-	decision, err := decideProvisionProgressStep(operation)
+	decision, err := machineexecutionstep.DecideProvisionProgress(operation)
 	if err != nil {
 		return fmt.Errorf("decide TartHostOperation progress: %w", err)
 	}
 
 	switch decision := decision.(type) {
-	case provisionProgressFailed:
+	case model.ProvisionProgressFailed:
 		log.Info("TartHostOperation failed",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", client.ObjectKeyFromObject(operation).String(),
@@ -338,7 +363,7 @@ func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
 			"reason", patched.Reason,
 			"message", patched.Message,
 		)
-	case provisionProgressAwaitingHealth:
+	case model.ProvisionProgressAwaitingHealth:
 		return nil
 	default:
 		return fmt.Errorf("unexpected TartMachine provisioning progress decision: %T", decision)
@@ -347,41 +372,17 @@ func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
 	return nil
 }
 
-func decideProvisionProgressStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-) (provisionProgressDecisionResult, error) {
-	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioning{}, operation)
-	if err != nil {
-		return nil, fmt.Errorf("decide Provision TartHostOperation progress: %w", err)
-	}
-	switch route := route.(type) {
-	case machineexecutionstep.OperationProvisionFailedRoute:
-		return provisionProgressFailed{
-			Reason:  route.Reason,
-			Message: provisionFailureMessageStep(route.Operation),
-		}, nil
-	case machineexecutionstep.OperationProvisionHealthRoute:
-		return provisionProgressAwaitingHealth{}, nil
-	default:
-		return nil, fmt.Errorf("unknown provisioning TartMachine route: %T", route)
-	}
-}
-
-func provisionFailureMessageStep(operation *infrastructurev1beta1.TartHostOperation) string {
-	return fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, operation.Status.Phase)
-}
-
 func (steps *StepExecutor) patchProvisionFailureStatusStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	failure provisionProgressFailed,
-) (provisionFailureStatusPatchResult, error) {
+	failure model.ProvisionProgressFailed,
+) (model.ProvisionFailureStatusPatchResult, error) {
 	original := machine.DeepCopy()
 	machine.Status = appprovisioning.StatusWithProvisionFailed(machine, failure.Reason, failure.Message)
 	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return provisionFailureStatusPatchResult{}, fmt.Errorf("set provision failed status: %w", err)
+		return model.ProvisionFailureStatusPatchResult{}, fmt.Errorf("set provision failed status: %w", err)
 	}
-	return provisionFailureStatusPatchResult(failure), nil
+	return model.ProvisionFailureStatusPatchResult(failure), nil
 }
 
 func (steps *StepExecutor) applyProvisionHealth(
@@ -390,7 +391,7 @@ func (steps *StepExecutor) applyProvisionHealth(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	decision, err := decideProvisionHealthGateStep(operation, observation)
+	decision, err := machineexecutionstep.DecideProvisionHealthGate(operation, observation)
 	if err != nil {
 		return err
 	}
@@ -399,47 +400,27 @@ func (steps *StepExecutor) applyProvisionHealth(
 		return err
 	}
 	switch result.(type) {
-	case provisionHealthGateCompleted, provisionHealthGatePendingApplied:
+	case model.ProvisionHealthGateCompleted, model.ProvisionHealthGatePendingApplied:
 		return nil
 	default:
 		return fmt.Errorf("unknown Provision health gate effect result: %T", result)
 	}
 }
 
-func decideProvisionHealthGateStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-	observation machinehealthdomain.NodeObservation,
-) (provisionHealthGateDecisionResult, error) {
-	readiness := appprovisioning.EvaluateReadiness(operation, observation)
-	command := machinelifecycledomain.DecideProvisionHealth(machinelifecycledomain.Readiness{
-		Ready:   readiness.Ready,
-		Reason:  readiness.Reason,
-		Message: readiness.Message,
-	})
-	switch command := command.(type) {
-	case machinelifecycledomain.CommandCompleteProvision:
-		return provisionHealthGateComplete{Operation: operation, Observation: observation}, nil
-	case machinelifecycledomain.CommandSetProvisionHealthPending:
-		return provisionHealthGatePending{Reason: command.Reason, Message: command.Message}, nil
-	default:
-		return nil, fmt.Errorf("unknown Provision health command: %T", command)
-	}
-}
-
 func (steps *StepExecutor) applyProvisionHealthGateDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	decision provisionHealthGateDecisionResult,
-) (provisionHealthGateEffectResult, error) {
+	decision model.ProvisionHealthGateDecisionResult,
+) (model.ProvisionHealthGateEffectResult, error) {
 	switch decision := decision.(type) {
-	case provisionHealthGateComplete:
+	case model.ProvisionHealthGateComplete:
 		if err := steps.completeProvisionStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
 			return nil, err
 		}
-		return provisionHealthGateCompleted{}, nil
-	case provisionHealthGatePending:
+		return model.ProvisionHealthGateCompleted{}, nil
+	case model.ProvisionHealthGatePending:
 		steps.setProvisionHealthPendingStep(machine, decision)
-		return provisionHealthGatePendingApplied{}, nil
+		return model.ProvisionHealthGatePendingApplied{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Provision health gate decision result: %T", decision)
 	}
@@ -468,7 +449,7 @@ func (steps *StepExecutor) completeProvisionStep(
 	}
 	var host *infrastructurev1beta1.TartHost
 	switch hostResult := hostResult.(type) {
-	case provisionCompletionHostResolved:
+	case model.ProvisionCompletionHostResolved:
 		host = hostResult.Host
 	default:
 		return fmt.Errorf("unknown Provision completion host result: %T", hostResult)
@@ -479,14 +460,14 @@ func (steps *StepExecutor) completeProvisionStep(
 		return err
 	}
 	switch completion.(type) {
-	case provisionCompletionEffectApplied:
+	case model.ProvisionCompletionEffectApplied:
 	default:
 		return fmt.Errorf("unknown Provision completion effect result: %T", completion)
 	}
 
-	status := planProvisionedStatusStep(machine, observation)
+	status := machineexecutionstep.PlanProvisionedStatus(machine, observation)
 	switch status := status.(type) {
-	case provisionedStatusPlanned:
+	case model.ProvisionedStatusPlanned:
 		machine.Status = status.Status
 	default:
 		return fmt.Errorf("unknown Provisioned status result: %T", status)
@@ -504,7 +485,7 @@ func (steps *StepExecutor) resolveProvisionCompletionDependencyStep() provisionC
 func (steps *StepExecutor) resolveProvisionCompletionHostStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (provisionCompletionHostResult, error) {
+) (model.ProvisionCompletionHostResult, error) {
 	hostReference, err := steps.resolveHostReferenceStep(ctx, machine, "health gate")
 	if err != nil {
 		return nil, err
@@ -513,7 +494,7 @@ func (steps *StepExecutor) resolveProvisionCompletionHostStep(
 	if err != nil {
 		return nil, err
 	}
-	return provisionCompletionHostResolved{Host: host}, nil
+	return model.ProvisionCompletionHostResolved{Host: host}, nil
 }
 
 func completeProvisionOperationStep(
@@ -521,29 +502,16 @@ func completeProvisionOperationStep(
 	provisioner ProvisionWorkflow,
 	host *infrastructurev1beta1.TartHost,
 	operation *infrastructurev1beta1.TartHostOperation,
-) (provisionCompletionEffectResult, error) {
+) (model.ProvisionCompletionEffectResult, error) {
 	if err := provisioner.CompleteProvisioning(ctx, host, operation); err != nil {
 		return nil, err
 	}
-	return provisionCompletionEffectApplied{}, nil
-}
-
-func planProvisionedStatusStep(
-	machine *infrastructurev1beta1.TartMachine,
-	observation machinehealthdomain.NodeObservation,
-) provisionedStatusResult {
-	return provisionedStatusPlanned{
-		Status: appprovisioning.StatusWithProvisioned(
-			machine,
-			machine.Status.Addresses,
-			observation.ExpectedVersion,
-		),
-	}
+	return model.ProvisionCompletionEffectApplied{}, nil
 }
 
 func (steps *StepExecutor) setProvisionHealthPendingStep(
 	machine *infrastructurev1beta1.TartMachine,
-	pending provisionHealthGatePending,
+	pending model.ProvisionHealthGatePending,
 ) {
 	machine.Status = appprovisioning.StatusWithHealthGatePending(
 		machine,

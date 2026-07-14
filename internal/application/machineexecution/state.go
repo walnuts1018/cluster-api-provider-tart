@@ -15,15 +15,9 @@
 package machineexecution
 
 import (
-	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machineexecutionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
-	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
 type activeMachine = machineexecutionmodel.ActiveMachine
 type provisioningMachine = machineexecutionmodel.ProvisioningMachine
 type provisionedMachine = machineexecutionmodel.ProvisionedMachine
-
-func machineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {
-	return machineexecutionmodel.MachineState(machine)
-}

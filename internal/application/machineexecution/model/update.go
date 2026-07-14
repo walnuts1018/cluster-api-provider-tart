@@ -12,34 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package model
 
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-type updateOperationDecisionResult interface {
+type UpdateOperationDecisionResult interface {
 	isUpdateOperationDecisionResult()
 }
 
-type updateOperationApplyTerminal struct {
+type UpdateOperationApplyTerminal struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 	Outcome   machinelifecycledomain.UpdateOutcome
 }
 
-type updateOperationRouteNodeHealth struct{}
+type UpdateOperationRouteNodeHealth struct{}
 
-type updateOperationStepResult interface {
+type UpdateOperationStepResult interface {
 	isUpdateOperationStepResult()
 }
 
-type updateOperationTerminalHandled struct{}
+type UpdateOperationTerminalHandled struct{}
 
-type updateOperationNeedsNodeHealth struct{}
+type UpdateOperationNeedsNodeHealth struct{}
 
-func (updateOperationApplyTerminal) isUpdateOperationDecisionResult()   {}
-func (updateOperationRouteNodeHealth) isUpdateOperationDecisionResult() {}
+func (UpdateOperationApplyTerminal) isUpdateOperationDecisionResult()   {}
+func (UpdateOperationRouteNodeHealth) isUpdateOperationDecisionResult() {}
 
-func (updateOperationTerminalHandled) isUpdateOperationStepResult() {}
-func (updateOperationNeedsNodeHealth) isUpdateOperationStepResult() {}
+func (UpdateOperationTerminalHandled) isUpdateOperationStepResult() {}
+func (UpdateOperationNeedsNodeHealth) isUpdateOperationStepResult() {}

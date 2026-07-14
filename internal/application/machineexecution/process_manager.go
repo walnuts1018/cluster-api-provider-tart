@@ -56,9 +56,9 @@ func (workflow *Workflow) reconcileProvisioning(
 		return err
 	}
 	switch referenceResult.(type) {
-	case provisionReferenceBlocked:
+	case machineexecutionmodel.ProvisionReferenceBlocked:
 		return nil
-	case provisionReferenceReady:
+	case machineexecutionmodel.ProvisionReferenceReady:
 	default:
 		return fmt.Errorf("unknown Provision reference result: %T", referenceResult)
 	}
@@ -88,9 +88,9 @@ func (workflow *Workflow) reconcileProvisioned(
 		return err
 	}
 	switch updateResult.(type) {
-	case updateOperationTerminalHandled:
+	case machineexecutionmodel.UpdateOperationTerminalHandled:
 		return nil
-	case updateOperationNeedsNodeHealth:
+	case machineexecutionmodel.UpdateOperationNeedsNodeHealth:
 	default:
 		return fmt.Errorf("unknown Update operation result: %T", updateResult)
 	}

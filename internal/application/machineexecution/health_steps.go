@@ -23,7 +23,6 @@ import (
 	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
-	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -36,9 +35,9 @@ func (steps *StepExecutor) observeNodeHealthStep(
 		return err
 	}
 	switch nodeHealth := nodeHealth.(type) {
-	case nodeHealthUnavailable:
+	case model.NodeHealthUnavailable:
 		return nil
-	case nodeHealthObserved:
+	case model.NodeHealthObserved:
 		return steps.applyObservedHealthGateStep(ctx, machine, nodeHealth.Observation)
 	default:
 		return fmt.Errorf("unknown Node health result: %T", nodeHealth)
@@ -65,8 +64,8 @@ func (steps *StepExecutor) planHealthGateRouteStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	observation machinehealthdomain.NodeObservation,
-) (healthGateRouteResult, error) {
-	state := machineState(machine)
+) (model.HealthGateRouteResult, error) {
+	state := model.MachineState(machine)
 	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "health gate")
 	if err != nil {
 		return nil, err
@@ -74,61 +73,41 @@ func (steps *StepExecutor) planHealthGateRouteStep(
 	switch reference := operationReference.(type) {
 	case model.OperationReferenceResolved:
 		if !state.Provisioned {
-			return healthGateProvisionRoute{Operation: reference.Operation, Observation: observation}, nil
+			return model.HealthGateProvisionRoute{Operation: reference.Operation, Observation: observation}, nil
 		}
-		return decideProvisionedHealthGateRouteStep(reference.Operation, observation)
+		return machineexecutionstep.DecideProvisionedHealthGateRoute(reference.Operation, observation)
 	case model.OperationReferenceAbsent, model.OperationReferenceStale:
-		return healthGateNodeStatusRoute{Observation: observation}, nil
+		return model.HealthGateNodeStatusRoute{Observation: observation}, nil
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for health gate: %T", operationReference)
-	}
-}
-
-func decideProvisionedHealthGateRouteStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-	observation machinehealthdomain.NodeObservation,
-) (healthGateRouteResult, error) {
-	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioned{}, operation)
-	if err != nil {
-		return nil, fmt.Errorf("decide Update health gate: %w", err)
-	}
-	switch route := route.(type) {
-	case machineexecutionstep.OperationUpdateHealthRoute:
-		return healthGateUpdateRoute{Operation: route.Operation, Observation: observation}, nil
-	case machineexecutionstep.OperationNodeHealthRoute:
-		return healthGateNodeStatusRoute{Observation: observation}, nil
-	case machineexecutionstep.OperationUpdateTerminalRoute:
-		return healthGateUpdateTerminalRoute{Operation: route.Operation, Outcome: route.Outcome}, nil
-	default:
-		return nil, fmt.Errorf("unknown provisioned TartMachine route: %T", route)
 	}
 }
 
 func (steps *StepExecutor) applyHealthGateRouteStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	route healthGateRouteResult,
-) (machineStatusPatchResult, error) {
+	route model.HealthGateRouteResult,
+) (model.MachineStatusPatchResult, error) {
 	original := machine.DeepCopy()
 	switch route := route.(type) {
-	case healthGateNodeStatusRoute:
+	case model.HealthGateNodeStatusRoute:
 		machine.Status = applicationhealth.StatusWithNodeHealth(machine, route.Observation)
-		return machineStatusPatchRequired{Original: original}, nil
-	case healthGateProvisionRoute:
+		return model.MachineStatusPatchRequired{Original: original}, nil
+	case model.HealthGateProvisionRoute:
 		if err := steps.applyProvisionHealth(ctx, machine, route.Operation, route.Observation); err != nil {
 			return nil, err
 		}
-		return machineStatusPatchRequired{Original: original}, nil
-	case healthGateUpdateRoute:
+		return model.MachineStatusPatchRequired{Original: original}, nil
+	case model.HealthGateUpdateRoute:
 		if err := steps.applyUpdateHealthGate(ctx, machine, route.Operation, route.Observation); err != nil {
 			return nil, err
 		}
-		return machineStatusPatchRequired{Original: original}, nil
-	case healthGateUpdateTerminalRoute:
+		return model.MachineStatusPatchRequired{Original: original}, nil
+	case model.HealthGateUpdateTerminalRoute:
 		if err := steps.applyUpdateTerminalStep(ctx, machine, route.Operation, route.Outcome); err != nil {
 			return nil, err
 		}
-		return machineStatusPatchAlreadyApplied{}, nil
+		return model.MachineStatusPatchAlreadyApplied{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Health Gate route result: %T", route)
 	}
@@ -137,12 +116,12 @@ func (steps *StepExecutor) applyHealthGateRouteStep(
 func (steps *StepExecutor) patchPlannedMachineStatus(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	patchResult machineStatusPatchResult,
+	patchResult model.MachineStatusPatchResult,
 ) error {
 	switch patchResult := patchResult.(type) {
-	case machineStatusPatchAlreadyApplied:
+	case model.MachineStatusPatchAlreadyApplied:
 		return nil
-	case machineStatusPatchRequired:
+	case model.MachineStatusPatchRequired:
 		if err := steps.Status().Patch(ctx, machine, client.MergeFrom(patchResult.Original)); err != nil {
 			return fmt.Errorf("set TartMachine status from Node health observation: %w", err)
 		}
@@ -155,18 +134,18 @@ func (steps *StepExecutor) patchPlannedMachineStatus(
 func (steps *StepExecutor) observeNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-) (nodeHealthResult, error) {
+) (model.NodeHealthResult, error) {
 	if steps.NodeHealth == nil {
-		return nodeHealthUnavailable{}, nil
+		return model.NodeHealthUnavailable{}, nil
 	}
 	observation, observed, err := steps.NodeHealth.Observe(ctx, machine)
 	if err != nil {
 		return nil, fmt.Errorf("observe workload Node health: %w", err)
 	}
 	if !observed {
-		return nodeHealthUnavailable{}, nil
+		return model.NodeHealthUnavailable{}, nil
 	}
-	return nodeHealthObserved{Observation: observation}, nil
+	return model.NodeHealthObserved{Observation: observation}, nil
 }
 
 func (steps *StepExecutor) applyUpdateHealthGate(
@@ -175,7 +154,7 @@ func (steps *StepExecutor) applyUpdateHealthGate(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	decision, err := decideUpdateHealthGateStep(operation, observation)
+	decision, err := machineexecutionstep.DecideUpdateHealthGate(operation, observation)
 	if err != nil {
 		return err
 	}
@@ -184,44 +163,29 @@ func (steps *StepExecutor) applyUpdateHealthGate(
 		return err
 	}
 	switch result.(type) {
-	case updateHealthGateCompleted, updateHealthGateRollbackStarted:
+	case model.UpdateHealthGateCompleted, model.UpdateHealthGateRollbackStarted:
 		return nil
 	default:
 		return fmt.Errorf("unknown Update health gate effect result: %T", result)
 	}
 }
 
-func decideUpdateHealthGateStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-	observation machinehealthdomain.NodeObservation,
-) (updateHealthGateDecisionResult, error) {
-	healthCommand := machinelifecycledomain.DecideUpdateHealth(machinehealthdomain.EvaluateNode(observation))
-	switch healthCommand.(type) {
-	case machinelifecycledomain.CommandCompleteUpdate:
-		return updateHealthGateComplete{Operation: operation}, nil
-	case machinelifecycledomain.CommandRollbackUpdate:
-		return updateHealthGateRollback{Operation: operation, Observation: observation}, nil
-	default:
-		return nil, fmt.Errorf("unknown Update health command: %T", healthCommand)
-	}
-}
-
 func (steps *StepExecutor) applyUpdateHealthGateDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
-	decision updateHealthGateDecisionResult,
-) (updateHealthGateEffectResult, error) {
+	decision model.UpdateHealthGateDecisionResult,
+) (model.UpdateHealthGateEffectResult, error) {
 	switch decision := decision.(type) {
-	case updateHealthGateComplete:
+	case model.UpdateHealthGateComplete:
 		if err := steps.completeUpdateStep(ctx, machine, decision.Operation); err != nil {
 			return nil, err
 		}
-		return updateHealthGateCompleted{}, nil
-	case updateHealthGateRollback:
+		return model.UpdateHealthGateCompleted{}, nil
+	case model.UpdateHealthGateRollback:
 		if err := steps.rollbackUpdateStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
 			return nil, err
 		}
-		return updateHealthGateRollbackStarted{}, nil
+		return model.UpdateHealthGateRollbackStarted{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Update health gate decision result: %T", decision)
 	}

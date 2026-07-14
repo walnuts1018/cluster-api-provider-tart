@@ -55,18 +55,46 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 	provisioned provisionedMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (updateOperationStepResult, error) {
-	command, err := operationCommand(provisioned.State.Provisioned, operation)
+	decision, err := decideUpdateOperationStep(provisioned.State.Provisioned, operation)
+	if err != nil {
+		return nil, err
+	}
+	return workflow.applyUpdateOperationDecisionStep(ctx, provisioned.Machine, decision)
+}
+
+func decideUpdateOperationStep(
+	provisioned bool,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (updateOperationDecisionResult, error) {
+	command, err := operationCommand(provisioned, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandApplyUpdateTerminal:
-		return updateOperationTerminalHandled{},
-			workflow.applyUpdateTerminalStep(ctx, provisioned.Machine, operation, command.Outcome)
+		return updateOperationApplyTerminal{Operation: operation, Outcome: command.Outcome}, nil
 	case machinelifecycledomain.CommandObserveUpdateHealth, machinelifecycledomain.CommandObserveNodeHealth:
-		return updateOperationNeedsNodeHealth{}, nil
+		return updateOperationRouteNodeHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unexpected Update TartHostOperation command: %T", command)
+	}
+}
+
+func (workflow *Workflow) applyUpdateOperationDecisionStep(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	decision updateOperationDecisionResult,
+) (updateOperationStepResult, error) {
+	switch decision := decision.(type) {
+	case updateOperationApplyTerminal:
+		if err := workflow.applyUpdateTerminalStep(ctx, machine, decision.Operation, decision.Outcome); err != nil {
+			return nil, err
+		}
+		return updateOperationTerminalHandled{}, nil
+	case updateOperationRouteNodeHealth:
+		return updateOperationNeedsNodeHealth{}, nil
+	default:
+		return nil, fmt.Errorf("unknown Update Operation decision result: %T", decision)
 	}
 }
 

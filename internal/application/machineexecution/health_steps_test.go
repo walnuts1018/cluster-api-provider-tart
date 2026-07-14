@@ -223,3 +223,73 @@ func TestDecideUpdateHealthGateStep(t *testing.T) {
 		})
 	}
 }
+
+func TestDecideUpdateOperationStep(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation infrastructurev1beta1.TartHostOperation
+		want      any
+	}{
+		{
+			name: "updateがterminal phaseならterminal適用へ進む",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeUpdate,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+				},
+			},
+			want: updateOperationApplyTerminal{Outcome: machinelifecycledomain.UpdateOutcomeSucceeded},
+		},
+		{
+			name: "updateがHealth Gate待ちならnode health観測へ戻す",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeUpdate,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+				},
+			},
+			want: updateOperationRouteNodeHealth{},
+		},
+		{
+			name: "provision operationはnode health観測へ戻す",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeProvision,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+				},
+			},
+			want: updateOperationRouteNodeHealth{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decideUpdateOperationStep(true, tt.operation.DeepCopy())
+			if err != nil {
+				t.Fatalf("decideUpdateOperationStep() error = %v", err)
+			}
+			switch want := tt.want.(type) {
+			case updateOperationApplyTerminal:
+				terminal, ok := got.(updateOperationApplyTerminal)
+				if !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+				if terminal.Outcome != want.Outcome {
+					t.Fatalf("Outcome = %q, want %q", terminal.Outcome, want.Outcome)
+				}
+			case updateOperationRouteNodeHealth:
+				if _, ok := got.(updateOperationRouteNodeHealth); !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+			default:
+				t.Fatalf("unexpected want = %T", tt.want)
+			}
+		})
+	}
+}

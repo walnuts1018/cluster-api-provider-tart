@@ -14,6 +14,22 @@
 
 package machineexecution
 
+import (
+	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
+)
+
+type updateOperationDecisionResult interface {
+	isUpdateOperationDecisionResult()
+}
+
+type updateOperationApplyTerminal struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Outcome   machinelifecycledomain.UpdateOutcome
+}
+
+type updateOperationRouteNodeHealth struct{}
+
 type updateOperationStepResult interface {
 	isUpdateOperationStepResult()
 }
@@ -21,6 +37,9 @@ type updateOperationStepResult interface {
 type updateOperationTerminalHandled struct{}
 
 type updateOperationNeedsNodeHealth struct{}
+
+func (updateOperationApplyTerminal) isUpdateOperationDecisionResult()   {}
+func (updateOperationRouteNodeHealth) isUpdateOperationDecisionResult() {}
 
 func (updateOperationTerminalHandled) isUpdateOperationStepResult() {}
 func (updateOperationNeedsNodeHealth) isUpdateOperationStepResult() {}

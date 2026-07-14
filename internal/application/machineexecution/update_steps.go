@@ -55,7 +55,7 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 	provisioned provisionedMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (updateOperationStepResult, error) {
-	decision, err := decideUpdateOperationStep(provisioned.State.Provisioned, operation)
+	decision, err := decideUpdateOperationStep(operation)
 	if err != nil {
 		return nil, err
 	}
@@ -63,20 +63,19 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 }
 
 func decideUpdateOperationStep(
-	provisioned bool,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (updateOperationDecisionResult, error) {
-	command, err := operationCommand(provisioned, operation)
+	route, err := decideProvisionedOperationRouteStep(operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
-	switch command := command.(type) {
-	case machinelifecycledomain.CommandApplyUpdateTerminal:
-		return updateOperationApplyTerminal{Operation: operation, Outcome: command.Outcome}, nil
-	case machinelifecycledomain.CommandObserveUpdateHealth, machinelifecycledomain.CommandObserveNodeHealth:
+	switch route := route.(type) {
+	case provisionedOperationUpdateTerminalRoute:
+		return updateOperationApplyTerminal(route), nil
+	case provisionedOperationUpdateHealthRoute, provisionedOperationNodeHealthRoute:
 		return updateOperationRouteNodeHealth{}, nil
 	default:
-		return nil, fmt.Errorf("unexpected Update TartHostOperation command: %T", command)
+		return nil, fmt.Errorf("unknown provisioned TartMachine route for Update Operation: %T", route)
 	}
 }
 

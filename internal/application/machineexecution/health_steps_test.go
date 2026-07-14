@@ -270,7 +270,7 @@ func TestDecideUpdateOperationStep(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := decideUpdateOperationStep(true, tt.operation.DeepCopy())
+			got, err := decideUpdateOperationStep(tt.operation.DeepCopy())
 			if err != nil {
 				t.Fatalf("decideUpdateOperationStep() error = %v", err)
 			}

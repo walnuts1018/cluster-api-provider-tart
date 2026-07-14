@@ -86,19 +86,19 @@ func decideProvisionedHealthGateRouteStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) (healthGateRouteResult, error) {
-	command, err := operationCommand(true, operation)
+	route, err := decideProvisionedOperationRouteStep(operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update health gate: %w", err)
 	}
-	switch command := command.(type) {
-	case machinelifecycledomain.CommandObserveUpdateHealth:
-		return healthGateUpdateRoute{Operation: operation, Observation: observation}, nil
-	case machinelifecycledomain.CommandObserveNodeHealth:
+	switch route := route.(type) {
+	case provisionedOperationUpdateHealthRoute:
+		return healthGateUpdateRoute{Operation: route.Operation, Observation: observation}, nil
+	case provisionedOperationNodeHealthRoute:
 		return healthGateNodeStatusRoute{Observation: observation}, nil
-	case machinelifecycledomain.CommandApplyUpdateTerminal:
-		return healthGateUpdateTerminalRoute{Operation: operation, Outcome: command.Outcome}, nil
+	case provisionedOperationUpdateTerminalRoute:
+		return healthGateUpdateTerminalRoute(route), nil
 	default:
-		return nil, fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
+		return nil, fmt.Errorf("unknown provisioned TartMachine route: %T", route)
 	}
 }
 

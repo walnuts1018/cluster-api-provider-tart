@@ -6,6 +6,8 @@
 
 ## 2. パッケージの役割
 
+`internal/application`全体のContext分類と移行順序は、[Application Workflowパッケージ整理方針](application-workflow-package-map.md)を正本とする。この文書は、各Context内でWorkflow、Step、Event、Handler、Modelを実装するときの境界規約を定める。
+
 各Application bounded contextは、必要に応じて次の小パッケージへ分割する。
 
 | パッケージ | 役割 | 依存してよいもの |

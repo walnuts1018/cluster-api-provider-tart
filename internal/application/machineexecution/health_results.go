@@ -17,6 +17,7 @@ package machineexecution
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
+	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
 type nodeHealthResult interface {
@@ -28,6 +29,29 @@ type nodeHealthObserved struct {
 }
 
 type nodeHealthUnavailable struct{}
+
+type healthGateRouteResult interface {
+	isHealthGateRouteResult()
+}
+
+type healthGateNodeStatusRoute struct {
+	Observation machinehealthdomain.NodeObservation
+}
+
+type healthGateProvisionRoute struct {
+	Operation   *infrastructurev1beta1.TartHostOperation
+	Observation machinehealthdomain.NodeObservation
+}
+
+type healthGateUpdateRoute struct {
+	Operation   *infrastructurev1beta1.TartHostOperation
+	Observation machinehealthdomain.NodeObservation
+}
+
+type healthGateUpdateTerminalRoute struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Outcome   machinelifecycledomain.UpdateOutcome
+}
 
 type machineStatusPatchResult interface {
 	isMachineStatusPatchResult()
@@ -41,6 +65,11 @@ type machineStatusPatchAlreadyApplied struct{}
 
 func (nodeHealthObserved) isNodeHealthResult()    {}
 func (nodeHealthUnavailable) isNodeHealthResult() {}
+
+func (healthGateNodeStatusRoute) isHealthGateRouteResult()     {}
+func (healthGateProvisionRoute) isHealthGateRouteResult()      {}
+func (healthGateUpdateRoute) isHealthGateRouteResult()         {}
+func (healthGateUpdateTerminalRoute) isHealthGateRouteResult() {}
 
 func (machineStatusPatchRequired) isMachineStatusPatchResult()       {}
 func (machineStatusPatchAlreadyApplied) isMachineStatusPatchResult() {}

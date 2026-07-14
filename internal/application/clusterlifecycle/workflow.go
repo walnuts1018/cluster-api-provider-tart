@@ -16,50 +16,27 @@ package clusterlifecycle
 
 import (
 	"context"
-	"fmt"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
+	clusterlifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle/handler"
+	clusterlifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle/model"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/clusterlifecycle"
 )
 
-type Result interface {
-	isResult()
-}
+type Result = clusterlifecyclemodel.Result
+type ResultActiveReconciled = clusterlifecyclemodel.ResultActiveReconciled
+type ResultFinalizerReleased = clusterlifecyclemodel.ResultFinalizerReleased
 
-type ResultActiveReconciled struct {
-	Finalizer resourcefinalizer.Result
-	Status    clusterstatus.Result
-}
-
-type ResultFinalizerReleased struct {
-	Finalizer resourcefinalizer.Result
-}
-
-func (ResultActiveReconciled) isResult()  {}
-func (ResultFinalizerReleased) isResult() {}
-
-type FinalizerStep interface {
-	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
-	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
-}
-
-type StatusStep interface {
-	Reconcile(context.Context, *infrastructurev1beta1.TartCluster) (clusterstatus.Result, error)
-}
+type FinalizerStep = clusterlifecyclehandler.FinalizerStep
+type StatusStep = clusterlifecyclehandler.StatusStep
 
 type Workflow struct {
-	finalizer FinalizerStep
-	status    StatusStep
+	commands *clusterlifecyclehandler.CommandHandler
 }
 
 func NewWorkflowWithSteps(finalizer FinalizerStep, status StatusStep) *Workflow {
 	return &Workflow{
-		finalizer: finalizer,
-		status:    status,
+		commands: clusterlifecyclehandler.NewCommandHandler(finalizer, status),
 	}
 }
 
@@ -71,36 +48,7 @@ func (workflow *Workflow) Reconcile(
 	if err != nil {
 		return nil, err
 	}
-
-	switch command.(type) {
-	case domain.CommandReconcileActive:
-		return workflow.reconcileActive(ctx, cluster)
-	case domain.CommandFinalizeDeleting:
-		result, err := workflow.finalizer.Release(ctx, cluster)
-		return ResultFinalizerReleased{Finalizer: result}, err
-	default:
-		return nil, fmt.Errorf("unknown TartCluster lifecycle command: %T", command)
-	}
-}
-
-func (workflow *Workflow) reconcileActive(
-	ctx context.Context,
-	cluster *infrastructurev1beta1.TartCluster,
-) (Result, error) {
-	finalizerResult, err := workflow.finalizer.Ensure(ctx, cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	statusResult, err := workflow.status.Reconcile(ctx, cluster)
-	if err != nil {
-		return nil, err
-	}
-
-	return ResultActiveReconciled{
-		Finalizer: finalizerResult,
-		Status:    statusResult,
-	}, nil
+	return workflow.commands.Handle(ctx, cluster, command)
 }
 
 func observe(cluster *infrastructurev1beta1.TartCluster) domain.ObservedState {

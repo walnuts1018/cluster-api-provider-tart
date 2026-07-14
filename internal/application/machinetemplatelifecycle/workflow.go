@@ -16,42 +16,26 @@ package machinetemplatelifecycle
 
 import (
 	"context"
-	"fmt"
-
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
+	machinetemplatelifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle/handler"
+	machinetemplatelifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle/model"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinetemplatelifecycle"
 )
 
-type Result interface {
-	isResult()
-}
+type Result = machinetemplatelifecyclemodel.Result
+type ResultFinalizerEnsured = machinetemplatelifecyclemodel.ResultFinalizerEnsured
+type ResultFinalizerReleased = machinetemplatelifecyclemodel.ResultFinalizerReleased
 
-type ResultFinalizerEnsured struct {
-	Finalizer resourcefinalizer.Result
-}
-
-type ResultFinalizerReleased struct {
-	Finalizer resourcefinalizer.Result
-}
-
-func (ResultFinalizerEnsured) isResult()  {}
-func (ResultFinalizerReleased) isResult() {}
-
-type FinalizerStep interface {
-	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
-	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
-}
+type FinalizerStep = machinetemplatelifecyclehandler.FinalizerStep
 
 type Workflow struct {
-	finalizer FinalizerStep
+	decisions *machinetemplatelifecyclehandler.DecisionHandler
 }
 
 func NewWorkflowWithFinalizer(finalizer FinalizerStep) *Workflow {
 	return &Workflow{
-		finalizer: finalizer,
+		decisions: machinetemplatelifecyclehandler.NewDecisionHandler(finalizer),
 	}
 }
 
@@ -63,17 +47,7 @@ func (workflow *Workflow) Reconcile(
 	if err != nil {
 		return nil, err
 	}
-
-	switch decision.(type) {
-	case domain.DecisionEnsureFinalizer:
-		result, err := workflow.finalizer.Ensure(ctx, template)
-		return ResultFinalizerEnsured{Finalizer: result}, err
-	case domain.DecisionReleaseFinalizer:
-		result, err := workflow.finalizer.Release(ctx, template)
-		return ResultFinalizerReleased{Finalizer: result}, err
-	default:
-		return nil, fmt.Errorf("unknown TartMachineTemplate lifecycle decision: %T", decision)
-	}
+	return workflow.decisions.Handle(ctx, template, decision)
 }
 
 func observe(template *infrastructurev1beta1.TartMachineTemplate) domain.ObservedState {

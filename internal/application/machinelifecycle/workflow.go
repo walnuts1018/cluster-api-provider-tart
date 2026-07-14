@@ -18,56 +18,24 @@ import (
 	"context"
 	"fmt"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
+	machinelifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle/handler"
+	machinelifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle/model"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-type Result interface {
-	isResult()
-}
+type Result = machinelifecyclemodel.Result
+type ResultActiveReconciled = machinelifecyclemodel.ResultActiveReconciled
+type ResultDeleteWaiting = machinelifecyclemodel.ResultDeleteWaiting
+type ResultFinalizerReleased = machinelifecyclemodel.ResultFinalizerReleased
+type ResultDeletingIgnored = machinelifecyclemodel.ResultDeletingIgnored
 
-type ResultActiveReconciled struct {
-	Finalizer resourcefinalizer.Result
-}
-
-type ResultDeleteWaiting struct {
-	Deletion machinedeletion.Result
-}
-
-type ResultFinalizerReleased struct {
-	Deletion  machinedeletion.Result
-	Finalizer resourcefinalizer.Result
-}
-
-type ResultDeletingIgnored struct{}
-
-func (ResultActiveReconciled) isResult()  {}
-func (ResultDeleteWaiting) isResult()     {}
-func (ResultFinalizerReleased) isResult() {}
-func (ResultDeletingIgnored) isResult()   {}
-
-type FinalizerStep interface {
-	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
-	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
-	Present(client.Object) bool
-}
-
-type ExecutionStep interface {
-	Reconcile(context.Context, *infrastructurev1beta1.TartMachine) error
-}
-
-type DeletionStep interface {
-	Reconcile(context.Context, *infrastructurev1beta1.TartMachine) (machinedeletion.Result, error)
-}
+type FinalizerStep = machinelifecyclehandler.FinalizerStep
+type ExecutionStep = machinelifecyclehandler.ExecutionStep
+type DeletionStep = machinelifecyclehandler.DeletionStep
 
 type Workflow struct {
-	finalizer FinalizerStep
-	execution ExecutionStep
-	deletion  DeletionStep
+	commands *machinelifecyclehandler.CommandHandler
 }
 
 func NewWorkflowWithSteps(
@@ -76,9 +44,7 @@ func NewWorkflowWithSteps(
 	deletion DeletionStep,
 ) *Workflow {
 	return &Workflow{
-		finalizer: finalizer,
-		execution: execution,
-		deletion:  deletion,
+		commands: machinelifecyclehandler.NewCommandHandler(finalizer, execution, deletion),
 	}
 }
 
@@ -86,54 +52,23 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (Result, error) {
-	if workflow.finalizer == nil {
-		return nil, fmt.Errorf("reconcile TartMachine lifecycle: Finalizer is not configured")
+	if workflow.commands == nil {
+		return nil, fmt.Errorf("reconcile TartMachine lifecycle: CommandHandler is not configured")
+	}
+	if err := workflow.commands.EnsureConfigured(); err != nil {
+		return nil, err
 	}
 
 	command, err := domain.DecideLifecycle(workflow.observe(machine))
 	if err != nil {
 		return nil, err
 	}
-	switch command.(type) {
-	case domain.CommandReconcileActive:
-		if workflow.execution == nil {
-			return nil, fmt.Errorf("reconcile active TartMachine: Execution workflow is not configured")
-		}
-		finalizerResult, err := workflow.finalizer.Ensure(ctx, machine)
-		if err != nil {
-			return nil, err
-		}
-		if err := workflow.execution.Reconcile(ctx, machine); err != nil {
-			return nil, err
-		}
-		return ResultActiveReconciled{Finalizer: finalizerResult}, nil
-	case domain.CommandFinalizeDeleting:
-		if workflow.deletion == nil {
-			return nil, fmt.Errorf("finalize deleting TartMachine: Deletion workflow is not configured")
-		}
-		deletionResult, err := workflow.deletion.Reconcile(ctx, machine)
-		if err != nil {
-			return nil, err
-		}
-		switch deletionResult.(type) {
-		case machinedeletion.ResultFinalizerReady:
-			finalizerResult, err := workflow.finalizer.Release(ctx, machine)
-			return ResultFinalizerReleased{Deletion: deletionResult, Finalizer: finalizerResult}, err
-		case machinedeletion.ResultWaiting:
-			return ResultDeleteWaiting{Deletion: deletionResult}, nil
-		default:
-			return nil, fmt.Errorf("unknown TartMachine deletion result: %T", deletionResult)
-		}
-	case domain.CommandIgnoreDeleting:
-		return ResultDeletingIgnored{}, nil
-	default:
-		return nil, fmt.Errorf("unknown TartMachine lifecycle command: %T", command)
-	}
+	return workflow.commands.Handle(ctx, machine, command)
 }
 
 func (workflow *Workflow) observe(machine *infrastructurev1beta1.TartMachine) domain.ObservedState {
 	if machine.DeletionTimestamp.IsZero() {
 		return domain.ObservedActive{}
 	}
-	return domain.ObservedDeleting{FinalizerPresent: workflow.finalizer.Present(machine)}
+	return domain.ObservedDeleting{FinalizerPresent: workflow.commands.FinalizerPresent(machine)}
 }

@@ -16,38 +16,26 @@ package distributionlifecycle
 
 import (
 	"context"
-	"fmt"
 
+	distributionlifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/handler"
+	distributionlifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/model"
+	distributionlifecycleport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/port"
+	distributionlifecyclestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/step"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 )
 
-// DistributionLifecycleDriverはkubeadm等のdistribution固有更新を型付きStepだけで実行するPortである。
-type DistributionLifecycleDriver interface {
-	Preflight(context.Context, domain.Plan) error
-	CreateSnapshot(context.Context, domain.Plan) (SnapshotResult, error)
-	Apply(context.Context, domain.Plan) error
-	Verify(context.Context, domain.Plan) error
-}
-
-// SnapshotResultはSnapshot作成とrestore testの結果である。
-type SnapshotResult struct {
-	Ref             string
-	RestoreVerified bool
-}
-
-// StepResultはLifecycle Step実行結果のうちOperation Statusへ反映する情報である。
-type StepResult struct {
-	SnapshotRef string
-}
+type DistributionLifecycleDriver = distributionlifecycleport.DistributionLifecycleDriver
+type SnapshotResult = distributionlifecyclemodel.SnapshotResult
+type StepResult = distributionlifecyclemodel.StepResult
 
 // WorkflowはDistribution Lifecycle PlanのStepをDriverへdispatchする。
 type Workflow struct {
-	driver DistributionLifecycleDriver
+	steps *distributionlifecyclehandler.StepHandler
 }
 
 // NewWorkflowはDistribution Lifecycle Workflowを作る。
 func NewWorkflow(driver DistributionLifecycleDriver) *Workflow {
-	return &Workflow{driver: driver}
+	return &Workflow{steps: distributionlifecyclehandler.NewStepHandler(driver)}
 }
 
 // RunStepは任意commandではなく、Plan内の既知StepだけをDriverへdispatchする。
@@ -56,38 +44,8 @@ func (workflow *Workflow) RunStep(
 	plan domain.Plan,
 	step domain.Step,
 ) (StepResult, error) {
-	if workflow.driver == nil {
-		return StepResult{}, fmt.Errorf("DistributionLifecycleDriver is required")
-	}
-	if !stepInPlan(step, plan.Steps) {
-		return StepResult{}, fmt.Errorf("lifecycle step %q is not part of this plan", step)
-	}
-	if err := domain.ReadyForStep(plan, step); err != nil {
+	if err := distributionlifecyclestep.EnsureRunnable(plan, step); err != nil {
 		return StepResult{}, err
 	}
-
-	switch step {
-	case domain.StepPreflightCompleted:
-		return StepResult{}, workflow.driver.Preflight(ctx, plan)
-	case domain.StepSnapshotCreated:
-		snapshot, err := workflow.driver.CreateSnapshot(ctx, plan)
-		if err != nil {
-			return StepResult{}, err
-		}
-		if snapshot.Ref == "" {
-			return StepResult{}, fmt.Errorf("snapshot reference is required")
-		}
-		if !snapshot.RestoreVerified {
-			return StepResult{}, fmt.Errorf("snapshot restore test must pass before using SnapshotRef")
-		}
-		return StepResult{SnapshotRef: snapshot.Ref}, nil
-	case domain.StepKubeadmApplied:
-		return StepResult{}, workflow.driver.Apply(ctx, plan)
-	case domain.StepHealthVerified:
-		return StepResult{}, workflow.driver.Verify(ctx, plan)
-	case domain.StepTargetSlotWritten, domain.StepTargetSlotBooted, domain.StepCommitted:
-		return StepResult{}, fmt.Errorf("lifecycle step %q is handled by the OS update controller", step)
-	default:
-		return StepResult{}, fmt.Errorf("unknown lifecycle step %q", step)
-	}
+	return workflow.steps.Handle(ctx, plan, step)
 }

@@ -9,6 +9,7 @@
 - [記述規約と用語集](conventions.md)
 - [達成すべき状態](target-state.md)
 - [アーキテクチャ](architecture.md)
+- [AI Agent向けWorkflow設計規約](ai-workflow-architecture.md)
 - [全体の実装計画](implementation-plan.md)
 - [Platform Profile一覧](platform-profiles/README.md)
 - [Runbook一覧](runbooks/README.md)

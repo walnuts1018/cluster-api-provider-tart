@@ -16,11 +16,11 @@ package resourcefinalizer
 
 import (
 	"context"
-	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	resourcefinalizermodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer/model"
+	resourcefinalizerstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer/step"
 	resourcefinalizerdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/resourcefinalizer"
 )
 
@@ -30,20 +30,12 @@ const (
 	TartMachineCleanupFinalizer  = "infrastructure.cluster.x-k8s.io/tartmachine-cleanup"
 )
 
-type Result interface {
-	isResult()
-}
-
-type ResultUnchanged struct{}
-type ResultPatched struct{}
-
-func (ResultUnchanged) isResult() {}
-func (ResultPatched) isResult()   {}
+type Result = resourcefinalizermodel.Result
+type ResultUnchanged = resourcefinalizermodel.ResultUnchanged
+type ResultPatched = resourcefinalizermodel.ResultPatched
 
 type Workflow struct {
-	client       client.Client
-	name         resourcefinalizerdomain.Name
-	resourceName string
+	steps *resourcefinalizerstep.Executor
 }
 
 func NewWorkflow(k8sClient client.Client, finalizer string, resource string) (*Workflow, error) {
@@ -52,9 +44,7 @@ func NewWorkflow(k8sClient client.Client, finalizer string, resource string) (*W
 		return nil, err
 	}
 	return &Workflow{
-		client:       k8sClient,
-		name:         name,
-		resourceName: resource,
+		steps: resourcefinalizerstep.NewExecutor(k8sClient, name, resource),
 	}, nil
 }
 
@@ -79,65 +69,13 @@ func mustWorkflow(k8sClient client.Client, finalizer string, resource string) *W
 }
 
 func (workflow *Workflow) Ensure(ctx context.Context, object client.Object) (Result, error) {
-	return workflow.apply(ctx, object, resourcefinalizerdomain.DesiredPresent{})
+	return workflow.steps.Apply(ctx, object, resourcefinalizerdomain.DesiredPresent{})
 }
 
 func (workflow *Workflow) Release(ctx context.Context, object client.Object) (Result, error) {
-	return workflow.apply(ctx, object, resourcefinalizerdomain.DesiredAbsent{})
+	return workflow.steps.Apply(ctx, object, resourcefinalizerdomain.DesiredAbsent{})
 }
 
 func (workflow *Workflow) Present(object client.Object) bool {
-	return controllerutil.ContainsFinalizer(object, workflow.finalizer())
-}
-
-func (workflow *Workflow) apply(
-	ctx context.Context,
-	object client.Object,
-	desired resourcefinalizerdomain.DesiredState,
-) (Result, error) {
-	command, err := resourcefinalizerdomain.Decide(desired, workflow.observe(object))
-	if err != nil {
-		return nil, err
-	}
-	switch command.(type) {
-	case resourcefinalizerdomain.CommandAdd:
-		return ResultPatched{}, workflow.patch(ctx, object, controllerutil.AddFinalizer)
-	case resourcefinalizerdomain.CommandRemove:
-		return ResultPatched{}, workflow.patch(ctx, object, controllerutil.RemoveFinalizer)
-	case resourcefinalizerdomain.CommandNoop:
-		return ResultUnchanged{}, nil
-	default:
-		return nil, fmt.Errorf("unknown resource finalizer command: %T", command)
-	}
-}
-
-func (workflow *Workflow) observe(object client.Object) resourcefinalizerdomain.ObservedState {
-	if workflow.Present(object) {
-		return resourcefinalizerdomain.ObservedPresent{}
-	}
-	return resourcefinalizerdomain.ObservedAbsent{}
-}
-
-func (workflow *Workflow) patch(
-	ctx context.Context,
-	object client.Object,
-	transition func(client.Object, string) bool,
-) error {
-	original := object.DeepCopyObject().(client.Object)
-	transition(object, workflow.finalizer())
-	if err := workflow.client.Patch(ctx, object, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("patch %s finalizer: %w", workflow.resource(), err)
-	}
-	return nil
-}
-
-func (workflow *Workflow) finalizer() string {
-	return workflow.name.String()
-}
-
-func (workflow *Workflow) resource() string {
-	if workflow.resourceName == "" {
-		return "resource"
-	}
-	return workflow.resourceName
+	return workflow.steps.Present(object)
 }

@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	machineexecutionhandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/handler"
 	machineexecutionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/port"
 )
 
@@ -28,7 +29,7 @@ type ProvisionStep = machineexecutionport.ProvisionStep
 type NodeHealthObserver = machineexecutionport.NodeHealthObserver
 
 type Workflow struct {
-	steps *StepExecutor
+	commands *machineexecutionhandler.CommandHandler
 }
 
 type StepExecutor struct {
@@ -51,7 +52,7 @@ func NewWorkflow(
 
 func NewWorkflowWithSteps(steps *StepExecutor) *Workflow {
 	return &Workflow{
-		steps: steps,
+		commands: machineexecutionhandler.NewCommandHandler(steps),
 	}
 }
 

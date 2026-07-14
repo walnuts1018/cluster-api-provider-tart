@@ -27,8 +27,8 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	if workflow.steps == nil {
-		return fmt.Errorf("reconcile TartMachine execution: StepExecutor is not configured")
+	if workflow.commands == nil {
+		return fmt.Errorf("reconcile TartMachine execution: CommandHandler is not configured")
 	}
 	return workflow.reconcileActive(ctx, machineexecutionmodel.ActiveFromAPI(machine))
 }
@@ -37,62 +37,5 @@ func (workflow *Workflow) reconcileActive(
 	ctx context.Context,
 	active activeMachine,
 ) error {
-	switch machinelifecycledomain.DecideMachine(active.State) {
-	case machinelifecycledomain.CommandObserveProvisionedMachine{}:
-		return workflow.reconcileProvisioned(ctx, provisionedMachine(active))
-	case machinelifecycledomain.CommandEnsureProvisionReference{}:
-		return workflow.reconcileProvisioning(ctx, provisioningMachine(active))
-	default:
-		return fmt.Errorf("unknown TartMachine command")
-	}
-}
-
-func (workflow *Workflow) reconcileProvisioning(
-	ctx context.Context,
-	provisioning provisioningMachine,
-) error {
-	referenceResult, err := workflow.steps.ensureProvisionReferenceStep(ctx, provisioning)
-	if err != nil {
-		return err
-	}
-	switch referenceResult.(type) {
-	case machineexecutionmodel.ProvisionReferenceBlocked:
-		return nil
-	case machineexecutionmodel.ProvisionReferenceReady:
-	default:
-		return fmt.Errorf("unknown Provision reference result: %T", referenceResult)
-	}
-
-	switch machinelifecycledomain.DecideProvision(provisioning.State) {
-	case machinelifecycledomain.CommandStartProvision{}:
-		if err := workflow.steps.startProvisionStep(ctx, provisioning); err != nil {
-			return err
-		}
-	case machinelifecycledomain.CommandResumeProvisionOperation{}:
-		if err := workflow.steps.resumeProvisionOperationStep(ctx, provisioning); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown TartMachine provision command")
-	}
-
-	return workflow.steps.observeNodeHealthStep(ctx, provisioning.Machine)
-}
-
-func (workflow *Workflow) reconcileProvisioned(
-	ctx context.Context,
-	provisioned provisionedMachine,
-) error {
-	updateResult, err := workflow.steps.reconcileUpdateOperationStep(ctx, provisioned)
-	if err != nil {
-		return err
-	}
-	switch updateResult.(type) {
-	case machineexecutionmodel.UpdateOperationTerminalHandled:
-		return nil
-	case machineexecutionmodel.UpdateOperationNeedsNodeHealth:
-	default:
-		return fmt.Errorf("unknown Update operation result: %T", updateResult)
-	}
-	return workflow.steps.observeNodeHealthStep(ctx, provisioned.Machine)
+	return workflow.commands.HandleMachine(ctx, active, machinelifecycledomain.DecideMachine(active.State))
 }

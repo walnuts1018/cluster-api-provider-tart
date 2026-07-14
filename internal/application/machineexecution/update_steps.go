@@ -30,10 +30,10 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-func (steps *StepExecutor) reconcileUpdateOperationStep(
+func (steps *StepExecutor) decideUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
-) (model.UpdateOperationStepResult, error) {
+) (model.UpdateOperationDecisionResult, error) {
 	machine := provisioned.Machine
 	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "update outcome")
 	if err != nil {
@@ -41,44 +41,14 @@ func (steps *StepExecutor) reconcileUpdateOperationStep(
 	}
 	switch reference := operationReference.(type) {
 	case model.OperationReferenceAbsent, model.OperationReferenceStale:
-		return model.UpdateOperationNeedsNodeHealth{}, nil
+		return model.UpdateOperationRouteNodeHealth{}, nil
 	case model.OperationReferenceResolved:
 		if reference.Operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
-			return model.UpdateOperationNeedsNodeHealth{}, nil
+			return model.UpdateOperationRouteNodeHealth{}, nil
 		}
-		return steps.reconcileResolvedUpdateOperationStep(ctx, provisioned, reference.Operation)
+		return machineexecutionstep.DecideUpdateOperation(reference.Operation)
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for update outcome: %T", operationReference)
-	}
-}
-
-func (steps *StepExecutor) reconcileResolvedUpdateOperationStep(
-	ctx context.Context,
-	provisioned provisionedMachine,
-	operation *infrastructurev1beta1.TartHostOperation,
-) (model.UpdateOperationStepResult, error) {
-	decision, err := machineexecutionstep.DecideUpdateOperation(operation)
-	if err != nil {
-		return nil, err
-	}
-	return steps.applyUpdateOperationDecisionStep(ctx, provisioned.Machine, decision)
-}
-
-func (steps *StepExecutor) applyUpdateOperationDecisionStep(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-	decision model.UpdateOperationDecisionResult,
-) (model.UpdateOperationStepResult, error) {
-	switch decision := decision.(type) {
-	case model.UpdateOperationApplyTerminal:
-		if err := steps.applyUpdateTerminalStep(ctx, machine, decision.Operation, decision.Outcome); err != nil {
-			return nil, err
-		}
-		return model.UpdateOperationTerminalHandled{}, nil
-	case model.UpdateOperationRouteNodeHealth:
-		return model.UpdateOperationNeedsNodeHealth{}, nil
-	default:
-		return nil, fmt.Errorf("unknown Update Operation decision result: %T", decision)
 	}
 }
 

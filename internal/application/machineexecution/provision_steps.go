@@ -348,17 +348,17 @@ func (workflow *Workflow) resumeResolvedProvisionOperationStep(
 func decideProvisionProgressStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (provisionProgressDecisionResult, error) {
-	route, err := decideProvisioningOperationRouteStep(operation)
+	route, err := decideMachineOperationRouteStep(machineOperationProvisioning{}, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Provision TartHostOperation progress: %w", err)
 	}
 	switch route := route.(type) {
-	case provisioningOperationFailedRoute:
+	case machineOperationProvisionFailedRoute:
 		return provisionProgressFailed{
 			Reason:  route.Reason,
 			Message: provisionFailureMessageStep(route.Operation),
 		}, nil
-	case provisioningOperationHealthRoute:
+	case machineOperationProvisionHealthRoute:
 		return provisionProgressAwaitingHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown provisioning TartMachine route: %T", route)

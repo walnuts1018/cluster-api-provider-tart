@@ -21,71 +21,82 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-type provisioningOperationRouteResult interface {
-	isProvisioningOperationRouteResult()
+type machineOperationRouteResult interface {
+	isMachineOperationRouteResult()
 }
 
-type provisioningOperationHealthRoute struct{}
+type machineOperationState interface {
+	isMachineOperationState()
+}
 
-type provisioningOperationFailedRoute struct {
+type machineOperationProvisioning struct{}
+
+type machineOperationProvisioned struct{}
+
+func (machineOperationProvisioning) isMachineOperationState() {}
+func (machineOperationProvisioned) isMachineOperationState()  {}
+
+type machineOperationProvisionHealthRoute struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+type machineOperationProvisionFailedRoute struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 	Reason    string
 }
 
-func (provisioningOperationHealthRoute) isProvisioningOperationRouteResult() {}
-func (provisioningOperationFailedRoute) isProvisioningOperationRouteResult() {}
-
-type provisionedOperationRouteResult interface {
-	isProvisionedOperationRouteResult()
-}
-
-type provisionedOperationUpdateHealthRoute struct {
+type machineOperationUpdateHealthRoute struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 }
 
-type provisionedOperationNodeHealthRoute struct{}
+type machineOperationNodeHealthRoute struct{}
 
-type provisionedOperationUpdateTerminalRoute struct {
+type machineOperationUpdateTerminalRoute struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 	Outcome   machinelifecycledomain.UpdateOutcome
 }
 
-func (provisionedOperationUpdateHealthRoute) isProvisionedOperationRouteResult()   {}
-func (provisionedOperationNodeHealthRoute) isProvisionedOperationRouteResult()     {}
-func (provisionedOperationUpdateTerminalRoute) isProvisionedOperationRouteResult() {}
+func (machineOperationProvisionHealthRoute) isMachineOperationRouteResult() {}
+func (machineOperationProvisionFailedRoute) isMachineOperationRouteResult() {}
+func (machineOperationUpdateHealthRoute) isMachineOperationRouteResult()    {}
+func (machineOperationNodeHealthRoute) isMachineOperationRouteResult()      {}
+func (machineOperationUpdateTerminalRoute) isMachineOperationRouteResult()  {}
 
-func decideProvisioningOperationRouteStep(
+func decideMachineOperationRouteStep(
+	state machineOperationState,
 	operation *infrastructurev1beta1.TartHostOperation,
-) (provisioningOperationRouteResult, error) {
-	command, err := operationCommand(false, operation)
+) (machineOperationRouteResult, error) {
+	provisioned, err := machineOperationProvisionedFlag(state)
+	if err != nil {
+		return nil, err
+	}
+	command, err := operationCommand(provisioned, operation)
 	if err != nil {
 		return nil, err
 	}
 	switch command := command.(type) {
 	case machinelifecycledomain.CommandMarkProvisionFailed:
-		return provisioningOperationFailedRoute{Operation: operation, Reason: command.Reason}, nil
+		return machineOperationProvisionFailedRoute{Operation: operation, Reason: command.Reason}, nil
 	case machinelifecycledomain.CommandObserveProvisionHealth:
-		return provisioningOperationHealthRoute{}, nil
+		return machineOperationProvisionHealthRoute{Operation: operation}, nil
+	case machinelifecycledomain.CommandObserveUpdateHealth:
+		return machineOperationUpdateHealthRoute{Operation: operation}, nil
+	case machinelifecycledomain.CommandObserveNodeHealth:
+		return machineOperationNodeHealthRoute{}, nil
+	case machinelifecycledomain.CommandApplyUpdateTerminal:
+		return machineOperationUpdateTerminalRoute{Operation: operation, Outcome: command.Outcome}, nil
 	default:
-		return nil, fmt.Errorf("unexpected provisioning TartMachine command: %T", command)
+		return nil, fmt.Errorf("unexpected TartMachine operation command: %T", command)
 	}
 }
 
-func decideProvisionedOperationRouteStep(
-	operation *infrastructurev1beta1.TartHostOperation,
-) (provisionedOperationRouteResult, error) {
-	command, err := operationCommand(true, operation)
-	if err != nil {
-		return nil, err
-	}
-	switch command := command.(type) {
-	case machinelifecycledomain.CommandObserveUpdateHealth:
-		return provisionedOperationUpdateHealthRoute{Operation: operation}, nil
-	case machinelifecycledomain.CommandObserveNodeHealth:
-		return provisionedOperationNodeHealthRoute{}, nil
-	case machinelifecycledomain.CommandApplyUpdateTerminal:
-		return provisionedOperationUpdateTerminalRoute{Operation: operation, Outcome: command.Outcome}, nil
+func machineOperationProvisionedFlag(state machineOperationState) (bool, error) {
+	switch state.(type) {
+	case machineOperationProvisioning:
+		return false, nil
+	case machineOperationProvisioned:
+		return true, nil
 	default:
-		return nil, fmt.Errorf("unexpected provisioned TartMachine command: %T", command)
+		return false, fmt.Errorf("unknown TartMachine operation state: %T", state)
 	}
 }

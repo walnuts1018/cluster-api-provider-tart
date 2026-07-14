@@ -65,14 +65,14 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 func decideUpdateOperationStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (updateOperationDecisionResult, error) {
-	route, err := decideProvisionedOperationRouteStep(operation)
+	route, err := decideMachineOperationRouteStep(machineOperationProvisioned{}, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
 	switch route := route.(type) {
-	case provisionedOperationUpdateTerminalRoute:
+	case machineOperationUpdateTerminalRoute:
 		return updateOperationApplyTerminal(route), nil
-	case provisionedOperationUpdateHealthRoute, provisionedOperationNodeHealthRoute:
+	case machineOperationUpdateHealthRoute, machineOperationNodeHealthRoute:
 		return updateOperationRouteNodeHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown provisioned TartMachine route for Update Operation: %T", route)

@@ -51,26 +51,31 @@ func (result HealthResult) HasFailure(failure HealthFailure) bool {
 
 // EvaluateHealthはNode観測値からDistribution LifecycleをCommit可能か判定する。
 func EvaluateHealth(input HealthInput) HealthResult {
-	failures := make([]HealthFailure, 0)
-	if !input.NodeReady {
-		failures = append(failures, HealthFailureNodeNotReady)
-	}
-	if input.NodeVersion != input.TargetVersion {
-		failures = append(failures, HealthFailureVersionMismatch)
-	}
-	if input.NodeRole == NodeRoleControlPlane {
-		if !input.StaticPodsReady {
-			failures = append(failures, HealthFailureStaticPodsNotReady)
+	decision := DecideHealth(input)
+	switch result := decision.(type) {
+	case HealthGateSatisfied:
+		return HealthResult{CommitAllowed: true}
+	case HealthGateBlocked:
+		failures := make([]HealthFailure, 0, len(result.Failures))
+		for _, failure := range result.Failures {
+			switch failure.(type) {
+			case NodeNotReady:
+				failures = append(failures, HealthFailureNodeNotReady)
+			case VersionMismatch:
+				failures = append(failures, HealthFailureVersionMismatch)
+			case StaticPodsNotReady:
+				failures = append(failures, HealthFailureStaticPodsNotReady)
+			case EtcdQuorumLost:
+				failures = append(failures, HealthFailureEtcdQuorumLost)
+			case APIUnhealthy:
+				failures = append(failures, HealthFailureAPIUnhealthy)
+			}
 		}
-		if !input.EtcdQuorum {
-			failures = append(failures, HealthFailureEtcdQuorumLost)
+		return HealthResult{
+			CommitAllowed: false,
+			Failures:      failures,
 		}
-		if !input.APIHealthy {
-			failures = append(failures, HealthFailureAPIUnhealthy)
-		}
-	}
-	return HealthResult{
-		CommitAllowed: len(failures) == 0,
-		Failures:      failures,
+	default:
+		return HealthResult{}
 	}
 }

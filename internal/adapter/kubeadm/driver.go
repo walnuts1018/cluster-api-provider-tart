@@ -79,19 +79,33 @@ func (driver *Driver) Apply(ctx context.Context, plan domain.Plan) error {
 	}
 }
 
-func (driver *Driver) Verify(ctx context.Context, plan domain.Plan) error {
+func (driver *Driver) ObserveHealth(
+	ctx context.Context,
+	plan domain.Plan,
+) (domain.HealthInput, error) {
 	if driver.runtime == nil {
-		return fmt.Errorf("kubeadm runtime is required")
+		return domain.HealthInput{}, fmt.Errorf("kubeadm runtime is required")
 	}
 	health, err := driver.runtime.ObserveHealth(ctx, plan)
+	if err != nil {
+		return domain.HealthInput{}, err
+	}
+	return health, nil
+}
+
+func (driver *Driver) Verify(ctx context.Context, plan domain.Plan) error {
+	health, err := driver.ObserveHealth(ctx, plan)
 	if err != nil {
 		return err
 	}
 	health.TargetVersion = plan.TargetVersion
 	health.NodeRole = plan.NodeRole
-	result := domain.EvaluateHealth(health)
-	if !result.CommitAllowed {
-		return fmt.Errorf("distribution health gate failed: %v", result.Failures)
+	switch domain.DecideHealth(health).(type) {
+	case domain.HealthGateSatisfied:
+		return nil
+	case domain.HealthGateBlocked:
+		return fmt.Errorf("distribution health gate failed")
+	default:
+		return fmt.Errorf("unsupported health decision")
 	}
-	return nil
 }

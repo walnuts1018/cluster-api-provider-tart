@@ -887,7 +887,7 @@ func (s *provisionOrchestratorStub) Start(
 	string,
 ) (appprovisioning.StartResult, error) {
 	s.calls++
-	return appprovisioning.StartResult{
+	return appprovisioning.Started{
 		Host:      s.host,
 		Operation: s.operation,
 	}, nil

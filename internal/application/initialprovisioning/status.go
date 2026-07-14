@@ -137,13 +137,22 @@ func StatusWithWaitingForBootstrap(machine *infrastructurev1beta1.TartMachine) i
 
 // StatusWithNoAvailableHost はAvailableなHostが存在しない場合のStatusを返す。
 func StatusWithNoAvailableHost(machine *infrastructurev1beta1.TartMachine) infrastructurev1beta1.TartMachineStatus {
+	return StatusWithAllocationPending(machine, "NoAvailableHost", "No available TartHost matches the requirements; will retry")
+}
+
+// StatusWithAllocationPending はHost割当待ちのStatusを返す。
+func StatusWithAllocationPending(
+	machine *infrastructurev1beta1.TartMachine,
+	reason string,
+	message string,
+) infrastructurev1beta1.TartMachineStatus {
 	status := machine.Status.DeepCopy()
 	status.ObservedGeneration = machine.Generation
 	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type:               ConditionProvisioning,
 		Status:             metav1.ConditionFalse,
-		Reason:             "NoAvailableHost",
-		Message:            "No available TartHost matches the requirements; will retry",
+		Reason:             reason,
+		Message:            message,
 		ObservedGeneration: machine.Generation,
 	})
 	return *status

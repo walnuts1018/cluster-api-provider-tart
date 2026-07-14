@@ -19,7 +19,7 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	machinelifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle/handler"
+	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machinelifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle/model"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
@@ -30,12 +30,8 @@ type ResultDeleteWaiting = machinelifecyclemodel.ResultDeleteWaiting
 type ResultFinalizerReleased = machinelifecyclemodel.ResultFinalizerReleased
 type ResultDeletingIgnored = machinelifecyclemodel.ResultDeletingIgnored
 
-type FinalizerStep = machinelifecyclehandler.FinalizerStep
-type ExecutionStep = machinelifecyclehandler.ExecutionStep
-type DeletionStep = machinelifecyclehandler.DeletionStep
-
 type Workflow struct {
-	commands *machinelifecyclehandler.CommandHandler
+	ports Ports
 }
 
 func NewWorkflowWithSteps(
@@ -43,8 +39,16 @@ func NewWorkflowWithSteps(
 	execution ExecutionStep,
 	deletion DeletionStep,
 ) *Workflow {
+	return NewWorkflow(Ports{
+		Finalizer: finalizer,
+		Execution: execution,
+		Deletion:  deletion,
+	})
+}
+
+func NewWorkflow(ports Ports) *Workflow {
 	return &Workflow{
-		commands: machinelifecyclehandler.NewCommandHandler(finalizer, execution, deletion),
+		ports: ports,
 	}
 }
 
@@ -52,10 +56,7 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (Result, error) {
-	if workflow.commands == nil {
-		return nil, fmt.Errorf("reconcile TartMachine lifecycle: CommandHandler is not configured")
-	}
-	if err := workflow.commands.EnsureConfigured(); err != nil {
+	if err := workflow.ensureConfigured(); err != nil {
 		return nil, err
 	}
 
@@ -63,12 +64,78 @@ func (workflow *Workflow) Reconcile(
 	if err != nil {
 		return nil, err
 	}
-	return workflow.commands.Handle(ctx, machine, command)
+	return workflow.applyDecision(ctx, machine, command)
 }
 
 func (workflow *Workflow) observe(machine *infrastructurev1beta1.TartMachine) domain.ObservedState {
 	if machine.DeletionTimestamp.IsZero() {
 		return domain.ObservedActive{}
 	}
-	return domain.ObservedDeleting{FinalizerPresent: workflow.commands.FinalizerPresent(machine)}
+	return domain.ObservedDeleting{FinalizerPresent: workflow.ports.Finalizer.Present(machine)}
+}
+
+func (workflow *Workflow) ensureConfigured() error {
+	if workflow.ports.Finalizer == nil {
+		return fmt.Errorf("reconcile TartMachine lifecycle: Finalizer port is not configured")
+	}
+	return nil
+}
+
+func (workflow *Workflow) applyDecision(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	command domain.LifecycleCommand,
+) (Result, error) {
+	switch command.(type) {
+	case domain.CommandReconcileActive:
+		return workflow.reconcileActive(ctx, machine)
+	case domain.CommandFinalizeDeleting:
+		return workflow.finalizeDeleting(ctx, machine)
+	case domain.CommandIgnoreDeleting:
+		return ResultDeletingIgnored{}, nil
+	default:
+		return nil, fmt.Errorf("unknown TartMachine lifecycle command: %T", command)
+	}
+}
+
+func (workflow *Workflow) reconcileActive(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (Result, error) {
+	if workflow.ports.Execution == nil {
+		return nil, fmt.Errorf("reconcile active TartMachine: Execution port is not configured")
+	}
+	finalizerResult, err := workflow.ports.Finalizer.Ensure(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	if err := workflow.ports.Execution.Reconcile(ctx, machine); err != nil {
+		return nil, err
+	}
+	return ResultActiveReconciled{Finalizer: finalizerResult}, nil
+}
+
+func (workflow *Workflow) finalizeDeleting(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) (Result, error) {
+	if workflow.ports.Deletion == nil {
+		return nil, fmt.Errorf("finalize deleting TartMachine: Deletion port is not configured")
+	}
+	deletionResult, err := workflow.ports.Deletion.Reconcile(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	switch deletionResult.(type) {
+	case machinedeletion.ResultFinalizerReady:
+		finalizerResult, err := workflow.ports.Finalizer.Release(ctx, machine)
+		return ResultFinalizerReleased{
+			Deletion:  deletionResult,
+			Finalizer: finalizerResult,
+		}, err
+	case machinedeletion.ResultWaiting:
+		return ResultDeleteWaiting{Deletion: deletionResult}, nil
+	default:
+		return nil, fmt.Errorf("unknown TartMachine deletion result: %T", deletionResult)
+	}
 }

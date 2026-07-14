@@ -16,11 +16,11 @@ package machinedeletion
 
 import (
 	"context"
+	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	machinedeletionhandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion/handler"
 	machinedeletionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion/model"
 	machinedeletionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion/port"
 	machinedeletionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion/step"
@@ -34,15 +34,13 @@ type ResultWaiting = machinedeletionmodel.ResultWaiting
 type ResultFinalizerReady = machinedeletionmodel.ResultFinalizerReady
 
 type Workflow struct {
-	steps    *machinedeletionstep.Executor
-	commands *machinedeletionhandler.CommandHandler
+	steps *machinedeletionstep.Executor
 }
 
 func NewWorkflow(k8sClient client.Client, cleaner CleaningStep) *Workflow {
 	steps := machinedeletionstep.NewExecutor(k8sClient, cleaner)
 	return &Workflow{
-		steps:    steps,
-		commands: machinedeletionhandler.NewCommandHandler(steps),
+		steps: steps,
 	}
 }
 
@@ -59,5 +57,30 @@ func (workflow *Workflow) Reconcile(
 	if err != nil {
 		return nil, err
 	}
-	return workflow.commands.Handle(ctx, machine, observation.Host, command)
+	return workflow.applyDecision(ctx, machine, observation.Host, command)
+}
+
+func (workflow *Workflow) applyDecision(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	command machinedeletiondomain.Command,
+) (Result, error) {
+	switch command := command.(type) {
+	case machinedeletiondomain.CommandReleaseFinalizer:
+		return ResultFinalizerReady{}, nil
+	case machinedeletiondomain.CommandStartCleaning:
+		if host == nil {
+			return nil, fmt.Errorf("TartHost is required to start Cleaning operation")
+		}
+		return ResultWaiting{}, workflow.steps.StartCleaning(ctx, machine, host)
+	case machinedeletiondomain.CommandClearOperationReference:
+		return ResultWaiting{}, workflow.steps.ClearOperationReference(ctx, machine)
+	case machinedeletiondomain.CommandWaitCleaning:
+		return ResultWaiting{}, nil
+	case machinedeletiondomain.CommandFailCleaning:
+		return nil, fmt.Errorf("Cleaning operation finished in %s", command.Phase)
+	default:
+		return nil, fmt.Errorf("unknown TartMachine deletion command: %T", command)
+	}
 }

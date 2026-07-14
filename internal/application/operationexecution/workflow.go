@@ -21,28 +21,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	operationexecutionhandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution/handler"
-	operationexecutionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution/model"
-	operationexecutionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution/port"
-	operationexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution/step"
+	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
-const DeadlineRequeueInterval = operationexecutionmodel.DeadlineRequeueInterval
-
-type PowerOnService = operationexecutionport.PowerOnService
-type BootPreparationService = operationexecutionport.BootPreparationService
-type HostPhaseService = operationexecutionport.HostPhaseService
-type DriverTargetBuilder = operationexecutionport.DriverTargetBuilder
-type DriverCapabilityObserver = operationexecutionport.DriverCapabilityObserver
-type DriverPowerStateObserver = operationexecutionport.DriverPowerStateObserver
-type DriverBootStateObserver = operationexecutionport.DriverBootStateObserver
-
-type Result = operationexecutionmodel.Result
-
-// Workflow はOperation Process ManagerとCommand handlerだけを接続する。
 type Workflow struct {
-	steps    *operationexecutionstep.Executor
-	commands *operationexecutionhandler.CommandHandler
+	ports   Ports
+	effects *effectRunner
+	now     func() time.Time
 }
 
 func NewWorkflow(
@@ -55,22 +41,21 @@ func NewWorkflow(
 	driverPowerState DriverPowerStateObserver,
 	driverBootState DriverBootStateObserver,
 ) *Workflow {
-	steps := operationexecutionstep.NewExecutor(
-		k8sClient,
-		operationexecutionstep.Dependencies{
-			PowerOn:            powerOn,
-			PrepareBoot:        prepareBoot,
-			HostPhase:          hostPhase,
-			Targets:            targets,
-			DriverCapabilities: driverCapabilities,
-			DriverPowerState:   driverPowerState,
-			DriverBootState:    driverBootState,
-		},
-		defaultNow,
-	)
+	ports := Ports{
+		Resources:          k8soperation.NewReferenceReader(k8sClient),
+		Statuses:           k8soperation.NewStatusWriter(k8sClient),
+		PowerOn:            powerOn,
+		PrepareBoot:        prepareBoot,
+		HostPhase:          hostPhase,
+		Targets:            targets,
+		DriverCapabilities: driverCapabilities,
+		DriverPowerState:   driverPowerState,
+		DriverBootState:    driverBootState,
+	}
 	return &Workflow{
-		steps:    steps,
-		commands: operationexecutionhandler.NewCommandHandler(steps),
+		ports:   ports,
+		effects: &effectRunner{ports: ports},
+		now:     time.Now,
 	}
 }
 
@@ -78,13 +63,13 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (Result, error) {
-	decision, err := workflow.steps.Decide(ctx, operation)
+	command, err := mapCommand(ctx, workflow.ports.Resources, operation, workflow.now())
 	if err != nil {
 		return Result{}, err
 	}
-	return workflow.commands.Handle(ctx, operation, decision.Command)
-}
-
-func defaultNow() time.Time {
-	return time.Now()
+	decision := operationdomain.Decide(command)
+	if err := workflow.effects.apply(ctx, operation, decision); err != nil {
+		return Result{}, err
+	}
+	return present(decision), nil
 }

@@ -23,7 +23,8 @@ import (
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
+	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 )
 
 func decodeTartMachine(raw runtime.RawExtension) (infrastructurev1beta1.TartMachine, error) {
@@ -44,16 +45,16 @@ func decodeTartMachineTemplate(raw runtime.RawExtension) (infrastructurev1beta1.
 
 func classifyMachineRequest(
 	request *runtimehooksv1.CanUpdateMachineRequest,
-) (inplaceupdate.Classification, infrastructurev1beta1.TartMachine, error) {
+) (domain.Classification, infrastructurev1beta1.TartMachine, error) {
 	current, err := decodeTartMachine(request.Current.InfrastructureMachine)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
 	desired, err := decodeTartMachine(request.Desired.InfrastructureMachine)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
-	classification, err := inplaceupdate.Classify(inplaceupdate.ChangeSet{
+	decision, err := application.ClassifyChanges(application.ClassificationInput{
 		CurrentMachine:         request.Current.Machine,
 		DesiredMachine:         request.Desired.Machine,
 		CurrentTartMachine:     current,
@@ -62,33 +63,33 @@ func classifyMachineRequest(
 		DesiredBootstrapConfig: request.Desired.BootstrapConfig,
 	})
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachine{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachine{}, err
 	}
-	return classification, desired, nil
+	return classificationFromDecision(decision), desired, nil
 }
 
 func classifyMachineSetRequest(
 	request *runtimehooksv1.CanUpdateMachineSetRequest,
-) (inplaceupdate.Classification, infrastructurev1beta1.TartMachineTemplateResourceSpec, error) {
+) (domain.Classification, infrastructurev1beta1.TartMachineTemplateResourceSpec, error) {
 	current, err := decodeTartMachineTemplate(request.Current.InfrastructureMachineTemplate)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
 	desired, err := decodeTartMachineTemplate(request.Desired.InfrastructureMachineTemplate)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
 	currentBootstrap, err := templateSpec(request.Current.BootstrapConfigTemplate)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
 	desiredBootstrap, err := templateSpec(request.Desired.BootstrapConfigTemplate)
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
 	currentMachine := clusterv1.Machine{Spec: request.Current.MachineSet.Spec.Template.Spec}
 	desiredMachine := clusterv1.Machine{Spec: request.Desired.MachineSet.Spec.Template.Spec}
-	classification, err := inplaceupdate.Classify(inplaceupdate.ChangeSet{
+	decision, err := application.ClassifyChanges(application.ClassificationInput{
 		CurrentMachine:         currentMachine,
 		DesiredMachine:         desiredMachine,
 		CurrentTartMachine:     tartMachineFromTemplate(current.Spec.Template.Spec),
@@ -97,9 +98,9 @@ func classifyMachineSetRequest(
 		DesiredBootstrapConfig: desiredBootstrap,
 	})
 	if err != nil {
-		return inplaceupdate.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
+		return domain.Classification{}, infrastructurev1beta1.TartMachineTemplateResourceSpec{}, err
 	}
-	return classification, desired.Spec.Template.Spec, nil
+	return classificationFromDecision(decision), desired.Spec.Template.Spec, nil
 }
 
 func tartMachineFromTemplate(spec infrastructurev1beta1.TartMachineTemplateResourceSpec) infrastructurev1beta1.TartMachine {
@@ -139,7 +140,7 @@ func templateSpec(raw runtime.RawExtension) (runtime.RawExtension, error) {
 }
 
 func machinePatch(
-	classification inplaceupdate.Classification,
+	classification domain.Classification,
 	desired infrastructurev1beta1.TartMachineSpec,
 ) (runtimehooksv1.Patch, error) {
 	spec := osOnlySpecPatch(classification, desired.Image, desired.UpdatePolicy)
@@ -147,7 +148,7 @@ func machinePatch(
 }
 
 func machineTemplatePatch(
-	classification inplaceupdate.Classification,
+	classification domain.Classification,
 	desired infrastructurev1beta1.TartMachineTemplateResourceSpec,
 ) (runtimehooksv1.Patch, error) {
 	spec := osOnlySpecPatch(classification, desired.Image, desired.UpdatePolicy)
@@ -161,20 +162,34 @@ func machineTemplatePatch(
 }
 
 func osOnlySpecPatch(
-	classification inplaceupdate.Classification,
+	classification domain.Classification,
 	image infrastructurev1beta1.ImageSpec,
 	updatePolicy infrastructurev1beta1.UpdatePolicy,
 ) map[string]any {
 	spec := map[string]any{}
 	for _, path := range classification.Allowed {
+		//nolint:exhaustive // This patch only emits fields currently allowed for OS-only in-place updates.
 		switch path {
-		case inplaceupdate.FieldTartMachineImageRef:
+		case domain.FieldTartMachineImageRef:
 			spec["image"] = map[string]any{"ref": image.Ref}
-		case inplaceupdate.FieldTartMachineUpdatePolicy:
+		case domain.FieldTartMachineUpdatePolicy:
 			spec["updatePolicy"] = map[string]any{"mode": updatePolicy.Mode}
 		}
 	}
 	return spec
+}
+
+func classificationFromDecision(decision domain.EligibilityDecision) domain.Classification {
+	switch decided := decision.(type) {
+	case domain.NoEligibleChange:
+		return decided.Classification
+	case domain.EligibleForInPlaceUpdate:
+		return decided.Classification
+	case domain.IneligibleForInPlaceUpdate:
+		return decided.Classification
+	default:
+		return domain.Classification{}
+	}
 }
 
 func jsonMergePatch(value map[string]any) (runtimehooksv1.Patch, error) {

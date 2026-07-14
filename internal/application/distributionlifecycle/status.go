@@ -26,14 +26,14 @@ func RecordCompletedStep(
 	completed []string,
 	step domain.Step,
 	plan domain.Plan,
-) ([]string, domain.StepDecision, error) {
+) ([]string, domain.RecordDecision, error) {
 	domainCompleted, err := parseCompletedSteps(completed, plan.Steps)
 	if err != nil {
-		return nil, domain.StepDecision{}, err
+		return nil, domain.RecordDecision{}, err
 	}
 	next, decision, err := domain.RecordPlanStep(domainCompleted, step, plan.Steps)
 	if err != nil {
-		return nil, domain.StepDecision{}, err
+		return nil, domain.RecordDecision{}, err
 	}
 	return formatCompletedSteps(next), decision, nil
 }

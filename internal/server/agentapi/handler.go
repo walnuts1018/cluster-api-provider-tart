@@ -31,6 +31,7 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
+	securedeliveryapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/securedelivery"
 	agentprogressdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentprogress"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
@@ -93,6 +94,7 @@ type Config struct {
 	Operations           OperationResolver
 	RegistrationVerifier RegistrationVerifier
 	Sessions             SessionService
+	SecureDelivery       *securedeliveryapp.Workflow
 	Progress             ProgressService
 	Plans                PlanProvider
 	NodeLifecyclePlans   NodeLifecyclePlanProvider
@@ -114,6 +116,15 @@ func NewHandler(config Config) *Handler {
 	}
 	if config.RateLimiter == nil {
 		config.RateLimiter = rate.NewLimiter(rate.Limit(20), 40)
+	}
+	if config.SecureDelivery == nil {
+		config.SecureDelivery = securedeliveryapp.NewWorkflow(securedeliveryapp.Ports{
+			Operations:           config.Operations,
+			RegistrationVerifier: config.RegistrationVerifier,
+			Sessions:             config.Sessions,
+			Bootstrap:            config.Bootstrap,
+			Now:                  config.Now,
+		})
 	}
 	handler := &Handler{config: config, mux: http.NewServeMux()}
 	handler.mux.HandleFunc("POST /v1/agent/register", handler.register)
@@ -140,57 +151,27 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 }
 
 func (handler *Handler) register(writer http.ResponseWriter, request *http.Request) {
-	if !handler.dependenciesAvailable(
-		writer,
-		handler.config.Operations,
-		handler.config.RegistrationVerifier,
-		handler.config.Sessions,
-	) {
-		return
-	}
 	var body agentprotocol.RegisterRequest
 	if !handler.decodeRequest(writer, request, &body) {
 		return
 	}
-	if body.APIVersion != agentprotocol.APIVersion ||
-		body.OperationUID == "" ||
-		body.HostUID == "" ||
-		body.AgentInstanceID == "" {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "invalid_request", "Registration request is invalid")
-		return
-	}
-	key, operation, err := handler.config.Operations.Resolve(request.Context(), body.OperationUID)
-	if err != nil || operation == nil || operation.Spec.OperationID != body.OperationUID {
-		handler.notFound(writer)
-		return
-	}
-	if err := handler.config.RegistrationVerifier.Verify(
-		request.Context(),
-		operation,
-		request.Header.Get("Authorization"),
-		body,
-	); err != nil {
-		handler.unauthorized(writer)
-		return
-	}
-	token, expiresAt, err := handler.config.Sessions.Issue(
-		request.Context(),
-		key,
-		body.HostUID,
-		body.OperationUID,
-		handler.config.Now(),
-	)
+	result, err := handler.config.SecureDelivery.Register(request.Context(), securedeliveryapp.RegisterInput{
+		OperationUID:  body.OperationUID,
+		Request:       body,
+		Authorization: request.Header.Get("Authorization"),
+	})
 	if err != nil {
 		handler.internalError(writer)
 		return
 	}
-	handler.writeJSON(writer, http.StatusOK, agentprotocol.RegisterResponse{
-		APIVersion:    agentprotocol.APIVersion,
-		SessionToken:  token.BearerValue(),
-		ExpiresAt:     expiresAt,
-		PlanDigest:    operation.Spec.PlanDigest,
-		AgentSequence: operation.Status.AgentSequence,
-	})
+	switch result := result.(type) {
+	case securedeliveryapp.RegisterAccepted:
+		handler.writeJSON(writer, http.StatusOK, result.Response)
+	case securedeliveryapp.RegisterRejected:
+		handler.writeError(writer, result.Status, result.Code, result.Message)
+	default:
+		handler.internalError(writer)
+	}
 }
 
 func (handler *Handler) plan(writer http.ResponseWriter, request *http.Request) {
@@ -421,60 +402,27 @@ func planContainsStep(plan agentprotocol.Plan, completedStep string) bool {
 }
 
 func (handler *Handler) bootstrap(writer http.ResponseWriter, request *http.Request) {
-	if !handler.dependenciesAvailable(writer, handler.config.Operations, handler.config.Sessions, handler.config.Bootstrap) {
-		return
-	}
-	key, operation, token, ok := handler.operationAndToken(writer, request)
-	if !ok {
-		return
-	}
-	bundle, err := handler.config.Bootstrap.GetBootstrapBundle(request.Context(), key)
-	if errors.Is(err, agentprotocol.ErrUnsupportedBootstrapFormat) {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "unsupported_format", "Bootstrap format is not supported")
-		return
-	}
-	if errors.Is(err, agentprotocol.ErrBootstrapTooLarge) {
-		handler.writeError(writer, http.StatusRequestEntityTooLarge, "response_too_large", "Bootstrap response exceeds 16 MiB")
-		return
-	}
-	validationErr := agentprotocol.ValidateBootstrapBundle(bundle)
-	if errors.Is(validationErr, agentprotocol.ErrUnsupportedBootstrapFormat) {
-		handler.writeError(writer, http.StatusUnprocessableEntity, "unsupported_format", "Bootstrap format is not supported")
-		return
-	}
-	if errors.Is(validationErr, agentprotocol.ErrBootstrapTooLarge) {
-		handler.writeError(writer, http.StatusRequestEntityTooLarge, "response_too_large", "Bootstrap response exceeds 16 MiB")
-		return
-	}
-	if err != nil ||
-		bundle.OperationUID != operation.Spec.OperationID ||
-		validationErr != nil {
-		handler.notFound(writer)
-		return
-	}
-	encoded, err := json.Marshal(bundle)
+	result, err := handler.config.SecureDelivery.Bootstrap(request.Context(), securedeliveryapp.BootstrapInput{
+		OperationUID:  request.PathValue("uid"),
+		Authorization: request.Header.Get("Authorization"),
+	})
 	if err != nil {
 		handler.internalError(writer)
 		return
 	}
-	if len(encoded) > agentprotocol.MaxBootstrapBodyBytes {
-		handler.writeError(writer, http.StatusRequestEntityTooLarge, "response_too_large", "Bootstrap response exceeds 16 MiB")
-		return
+	switch result := result.(type) {
+	case securedeliveryapp.BootstrapAccepted:
+		encoded, err := json.Marshal(result.Bundle)
+		if err != nil {
+			handler.internalError(writer)
+			return
+		}
+		handler.writeEncodedJSON(writer, http.StatusOK, encoded)
+	case securedeliveryapp.BootstrapRejected:
+		handler.writeError(writer, result.Status, result.Code, result.Message)
+	default:
+		handler.internalError(writer)
 	}
-
-	// Bundleの準備後にtokenを原子的にclaimする。以後の通信断では再利用を許可しない。
-	if err := handler.config.Sessions.ClaimBootstrap(
-		request.Context(),
-		key,
-		token,
-		string(operation.Spec.HostRef.UID),
-		operation.Spec.OperationID,
-		handler.config.Now(),
-	); err != nil {
-		handler.unauthorized(writer)
-		return
-	}
-	handler.writeEncodedJSON(writer, http.StatusOK, encoded)
 }
 
 func (handler *Handler) bootReport(writer http.ResponseWriter, request *http.Request) {

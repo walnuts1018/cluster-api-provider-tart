@@ -14,16 +14,7 @@
 
 package inplaceupdate
 
-import (
-	"encoding/json"
-	"fmt"
-
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-
-	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-)
+import "reflect"
 
 // FieldPathはインプレース更新判定で識別する閉じた差分種別である。
 type FieldPath string
@@ -40,14 +31,28 @@ const (
 	FieldTartMachineDeletionPolicy  FieldPath = "TartMachine.spec.deletionPolicy"
 )
 
-// ChangeSetはCAPI Runtime Hookが渡すcurrentとdesiredの更新判定入力である。
+type MachineSpecSnapshot struct {
+	Version string
+	Spec    any
+}
+
+type TartMachineSpecSnapshot struct {
+	ImageRef        string
+	UpdatePolicy    any
+	PlatformProfile string
+	HostSelector    any
+	ProviderID      string
+	DeletionPolicy  string
+}
+
+// ChangeSetはCAPI Runtime Hookが渡すcurrentとdesiredの更新判定入力を正規化した値である。
 type ChangeSet struct {
-	CurrentMachine         clusterv1.Machine
-	DesiredMachine         clusterv1.Machine
-	CurrentTartMachine     infrastructurev1beta1.TartMachine
-	DesiredTartMachine     infrastructurev1beta1.TartMachine
-	CurrentBootstrapConfig runtime.RawExtension
-	DesiredBootstrapConfig runtime.RawExtension
+	CurrentMachine         MachineSpecSnapshot
+	DesiredMachine         MachineSpecSnapshot
+	CurrentTartMachine     TartMachineSpecSnapshot
+	DesiredTartMachine     TartMachineSpecSnapshot
+	CurrentBootstrapConfig any
+	DesiredBootstrapConfig any
 }
 
 // Classificationは検出した全差分を許可差分と拒否差分へ分類した結果である。
@@ -63,74 +68,51 @@ func (classification Classification) CanUpdateInPlace() bool {
 }
 
 // ClassifyはOSOnly更新で扱える差分を副作用なしで分類する。
-func Classify(changes ChangeSet) (Classification, error) {
+func Classify(changes ChangeSet) Classification {
 	classification := Classification{}
 
-	classifyMachine(&classification, changes.CurrentMachine.Spec, changes.DesiredMachine.Spec)
-	if err := classifyBootstrap(
-		&classification,
-		changes.CurrentBootstrapConfig,
-		changes.DesiredBootstrapConfig,
-	); err != nil {
-		return Classification{}, err
-	}
-	classifyTartMachine(
-		&classification,
-		changes.CurrentTartMachine.Spec,
-		changes.DesiredTartMachine.Spec,
-	)
+	classifyMachine(&classification, changes.CurrentMachine, changes.DesiredMachine)
+	classifyBootstrap(&classification, changes.CurrentBootstrapConfig, changes.DesiredBootstrapConfig)
+	classifyTartMachine(&classification, changes.CurrentTartMachine, changes.DesiredTartMachine)
 
-	return classification, nil
+	return classification
 }
 
 func classifyMachine(
 	classification *Classification,
-	current clusterv1.MachineSpec,
-	desired clusterv1.MachineSpec,
+	current MachineSpecSnapshot,
+	desired MachineSpecSnapshot,
 ) {
 	if current.Version != desired.Version {
 		classification.reject(FieldMachineVersion)
 		current.Version = desired.Version
 	}
-	if !apiequality.Semantic.DeepEqual(current, desired) {
+	if !reflect.DeepEqual(current.Spec, desired.Spec) {
 		classification.reject(FieldMachineSpec)
 	}
 }
 
-func classifyBootstrap(
-	classification *Classification,
-	current runtime.RawExtension,
-	desired runtime.RawExtension,
-) error {
-	currentSpec, err := rawSpec(current)
-	if err != nil {
-		return fmt.Errorf("decode current BootstrapConfig: %w", err)
-	}
-	desiredSpec, err := rawSpec(desired)
-	if err != nil {
-		return fmt.Errorf("decode desired BootstrapConfig: %w", err)
-	}
-	if !apiequality.Semantic.DeepEqual(currentSpec, desiredSpec) {
+func classifyBootstrap(classification *Classification, current any, desired any) {
+	if !reflect.DeepEqual(current, desired) {
 		classification.reject(FieldBootstrapConfig)
 	}
-	return nil
 }
 
 func classifyTartMachine(
 	classification *Classification,
-	current infrastructurev1beta1.TartMachineSpec,
-	desired infrastructurev1beta1.TartMachineSpec,
+	current TartMachineSpecSnapshot,
+	desired TartMachineSpecSnapshot,
 ) {
-	if current.Image.Ref != desired.Image.Ref {
+	if current.ImageRef != desired.ImageRef {
 		classification.allow(FieldTartMachineImageRef)
 	}
-	if !apiequality.Semantic.DeepEqual(current.UpdatePolicy, desired.UpdatePolicy) {
+	if !reflect.DeepEqual(current.UpdatePolicy, desired.UpdatePolicy) {
 		classification.allow(FieldTartMachineUpdatePolicy)
 	}
 	if current.PlatformProfile != desired.PlatformProfile {
 		classification.reject(FieldTartMachinePlatformProfile)
 	}
-	if !apiequality.Semantic.DeepEqual(current.HostSelector, desired.HostSelector) {
+	if !reflect.DeepEqual(current.HostSelector, desired.HostSelector) {
 		classification.reject(FieldTartMachineHostSelector)
 	}
 	if current.ProviderID != desired.ProviderID {
@@ -139,27 +121,6 @@ func classifyTartMachine(
 	if current.DeletionPolicy != desired.DeletionPolicy {
 		classification.reject(FieldTartMachineDeletionPolicy)
 	}
-}
-
-func rawSpec(extension runtime.RawExtension) (any, error) {
-	if len(extension.Raw) == 0 && extension.Object == nil {
-		return nil, nil
-	}
-
-	raw := extension.Raw
-	if len(raw) == 0 {
-		var err error
-		raw, err = json.Marshal(extension.Object)
-		if err != nil {
-			return nil, fmt.Errorf("marshal object: %w", err)
-		}
-	}
-
-	var object map[string]any
-	if err := json.Unmarshal(raw, &object); err != nil {
-		return nil, fmt.Errorf("unmarshal JSON: %w", err)
-	}
-	return object["spec"], nil
 }
 
 func (classification *Classification) allow(path FieldPath) {

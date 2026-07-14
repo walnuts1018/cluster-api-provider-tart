@@ -50,22 +50,8 @@ type PreflightInput struct {
 
 // PreflightはdiskやKubernetes APIへ触れる前に、Lifecycle Planを開始可能か判定する。
 func Preflight(input PreflightInput) error {
-	current, err := parseKubernetesVersion(input.CurrentVersion)
-	if err != nil {
-		return fmt.Errorf("parse current Kubernetes version: %w", err)
-	}
-	target, err := parseKubernetesVersion(input.TargetVersion)
-	if err != nil {
-		return fmt.Errorf("parse target Kubernetes version: %w", err)
-	}
-	if err := validateForwardMinorStep(current, target); err != nil {
-		return err
-	}
-	if err := validateWorkerOrdering(input); err != nil {
-		return err
-	}
-	if input.UpdateClass == UpdateClassStateMigration && input.SnapshotRef == "" {
-		return fmt.Errorf("StateMigration requires SnapshotRef before applying lifecycle steps")
+	if failure := preflightFailure(input); failure != nil {
+		return fmt.Errorf("distribution lifecycle preflight rejected: %T", failure)
 	}
 	return nil
 }
@@ -97,28 +83,52 @@ func parseKubernetesVersion(value string) (kubernetesVersion, error) {
 	return kubernetesVersion{major: major, minor: minor, patch: patch}, nil
 }
 
-func validateForwardMinorStep(current kubernetesVersion, target kubernetesVersion) error {
-	if target.major != current.major {
-		return fmt.Errorf("Kubernetes major version changes are not supported")
+func preflightFailure(input PreflightInput) Failure {
+	current, err := parseKubernetesVersion(input.CurrentVersion)
+	if err != nil {
+		return InvalidCurrentVersion{Value: input.CurrentVersion}
 	}
-	if target.minor < current.minor {
-		return fmt.Errorf("Kubernetes version downgrade is not supported")
+	target, err := parseKubernetesVersion(input.TargetVersion)
+	if err != nil {
+		return InvalidTargetVersion{Value: input.TargetVersion}
 	}
-	if target.minor-current.minor > 1 {
-		return fmt.Errorf("Kubernetes minor version cannot skip more than one minor")
+	if failure := validateForwardMinorStep(current, target); failure != nil {
+		return failure
 	}
-	if target.minor == current.minor && target.patch < current.patch {
-		return fmt.Errorf("Kubernetes patch version downgrade is not supported")
+	if failure := validateWorkerOrdering(input); failure != nil {
+		return failure
+	}
+	if input.UpdateClass == UpdateClassStateMigration && input.SnapshotRef == "" {
+		return SnapshotRequired{Step: StepKubeadmApplied}
 	}
 	return nil
 }
 
-func validateWorkerOrdering(input PreflightInput) error {
+func validateForwardMinorStep(current kubernetesVersion, target kubernetesVersion) Failure {
+	if target.major != current.major {
+		return MajorVersionChangeUnsupported{}
+	}
+	if target.minor < current.minor {
+		return VersionDowngradeUnsupported{}
+	}
+	if target.minor-current.minor > 1 {
+		return MinorVersionSkipUnsupported{}
+	}
+	if target.minor == current.minor && target.patch < current.patch {
+		return VersionDowngradeUnsupported{}
+	}
+	return nil
+}
+
+func validateWorkerOrdering(input PreflightInput) Failure {
 	if input.NodeRole != NodeRoleWorker || !input.RequireControlPlaneTargetAccept {
 		return nil
 	}
 	if input.ControlPlaneAcceptedVersion != input.TargetVersion {
-		return fmt.Errorf("worker lifecycle update requires control plane to accept target version first")
+		return WorkerControlPlaneOrderUnsatisfied{
+			AcceptedVersion: input.ControlPlaneAcceptedVersion,
+			TargetVersion:   input.TargetVersion,
+		}
 	}
 	return nil
 }

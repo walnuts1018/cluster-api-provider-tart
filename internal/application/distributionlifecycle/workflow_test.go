@@ -131,3 +131,14 @@ func (driver *recordingDriver) Verify(context.Context, domain.Plan) error {
 	driver.calls = append(driver.calls, domain.StepHealthVerified)
 	return nil
 }
+
+func (driver *recordingDriver) ObserveHealth(context.Context, domain.Plan) (domain.HealthInput, error) {
+	driver.calls = append(driver.calls, domain.StepHealthVerified)
+	return domain.HealthInput{
+		NodeReady:       true,
+		NodeVersion:     "v1.35.0",
+		StaticPodsReady: true,
+		EtcdQuorum:      true,
+		APIHealthy:      true,
+	}, nil
+}

@@ -167,11 +167,22 @@ func DecideProvision(state MachineState) ProvisionCommand {
 }
 
 func DecideOperation(machine MachineState, operation OperationState) (OperationCommand, error) {
-	if operation.Phase != "" && !operation.Phase.Valid() {
-		return nil, fmt.Errorf("%w: %q", operationdomain.ErrUnknownPhase, operation.Phase)
-	}
 	if !machine.Provisioned {
-		return decideProvisionOperation(operation), nil
+		return DecideProvisioningOperation(operation)
+	}
+	return DecideProvisionedOperation(operation)
+}
+
+func DecideProvisioningOperation(operation OperationState) (OperationCommand, error) {
+	if err := validateOperationState(operation); err != nil {
+		return nil, err
+	}
+	return decideProvisionOperation(operation), nil
+}
+
+func DecideProvisionedOperation(operation OperationState) (OperationCommand, error) {
+	if err := validateOperationState(operation); err != nil {
+		return nil, err
 	}
 	return decideProvisionedOperation(operation), nil
 }
@@ -188,6 +199,13 @@ func DecideUpdateHealth(health machinehealthdomain.Result) UpdateHealthCommand {
 		return CommandCompleteUpdate{}
 	}
 	return CommandRollbackUpdate{}
+}
+
+func validateOperationState(operation OperationState) error {
+	if operation.Phase != "" && !operation.Phase.Valid() {
+		return fmt.Errorf("%w: %q", operationdomain.ErrUnknownPhase, operation.Phase)
+	}
+	return nil
 }
 
 func decideProvisionOperation(operation OperationState) OperationCommand {

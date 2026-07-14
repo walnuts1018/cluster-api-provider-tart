@@ -21,60 +21,26 @@ import (
 	"time"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+	cleaningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/event"
+	cleaningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/port"
+	cleaningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/step"
 )
 
-type PlanWriter interface {
-	Write(
-		context.Context,
-		*infrastructurev1beta1.TartHostOperation,
-		agentprotocol.ValidatedPlan,
-		agentprotocol.Signature,
-	) error
-}
+type PlanWriter = cleaningport.PlanWriter
 
 type PlanSigner struct {
 	KeyID      string
 	PrivateKey ed25519.PrivateKey
 }
 
-type Step interface {
-	isCleaningStep()
-}
+type Step = cleaningstep.Step
+type StepMarkHostCleaning = cleaningstep.MarkHostCleaning
+type StepStartOperation = cleaningstep.StartOperation
+type StepPersistPlan = cleaningstep.PersistPlan
 
-type StepMarkHostCleaning struct{}
-
-func (StepMarkHostCleaning) isCleaningStep() {}
-
-type StepStartOperation struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-}
-
-func (StepStartOperation) isCleaningStep() {}
-
-type StepPersistPlan struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-	Plan      agentprotocol.ValidatedPlan
-	Signature agentprotocol.Signature
-}
-
-func (StepPersistPlan) isCleaningStep() {}
-
-type Event interface {
-	isCleaningEvent()
-}
-
-type EventOperationStarted struct {
-	OperationID string
-}
-
-func (EventOperationStarted) isCleaningEvent() {}
-
-type EventPlanPersisted struct {
-	OperationID string
-}
-
-func (EventPlanPersisted) isCleaningEvent() {}
+type Event = cleaningevent.Event
+type EventOperationStarted = cleaningevent.OperationStarted
+type EventPlanPersisted = cleaningevent.PlanPersisted
 
 type Workflow struct {
 	hostPhase  HostPhaseService

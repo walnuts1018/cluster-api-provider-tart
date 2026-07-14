@@ -42,9 +42,18 @@ type ResultFinalizerReleased struct {
 func (ResultActiveReconciled) isResult()  {}
 func (ResultFinalizerReleased) isResult() {}
 
+type FinalizerStep interface {
+	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
+	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
+}
+
+type StatusStep interface {
+	Reconcile(context.Context, *infrastructurev1beta1.TartCluster) (clusterstatus.Result, error)
+}
+
 type Workflow struct {
-	finalizer *resourcefinalizer.Workflow
-	status    *clusterstatus.Workflow
+	finalizer FinalizerStep
+	status    StatusStep
 }
 
 func NewWorkflow(k8sClient client.Client) *Workflow {
@@ -54,7 +63,7 @@ func NewWorkflow(k8sClient client.Client) *Workflow {
 	)
 }
 
-func NewWorkflowWithSteps(finalizer *resourcefinalizer.Workflow, status *clusterstatus.Workflow) *Workflow {
+func NewWorkflowWithSteps(finalizer FinalizerStep, status StatusStep) *Workflow {
 	return &Workflow{
 		finalizer: finalizer,
 		status:    status,

@@ -40,15 +40,20 @@ type ResultFinalizerReleased struct {
 func (ResultFinalizerEnsured) isResult()  {}
 func (ResultFinalizerReleased) isResult() {}
 
+type FinalizerStep interface {
+	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
+	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
+}
+
 type Workflow struct {
-	finalizer *resourcefinalizer.Workflow
+	finalizer FinalizerStep
 }
 
 func NewWorkflow(k8sClient client.Client) *Workflow {
 	return NewWorkflowWithFinalizer(resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient))
 }
 
-func NewWorkflowWithFinalizer(finalizer *resourcefinalizer.Workflow) *Workflow {
+func NewWorkflowWithFinalizer(finalizer FinalizerStep) *Workflow {
 	return &Workflow{
 		finalizer: finalizer,
 	}

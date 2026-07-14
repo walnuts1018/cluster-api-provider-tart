@@ -15,45 +15,17 @@
 package machineexecution
 
 import (
-	"context"
-
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
-	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
-	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
+	machineexecutionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/port"
 )
 
 const placeholderPlanDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
-type HostReferenceService interface {
-	EnsureMachineHostReference(
-		context.Context,
-		*infrastructurev1beta1.TartMachine,
-	) (allocationdomain.ReferenceResult, error)
-}
-
-type ProvisionWorkflow interface {
-	Start(
-		ctx context.Context,
-		machine *infrastructurev1beta1.TartMachine,
-		planDigest string,
-	) (appprovisioning.StartResult, error)
-	CompleteProvisioning(
-		ctx context.Context,
-		host *infrastructurev1beta1.TartHost,
-		operation *infrastructurev1beta1.TartHostOperation,
-	) error
-}
-
-type NodeHealthObserver interface {
-	Observe(
-		context.Context,
-		*infrastructurev1beta1.TartMachine,
-	) (machinehealthdomain.NodeObservation, bool, error)
-}
+type HostReferenceService = machineexecutionport.HostReferenceService
+type ProvisionWorkflow = machineexecutionport.ProvisionWorkflow
+type NodeHealthObserver = machineexecutionport.NodeHealthObserver
 
 type Workflow struct {
 	client.Client

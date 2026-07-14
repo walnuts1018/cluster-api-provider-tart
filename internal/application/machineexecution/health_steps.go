@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
@@ -86,17 +87,17 @@ func decideProvisionedHealthGateRouteStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) (healthGateRouteResult, error) {
-	route, err := decideMachineOperationRouteStep(machineOperationProvisioned{}, operation)
+	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioned{}, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update health gate: %w", err)
 	}
 	switch route := route.(type) {
-	case machineOperationUpdateHealthRoute:
+	case machineexecutionstep.OperationUpdateHealthRoute:
 		return healthGateUpdateRoute{Operation: route.Operation, Observation: observation}, nil
-	case machineOperationNodeHealthRoute:
+	case machineexecutionstep.OperationNodeHealthRoute:
 		return healthGateNodeStatusRoute{Observation: observation}, nil
-	case machineOperationUpdateTerminalRoute:
-		return healthGateUpdateTerminalRoute(route), nil
+	case machineexecutionstep.OperationUpdateTerminalRoute:
+		return healthGateUpdateTerminalRoute{Operation: route.Operation, Outcome: route.Outcome}, nil
 	default:
 		return nil, fmt.Errorf("unknown provisioned TartMachine route: %T", route)
 	}

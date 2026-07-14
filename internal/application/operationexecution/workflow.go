@@ -26,6 +26,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	operationexecutionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution/port"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
 	inplaceupdatedomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -38,82 +39,13 @@ const (
 	redfishDriverName       = "redfish"
 )
 
-// PowerOnService はOperationのPreparingBootフェーズで電源投入を発火する。
-type PowerOnService interface {
-	PowerOn(
-		context.Context,
-		driverdomain.Name,
-		driverdomain.HostTarget,
-		operationdomain.ID,
-		applicationdriver.Invocation,
-	) error
-}
-
-// BootPreparationService はPowerOn前に利用するboot transportを準備する。
-type BootPreparationService interface {
-	PrepareBoot(
-		context.Context,
-		driverdomain.Name,
-		driverdomain.HostTarget,
-		operationdomain.ID,
-		*driverdomain.BootTarget,
-		applicationdriver.Invocation,
-	) (driverdomain.BootTarget, error)
-}
-
-// HostPhaseService はTartHostのPhaseをOperation結果に応じて更新する。
-type HostPhaseService interface {
-	MarkHostProvisioning(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostUpdating(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostRecoveryRequired(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostAvailable(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostCleaningForDeletion(
-		ctx context.Context,
-		host *infrastructurev1beta1.TartHost,
-		deletionPolicy infrastructurev1beta1.DeletionPolicy,
-	) error
-	MarkHostRetained(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-	MarkHostDetached(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-}
-
-// DriverTargetBuilder はTartHostからdriver呼び出し対象を構築する。
-type DriverTargetBuilder interface {
-	Build(context.Context, *infrastructurev1beta1.TartHost) (driverdomain.HostTarget, error)
-}
-
-// DriverCapabilityObserver はHostごとのdriver capabilityを観測しStatusへ反映する。
-type DriverCapabilityObserver interface {
-	ObserveAndPersist(
-		context.Context,
-		driverdomain.Name,
-		driverdomain.HostTarget,
-		*infrastructurev1beta1.TartHost,
-		applicationdriver.Invocation,
-	) error
-}
-
-// DriverPowerStateObserver はHostごとのdriver power stateを観測しStatusへ反映する。
-type DriverPowerStateObserver interface {
-	ObserveAndPersist(
-		context.Context,
-		driverdomain.Name,
-		driverdomain.HostTarget,
-		*infrastructurev1beta1.TartHost,
-		applicationdriver.Invocation,
-	) error
-}
-
-// DriverBootStateObserver はHostごとのdriver boot stateを観測しStatusへ反映する。
-type DriverBootStateObserver interface {
-	ObserveBootAndPersist(
-		context.Context,
-		driverdomain.Name,
-		driverdomain.HostTarget,
-		*infrastructurev1beta1.TartHost,
-		applicationdriver.Invocation,
-	) error
-}
+type PowerOnService = operationexecutionport.PowerOnService
+type BootPreparationService = operationexecutionport.BootPreparationService
+type HostPhaseService = operationexecutionport.HostPhaseService
+type DriverTargetBuilder = operationexecutionport.DriverTargetBuilder
+type DriverCapabilityObserver = operationexecutionport.DriverCapabilityObserver
+type DriverPowerStateObserver = operationexecutionport.DriverPowerStateObserver
+type DriverBootStateObserver = operationexecutionport.DriverBootStateObserver
 
 type Result struct {
 	RequeueAfter time.Duration

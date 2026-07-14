@@ -20,39 +20,17 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
+	inplaceupdateport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/port"
+	inplaceupdatestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/step"
 	nodelifecycleapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
-// PlanWriterはOperationに対応する署名済みPlanを永続化する境界である。
-type PlanWriter interface {
-	Write(
-		context.Context,
-		*infrastructurev1beta1.TartHostOperation,
-		agentprotocol.ValidatedPlan,
-		agentprotocol.Signature,
-	) error
-}
-
-// NodeLifecyclePlanWriterはOperationに対応する署名済みNode Lifecycle Planを永続化する境界である。
-type NodeLifecyclePlanWriter interface {
-	Write(
-		context.Context,
-		*infrastructurev1beta1.TartHostOperation,
-		nodelifecycleapp.ValidatedPlan,
-		agentprotocol.Signature,
-	) error
-}
-
-// OperationStarterはOperation作成の永続化境界である。
-type OperationStarter interface {
-	Start(
-		context.Context,
-		*infrastructurev1beta1.TartHostOperation,
-	) (*infrastructurev1beta1.TartHostOperation, error)
-}
+type PlanWriter = inplaceupdateport.PlanWriter
+type NodeLifecyclePlanWriter = inplaceupdateport.NodeLifecyclePlanWriter
+type OperationStarter = inplaceupdateport.OperationStarter
 
 // PlanSignerはAgent Plan専用の署名鍵を保持する。
 type PlanSigner struct {
@@ -66,53 +44,15 @@ type WorkflowInput struct {
 	Manifest artifact.ValidatedManifest
 }
 
-type Step interface {
-	isInPlaceUpdateStep()
-}
+type Step = inplaceupdatestep.Step
+type StepStartOperation = inplaceupdatestep.StartOperation
+type StepPersistAgentPlan = inplaceupdatestep.PersistAgentPlan
+type StepPersistNodeLifecyclePlan = inplaceupdatestep.PersistNodeLifecyclePlan
 
-type StepStartOperation struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-}
-
-func (StepStartOperation) isInPlaceUpdateStep() {}
-
-type StepPersistAgentPlan struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-	Plan      agentprotocol.ValidatedPlan
-	Signature agentprotocol.Signature
-}
-
-func (StepPersistAgentPlan) isInPlaceUpdateStep() {}
-
-type StepPersistNodeLifecyclePlan struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-	Plan      nodelifecycleapp.ValidatedPlan
-	Signature agentprotocol.Signature
-}
-
-func (StepPersistNodeLifecyclePlan) isInPlaceUpdateStep() {}
-
-type Event interface {
-	isInPlaceUpdateEvent()
-}
-
-type EventOperationStarted struct {
-	OperationID string
-}
-
-func (EventOperationStarted) isInPlaceUpdateEvent() {}
-
-type EventAgentPlanPersisted struct {
-	OperationID string
-}
-
-func (EventAgentPlanPersisted) isInPlaceUpdateEvent() {}
-
-type EventNodeLifecyclePlanPersisted struct {
-	OperationID string
-}
-
-func (EventNodeLifecyclePlanPersisted) isInPlaceUpdateEvent() {}
+type Event = inplaceupdateevent.Event
+type EventOperationStarted = inplaceupdateevent.OperationStarted
+type EventAgentPlanPersisted = inplaceupdateevent.AgentPlanPersisted
+type EventNodeLifecyclePlanPersisted = inplaceupdateevent.NodeLifecyclePlanPersisted
 
 type StartResult struct {
 	Operation *infrastructurev1beta1.TartHostOperation

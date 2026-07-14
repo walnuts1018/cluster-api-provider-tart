@@ -23,6 +23,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
@@ -65,14 +66,14 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 func decideUpdateOperationStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (updateOperationDecisionResult, error) {
-	route, err := decideMachineOperationRouteStep(machineOperationProvisioned{}, operation)
+	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioned{}, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Update TartHostOperation outcome: %w", err)
 	}
 	switch route := route.(type) {
-	case machineOperationUpdateTerminalRoute:
-		return updateOperationApplyTerminal(route), nil
-	case machineOperationUpdateHealthRoute, machineOperationNodeHealthRoute:
+	case machineexecutionstep.OperationUpdateTerminalRoute:
+		return updateOperationApplyTerminal{Operation: route.Operation, Outcome: route.Outcome}, nil
+	case machineexecutionstep.OperationUpdateHealthRoute, machineexecutionstep.OperationNodeHealthRoute:
 		return updateOperationRouteNodeHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown provisioned TartMachine route for Update Operation: %T", route)

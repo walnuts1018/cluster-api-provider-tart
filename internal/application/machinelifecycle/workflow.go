@@ -52,10 +52,24 @@ func (ResultDeleteWaiting) isResult()     {}
 func (ResultFinalizerReleased) isResult() {}
 func (ResultDeletingIgnored) isResult()   {}
 
+type FinalizerStep interface {
+	Ensure(context.Context, client.Object) (resourcefinalizer.Result, error)
+	Release(context.Context, client.Object) (resourcefinalizer.Result, error)
+	Present(client.Object) bool
+}
+
+type ExecutionStep interface {
+	Reconcile(context.Context, *infrastructurev1beta1.TartMachine) error
+}
+
+type DeletionStep interface {
+	Reconcile(context.Context, *infrastructurev1beta1.TartMachine) (machinedeletion.Result, error)
+}
+
 type Workflow struct {
-	finalizer *resourcefinalizer.Workflow
-	execution *machineexecution.Workflow
-	deletion  *machinedeletion.Workflow
+	finalizer FinalizerStep
+	execution ExecutionStep
+	deletion  DeletionStep
 }
 
 func NewWorkflow(
@@ -74,9 +88,9 @@ func NewWorkflow(
 }
 
 func NewWorkflowWithSteps(
-	finalizer *resourcefinalizer.Workflow,
-	execution *machineexecution.Workflow,
-	deletion *machinedeletion.Workflow,
+	finalizer FinalizerStep,
+	execution ExecutionStep,
+	deletion DeletionStep,
 ) *Workflow {
 	return &Workflow{
 		finalizer: finalizer,

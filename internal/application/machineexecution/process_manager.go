@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	machineexecutionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
@@ -26,10 +27,7 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	return workflow.reconcileActive(ctx, activeMachine{
-		Machine: machine,
-		State:   machineState(machine),
-	})
+	return workflow.reconcileActive(ctx, machineexecutionmodel.ActiveFromAPI(machine))
 }
 
 func (workflow *Workflow) reconcileActive(

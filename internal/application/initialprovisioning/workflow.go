@@ -23,10 +23,11 @@ import (
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
+	initialprovisioningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/port"
+	initialprovisioningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
@@ -43,26 +44,9 @@ var (
 // 大容量ディスクへの書き込みに十分な時間を確保する。
 const defaultOperationDeadline = 2 * time.Hour
 
-// HostReserveService はTartHostを予約するサービスインターフェース。
-type HostReserveService interface {
-	Reserve(
-		ctx context.Context,
-		machine *infrastructurev1beta1.TartMachine,
-		requirements allocationdomain.Requirements,
-	) (*infrastructurev1beta1.TartHost, error)
-}
-
-// HostPhaseService はTartHostのPhaseを更新するサービスインターフェース。
-type HostPhaseService interface {
-	ReserveForMachine(ctx context.Context, host *infrastructurev1beta1.TartHost, machine *infrastructurev1beta1.TartMachine) error
-	MarkHostProvisioned(ctx context.Context, host *infrastructurev1beta1.TartHost) error
-}
-
-// OperationService はTartHostOperationを作成・管理するサービスインターフェース。
-type OperationService interface {
-	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
-	CompleteProvision(ctx context.Context, operation *infrastructurev1beta1.TartHostOperation) error
-}
+type HostReserveService = initialprovisioningport.HostReserveService
+type HostPhaseService = initialprovisioningport.HostPhaseService
+type OperationService = initialprovisioningport.OperationService
 
 // CompleteProvisioning はOperationとHostを最終状態へ順に収束させる。
 // Operationを先に完了させ、再試行時はSucceededを冪等に受け入れる。
@@ -80,61 +64,19 @@ func (workflow *Workflow) CompleteProvisioning(
 	return nil
 }
 
-// SessionTokenIssuer はOperation用のSession Tokenを発行するインターフェース。
-type SessionTokenIssuer interface {
-	Issue(ctx context.Context, key client.ObjectKey, hostUID, operationUID string, now time.Time) (agentsessiondomain.Token, time.Time, error)
-}
+type SessionTokenIssuer = initialprovisioningport.SessionTokenIssuer
 
-// Stepは初期Provisioning Workflowが外部へ要求する副作用である。
-type Step interface {
-	isInitialProvisioningStep()
-}
+type Step = initialprovisioningstep.Step
+type StepReserveHost = initialprovisioningstep.ReserveHost
+type StepMarkHostReserved = initialprovisioningstep.MarkHostReserved
+type StepStartOperation = initialprovisioningstep.StartOperation
+type StepCompleteOperation = initialprovisioningstep.CompleteOperation
+type StepMarkHostProvisioned = initialprovisioningstep.MarkHostProvisioned
 
-type StepReserveHost struct {
-	Requirements allocationdomain.Requirements
-}
-
-func (StepReserveHost) isInitialProvisioningStep() {}
-
-type StepMarkHostReserved struct {
-	Host *infrastructurev1beta1.TartHost
-}
-
-func (StepMarkHostReserved) isInitialProvisioningStep() {}
-
-type StepStartOperation struct {
-	Operation *infrastructurev1beta1.TartHostOperation
-}
-
-func (StepStartOperation) isInitialProvisioningStep() {}
-
-type StepCompleteOperation struct{}
-
-func (StepCompleteOperation) isInitialProvisioningStep() {}
-
-type StepMarkHostProvisioned struct{}
-
-func (StepMarkHostProvisioned) isInitialProvisioningStep() {}
-
-type Event interface {
-	isInitialProvisioningEvent()
-}
-
-type EventHostReserved struct {
-	HostName string
-}
-
-func (EventHostReserved) isInitialProvisioningEvent() {}
-
-type EventOperationStarted struct {
-	OperationID string
-}
-
-func (EventOperationStarted) isInitialProvisioningEvent() {}
-
-type EventProvisioningCompleted struct{}
-
-func (EventProvisioningCompleted) isInitialProvisioningEvent() {}
+type Event = initialprovisioningevent.Event
+type EventHostReserved = initialprovisioningevent.HostReserved
+type EventOperationStarted = initialprovisioningevent.OperationStarted
+type EventProvisioningCompleted = initialprovisioningevent.ProvisioningCompleted
 
 type StartResult struct {
 	Host      *infrastructurev1beta1.TartHost

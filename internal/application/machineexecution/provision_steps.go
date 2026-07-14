@@ -26,6 +26,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	applicationallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineallocation"
+	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
@@ -348,17 +349,17 @@ func (workflow *Workflow) resumeResolvedProvisionOperationStep(
 func decideProvisionProgressStep(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (provisionProgressDecisionResult, error) {
-	route, err := decideMachineOperationRouteStep(machineOperationProvisioning{}, operation)
+	route, err := machineexecutionstep.DecideOperationRoute(machineexecutionstep.OperationProvisioning{}, operation)
 	if err != nil {
 		return nil, fmt.Errorf("decide Provision TartHostOperation progress: %w", err)
 	}
 	switch route := route.(type) {
-	case machineOperationProvisionFailedRoute:
+	case machineexecutionstep.OperationProvisionFailedRoute:
 		return provisionProgressFailed{
 			Reason:  route.Reason,
 			Message: provisionFailureMessageStep(route.Operation),
 		}, nil
-	case machineOperationProvisionHealthRoute:
+	case machineexecutionstep.OperationProvisionHealthRoute:
 		return provisionProgressAwaitingHealth{}, nil
 	default:
 		return nil, fmt.Errorf("unknown provisioning TartMachine route: %T", route)

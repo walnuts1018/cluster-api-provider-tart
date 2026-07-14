@@ -12,18 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package step
 
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	machineexecutionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
-	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-type activeMachine = machineexecutionmodel.ActiveMachine
-type provisioningMachine = machineexecutionmodel.ProvisioningMachine
-type provisionedMachine = machineexecutionmodel.ProvisionedMachine
-
-func machineState(machine *infrastructurev1beta1.TartMachine) machinelifecycledomain.MachineState {
-	return machineexecutionmodel.MachineState(machine)
+type Step interface {
+	isCleaningStep()
 }
+
+type MarkHostCleaning struct{}
+
+type StartOperation struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+}
+
+type PersistPlan struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Plan      agentprotocol.ValidatedPlan
+	Signature agentprotocol.Signature
+}
+
+func (MarkHostCleaning) isCleaningStep() {}
+func (StartOperation) isCleaningStep()   {}
+func (PersistPlan) isCleaningStep()      {}

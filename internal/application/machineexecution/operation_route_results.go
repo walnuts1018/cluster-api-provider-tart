@@ -21,6 +21,20 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
+type provisioningOperationRouteResult interface {
+	isProvisioningOperationRouteResult()
+}
+
+type provisioningOperationHealthRoute struct{}
+
+type provisioningOperationFailedRoute struct {
+	Operation *infrastructurev1beta1.TartHostOperation
+	Reason    string
+}
+
+func (provisioningOperationHealthRoute) isProvisioningOperationRouteResult() {}
+func (provisioningOperationFailedRoute) isProvisioningOperationRouteResult() {}
+
 type provisionedOperationRouteResult interface {
 	isProvisionedOperationRouteResult()
 }
@@ -39,6 +53,23 @@ type provisionedOperationUpdateTerminalRoute struct {
 func (provisionedOperationUpdateHealthRoute) isProvisionedOperationRouteResult()   {}
 func (provisionedOperationNodeHealthRoute) isProvisionedOperationRouteResult()     {}
 func (provisionedOperationUpdateTerminalRoute) isProvisionedOperationRouteResult() {}
+
+func decideProvisioningOperationRouteStep(
+	operation *infrastructurev1beta1.TartHostOperation,
+) (provisioningOperationRouteResult, error) {
+	command, err := operationCommand(false, operation)
+	if err != nil {
+		return nil, err
+	}
+	switch command := command.(type) {
+	case machinelifecycledomain.CommandMarkProvisionFailed:
+		return provisioningOperationFailedRoute{Operation: operation, Reason: command.Reason}, nil
+	case machinelifecycledomain.CommandObserveProvisionHealth:
+		return provisioningOperationHealthRoute{}, nil
+	default:
+		return nil, fmt.Errorf("unexpected provisioning TartMachine command: %T", command)
+	}
+}
 
 func decideProvisionedOperationRouteStep(
 	operation *infrastructurev1beta1.TartHostOperation,

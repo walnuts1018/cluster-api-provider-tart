@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
@@ -167,6 +169,74 @@ func TestDecideProvisionHealthGateStep(t *testing.T) {
 				}
 				if pending.Reason != want.Reason {
 					t.Fatalf("Reason = %q, want %q", pending.Reason, want.Reason)
+				}
+			default:
+				t.Fatalf("unexpected want = %T", tt.want)
+			}
+		})
+	}
+}
+
+func TestDecideProvisionProgressStep(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation infrastructurev1beta1.TartHostOperation
+		want      any
+	}{
+		{
+			name: "provision operationがfailedなら失敗statusへ進む",
+			operation: infrastructurev1beta1.TartHostOperation{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "default",
+					Name:      "operation-a",
+				},
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeProvision,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseFailed,
+				},
+			},
+			want: provisionProgressFailed{
+				Reason:  "OperationFailed",
+				Message: "TartHostOperation default/operation-a Failed",
+			},
+		},
+		{
+			name: "provision operationがhealth待ちならhealth観測を待つ",
+			operation: infrastructurev1beta1.TartHostOperation{
+				Spec: infrastructurev1beta1.TartHostOperationSpec{
+					Type: infrastructurev1beta1.OperationTypeProvision,
+				},
+				Status: infrastructurev1beta1.TartHostOperationStatus{
+					Phase: infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+				},
+			},
+			want: provisionProgressAwaitingHealth{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := decideProvisionProgressStep(tt.operation.DeepCopy())
+			if err != nil {
+				t.Fatalf("decideProvisionProgressStep() error = %v", err)
+			}
+			switch want := tt.want.(type) {
+			case provisionProgressFailed:
+				failed, ok := got.(provisionProgressFailed)
+				if !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
+				}
+				if failed.Reason != want.Reason {
+					t.Fatalf("Reason = %q, want %q", failed.Reason, want.Reason)
+				}
+				if failed.Message != want.Message {
+					t.Fatalf("Message = %q, want %q", failed.Message, want.Message)
+				}
+			case provisionProgressAwaitingHealth:
+				if _, ok := got.(provisionProgressAwaitingHealth); !ok {
+					t.Fatalf("decision = %T, want %T", got, want)
 				}
 			default:
 				t.Fatalf("unexpected want = %T", tt.want)

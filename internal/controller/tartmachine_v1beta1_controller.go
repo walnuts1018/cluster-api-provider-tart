@@ -39,15 +39,15 @@ import (
 
 type TartMachineV1Beta1Reconciler struct {
 	client.Client
-	Lifecycle       *machinelifecycle.Workflow
-	MachineWorkflow *machineexecution.Workflow
-	DeleteWorkflow  *machinedeletion.Workflow
-	Finalizer       *resourcefinalizer.Workflow
-	HostReferences  machineexecution.HostReferenceService
-	NodeHealth      machineexecution.NodeHealthObserver
-	Provisioner     machineexecution.ProvisionStep
-	Cleaner         machinedeletion.CleaningStep
-	Recorder        record.EventRecorder
+	Lifecycle      *machinelifecycle.Workflow
+	Execution      machinelifecycle.ExecutionStep
+	Deletion       machinelifecycle.DeletionStep
+	Finalizer      machinelifecycle.FinalizerStep
+	HostReferences machineexecution.HostReferenceService
+	NodeHealth     machineexecution.NodeHealthObserver
+	Provisioner    machineexecution.ProvisionStep
+	Cleaner        machinedeletion.CleaningStep
+	Recorder       record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch
@@ -116,27 +116,27 @@ func (r *TartMachineV1Beta1Reconciler) lifecycleWorkflow() *machinelifecycle.Wor
 		return r.Lifecycle
 	}
 	return machinelifecycle.NewWorkflowWithSteps(
-		r.finalizerWorkflow(),
-		r.machineWorkflow(),
-		r.deleteWorkflow(),
+		r.finalizerStep(),
+		r.executionStep(),
+		r.deletionStep(),
 	)
 }
 
-func (r *TartMachineV1Beta1Reconciler) machineWorkflow() *machineexecution.Workflow {
-	if r.MachineWorkflow != nil {
-		return r.MachineWorkflow
+func (r *TartMachineV1Beta1Reconciler) executionStep() machinelifecycle.ExecutionStep {
+	if r.Execution != nil {
+		return r.Execution
 	}
 	return machineexecution.NewWorkflow(r.Client, r.HostReferences, r.NodeHealth, r.Provisioner, r.Recorder)
 }
 
-func (r *TartMachineV1Beta1Reconciler) deleteWorkflow() *machinedeletion.Workflow {
-	if r.DeleteWorkflow != nil {
-		return r.DeleteWorkflow
+func (r *TartMachineV1Beta1Reconciler) deletionStep() machinelifecycle.DeletionStep {
+	if r.Deletion != nil {
+		return r.Deletion
 	}
 	return machinedeletion.NewWorkflow(r.Client, r.Cleaner)
 }
 
-func (r *TartMachineV1Beta1Reconciler) finalizerWorkflow() *resourcefinalizer.Workflow {
+func (r *TartMachineV1Beta1Reconciler) finalizerStep() machinelifecycle.FinalizerStep {
 	if r.Finalizer != nil {
 		return r.Finalizer
 	}

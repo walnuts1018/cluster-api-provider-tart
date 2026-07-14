@@ -62,7 +62,7 @@ internal/application/<context>/
 | `machinetemplatelifecycle` | Finalizerだけの薄いWorkflow | decision handlerを追加するか、Finalizer専用Workflowとして薄さを維持する。private分岐が増えたらhandlerへ移す |
 | `resourcefinalizer` | 汎用Reusable Step Context | 既存構成を維持する。Workflow名は外部互換の入口として残し、呼び出し側はFinalizerStep interfaceへ依存する |
 | `clusterstatus` | Handler/Model/Stepへ分離済み | 現状維持。Status組み立ての純粋関数を増やす場合は`step`またはdomainへ置く |
-| `machinedeletion` | Handler/Model/Stepへ分離済みだが`CleaningWorkflow`名が残る | `CleaningWorkflow`を`CleaningStep`へ改名し、Workflow依存に見える型名を消す |
+| `machinedeletion` | Handler/Model/Stepへ分離済み。Cleaning開始は`CleaningStep` capabilityとして注入済み | Process Managerとして現状維持し、呼び出し側でWorkflow具象依存に見えるfield名を増やさない |
 | `operationexecution` | Process Manager + Handler + Stepに分離済み | 現状維持。Step executor内のcommand分岐が増えた場合はhandlerへ戻す |
 | `machineexecution` | Model/Step分離途中。WorkflowとStepExecutorに副作用分岐が多い | Handlerを追加し、Provision/Update/Healthのdecision適用switchを段階的に移す |
 | `initialprovisioning` | Operation開始とHost予約をWorkflowに直書き | `model`/`handler`/`step.Executor`を追加し、Host予約、Operation開始、CompletionをStep interface化する |
@@ -78,7 +78,7 @@ internal/application/<context>/
 横断整理は次の順に行う。
 
 1. 上位LifecycleのHandler境界を揃える。対象は`clusterlifecycle`、`machinelifecycle`、`machinetemplatelifecycle`。
-2. Workflow依存に見える型名をStep名へ置き換える。対象は`machinedeletion.CleaningWorkflow`、`machineexecution.ProvisionWorkflow`。
+2. Workflow依存に見える型名をStep名へ置き換える。対象は`machinedeletion.CleaningStep`接続済み箇所の呼び出し側、`machineexecution.ProvisionStep`接続済み箇所の呼び出し側。
 3. Operation Start Workflowを共通形へ揃える。対象は`initialprovisioning`、`inplaceupdate`、`cleaning`。
 4. Process Manager Workflowに残る副作用switchをHandlerへ移す。対象は`machineexecution`。
 5. 既存の`model`/`step`へ移したADTと純粋Stepを、複数Contextで再利用できる粒度へ調整する。

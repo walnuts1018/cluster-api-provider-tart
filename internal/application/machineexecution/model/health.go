@@ -66,14 +66,6 @@ type UpdateHealthGateRollback struct {
 	Observation machinehealthdomain.NodeObservation
 }
 
-type UpdateHealthGateEffectResult interface {
-	isUpdateHealthGateEffectResult()
-}
-
-type UpdateHealthGateCompleted struct{}
-
-type UpdateHealthGateRollbackStarted struct{}
-
 type MachineStatusPatchResult interface {
 	isMachineStatusPatchResult()
 }
@@ -94,9 +86,6 @@ func (HealthGateUpdateTerminalRoute) isHealthGateRouteResult() {}
 
 func (UpdateHealthGateComplete) isUpdateHealthGateDecisionResult() {}
 func (UpdateHealthGateRollback) isUpdateHealthGateDecisionResult() {}
-
-func (UpdateHealthGateCompleted) isUpdateHealthGateEffectResult()       {}
-func (UpdateHealthGateRollbackStarted) isUpdateHealthGateEffectResult() {}
 
 func (MachineStatusPatchRequired) isMachineStatusPatchResult()       {}
 func (MachineStatusPatchAlreadyApplied) isMachineStatusPatchResult() {}

@@ -268,41 +268,6 @@ func (steps *StepExecutor) patchProvisionStartStatusStep(
 	return model.ProvisionStartStatusPatched{}, nil
 }
 
-func (steps *StepExecutor) resumeProvisionOperationStep(
-	ctx context.Context,
-	provisioning provisioningMachine,
-) error {
-	machine := provisioning.Machine
-	log := logf.FromContext(ctx)
-
-	operationReference, err := steps.resolveProvisionProgressReferenceStep(ctx, machine)
-	if err != nil {
-		return err
-	}
-	switch reference := operationReference.(type) {
-	case model.ProvisionProgressReferenceStale:
-		log.Info("Referenced TartHostOperation not found, clearing OperationRef",
-			"machine", client.ObjectKeyFromObject(machine).String(),
-			"operation", operationKey(reference.Reference).String(),
-		)
-		cleared, patchErr := steps.clearStaleProvisionOperationReferenceStep(ctx, machine, reference.Reference)
-		if patchErr != nil {
-			return patchErr
-		}
-		log.V(4).Info("Cleared stale TartHostOperation reference",
-			"machine", client.ObjectKeyFromObject(machine).String(),
-			"operation", operationKey(cleared.Reference).String(),
-		)
-		return nil
-	case model.ProvisionProgressReferenceAbsent:
-		return nil
-	case model.ProvisionProgressReferenceResolved:
-		return steps.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
-	default:
-		return fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
-	}
-}
-
 func (steps *StepExecutor) resolveProvisionProgressReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
@@ -336,42 +301,6 @@ func (steps *StepExecutor) clearStaleProvisionOperationReferenceStep(
 	return model.StaleProvisionOperationReferenceCleared{Reference: reference}, nil
 }
 
-func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-	operation *infrastructurev1beta1.TartHostOperation,
-) error {
-	log := logf.FromContext(ctx)
-	decision, err := machineexecutionstep.DecideProvisionProgress(operation)
-	if err != nil {
-		return fmt.Errorf("decide TartHostOperation progress: %w", err)
-	}
-
-	switch decision := decision.(type) {
-	case model.ProvisionProgressFailed:
-		log.Info("TartHostOperation failed",
-			"machine", client.ObjectKeyFromObject(machine).String(),
-			"operation", client.ObjectKeyFromObject(operation).String(),
-			"phase", operation.Status.Phase,
-		)
-		patched, patchErr := steps.patchProvisionFailureStatusStep(ctx, machine, decision)
-		if patchErr != nil {
-			return patchErr
-		}
-		log.V(4).Info("Patched TartMachine provision failure status",
-			"machine", client.ObjectKeyFromObject(machine).String(),
-			"reason", patched.Reason,
-			"message", patched.Message,
-		)
-	case model.ProvisionProgressAwaitingHealth:
-		return nil
-	default:
-		return fmt.Errorf("unexpected TartMachine provisioning progress decision: %T", decision)
-	}
-
-	return nil
-}
-
 func (steps *StepExecutor) patchProvisionFailureStatusStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
@@ -383,47 +312,6 @@ func (steps *StepExecutor) patchProvisionFailureStatusStep(
 		return model.ProvisionFailureStatusPatchResult{}, fmt.Errorf("set provision failed status: %w", err)
 	}
 	return model.ProvisionFailureStatusPatchResult(failure), nil
-}
-
-func (steps *StepExecutor) applyProvisionHealth(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-	operation *infrastructurev1beta1.TartHostOperation,
-	observation machinehealthdomain.NodeObservation,
-) error {
-	decision, err := machineexecutionstep.DecideProvisionHealthGate(operation, observation)
-	if err != nil {
-		return err
-	}
-	result, err := steps.applyProvisionHealthGateDecisionStep(ctx, machine, decision)
-	if err != nil {
-		return err
-	}
-	switch result.(type) {
-	case model.ProvisionHealthGateCompleted, model.ProvisionHealthGatePendingApplied:
-		return nil
-	default:
-		return fmt.Errorf("unknown Provision health gate effect result: %T", result)
-	}
-}
-
-func (steps *StepExecutor) applyProvisionHealthGateDecisionStep(
-	ctx context.Context,
-	machine *infrastructurev1beta1.TartMachine,
-	decision model.ProvisionHealthGateDecisionResult,
-) (model.ProvisionHealthGateEffectResult, error) {
-	switch decision := decision.(type) {
-	case model.ProvisionHealthGateComplete:
-		if err := steps.completeProvisionStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
-			return nil, err
-		}
-		return model.ProvisionHealthGateCompleted{}, nil
-	case model.ProvisionHealthGatePending:
-		steps.setProvisionHealthPendingStep(machine, decision)
-		return model.ProvisionHealthGatePendingApplied{}, nil
-	default:
-		return nil, fmt.Errorf("unknown Provision health gate decision result: %T", decision)
-	}
 }
 
 func (steps *StepExecutor) completeProvisionStep(

@@ -136,17 +136,6 @@ type ProvisionHealthGatePending struct {
 func (ProvisionHealthGateComplete) isProvisionHealthGateDecisionResult() {}
 func (ProvisionHealthGatePending) isProvisionHealthGateDecisionResult()  {}
 
-type ProvisionHealthGateEffectResult interface {
-	isProvisionHealthGateEffectResult()
-}
-
-type ProvisionHealthGateCompleted struct{}
-
-type ProvisionHealthGatePendingApplied struct{}
-
-func (ProvisionHealthGateCompleted) isProvisionHealthGateEffectResult()      {}
-func (ProvisionHealthGatePendingApplied) isProvisionHealthGateEffectResult() {}
-
 type ProvisionProgressReferenceResult interface {
 	isProvisionProgressReferenceResult()
 }

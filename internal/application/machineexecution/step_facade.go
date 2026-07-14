@@ -16,9 +16,13 @@ package machineexecution
 
 import (
 	"context"
+	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	machineexecutionmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
+	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
+	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
+	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
 )
 
 func (steps *StepExecutor) EnsureProvisionReference(
@@ -35,11 +39,35 @@ func (steps *StepExecutor) StartProvision(
 	return steps.startProvisionStep(ctx, provisioning)
 }
 
-func (steps *StepExecutor) ResumeProvisionOperation(
+func (steps *StepExecutor) ResolveProvisionProgressReference(
 	ctx context.Context,
-	provisioning machineexecutionmodel.ProvisioningMachine,
+	machine *infrastructurev1beta1.TartMachine,
+) (machineexecutionmodel.ProvisionProgressReferenceResult, error) {
+	return steps.resolveProvisionProgressReferenceStep(ctx, machine)
+}
+
+func (steps *StepExecutor) ClearStaleProvisionOperationReference(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	reference *infrastructurev1beta1.ResourceReference,
 ) error {
-	return steps.resumeProvisionOperationStep(ctx, provisioning)
+	_, err := steps.clearStaleProvisionOperationReferenceStep(ctx, machine, reference)
+	return err
+}
+
+func (steps *StepExecutor) DecideProvisionProgress(
+	operation *infrastructurev1beta1.TartHostOperation,
+) (machineexecutionmodel.ProvisionProgressDecisionResult, error) {
+	return machineexecutionstep.DecideProvisionProgress(operation)
+}
+
+func (steps *StepExecutor) PatchProvisionFailureStatus(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	failure machineexecutionmodel.ProvisionProgressFailed,
+) error {
+	_, err := steps.patchProvisionFailureStatusStep(ctx, machine, failure)
+	return err
 }
 
 func (steps *StepExecutor) DecideUpdateOperation(
@@ -60,6 +88,83 @@ func (steps *StepExecutor) ApplyUpdateTerminal(
 func (steps *StepExecutor) ObserveNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
+) (machineexecutionmodel.NodeHealthResult, error) {
+	return steps.observeNodeHealth(ctx, machine)
+}
+
+func (steps *StepExecutor) PlanHealthGateRoute(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	observation machinehealthdomain.NodeObservation,
+) (machineexecutionmodel.HealthGateRouteResult, error) {
+	return steps.planHealthGateRouteStep(ctx, machine, observation)
+}
+
+func (steps *StepExecutor) ApplyNodeHealthStatus(
+	machine *infrastructurev1beta1.TartMachine,
+	observation machinehealthdomain.NodeObservation,
+) (machineexecutionmodel.MachineStatusPatchResult, error) {
+	original := machine.DeepCopy()
+	machine.Status = applicationhealth.StatusWithNodeHealth(machine, observation)
+	return machineexecutionmodel.MachineStatusPatchRequired{Original: original}, nil
+}
+
+func (steps *StepExecutor) DecideProvisionHealthGate(
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) (machineexecutionmodel.ProvisionHealthGateDecisionResult, error) {
+	return machineexecutionstep.DecideProvisionHealthGate(operation, observation)
+}
+
+func (steps *StepExecutor) CompleteProvision(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
 ) error {
-	return steps.observeNodeHealthStep(ctx, machine)
+	return steps.completeProvisionStep(ctx, machine, operation, observation)
+}
+
+func (steps *StepExecutor) SetProvisionHealthPending(
+	machine *infrastructurev1beta1.TartMachine,
+	pending machineexecutionmodel.ProvisionHealthGatePending,
+) (machineexecutionmodel.MachineStatusPatchResult, error) {
+	original := machine.DeepCopy()
+	steps.setProvisionHealthPendingStep(machine, pending)
+	return machineexecutionmodel.MachineStatusPatchRequired{Original: original}, nil
+}
+
+func (steps *StepExecutor) DecideUpdateHealthGate(
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) (machineexecutionmodel.UpdateHealthGateDecisionResult, error) {
+	return machineexecutionstep.DecideUpdateHealthGate(operation, observation)
+}
+
+func (steps *StepExecutor) CompleteUpdate(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	return steps.completeUpdateStep(ctx, machine, operation)
+}
+
+func (steps *StepExecutor) RollbackUpdate(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	operation *infrastructurev1beta1.TartHostOperation,
+	observation machinehealthdomain.NodeObservation,
+) error {
+	return steps.rollbackUpdateStep(ctx, machine, operation, observation)
+}
+
+func (steps *StepExecutor) PatchPlannedMachineStatus(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	patchResult machineexecutionmodel.MachineStatusPatchResult,
+) error {
+	if patchResult == nil {
+		return fmt.Errorf("patch planned TartMachine status: patch result is nil")
+	}
+	return steps.patchPlannedMachineStatus(ctx, machine, patchResult)
 }

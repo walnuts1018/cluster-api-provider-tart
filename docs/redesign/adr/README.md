@@ -15,5 +15,6 @@
 | [0009](0009-image-build-toolchain.md) | Proposed | Image Builderを評価するが、最終成果物builderとは未決定とする |
 | [0010](0010-common-provisioning-agent.md) | Accepted | BMC搭載機でも共通Provisioning Agentがdiskを書き込む |
 | [0011](0011-initial-agent-credential.md) | Accepted | Initial Agent CredentialをPlatformの信頼能力で分ける |
+| [0012](0012-dmmf-architecture-guidelines.md) | Accepted | DMMFをKubernetes Reconcile向けの型安全な境界設計として適用する |
 
 `Proposed`は[Task 01](../tasks/01-foundation-spikes.md)または各ADRに記載した検証の完了後に`Accepted`または`Rejected`へ変更する。

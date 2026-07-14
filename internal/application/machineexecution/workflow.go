@@ -28,6 +28,10 @@ type ProvisionWorkflow = machineexecutionport.ProvisionWorkflow
 type NodeHealthObserver = machineexecutionport.NodeHealthObserver
 
 type Workflow struct {
+	steps *StepExecutor
+}
+
+type StepExecutor struct {
 	client.Client
 	HostReferences HostReferenceService
 	NodeHealth     NodeHealthObserver
@@ -42,7 +46,23 @@ func NewWorkflow(
 	provisioner ProvisionWorkflow,
 	recorder record.EventRecorder,
 ) *Workflow {
+	return NewWorkflowWithSteps(NewStepExecutor(k8sClient, hostReferences, nodeHealth, provisioner, recorder))
+}
+
+func NewWorkflowWithSteps(steps *StepExecutor) *Workflow {
 	return &Workflow{
+		steps: steps,
+	}
+}
+
+func NewStepExecutor(
+	k8sClient client.Client,
+	hostReferences HostReferenceService,
+	nodeHealth NodeHealthObserver,
+	provisioner ProvisionWorkflow,
+	recorder record.EventRecorder,
+) *StepExecutor {
+	return &StepExecutor{
 		Client:         k8sClient,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,

@@ -26,11 +26,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func (workflow *Workflow) observeNodeHealthStep(
+func (steps *StepExecutor) observeNodeHealthStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
-	nodeHealth, err := workflow.observeNodeHealth(ctx, machine)
+	nodeHealth, err := steps.observeNodeHealth(ctx, machine)
 	if err != nil {
 		return err
 	}
@@ -38,35 +38,35 @@ func (workflow *Workflow) observeNodeHealthStep(
 	case nodeHealthUnavailable:
 		return nil
 	case nodeHealthObserved:
-		return workflow.applyObservedHealthGateStep(ctx, machine, nodeHealth.Observation)
+		return steps.applyObservedHealthGateStep(ctx, machine, nodeHealth.Observation)
 	default:
 		return fmt.Errorf("unknown Node health result: %T", nodeHealth)
 	}
 }
 
-func (workflow *Workflow) applyObservedHealthGateStep(
+func (steps *StepExecutor) applyObservedHealthGateStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	route, err := workflow.planHealthGateRouteStep(ctx, machine, observation)
+	route, err := steps.planHealthGateRouteStep(ctx, machine, observation)
 	if err != nil {
 		return err
 	}
-	patchResult, err := workflow.applyHealthGateRouteStep(ctx, machine, route)
+	patchResult, err := steps.applyHealthGateRouteStep(ctx, machine, route)
 	if err != nil {
 		return err
 	}
-	return workflow.patchPlannedMachineStatus(ctx, machine, patchResult)
+	return steps.patchPlannedMachineStatus(ctx, machine, patchResult)
 }
 
-func (workflow *Workflow) planHealthGateRouteStep(
+func (steps *StepExecutor) planHealthGateRouteStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	observation machinehealthdomain.NodeObservation,
 ) (healthGateRouteResult, error) {
 	state := machineState(machine)
-	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "health gate")
+	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "health gate")
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func decideProvisionedHealthGateRouteStep(
 	}
 }
 
-func (workflow *Workflow) applyHealthGateRouteStep(
+func (steps *StepExecutor) applyHealthGateRouteStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	route healthGateRouteResult,
@@ -114,17 +114,17 @@ func (workflow *Workflow) applyHealthGateRouteStep(
 		machine.Status = applicationhealth.StatusWithNodeHealth(machine, route.Observation)
 		return machineStatusPatchRequired{Original: original}, nil
 	case healthGateProvisionRoute:
-		if err := workflow.applyProvisionHealth(ctx, machine, route.Operation, route.Observation); err != nil {
+		if err := steps.applyProvisionHealth(ctx, machine, route.Operation, route.Observation); err != nil {
 			return nil, err
 		}
 		return machineStatusPatchRequired{Original: original}, nil
 	case healthGateUpdateRoute:
-		if err := workflow.applyUpdateHealthGate(ctx, machine, route.Operation, route.Observation); err != nil {
+		if err := steps.applyUpdateHealthGate(ctx, machine, route.Operation, route.Observation); err != nil {
 			return nil, err
 		}
 		return machineStatusPatchRequired{Original: original}, nil
 	case healthGateUpdateTerminalRoute:
-		if err := workflow.applyUpdateTerminalStep(ctx, machine, route.Operation, route.Outcome); err != nil {
+		if err := steps.applyUpdateTerminalStep(ctx, machine, route.Operation, route.Outcome); err != nil {
 			return nil, err
 		}
 		return machineStatusPatchAlreadyApplied{}, nil
@@ -133,7 +133,7 @@ func (workflow *Workflow) applyHealthGateRouteStep(
 	}
 }
 
-func (workflow *Workflow) patchPlannedMachineStatus(
+func (steps *StepExecutor) patchPlannedMachineStatus(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	patchResult machineStatusPatchResult,
@@ -142,7 +142,7 @@ func (workflow *Workflow) patchPlannedMachineStatus(
 	case machineStatusPatchAlreadyApplied:
 		return nil
 	case machineStatusPatchRequired:
-		if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(patchResult.Original)); err != nil {
+		if err := steps.Status().Patch(ctx, machine, client.MergeFrom(patchResult.Original)); err != nil {
 			return fmt.Errorf("set TartMachine status from Node health observation: %w", err)
 		}
 		return nil
@@ -151,14 +151,14 @@ func (workflow *Workflow) patchPlannedMachineStatus(
 	}
 }
 
-func (workflow *Workflow) observeNodeHealth(
+func (steps *StepExecutor) observeNodeHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (nodeHealthResult, error) {
-	if workflow.NodeHealth == nil {
+	if steps.NodeHealth == nil {
 		return nodeHealthUnavailable{}, nil
 	}
-	observation, observed, err := workflow.NodeHealth.Observe(ctx, machine)
+	observation, observed, err := steps.NodeHealth.Observe(ctx, machine)
 	if err != nil {
 		return nil, fmt.Errorf("observe workload Node health: %w", err)
 	}
@@ -168,7 +168,7 @@ func (workflow *Workflow) observeNodeHealth(
 	return nodeHealthObserved{Observation: observation}, nil
 }
 
-func (workflow *Workflow) applyUpdateHealthGate(
+func (steps *StepExecutor) applyUpdateHealthGate(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -178,7 +178,7 @@ func (workflow *Workflow) applyUpdateHealthGate(
 	if err != nil {
 		return err
 	}
-	result, err := workflow.applyUpdateHealthGateDecisionStep(ctx, machine, decision)
+	result, err := steps.applyUpdateHealthGateDecisionStep(ctx, machine, decision)
 	if err != nil {
 		return err
 	}
@@ -205,19 +205,19 @@ func decideUpdateHealthGateStep(
 	}
 }
 
-func (workflow *Workflow) applyUpdateHealthGateDecisionStep(
+func (steps *StepExecutor) applyUpdateHealthGateDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	decision updateHealthGateDecisionResult,
 ) (updateHealthGateEffectResult, error) {
 	switch decision := decision.(type) {
 	case updateHealthGateComplete:
-		if err := workflow.completeUpdateStep(ctx, machine, decision.Operation); err != nil {
+		if err := steps.completeUpdateStep(ctx, machine, decision.Operation); err != nil {
 			return nil, err
 		}
 		return updateHealthGateCompleted{}, nil
 	case updateHealthGateRollback:
-		if err := workflow.rollbackUpdateStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
+		if err := steps.rollbackUpdateStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
 			return nil, err
 		}
 		return updateHealthGateRollbackStarted{}, nil

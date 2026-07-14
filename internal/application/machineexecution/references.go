@@ -26,7 +26,7 @@ import (
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 )
 
-func (workflow *Workflow) resolveOperationReferenceStep(
+func (steps *StepExecutor) resolveOperationReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
@@ -36,7 +36,7 @@ func (workflow *Workflow) resolveOperationReferenceStep(
 	}
 	operation := &infrastructurev1beta1.TartHostOperation{}
 	key := operationKey(machine.Status.OperationRef)
-	if err := workflow.Get(ctx, key, operation); err != nil {
+	if err := steps.Get(ctx, key, operation); err != nil {
 		if apierrors.IsNotFound(err) {
 			return operationReferenceStale{Reference: machine.Status.OperationRef.DeepCopy()}, nil
 		}
@@ -53,7 +53,7 @@ func (workflow *Workflow) resolveOperationReferenceStep(
 	return operationReferenceResolved{Operation: operation}, nil
 }
 
-func (workflow *Workflow) resolveHostReferenceStep(
+func (steps *StepExecutor) resolveHostReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
@@ -66,7 +66,7 @@ func (workflow *Workflow) resolveHostReferenceStep(
 		Namespace: machine.Status.HostRef.Namespace,
 		Name:      machine.Status.HostRef.Name,
 	}
-	if err := workflow.Get(ctx, hostKey, host); err != nil {
+	if err := steps.Get(ctx, hostKey, host); err != nil {
 		return nil, fmt.Errorf("get TartHost for %s: %w", purpose, err)
 	}
 	if host.UID != machine.Status.HostRef.UID {
@@ -94,13 +94,13 @@ func resolvedHost(
 	}
 }
 
-func (workflow *Workflow) transitionOperationPhase(
+func (steps *StepExecutor) transitionOperationPhase(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
 	patchResult := planOperationPhaseTransition(operation, target)
-	return workflow.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation phase")
+	return steps.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation phase")
 }
 
 func planOperationPhaseTransition(
@@ -120,7 +120,7 @@ func planOperationPhaseTransition(
 	return operationStatusPatchRequired{Original: original}
 }
 
-func (workflow *Workflow) patchPlannedOperationStatusStep(
+func (steps *StepExecutor) patchPlannedOperationStatusStep(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 	patchResult operationStatusPatchResult,
@@ -130,7 +130,7 @@ func (workflow *Workflow) patchPlannedOperationStatusStep(
 	case operationStatusPatchAlreadyApplied:
 		return nil
 	case operationStatusPatchRequired:
-		if err := workflow.Status().Patch(ctx, operation, client.MergeFrom(patchResult.Original)); err != nil {
+		if err := steps.Status().Patch(ctx, operation, client.MergeFrom(patchResult.Original)); err != nil {
 			return fmt.Errorf("%s: %w", purpose, err)
 		}
 		return nil
@@ -139,14 +139,14 @@ func (workflow *Workflow) patchPlannedOperationStatusStep(
 	}
 }
 
-func (workflow *Workflow) transitionUpdateFailurePhase(
+func (steps *StepExecutor) transitionUpdateFailurePhase(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 	failedPhase infrastructurev1beta1.TartHostOperationPhase,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
 	patchResult := planUpdateFailurePhaseTransition(operation, failedPhase, target)
-	return workflow.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation update failure phase")
+	return steps.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation update failure phase")
 }
 
 func planUpdateFailurePhaseTransition(

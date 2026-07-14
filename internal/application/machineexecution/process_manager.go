@@ -27,6 +27,9 @@ func (workflow *Workflow) Reconcile(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) error {
+	if workflow.steps == nil {
+		return fmt.Errorf("reconcile TartMachine execution: StepExecutor is not configured")
+	}
 	return workflow.reconcileActive(ctx, machineexecutionmodel.ActiveFromAPI(machine))
 }
 
@@ -48,7 +51,7 @@ func (workflow *Workflow) reconcileProvisioning(
 	ctx context.Context,
 	provisioning provisioningMachine,
 ) error {
-	referenceResult, err := workflow.ensureProvisionReferenceStep(ctx, provisioning)
+	referenceResult, err := workflow.steps.ensureProvisionReferenceStep(ctx, provisioning)
 	if err != nil {
 		return err
 	}
@@ -62,25 +65,25 @@ func (workflow *Workflow) reconcileProvisioning(
 
 	switch machinelifecycledomain.DecideProvision(provisioning.State) {
 	case machinelifecycledomain.CommandStartProvision{}:
-		if err := workflow.startProvisionStep(ctx, provisioning); err != nil {
+		if err := workflow.steps.startProvisionStep(ctx, provisioning); err != nil {
 			return err
 		}
 	case machinelifecycledomain.CommandResumeProvisionOperation{}:
-		if err := workflow.resumeProvisionOperationStep(ctx, provisioning); err != nil {
+		if err := workflow.steps.resumeProvisionOperationStep(ctx, provisioning); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf("unknown TartMachine provision command")
 	}
 
-	return workflow.observeNodeHealthStep(ctx, provisioning.Machine)
+	return workflow.steps.observeNodeHealthStep(ctx, provisioning.Machine)
 }
 
 func (workflow *Workflow) reconcileProvisioned(
 	ctx context.Context,
 	provisioned provisionedMachine,
 ) error {
-	updateResult, err := workflow.reconcileUpdateOperationStep(ctx, provisioned)
+	updateResult, err := workflow.steps.reconcileUpdateOperationStep(ctx, provisioned)
 	if err != nil {
 		return err
 	}
@@ -91,5 +94,5 @@ func (workflow *Workflow) reconcileProvisioned(
 	default:
 		return fmt.Errorf("unknown Update operation result: %T", updateResult)
 	}
-	return workflow.observeNodeHealthStep(ctx, provisioned.Machine)
+	return workflow.steps.observeNodeHealthStep(ctx, provisioned.Machine)
 }

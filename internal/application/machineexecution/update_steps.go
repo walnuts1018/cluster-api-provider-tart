@@ -29,12 +29,12 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-func (workflow *Workflow) reconcileUpdateOperationStep(
+func (steps *StepExecutor) reconcileUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
 ) (updateOperationStepResult, error) {
 	machine := provisioned.Machine
-	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "update outcome")
+	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "update outcome")
 	if err != nil {
 		return nil, err
 	}
@@ -45,13 +45,13 @@ func (workflow *Workflow) reconcileUpdateOperationStep(
 		if reference.Operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
 			return updateOperationNeedsNodeHealth{}, nil
 		}
-		return workflow.reconcileResolvedUpdateOperationStep(ctx, provisioned, reference.Operation)
+		return steps.reconcileResolvedUpdateOperationStep(ctx, provisioned, reference.Operation)
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for update outcome: %T", operationReference)
 	}
 }
 
-func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
+func (steps *StepExecutor) reconcileResolvedUpdateOperationStep(
 	ctx context.Context,
 	provisioned provisionedMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -60,7 +60,7 @@ func (workflow *Workflow) reconcileResolvedUpdateOperationStep(
 	if err != nil {
 		return nil, err
 	}
-	return workflow.applyUpdateOperationDecisionStep(ctx, provisioned.Machine, decision)
+	return steps.applyUpdateOperationDecisionStep(ctx, provisioned.Machine, decision)
 }
 
 func decideUpdateOperationStep(
@@ -80,14 +80,14 @@ func decideUpdateOperationStep(
 	}
 }
 
-func (workflow *Workflow) applyUpdateOperationDecisionStep(
+func (steps *StepExecutor) applyUpdateOperationDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	decision updateOperationDecisionResult,
 ) (updateOperationStepResult, error) {
 	switch decision := decision.(type) {
 	case updateOperationApplyTerminal:
-		if err := workflow.applyUpdateTerminalStep(ctx, machine, decision.Operation, decision.Outcome); err != nil {
+		if err := steps.applyUpdateTerminalStep(ctx, machine, decision.Operation, decision.Outcome); err != nil {
 			return nil, err
 		}
 		return updateOperationTerminalHandled{}, nil
@@ -98,7 +98,7 @@ func (workflow *Workflow) applyUpdateOperationDecisionStep(
 	}
 }
 
-func (workflow *Workflow) applyUpdateTerminalStep(
+func (steps *StepExecutor) applyUpdateTerminalStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -118,23 +118,23 @@ func (workflow *Workflow) applyUpdateTerminalStep(
 	default:
 		return fmt.Errorf("unknown TartMachine update outcome: %q", outcome)
 	}
-	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return fmt.Errorf("set TartMachine Update status: %w", err)
 	}
 	if outcome == machinelifecycledomain.UpdateOutcomeRolledBack ||
 		outcome == machinelifecycledomain.UpdateOutcomeRecoveryRequired {
 		trace.SpanFromContext(ctx).SetAttributes(appupdate.FailureTraceAttributes(operation)...)
-		workflow.recordUpdateFailureEvent(machine, operation)
+		steps.recordUpdateFailureEvent(machine, operation)
 	}
 	return nil
 }
 
-func (workflow *Workflow) completeUpdateStep(
+func (steps *StepExecutor) completeUpdateStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
-	if err := workflow.transitionOperationPhase(
+	if err := steps.transitionOperationPhase(
 		ctx,
 		operation,
 		infrastructurev1beta1.TartHostOperationPhaseSucceeded,
@@ -145,13 +145,13 @@ func (workflow *Workflow) completeUpdateStep(
 	return nil
 }
 
-func (workflow *Workflow) rollbackUpdateStep(
+func (steps *StepExecutor) rollbackUpdateStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	if err := workflow.transitionUpdateFailurePhase(
+	if err := steps.transitionUpdateFailurePhase(
 		ctx,
 		operation,
 		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
@@ -163,18 +163,18 @@ func (workflow *Workflow) rollbackUpdateStep(
 	return nil
 }
 
-func (workflow *Workflow) recordUpdateFailureEvent(
+func (steps *StepExecutor) recordUpdateFailureEvent(
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) {
-	if workflow.Recorder == nil {
+	if steps.Recorder == nil {
 		return
 	}
 	condition := appupdate.FailureCondition(operation)
 	if condition == nil {
 		return
 	}
-	workflow.Recorder.Eventf(
+	steps.Recorder.Eventf(
 		machine,
 		"Warning",
 		"UpdateFailed",

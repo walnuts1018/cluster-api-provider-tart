@@ -32,20 +32,20 @@ import (
 	machinelifecycledomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinelifecycle"
 )
 
-func (workflow *Workflow) ensureProvisionReferenceStep(
+func (steps *StepExecutor) ensureProvisionReferenceStep(
 	ctx context.Context,
 	provisioning provisioningMachine,
 ) (provisionReferenceResult, error) {
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
-	if workflow.HostReferences == nil {
+	if steps.HostReferences == nil {
 		return nil, fmt.Errorf("ensure TartMachine host reference: HostReferences is not configured")
 	}
-	result, err := workflow.HostReferences.EnsureMachineHostReference(ctx, machine)
+	result, err := steps.HostReferences.EnsureMachineHostReference(ctx, machine)
 	if errors.Is(err, allocationdomain.ErrConflict) {
 		original := machine.DeepCopy()
 		machine.Status = applicationallocation.StatusWithAllocationConflict(machine, err.Error())
-		if patchErr := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
+		if patchErr := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); patchErr != nil {
 			return nil, fmt.Errorf("set TartMachine AllocationConflict condition: %w", patchErr)
 		}
 		log.Info("TartMachine allocation conflict detected",
@@ -63,14 +63,14 @@ func (workflow *Workflow) ensureProvisionReferenceStep(
 	return provisionReferenceReady{}, nil
 }
 
-func (workflow *Workflow) startProvisionStep(
+func (steps *StepExecutor) startProvisionStep(
 	ctx context.Context,
 	provisioning provisioningMachine,
 ) error {
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	dependency := workflow.resolveProvisionStartDependencyStep(ctx, machine)
+	dependency := steps.resolveProvisionStartDependencyStep(ctx, machine)
 	var provisioner ProvisionWorkflow
 	switch dependency := dependency.(type) {
 	case provisionStartDependencyUnavailable:
@@ -81,7 +81,7 @@ func (workflow *Workflow) startProvisionStep(
 		return fmt.Errorf("unknown Provision start dependency result: %T", dependency)
 	}
 
-	readiness, err := workflow.checkBootstrapReadinessStep(ctx, machine)
+	readiness, err := steps.checkBootstrapReadinessStep(ctx, machine)
 	if err != nil {
 		return fmt.Errorf("check bootstrap readiness: %w", err)
 	}
@@ -90,7 +90,7 @@ func (workflow *Workflow) startProvisionStep(
 		log.V(4).Info("Bootstrap data not yet ready, waiting",
 			"machine", client.ObjectKeyFromObject(machine).String(),
 		)
-		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusWaitingForBootstrap{}); err != nil {
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusWaitingForBootstrap{}); err != nil {
 			return err
 		}
 		return nil
@@ -99,24 +99,24 @@ func (workflow *Workflow) startProvisionStep(
 		return fmt.Errorf("unknown Bootstrap readiness result: %T", readiness)
 	}
 
-	reservation, err := workflow.reserveProvisionHostStep(ctx, provisioner, machine)
+	reservation, err := steps.reserveProvisionHostStep(ctx, provisioner, machine)
 	if err != nil {
 		return err
 	}
 	switch reservation := reservation.(type) {
 	case provisionHostReservationNoHost:
 		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
-		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusNoAvailableHost{}); err != nil {
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusNoAvailableHost{}); err != nil {
 			return err
 		}
 		return nil
 	case provisionHostReservationStarted:
 		started := reservation.Started
-		if _, err := workflow.ensureProviderIDStep(ctx, machine, started.Host); err != nil {
+		if _, err := steps.ensureProviderIDStep(ctx, machine, started.Host); err != nil {
 			return err
 		}
 
-		if err := workflow.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusHostReserved{
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, provisionStartStatusHostReserved{
 			Host:      started.Host,
 			Operation: started.Operation,
 		}); err != nil {
@@ -134,12 +134,12 @@ func (workflow *Workflow) startProvisionStep(
 	return nil
 }
 
-func (workflow *Workflow) applyProvisionStartStatusPatchStep(
+func (steps *StepExecutor) applyProvisionStartStatusPatchStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	patch provisionStartStatusPatch,
 ) error {
-	result, err := workflow.patchProvisionStartStatusStep(ctx, machine, patch)
+	result, err := steps.patchProvisionStartStatusStep(ctx, machine, patch)
 	if err != nil {
 		return err
 	}
@@ -151,12 +151,12 @@ func (workflow *Workflow) applyProvisionStartStatusPatchStep(
 	}
 }
 
-func (workflow *Workflow) resolveProvisionStartDependencyStep(
+func (steps *StepExecutor) resolveProvisionStartDependencyStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) provisionStartDependencyResult {
-	if workflow.Provisioner != nil {
-		return provisionStartDependencyAvailable{Provisioner: workflow.Provisioner}
+	if steps.Provisioner != nil {
+		return provisionStartDependencyAvailable{Provisioner: steps.Provisioner}
 	}
 	logf.FromContext(ctx).V(4).Info("Provisioner not configured, skipping provisioning",
 		"machine", client.ObjectKeyFromObject(machine).String(),
@@ -164,11 +164,11 @@ func (workflow *Workflow) resolveProvisionStartDependencyStep(
 	return provisionStartDependencyUnavailable{}
 }
 
-func (workflow *Workflow) checkBootstrapReadinessStep(
+func (steps *StepExecutor) checkBootstrapReadinessStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (bootstrapReadinessResult, error) {
-	coreMachine, err := util.GetOwnerMachine(ctx, workflow.Client, machine.ObjectMeta)
+	coreMachine, err := util.GetOwnerMachine(ctx, steps.Client, machine.ObjectMeta)
 	if err != nil {
 		return nil, fmt.Errorf("get owner Machine: %w", err)
 	}
@@ -178,7 +178,7 @@ func (workflow *Workflow) checkBootstrapReadinessStep(
 	return bootstrapDataReady{}, nil
 }
 
-func (workflow *Workflow) reserveProvisionHostStep(
+func (steps *StepExecutor) reserveProvisionHostStep(
 	ctx context.Context,
 	provisioner ProvisionWorkflow,
 	machine *infrastructurev1beta1.TartMachine,
@@ -196,7 +196,7 @@ func (workflow *Workflow) reserveProvisionHostStep(
 	return provisionHostReservationStarted{Started: started}, nil
 }
 
-func (workflow *Workflow) ensureProviderIDStep(
+func (steps *StepExecutor) ensureProviderIDStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	host *infrastructurev1beta1.TartHost,
@@ -214,13 +214,13 @@ func (workflow *Workflow) ensureProviderIDStep(
 	}
 	original := machine.DeepCopy()
 	machine.Spec.ProviderID = expected
-	if err := workflow.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+	if err := steps.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return nil, fmt.Errorf("set TartMachine providerID: %w", err)
 	}
 	return providerIDPatched{}, nil
 }
 
-func (workflow *Workflow) patchProvisionStartStatusStep(
+func (steps *StepExecutor) patchProvisionStartStatusStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	patch provisionStartStatusPatch,
@@ -236,20 +236,20 @@ func (workflow *Workflow) patchProvisionStartStatusStep(
 	default:
 		return nil, fmt.Errorf("unknown Provision start status patch: %T", patch)
 	}
-	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return nil, fmt.Errorf("patch Provision start status: %w", err)
 	}
 	return provisionStartStatusPatched{}, nil
 }
 
-func (workflow *Workflow) resumeProvisionOperationStep(
+func (steps *StepExecutor) resumeProvisionOperationStep(
 	ctx context.Context,
 	provisioning provisioningMachine,
 ) error {
 	machine := provisioning.Machine
 	log := logf.FromContext(ctx)
 
-	operationReference, err := workflow.resolveProvisionProgressReferenceStep(ctx, machine)
+	operationReference, err := steps.resolveProvisionProgressReferenceStep(ctx, machine)
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,7 @@ func (workflow *Workflow) resumeProvisionOperationStep(
 			"machine", client.ObjectKeyFromObject(machine).String(),
 			"operation", operationKey(reference.Reference).String(),
 		)
-		cleared, patchErr := workflow.clearStaleProvisionOperationReferenceStep(ctx, machine, reference.Reference)
+		cleared, patchErr := steps.clearStaleProvisionOperationReferenceStep(ctx, machine, reference.Reference)
 		if patchErr != nil {
 			return patchErr
 		}
@@ -271,17 +271,17 @@ func (workflow *Workflow) resumeProvisionOperationStep(
 	case provisionProgressReferenceAbsent:
 		return nil
 	case provisionProgressReferenceResolved:
-		return workflow.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
+		return steps.resumeResolvedProvisionOperationStep(ctx, machine, reference.Operation)
 	default:
 		return fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
 	}
 }
 
-func (workflow *Workflow) resolveProvisionProgressReferenceStep(
+func (steps *StepExecutor) resolveProvisionProgressReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (provisionProgressReferenceResult, error) {
-	operationReference, err := workflow.resolveOperationReferenceStep(ctx, machine, "provision progress")
+	operationReference, err := steps.resolveOperationReferenceStep(ctx, machine, "provision progress")
 	if err != nil {
 		return nil, err
 	}
@@ -297,20 +297,20 @@ func (workflow *Workflow) resolveProvisionProgressReferenceStep(
 	}
 }
 
-func (workflow *Workflow) clearStaleProvisionOperationReferenceStep(
+func (steps *StepExecutor) clearStaleProvisionOperationReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	reference *infrastructurev1beta1.ResourceReference,
 ) (staleProvisionOperationReferenceCleared, error) {
 	original := machine.DeepCopy()
 	machine.Status.OperationRef = nil
-	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return staleProvisionOperationReferenceCleared{}, fmt.Errorf("clear stale OperationRef: %w", err)
 	}
 	return staleProvisionOperationReferenceCleared{Reference: reference}, nil
 }
 
-func (workflow *Workflow) resumeResolvedProvisionOperationStep(
+func (steps *StepExecutor) resumeResolvedProvisionOperationStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -328,7 +328,7 @@ func (workflow *Workflow) resumeResolvedProvisionOperationStep(
 			"operation", client.ObjectKeyFromObject(operation).String(),
 			"phase", operation.Status.Phase,
 		)
-		patched, patchErr := workflow.patchProvisionFailureStatusStep(ctx, machine, decision)
+		patched, patchErr := steps.patchProvisionFailureStatusStep(ctx, machine, decision)
 		if patchErr != nil {
 			return patchErr
 		}
@@ -370,20 +370,20 @@ func provisionFailureMessageStep(operation *infrastructurev1beta1.TartHostOperat
 	return fmt.Sprintf("TartHostOperation %s/%s %s", operation.Namespace, operation.Name, operation.Status.Phase)
 }
 
-func (workflow *Workflow) patchProvisionFailureStatusStep(
+func (steps *StepExecutor) patchProvisionFailureStatusStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	failure provisionProgressFailed,
 ) (provisionFailureStatusPatchResult, error) {
 	original := machine.DeepCopy()
 	machine.Status = appprovisioning.StatusWithProvisionFailed(machine, failure.Reason, failure.Message)
-	if err := workflow.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+	if err := steps.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return provisionFailureStatusPatchResult{}, fmt.Errorf("set provision failed status: %w", err)
 	}
 	return provisionFailureStatusPatchResult(failure), nil
 }
 
-func (workflow *Workflow) applyProvisionHealth(
+func (steps *StepExecutor) applyProvisionHealth(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
@@ -393,7 +393,7 @@ func (workflow *Workflow) applyProvisionHealth(
 	if err != nil {
 		return err
 	}
-	result, err := workflow.applyProvisionHealthGateDecisionStep(ctx, machine, decision)
+	result, err := steps.applyProvisionHealthGateDecisionStep(ctx, machine, decision)
 	if err != nil {
 		return err
 	}
@@ -425,32 +425,32 @@ func decideProvisionHealthGateStep(
 	}
 }
 
-func (workflow *Workflow) applyProvisionHealthGateDecisionStep(
+func (steps *StepExecutor) applyProvisionHealthGateDecisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	decision provisionHealthGateDecisionResult,
 ) (provisionHealthGateEffectResult, error) {
 	switch decision := decision.(type) {
 	case provisionHealthGateComplete:
-		if err := workflow.completeProvisionStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
+		if err := steps.completeProvisionStep(ctx, machine, decision.Operation, decision.Observation); err != nil {
 			return nil, err
 		}
 		return provisionHealthGateCompleted{}, nil
 	case provisionHealthGatePending:
-		workflow.setProvisionHealthPendingStep(machine, decision)
+		steps.setProvisionHealthPendingStep(machine, decision)
 		return provisionHealthGatePendingApplied{}, nil
 	default:
 		return nil, fmt.Errorf("unknown Provision health gate decision result: %T", decision)
 	}
 }
 
-func (workflow *Workflow) completeProvisionStep(
+func (steps *StepExecutor) completeProvisionStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	operation *infrastructurev1beta1.TartHostOperation,
 	observation machinehealthdomain.NodeObservation,
 ) error {
-	dependency := workflow.resolveProvisionCompletionDependencyStep()
+	dependency := steps.resolveProvisionCompletionDependencyStep()
 	var provisioner ProvisionWorkflow
 	switch dependency := dependency.(type) {
 	case provisionCompletionDependencyAvailable:
@@ -461,7 +461,7 @@ func (workflow *Workflow) completeProvisionStep(
 		return fmt.Errorf("unknown Provision completion dependency result: %T", dependency)
 	}
 
-	hostResult, err := workflow.resolveProvisionCompletionHostStep(ctx, machine)
+	hostResult, err := steps.resolveProvisionCompletionHostStep(ctx, machine)
 	if err != nil {
 		return err
 	}
@@ -493,18 +493,18 @@ func (workflow *Workflow) completeProvisionStep(
 	return nil
 }
 
-func (workflow *Workflow) resolveProvisionCompletionDependencyStep() provisionCompletionDependencyResult {
-	if workflow.Provisioner == nil {
+func (steps *StepExecutor) resolveProvisionCompletionDependencyStep() provisionCompletionDependencyResult {
+	if steps.Provisioner == nil {
 		return provisionCompletionDependencyMissing{}
 	}
-	return provisionCompletionDependencyAvailable{Provisioner: workflow.Provisioner}
+	return provisionCompletionDependencyAvailable{Provisioner: steps.Provisioner}
 }
 
-func (workflow *Workflow) resolveProvisionCompletionHostStep(
+func (steps *StepExecutor) resolveProvisionCompletionHostStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 ) (provisionCompletionHostResult, error) {
-	hostReference, err := workflow.resolveHostReferenceStep(ctx, machine, "health gate")
+	hostReference, err := steps.resolveHostReferenceStep(ctx, machine, "health gate")
 	if err != nil {
 		return nil, err
 	}
@@ -540,7 +540,7 @@ func planProvisionedStatusStep(
 	}
 }
 
-func (workflow *Workflow) setProvisionHealthPendingStep(
+func (steps *StepExecutor) setProvisionHealthPendingStep(
 	machine *infrastructurev1beta1.TartMachine,
 	pending provisionHealthGatePending,
 ) {

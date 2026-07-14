@@ -15,14 +15,6 @@ package initialprovisioning
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"time"
-
-	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
-	"github.com/opencontainers/go-digest"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
@@ -31,20 +23,12 @@ import (
 	initialprovisioningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/port"
 	initialprovisioningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
-	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
 var (
-	// ErrNoAvailableHost は条件に合うHostが存在しない場合に返す。
-	ErrNoAvailableHost = errors.New("no available TartHost matches requirements")
-	// ErrBootstrapNotReady はBootstrap Secretがまだ用意されていない場合に返す。
-	ErrBootstrapNotReady = errors.New("bootstrap secret is not yet available")
+	ErrNoAvailableHost   = initialprovisioningmodel.ErrNoAvailableHost
+	ErrBootstrapNotReady = initialprovisioningmodel.ErrBootstrapNotReady
 )
-
-// defaultOperationDeadline はProvision Operationのデフォルトのタイムアウト期間。
-// 大容量ディスクへの書き込みに十分な時間を確保する。
-const defaultOperationDeadline = 2 * time.Hour
 
 type HostReserveService = initialprovisioningport.HostReserveService
 type HostPhaseService = initialprovisioningport.HostPhaseService
@@ -102,47 +86,7 @@ func (workflow *Workflow) Start(
 	machine *infrastructurev1beta1.TartMachine,
 	planDigest string,
 ) (StartResult, error) {
-	requirements, err := requirementsForMachine(machine)
-	if err != nil {
-		return StartResult{}, fmt.Errorf("build allocation requirements: %w", err)
-	}
-
-	reserveStep := StepReserveHost{
-		Requirements: requirements,
-	}
-	host, err := workflow.commands.ReserveHost(ctx, machine, reserveStep)
-	if err != nil {
-		if errors.Is(err, allocationdomain.ErrNoMatchingHost) {
-			return StartResult{}, ErrNoAvailableHost
-		}
-		return StartResult{}, err
-	}
-	if host == nil {
-		return StartResult{}, ErrNoAvailableHost
-	}
-
-	if err := workflow.commands.MarkHostReserved(ctx, machine, host); err != nil {
-		return StartResult{}, err
-	}
-
-	desired, err := BuildOperationDraft(machine, host, planDigest)
-	if err != nil {
-		return StartResult{}, err
-	}
-
-	operation, err := workflow.commands.StartOperation(ctx, StepStartOperation{Operation: desired})
-	if err != nil {
-		return StartResult{}, err
-	}
-
-	return initialprovisioningmodel.StartResult{
-		Host:      host,
-		Operation: operation,
-		Events: []initialprovisioningevent.Event{
-			EventHostReserved{HostName: host.Name},
-			EventOperationStarted{OperationID: operation.Spec.OperationID},
-		},
-	}, nil
+	return workflow.commands.Start(ctx, machine, planDigest)
 }
 
 func BuildOperationDraft(
@@ -150,108 +94,16 @@ func BuildOperationDraft(
 	host *infrastructurev1beta1.TartHost,
 	planDigest string,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
-	operationUID, err := deterministicOperationUID(host, machine)
-	if err != nil {
-		return nil, err
-	}
-
-	deadline := metav1.NewTime(time.Now().Add(defaultOperationDeadline))
-	desiredMachine := machine.DeepCopy()
-	expectedProviderID := fmt.Sprintf("tart://%s", host.Name)
-	if desiredMachine.Spec.ProviderID != "" && desiredMachine.Spec.ProviderID != expectedProviderID {
-		return nil, fmt.Errorf(
-			"TartMachine providerID %q does not match reserved TartHost %q",
-			desiredMachine.Spec.ProviderID,
-			host.Name,
-		)
-	}
-	desiredMachine.Spec.ProviderID = expectedProviderID
-	objectsDigest, err := desiredObjectsDigest(desiredMachine)
-	if err != nil {
-		return nil, fmt.Errorf("build desired objects digest: %w", err)
-	}
-	return &infrastructurev1beta1.TartHostOperation{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: machine.Namespace,
-		},
-		Spec: infrastructurev1beta1.TartHostOperationSpec{
-			OperationID: operationUID,
-			Type:        infrastructurev1beta1.OperationTypeProvision,
-			HostRef: infrastructurev1beta1.ResourceReference{
-				Namespace: host.Namespace,
-				Name:      host.Name,
-				UID:       host.UID,
-			},
-			MachineRef: &infrastructurev1beta1.ResourceReference{
-				Namespace: machine.Namespace,
-				Name:      machine.Name,
-				UID:       machine.UID,
-			},
-			PlanDigest:           planDigest,
-			DesiredObjectsDigest: objectsDigest,
-			Deadline:             deadline,
-		},
-	}, nil
+	return initialprovisioningstep.BuildOperationDraft(machine, host, planDigest)
 }
 
 // requirementsForMachine はTartMachineからAllocation Requirementsを構築する。
 func requirementsForMachine(machine *infrastructurev1beta1.TartMachine) (allocationdomain.Requirements, error) {
-	architecture, firmware, err := parsePlatformProfile(machine.Spec.PlatformProfile)
-	if err != nil {
-		return allocationdomain.Requirements{}, err
-	}
-
-	matchLabels := machine.Spec.HostSelector.MatchLabels
-	const minRootDiskBytes int64 = 64 * 1024 * 1024 * 1024
-	return allocationdomain.NewRequirements(
-		architecture,
-		firmware,
-		machine.Spec.PlatformProfile,
-		minRootDiskBytes,
-		[]capability.Capability{capability.PowerOn},
-		matchLabels,
-	)
-}
-
-// parsePlatformProfile はPlatformProfile IDからarchitectureとfirmwareを解析する。
-// 例: "amd64-uefi-ab/v1" → ("amd64", "UEFI")
-func parsePlatformProfile(profile string) (architecture, firmware string, err error) {
-	switch profile {
-	case "amd64-uefi-ab/v1":
-		return "amd64", "UEFI", nil
-	default:
-		return "", "", fmt.Errorf("unsupported platform profile %q", profile)
-	}
-}
-
-// deterministicOperationUID はHostUID/MachineUIDから決定論的なOperation UIDを生成する。
-// 再起動後も同じMachine/Hostの組み合わせに対して同一のUIDが生成されることを保証する。
-func deterministicOperationUID(host *infrastructurev1beta1.TartHost, machine *infrastructurev1beta1.TartMachine) (string, error) {
-	key := string(host.UID) + "/" + string(machine.UID)
-	id, err := operationdomain.DeterministicID(key)
-	if err != nil {
-		return "", fmt.Errorf("generate deterministic operation ID: %w", err)
-	}
-	return id.String(), nil
+	return initialprovisioningstep.RequirementsForMachine(machine)
 }
 
 // desiredObjectsDigest は初期Provisioning入力をRFC 8785 Canonical JSONで固定する。
 // CAPI MachineとBootstrap SecretはPlan生成時に別途追加する。
 func desiredObjectsDigest(machine *infrastructurev1beta1.TartMachine) (string, error) {
-	input := struct {
-		MachineUID string                                `json:"machineUID"`
-		Spec       infrastructurev1beta1.TartMachineSpec `json:"spec"`
-	}{
-		MachineUID: string(machine.UID),
-		Spec:       machine.Spec,
-	}
-	encoded, err := json.Marshal(input)
-	if err != nil {
-		return "", fmt.Errorf("marshal TartMachine desired state: %w", err)
-	}
-	canonical, err := jsoncanonicalizer.Transform(encoded)
-	if err != nil {
-		return "", fmt.Errorf("canonicalize TartMachine desired state: %w", err)
-	}
-	return digest.FromBytes(canonical).String(), nil
+	return initialprovisioningstep.DesiredObjectsDigest(machine)
 }

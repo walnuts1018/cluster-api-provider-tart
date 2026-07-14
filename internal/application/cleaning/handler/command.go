@@ -17,8 +17,11 @@ package handler
 import (
 	"context"
 	"fmt"
+	"time"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	cleaningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/event"
+	cleaningmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/model"
 	cleaningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/step"
 )
 
@@ -33,6 +36,11 @@ type Steps interface {
 		cleaningstep.StartOperation,
 	) (*infrastructurev1beta1.TartHostOperation, error)
 	PersistPlan(context.Context, cleaningstep.PersistPlan) error
+	BuildSignedCleaningPlan(
+		*infrastructurev1beta1.TartHost,
+		infrastructurev1beta1.DeletionPolicy,
+		*infrastructurev1beta1.TartHostOperation,
+	) (cleaningstep.SignedCleaningPlan, error)
 }
 
 type CommandHandler struct {
@@ -41,6 +49,52 @@ type CommandHandler struct {
 
 func NewCommandHandler(steps Steps) *CommandHandler {
 	return &CommandHandler{steps: steps}
+}
+
+func (handler *CommandHandler) StartCleaning(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	now time.Time,
+) (cleaningmodel.StartResult, error) {
+	if err := handler.MarkHostCleaning(ctx, host, machine.Spec.DeletionPolicy); err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	draft, err := cleaningstep.BuildOperationDraft(machine, host, "", now)
+	if err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	candidatePlan, err := handler.steps.BuildSignedCleaningPlan(host, machine.Spec.DeletionPolicy, draft)
+	if err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	draft.Spec.PlanDigest = candidatePlan.Digest.String()
+
+	started, err := handler.StartOperation(ctx, cleaningstep.StartOperation{Operation: draft})
+	if err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	persistedPlan, err := handler.steps.BuildSignedCleaningPlan(host, machine.Spec.DeletionPolicy, started)
+	if err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	if persistedPlan.Digest.String() != started.Spec.PlanDigest {
+		return cleaningmodel.StartResult{}, fmt.Errorf("stored Cleaning Operation Plan digest does not match regenerated Plan")
+	}
+	if err := handler.PersistPlan(ctx, cleaningstep.PersistPlan{
+		Operation: started,
+		Plan:      persistedPlan.Plan,
+		Signature: persistedPlan.Signature,
+	}); err != nil {
+		return cleaningmodel.StartResult{}, err
+	}
+	return cleaningmodel.StartResult{
+		Operation: started,
+		Events: []cleaningevent.Event{
+			cleaningevent.OperationStarted{OperationID: started.Spec.OperationID},
+			cleaningevent.PlanPersisted{OperationID: started.Spec.OperationID},
+		},
+	}, nil
 }
 
 func (handler *CommandHandler) MarkHostCleaning(

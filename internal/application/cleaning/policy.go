@@ -15,55 +15,22 @@
 package cleaning
 
 import (
-	"fmt"
 	"time"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	cleaningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/step"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
 const (
-	gibibyte               = int64(1024 * 1024 * 1024)
-	tebibyte               = 1024 * gibibyte
-	minimumWipeAllDeadline = 2 * time.Hour
-	wipeAllBaseOverhead    = 20 * time.Minute
-	wipeAllPerTiB          = 2 * time.Hour
+	gibibyte = int64(1024 * 1024 * 1024)
+	tebibyte = 1024 * gibibyte
 )
 
-// AllowedTargetRoles はDeletionPolicyごとの破壊可能範囲をPlanへ写像する。
 func AllowedTargetRoles(policy infrastructurev1beta1.DeletionPolicy) ([]agentprotocol.DiskRole, error) {
-	switch policy {
-	case infrastructurev1beta1.DeletionPolicyWipeAll:
-		return []agentprotocol.DiskRole{
-			agentprotocol.DiskRoleBoot,
-			agentprotocol.DiskRoleOSA,
-			agentprotocol.DiskRoleOSB,
-			agentprotocol.DiskRoleVerityA,
-			agentprotocol.DiskRoleVerityB,
-			agentprotocol.DiskRoleState,
-			agentprotocol.DiskRoleData,
-		}, nil
-	case infrastructurev1beta1.DeletionPolicyRetainData:
-		return []agentprotocol.DiskRole{
-			agentprotocol.DiskRoleBoot,
-			agentprotocol.DiskRoleOSA,
-			agentprotocol.DiskRoleOSB,
-			agentprotocol.DiskRoleVerityA,
-			agentprotocol.DiskRoleVerityB,
-			agentprotocol.DiskRoleState,
-		}, nil
-	case infrastructurev1beta1.DeletionPolicyRetainState:
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("unsupported deletion policy %q", policy)
-	}
+	return cleaningstep.AllowedTargetRoles(policy)
 }
 
-// WipeAllDeadline は観測済みディスク容量に応じてWipeAllのdeadlineを伸ばす。
 func WipeAllDeadline(sizeBytes int64) time.Duration {
-	if sizeBytes <= 0 || sizeBytes < tebibyte {
-		return minimumWipeAllDeadline
-	}
-	tebibytes := (sizeBytes + tebibyte - 1) / tebibyte
-	return minimumWipeAllDeadline + wipeAllBaseOverhead + time.Duration(tebibytes)*wipeAllPerTiB
+	return cleaningstep.WipeAllDeadline(sizeBytes)
 }

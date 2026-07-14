@@ -16,6 +16,7 @@ package step
 
 import (
 	"context"
+	"crypto/ed25519"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	cleaningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/port"
@@ -25,18 +26,26 @@ type Executor struct {
 	hostPhase  cleaningport.HostPhaseService
 	operations cleaningport.OperationService
 	plans      cleaningport.PlanWriter
+	signer     PlanSigner
 }
 
 func NewExecutor(
 	hostPhase cleaningport.HostPhaseService,
 	operations cleaningport.OperationService,
 	plans cleaningport.PlanWriter,
+	signer PlanSigner,
 ) *Executor {
 	return &Executor{
 		hostPhase:  hostPhase,
 		operations: operations,
 		plans:      plans,
+		signer:     signer,
 	}
+}
+
+type PlanSigner struct {
+	KeyID      string
+	PrivateKey ed25519.PrivateKey
 }
 
 func (executor *Executor) MarkHostCleaning(
@@ -56,4 +65,12 @@ func (executor *Executor) StartOperation(
 
 func (executor *Executor) PersistPlan(ctx context.Context, command PersistPlan) error {
 	return executor.plans.Write(ctx, command.Operation, command.Plan, command.Signature)
+}
+
+func (executor *Executor) BuildSignedCleaningPlan(
+	host *infrastructurev1beta1.TartHost,
+	policy infrastructurev1beta1.DeletionPolicy,
+	operation *infrastructurev1beta1.TartHostOperation,
+) (SignedCleaningPlan, error) {
+	return BuildSignedCleaningPlan(host, policy, operation, executor.signer)
 }

@@ -16,13 +16,20 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
+	initialprovisioningmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/model"
 	initialprovisioningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/step"
+	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 )
 
 type Steps interface {
+	RequirementsForMachine(
+		*infrastructurev1beta1.TartMachine,
+	) (allocationdomain.Requirements, error)
 	ReserveHost(
 		context.Context,
 		*infrastructurev1beta1.TartMachine,
@@ -37,6 +44,11 @@ type Steps interface {
 		context.Context,
 		initialprovisioningstep.StartOperation,
 	) (*infrastructurev1beta1.TartHostOperation, error)
+	BuildOperationDraft(
+		*infrastructurev1beta1.TartMachine,
+		*infrastructurev1beta1.TartHost,
+		string,
+	) (*infrastructurev1beta1.TartHostOperation, error)
 	CompleteProvisioning(
 		context.Context,
 		*infrastructurev1beta1.TartHost,
@@ -50,6 +62,51 @@ type CommandHandler struct {
 
 func NewCommandHandler(steps Steps) *CommandHandler {
 	return &CommandHandler{steps: steps}
+}
+
+func (handler *CommandHandler) Start(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	planDigest string,
+) (initialprovisioningmodel.StartResult, error) {
+	requirements, err := handler.steps.RequirementsForMachine(machine)
+	if err != nil {
+		return initialprovisioningmodel.StartResult{}, fmt.Errorf("build allocation requirements: %w", err)
+	}
+
+	host, err := handler.ReserveHost(ctx, machine, initialprovisioningstep.ReserveHost{Requirements: requirements})
+	if err != nil {
+		if errors.Is(err, allocationdomain.ErrNoMatchingHost) {
+			return initialprovisioningmodel.StartResult{}, initialprovisioningmodel.ErrNoAvailableHost
+		}
+		return initialprovisioningmodel.StartResult{}, err
+	}
+	if host == nil {
+		return initialprovisioningmodel.StartResult{}, initialprovisioningmodel.ErrNoAvailableHost
+	}
+
+	if err := handler.MarkHostReserved(ctx, machine, host); err != nil {
+		return initialprovisioningmodel.StartResult{}, err
+	}
+
+	desired, err := handler.steps.BuildOperationDraft(machine, host, planDigest)
+	if err != nil {
+		return initialprovisioningmodel.StartResult{}, err
+	}
+
+	operation, err := handler.StartOperation(ctx, initialprovisioningstep.StartOperation{Operation: desired})
+	if err != nil {
+		return initialprovisioningmodel.StartResult{}, err
+	}
+
+	return initialprovisioningmodel.StartResult{
+		Host:      host,
+		Operation: operation,
+		Events: []initialprovisioningevent.Event{
+			initialprovisioningevent.HostReserved{HostName: host.Name},
+			initialprovisioningevent.OperationStarted{OperationID: operation.Spec.OperationID},
+		},
+	}, nil
 }
 
 func (handler *CommandHandler) ReserveHost(

@@ -20,6 +20,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	initialprovisioningport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/port"
+	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 )
 
 type Executor struct {
@@ -46,6 +47,20 @@ func (executor *Executor) ReserveHost(
 	command ReserveHost,
 ) (*infrastructurev1beta1.TartHost, error) {
 	return executor.hostReserve.Reserve(ctx, machine, command.Requirements)
+}
+
+func (executor *Executor) RequirementsForMachine(
+	machine *infrastructurev1beta1.TartMachine,
+) (allocationdomain.Requirements, error) {
+	return RequirementsForMachine(machine)
+}
+
+func (executor *Executor) BuildOperationDraft(
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	planDigest string,
+) (*infrastructurev1beta1.TartHostOperation, error) {
+	return BuildOperationDraft(machine, host, planDigest)
 }
 
 func (executor *Executor) MarkHostReserved(

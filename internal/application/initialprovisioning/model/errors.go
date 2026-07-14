@@ -12,21 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package cleaning
+package model
 
-import (
-	"crypto/ed25519"
+import "errors"
 
-	cleaningstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning/step"
+var (
+	ErrNoAvailableHost   = errors.New("no available TartHost matches requirements")
+	ErrBootstrapNotReady = errors.New("bootstrap secret is not yet available")
 )
-
-type CleaningPlanInput = cleaningstep.CleaningPlanInput
-type SignedCleaningPlan = cleaningstep.SignedCleaningPlan
-
-func BuildCleaningPlan(
-	input CleaningPlanInput,
-	keyID string,
-	privateKey ed25519.PrivateKey,
-) (SignedCleaningPlan, error) {
-	return cleaningstep.BuildCleaningPlan(input, keyID, privateKey)
-}

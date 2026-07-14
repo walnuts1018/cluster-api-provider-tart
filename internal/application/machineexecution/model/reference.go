@@ -12,37 +12,37 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package model
 
 import infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 
-type operationReferenceResult interface {
+type OperationReferenceResult interface {
 	isOperationReferenceResult()
 }
 
-type operationReferenceAbsent struct{}
+type OperationReferenceAbsent struct{}
 
-type operationReferenceResolved struct {
+type OperationReferenceResolved struct {
 	Operation *infrastructurev1beta1.TartHostOperation
 }
 
-type operationReferenceStale struct {
+type OperationReferenceStale struct {
 	Reference *infrastructurev1beta1.ResourceReference
 }
 
-type hostReferenceResult interface {
+type HostReferenceResult interface {
 	isHostReferenceResult()
 }
 
-type hostReferenceMissing struct{}
+type HostReferenceMissing struct{}
 
-type hostReferenceResolved struct {
+type HostReferenceResolved struct {
 	Host *infrastructurev1beta1.TartHost
 }
 
-func (operationReferenceAbsent) isOperationReferenceResult()   {}
-func (operationReferenceResolved) isOperationReferenceResult() {}
-func (operationReferenceStale) isOperationReferenceResult()    {}
+func (OperationReferenceAbsent) isOperationReferenceResult()   {}
+func (OperationReferenceResolved) isOperationReferenceResult() {}
+func (OperationReferenceStale) isOperationReferenceResult()    {}
 
-func (hostReferenceMissing) isHostReferenceResult()  {}
-func (hostReferenceResolved) isHostReferenceResult() {}
+func (HostReferenceMissing) isHostReferenceResult()  {}
+func (HostReferenceResolved) isHostReferenceResult() {}

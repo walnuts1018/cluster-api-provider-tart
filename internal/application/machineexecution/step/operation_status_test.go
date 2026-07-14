@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package step
 
 import (
 	"testing"
@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
 )
 
 func TestPlanOperationPhaseTransition(t *testing.T) {
@@ -39,7 +40,7 @@ func TestPlanOperationPhaseTransition(t *testing.T) {
 				},
 			},
 			target:     infrastructurev1beta1.TartHostOperationPhaseSucceeded,
-			wantResult: operationStatusPatchAlreadyApplied{},
+			wantResult: model.OperationStatusPatchAlreadyApplied{},
 		},
 		{
 			name: "phase is changed and observed generation catches up",
@@ -51,7 +52,7 @@ func TestPlanOperationPhaseTransition(t *testing.T) {
 				},
 			},
 			target:     infrastructurev1beta1.TartHostOperationPhaseSucceeded,
-			wantResult: operationStatusPatchRequired{},
+			wantResult: model.OperationStatusPatchRequired{},
 		},
 	}
 
@@ -59,7 +60,7 @@ func TestPlanOperationPhaseTransition(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			operation := tt.operation.DeepCopy()
 
-			result := planOperationPhaseTransition(operation, tt.target)
+			result := PlanOperationPhaseTransition(operation, tt.target)
 
 			if operation.Status.Phase != tt.target {
 				t.Fatalf("Phase = %q, want %q", operation.Status.Phase, tt.target)
@@ -68,14 +69,14 @@ func TestPlanOperationPhaseTransition(t *testing.T) {
 				t.Fatalf("ObservedGeneration = %d, want %d", operation.Status.ObservedGeneration, operation.Generation)
 			}
 			switch tt.wantResult.(type) {
-			case operationStatusPatchAlreadyApplied:
-				if _, ok := result.(operationStatusPatchAlreadyApplied); !ok {
-					t.Fatalf("result = %T, want operationStatusPatchAlreadyApplied", result)
+			case model.OperationStatusPatchAlreadyApplied:
+				if _, ok := result.(model.OperationStatusPatchAlreadyApplied); !ok {
+					t.Fatalf("result = %T, want model.OperationStatusPatchAlreadyApplied", result)
 				}
-			case operationStatusPatchRequired:
-				required, ok := result.(operationStatusPatchRequired)
+			case model.OperationStatusPatchRequired:
+				required, ok := result.(model.OperationStatusPatchRequired)
 				if !ok {
-					t.Fatalf("result = %T, want operationStatusPatchRequired", result)
+					t.Fatalf("result = %T, want model.OperationStatusPatchRequired", result)
 				}
 				if required.Original == nil {
 					t.Fatalf("Original is nil")

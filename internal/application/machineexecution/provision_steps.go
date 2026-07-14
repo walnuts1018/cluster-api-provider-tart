@@ -26,6 +26,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	applicationallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineallocation"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
 	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
@@ -286,12 +287,12 @@ func (steps *StepExecutor) resolveProvisionProgressReferenceStep(
 		return nil, err
 	}
 	switch reference := operationReference.(type) {
-	case operationReferenceAbsent:
+	case model.OperationReferenceAbsent:
 		return provisionProgressReferenceAbsent{}, nil
-	case operationReferenceStale:
-		return provisionProgressReferenceStale(reference), nil
-	case operationReferenceResolved:
-		return provisionProgressReferenceResolved(reference), nil
+	case model.OperationReferenceStale:
+		return provisionProgressReferenceStale{Reference: reference.Reference}, nil
+	case model.OperationReferenceResolved:
+		return provisionProgressReferenceResolved{Operation: reference.Operation}, nil
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for provision progress: %T", operationReference)
 	}

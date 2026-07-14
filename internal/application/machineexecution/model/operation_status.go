@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package machineexecution
+package model
 
 import infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 
-type operationStatusPatchResult interface {
+type OperationStatusPatchResult interface {
 	isOperationStatusPatchResult()
 }
 
-type operationStatusPatchRequired struct {
+type OperationStatusPatchRequired struct {
 	Original *infrastructurev1beta1.TartHostOperation
 }
 
-type operationStatusPatchAlreadyApplied struct{}
+type OperationStatusPatchAlreadyApplied struct{}
 
-func (operationStatusPatchRequired) isOperationStatusPatchResult()       {}
-func (operationStatusPatchAlreadyApplied) isOperationStatusPatchResult() {}
+func (OperationStatusPatchRequired) isOperationStatusPatchResult()       {}
+func (OperationStatusPatchAlreadyApplied) isOperationStatusPatchResult() {}

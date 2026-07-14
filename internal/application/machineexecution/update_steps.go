@@ -23,6 +23,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
 	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
@@ -39,9 +40,9 @@ func (steps *StepExecutor) reconcileUpdateOperationStep(
 		return nil, err
 	}
 	switch reference := operationReference.(type) {
-	case operationReferenceAbsent, operationReferenceStale:
+	case model.OperationReferenceAbsent, model.OperationReferenceStale:
 		return updateOperationNeedsNodeHealth{}, nil
-	case operationReferenceResolved:
+	case model.OperationReferenceResolved:
 		if reference.Operation.Spec.Type != infrastructurev1beta1.OperationTypeUpdate {
 			return updateOperationNeedsNodeHealth{}, nil
 		}

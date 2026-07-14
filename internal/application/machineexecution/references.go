@@ -23,22 +23,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
+	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 )
 
 func (steps *StepExecutor) resolveOperationReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
-) (operationReferenceResult, error) {
+) (model.OperationReferenceResult, error) {
 	if machine.Status.OperationRef == nil {
-		return operationReferenceAbsent{}, nil
+		return model.OperationReferenceAbsent{}, nil
 	}
 	operation := &infrastructurev1beta1.TartHostOperation{}
 	key := operationKey(machine.Status.OperationRef)
 	if err := steps.Get(ctx, key, operation); err != nil {
 		if apierrors.IsNotFound(err) {
-			return operationReferenceStale{Reference: machine.Status.OperationRef.DeepCopy()}, nil
+			return model.OperationReferenceStale{Reference: machine.Status.OperationRef.DeepCopy()}, nil
 		}
 		return nil, fmt.Errorf("get TartHostOperation for %s: %w", purpose, err)
 	}
@@ -50,16 +51,16 @@ func (steps *StepExecutor) resolveOperationReferenceStep(
 			operation.UID,
 		)
 	}
-	return operationReferenceResolved{Operation: operation}, nil
+	return model.OperationReferenceResolved{Operation: operation}, nil
 }
 
 func (steps *StepExecutor) resolveHostReferenceStep(
 	ctx context.Context,
 	machine *infrastructurev1beta1.TartMachine,
 	purpose string,
-) (hostReferenceResult, error) {
+) (model.HostReferenceResult, error) {
 	if machine.Status.HostRef == nil {
-		return hostReferenceMissing{}, nil
+		return model.HostReferenceMissing{}, nil
 	}
 	host := &infrastructurev1beta1.TartHost{}
 	hostKey := client.ObjectKey{
@@ -77,17 +78,17 @@ func (steps *StepExecutor) resolveHostReferenceStep(
 			host.UID,
 		)
 	}
-	return hostReferenceResolved{Host: host}, nil
+	return model.HostReferenceResolved{Host: host}, nil
 }
 
 func resolvedHost(
-	reference hostReferenceResult,
+	reference model.HostReferenceResult,
 	purpose string,
 ) (*infrastructurev1beta1.TartHost, error) {
 	switch reference := reference.(type) {
-	case hostReferenceResolved:
+	case model.HostReferenceResolved:
 		return reference.Host, nil
-	case hostReferenceMissing:
+	case model.HostReferenceMissing:
 		return nil, fmt.Errorf("TartHost reference is missing for %s", purpose)
 	default:
 		return nil, fmt.Errorf("unknown TartHost reference result for %s: %T", purpose, reference)
@@ -99,37 +100,20 @@ func (steps *StepExecutor) transitionOperationPhase(
 	operation *infrastructurev1beta1.TartHostOperation,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
-	patchResult := planOperationPhaseTransition(operation, target)
+	patchResult := machineexecutionstep.PlanOperationPhaseTransition(operation, target)
 	return steps.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation phase")
-}
-
-func planOperationPhaseTransition(
-	operation *infrastructurev1beta1.TartHostOperation,
-	target infrastructurev1beta1.TartHostOperationPhase,
-) operationStatusPatchResult {
-	original := operation.DeepCopy()
-	statusChanged := operation.Status.Phase != target
-	operation.Status.Phase = target
-	if operation.Status.ObservedGeneration < operation.Generation {
-		statusChanged = true
-		operation.Status.ObservedGeneration = operation.Generation
-	}
-	if !statusChanged {
-		return operationStatusPatchAlreadyApplied{}
-	}
-	return operationStatusPatchRequired{Original: original}
 }
 
 func (steps *StepExecutor) patchPlannedOperationStatusStep(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
-	patchResult operationStatusPatchResult,
+	patchResult model.OperationStatusPatchResult,
 	purpose string,
 ) error {
 	switch patchResult := patchResult.(type) {
-	case operationStatusPatchAlreadyApplied:
+	case model.OperationStatusPatchAlreadyApplied:
 		return nil
-	case operationStatusPatchRequired:
+	case model.OperationStatusPatchRequired:
 		if err := steps.Status().Patch(ctx, operation, client.MergeFrom(patchResult.Original)); err != nil {
 			return fmt.Errorf("%s: %w", purpose, err)
 		}
@@ -145,22 +129,8 @@ func (steps *StepExecutor) transitionUpdateFailurePhase(
 	failedPhase infrastructurev1beta1.TartHostOperationPhase,
 	target infrastructurev1beta1.TartHostOperationPhase,
 ) error {
-	patchResult := planUpdateFailurePhaseTransition(operation, failedPhase, target)
+	patchResult := machineexecutionstep.PlanUpdateFailurePhaseTransition(operation, failedPhase, target)
 	return steps.patchPlannedOperationStatusStep(ctx, operation, patchResult, "set TartHostOperation update failure phase")
-}
-
-func planUpdateFailurePhaseTransition(
-	operation *infrastructurev1beta1.TartHostOperation,
-	failedPhase infrastructurev1beta1.TartHostOperationPhase,
-	target infrastructurev1beta1.TartHostOperationPhase,
-) operationStatusPatchResult {
-	original := operation.DeepCopy()
-	operation.Status.Phase = target
-	appupdate.UpdateFailureCondition(&operation.Status, operation.Generation, failedPhase, target)
-	if operation.Status.ObservedGeneration < operation.Generation {
-		operation.Status.ObservedGeneration = operation.Generation
-	}
-	return operationStatusPatchRequired{Original: original}
 }
 
 func operationKey(ref *infrastructurev1beta1.ResourceReference) types.NamespacedName {

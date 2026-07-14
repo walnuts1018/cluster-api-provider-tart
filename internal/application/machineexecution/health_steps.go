@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/model"
 	machineexecutionstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/step"
 	applicationhealth "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinehealth"
 	machinehealthdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/machinehealth"
@@ -71,12 +72,12 @@ func (steps *StepExecutor) planHealthGateRouteStep(
 		return nil, err
 	}
 	switch reference := operationReference.(type) {
-	case operationReferenceResolved:
+	case model.OperationReferenceResolved:
 		if !state.Provisioned {
 			return healthGateProvisionRoute{Operation: reference.Operation, Observation: observation}, nil
 		}
 		return decideProvisionedHealthGateRouteStep(reference.Operation, observation)
-	case operationReferenceAbsent, operationReferenceStale:
+	case model.OperationReferenceAbsent, model.OperationReferenceStale:
 		return healthGateNodeStatusRoute{Observation: observation}, nil
 	default:
 		return nil, fmt.Errorf("unknown Operation reference result for health gate: %T", operationReference)

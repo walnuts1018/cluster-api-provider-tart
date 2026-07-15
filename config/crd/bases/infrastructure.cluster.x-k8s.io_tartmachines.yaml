@@ -255,6 +255,12 @@ spec:
                   running in activeSlot.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
+              installedMachineID:
+                description: installedMachineID is the machine-id observed in the
+                  active OS slot.
+                maxLength: 128
+                minLength: 1
+                type: string
               observedGeneration:
                 description: observedGeneration is the last spec generation reconciled
                   into status.

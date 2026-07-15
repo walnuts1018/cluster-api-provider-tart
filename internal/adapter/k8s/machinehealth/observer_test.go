@@ -62,12 +62,16 @@ func TestObserverReadsWorkloadNode(t *testing.T) {
 				Name:       coreMachine.Name,
 			}},
 		},
-		Spec: infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-a"},
+		Spec:   infrastructurev1beta1.TartMachineSpec{ProviderID: "tart://host-a"},
+		Status: infrastructurev1beta1.TartMachineStatus{InstalledMachineID: "machine-id-a"},
 	}
 	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a"},
 		Spec:       corev1.NodeSpec{ProviderID: "tart://host-b"},
 		Status: corev1.NodeStatus{
+			NodeInfo: corev1.NodeSystemInfo{
+				MachineID: "machine-id-b",
+			},
 			Conditions: []corev1.NodeCondition{{
 				Type:   corev1.NodeReady,
 				Status: corev1.ConditionTrue,
@@ -107,7 +111,9 @@ func TestObserverReadsWorkloadNode(t *testing.T) {
 	}
 	if observation.MachineProviderID != "tart://host-a" ||
 		observation.NodeProviderID != "tart://host-b" ||
-		!observation.NodeReady {
+		!observation.NodeReady ||
+		observation.ExpectedMachineID != "machine-id-a" ||
+		observation.ObservedMachineID != "machine-id-b" {
 		t.Fatalf("Observe() = %#v", observation)
 	}
 }

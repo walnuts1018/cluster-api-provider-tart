@@ -36,6 +36,7 @@ func TestStatusWithNodeHealthSetsReadyFalseForProviderIDMismatch(t *testing.T) {
 		MachineProviderID: machine.Spec.ProviderID,
 		NodeProviderID:    "tart://host-b",
 		NodeReady:         true,
+		ObservedMachineID: "machine-id",
 	})
 
 	condition := findCondition(status.Conditions, ReadyCondition)
@@ -50,6 +51,9 @@ func TestStatusWithNodeHealthSetsReadyFalseForProviderIDMismatch(t *testing.T) {
 	}
 	if condition.ObservedGeneration != machine.Generation {
 		t.Fatalf("observedGeneration = %d, want %d", condition.ObservedGeneration, machine.Generation)
+	}
+	if status.InstalledMachineID != "" {
+		t.Fatalf("InstalledMachineID = %q, want empty", status.InstalledMachineID)
 	}
 }
 

@@ -255,6 +255,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 				OperationUID:       testOperationUID,
 				PlanDigest:         testPlanDigest,
 				BootID:             "boot-id",
+				MachineID:          "machine-id",
 				ActiveSlot:         "A",
 				ArtifactGeneration: 1,
 			},
@@ -733,6 +734,7 @@ func TestHandlerAcceptsValidBootReport(t *testing.T) {
 		OperationUID:           testOperationUID,
 		PlanDigest:             testPlanDigest,
 		BootID:                 "boot-id",
+		MachineID:              "machine-id",
 		ActiveSlot:             "A",
 		ArtifactGeneration:     1,
 		StateMounted:           true,
@@ -789,6 +791,7 @@ func TestHandlerRejectsInvalidAndConflictingBootReports(t *testing.T) {
 				OperationUID:       testOperationUID,
 				PlanDigest:         testPlanDigest,
 				BootID:             "boot-id",
+				MachineID:          "machine-id",
 				ActiveSlot:         "A",
 				ArtifactGeneration: 1,
 			}

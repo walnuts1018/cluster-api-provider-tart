@@ -27,6 +27,7 @@ var testBootstrapPayloadDigest = "sha256:" + strings.Repeat("d", 64)
 func TestEvaluate(t *testing.T) {
 	complete := Report{
 		BootID:                 "boot-id",
+		MachineID:              "machine-id",
 		ActiveSlot:             "B",
 		ArtifactGeneration:     2,
 		StateMounted:           true,
@@ -56,14 +57,14 @@ func TestEvaluate(t *testing.T) {
 		{
 			name:         "failed mount starts rollback",
 			phase:        operationdomain.PhaseBootTrial,
-			incoming:     Report{BootID: "boot-id", ActiveSlot: "B", ArtifactGeneration: 2},
+			incoming:     Report{BootID: "boot-id", MachineID: "machine-id", ActiveSlot: "B", ArtifactGeneration: 2},
 			wantDecision: DecisionRollbackRequired,
 			wantPhase:    operationdomain.PhaseRollingBack,
 		},
 		{
 			name:         "unexpected slot remains observable without advancing",
 			phase:        operationdomain.PhaseBootTrial,
-			incoming:     Report{BootID: "boot-id", ActiveSlot: "A", ArtifactGeneration: 2, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
+			incoming:     Report{BootID: "boot-id", MachineID: "machine-id", ActiveSlot: "A", ArtifactGeneration: 2, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
 			wantDecision: DecisionRecorded,
 			wantPhase:    operationdomain.PhaseBootTrial,
 		},
@@ -78,14 +79,14 @@ func TestEvaluate(t *testing.T) {
 		{
 			name:         "rollback boot report marks operation failed",
 			phase:        operationdomain.PhaseRollingBack,
-			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
+			incoming:     Report{BootID: "rollback-boot", MachineID: "machine-id", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true, DataMounted: true, BootstrapApplied: true, BootstrapPayloadDigest: testBootstrapPayloadDigest},
 			wantDecision: DecisionRollbackCompleted,
 			wantPhase:    operationdomain.PhaseFailed,
 		},
 		{
 			name:         "rollback mount failure requires recovery",
 			phase:        operationdomain.PhaseRollingBack,
-			incoming:     Report{BootID: "rollback-boot", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true},
+			incoming:     Report{BootID: "rollback-boot", MachineID: "machine-id", ActiveSlot: "A", ArtifactGeneration: 1, StateMounted: true},
 			wantDecision: DecisionRecoveryRequired,
 			wantPhase:    operationdomain.PhaseRecoveryRequired,
 		},

@@ -92,6 +92,8 @@ func (o *Observer) Observe(
 		MachineProviderID: machine.Spec.ProviderID,
 		NodeProviderID:    node.Spec.ProviderID,
 		NodeReady:         nodeReady(node),
+		ExpectedMachineID: machine.Status.InstalledMachineID,
+		ObservedMachineID: node.Status.NodeInfo.MachineID,
 		ExpectedVersion:   coreMachine.Spec.Version,
 		NodeVersion:       node.Status.NodeInfo.KubeletVersion,
 	}, true, nil

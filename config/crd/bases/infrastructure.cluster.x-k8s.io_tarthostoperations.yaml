@@ -322,6 +322,12 @@ spec:
                     description: dataMounted indicates that the required Data filesystem
                       is mounted.
                     type: boolean
+                  machineID:
+                    description: machineID identifies the machine-id observed for
+                      this boot.
+                    maxLength: 128
+                    minLength: 1
+                    type: string
                   reportedAt:
                     description: reportedAt is the controller receipt time and is
                       not supplied by the Agent.
@@ -337,6 +343,7 @@ spec:
                 - bootID
                 - bootstrapApplied
                 - dataMounted
+                - machineID
                 - reportedAt
                 - stateMounted
                 type: object

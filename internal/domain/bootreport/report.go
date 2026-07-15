@@ -27,6 +27,7 @@ var (
 
 type Report struct {
 	BootID                 string
+	MachineID              string
 	ActiveSlot             string
 	ArtifactGeneration     uint64
 	StateMounted           bool

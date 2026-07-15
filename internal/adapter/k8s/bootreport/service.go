@@ -101,6 +101,7 @@ func (service *Service) ReportBoot(
 			bootreportdomain.DecisionRecoveryRequired:
 			operation.Status.LastBootReport = &infrastructurev1beta1.BootReportStatus{
 				BootID:                 request.BootID,
+				MachineID:              request.MachineID,
 				ActiveSlot:             infrastructurev1beta1.OSSlot(request.ActiveSlot),
 				ArtifactGeneration:     int64(request.ArtifactGeneration),
 				StateMounted:           request.StateMounted,
@@ -258,6 +259,7 @@ func applyBootFailureAttempt(
 func requestReport(request agentprotocol.BootReportRequest) bootreportdomain.Report {
 	return bootreportdomain.Report{
 		BootID:                 request.BootID,
+		MachineID:              request.MachineID,
 		ActiveSlot:             request.ActiveSlot,
 		ArtifactGeneration:     request.ArtifactGeneration,
 		StateMounted:           request.StateMounted,
@@ -273,6 +275,7 @@ func statusReport(status *infrastructurev1beta1.BootReportStatus) *bootreportdom
 	}
 	return &bootreportdomain.Report{
 		BootID:                 status.BootID,
+		MachineID:              status.MachineID,
 		ActiveSlot:             string(status.ActiveSlot),
 		ArtifactGeneration:     uint64(status.ArtifactGeneration),
 		StateMounted:           status.StateMounted,

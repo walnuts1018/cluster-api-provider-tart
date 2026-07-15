@@ -48,7 +48,10 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
-const defaultSystemUUIDPath = "/sys/class/dmi/id/product_uuid"
+const (
+	defaultSystemUUIDPath = "/sys/class/dmi/id/product_uuid"
+	defaultMachineIDPath  = "/etc/machine-id"
+)
 
 type config struct {
 	controllerURL      string
@@ -72,6 +75,7 @@ type config struct {
 	bootstrapWorkDir   string
 	bootstrapAdapter   string
 	bootID             string
+	machineID          string
 	activeSlot         string
 	artifactGeneration uint64
 	stateMounted       bool
@@ -321,6 +325,10 @@ func reportBoot(
 	apiClient *agentclient.Client,
 	registration agentprotocol.RegisterResponse,
 ) error {
+	machineID, err := observedMachineID(cfg)
+	if err != nil {
+		return err
+	}
 	bootstrapService, err := newBootstrapService(cfg)
 	if err != nil {
 		return err
@@ -334,6 +342,7 @@ func reportBoot(
 		OperationUID:           cfg.operationUID,
 		PlanDigest:             registration.PlanDigest,
 		BootID:                 cfg.bootID,
+		MachineID:              machineID,
 		ActiveSlot:             cfg.activeSlot,
 		ArtifactGeneration:     cfg.artifactGeneration,
 		StateMounted:           cfg.stateMounted,
@@ -353,6 +362,17 @@ func reportBoot(
 		"bootstrap_applied", bootstrapApplied,
 	)
 	return nil
+}
+
+func observedMachineID(cfg config) (string, error) {
+	if cfg.machineID != "" {
+		return cfg.machineID, nil
+	}
+	value, err := os.ReadFile(defaultMachineIDPath)
+	if err != nil {
+		return "", fmt.Errorf("read machine ID: %w", err)
+	}
+	return strings.TrimSpace(string(value)), nil
 }
 
 func newBootstrapService(cfg config) (*agentbootstrap.Service, error) {
@@ -413,6 +433,7 @@ func parseConfig(args []string) (config, error) {
 		"Local executable that applies cloud-config. The payload path is passed as the only argument.",
 	)
 	flags.StringVar(&cfg.bootID, "boot-id", "", "Installed OS boot ID observed by the first-boot reporter.")
+	flags.StringVar(&cfg.machineID, "machine-id", "", "Installed OS machine ID observed by the first-boot reporter.")
 	flags.StringVar(&cfg.activeSlot, "active-slot", "", "Installed OS active slot observed by the first-boot reporter.")
 	flags.Uint64Var(&cfg.artifactGeneration, "artifact-generation", 0, "Installed OS Artifact generation observed by the first-boot reporter.")
 	flags.BoolVar(&cfg.stateMounted, "state-mounted", false, "Set when the first-boot reporter observed the State filesystem mounted.")

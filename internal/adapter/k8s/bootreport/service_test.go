@@ -56,6 +56,7 @@ func TestServiceStartsRollbackWhenBootReportShowsMountFailure(t *testing.T) {
 		OperationUID:       "operation-uid",
 		PlanDigest:         planDigest,
 		BootID:             "boot-id",
+		MachineID:          "machine-id",
 		ActiveSlot:         "B",
 		ArtifactGeneration: 2,
 		StateMounted:       true,
@@ -85,6 +86,7 @@ func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
 		OperationUID:           "operation-uid",
 		PlanDigest:             planDigest,
 		BootID:                 "boot-id",
+		MachineID:              "machine-id",
 		ActiveSlot:             "B",
 		ArtifactGeneration:     2,
 		StateMounted:           true,
@@ -104,6 +106,9 @@ func TestServiceRecordsCompletedBootAndKeepsDuplicateIdempotent(t *testing.T) {
 	}
 	if persisted.Status.LastBootReport.BootstrapPayloadDigest != testBootstrapPayloadDigest {
 		t.Fatalf("bootstrapPayloadDigest = %q, want %q", persisted.Status.LastBootReport.BootstrapPayloadDigest, testBootstrapPayloadDigest)
+	}
+	if persisted.Status.LastBootReport.MachineID != complete.MachineID {
+		t.Fatalf("machineID = %q, want %q", persisted.Status.LastBootReport.MachineID, complete.MachineID)
 	}
 
 	duplicateTime := metav1.NewTime(firstTime.Add(time.Minute))
@@ -126,6 +131,7 @@ func TestServiceCountsWrongSlotBootReportAsBootFailureAttempt(t *testing.T) {
 			OperationUID:           "operation-uid",
 			PlanDigest:             planDigest,
 			BootID:                 "wrong-slot-boot-" + strconv.Itoa(int(attempt)),
+			MachineID:              "machine-id",
 			ActiveSlot:             "A",
 			ArtifactGeneration:     1,
 			StateMounted:           true,
@@ -164,6 +170,7 @@ func TestServiceRejectsConflictingReportAfterBootCompletion(t *testing.T) {
 		OperationUID:           "operation-uid",
 		PlanDigest:             planDigest,
 		BootID:                 "boot-id",
+		MachineID:              "machine-id",
 		ActiveSlot:             "B",
 		ArtifactGeneration:     2,
 		StateMounted:           true,
@@ -193,6 +200,7 @@ func TestServiceRecordsRollbackBootResult(t *testing.T) {
 				APIVersion:             agentprotocol.APIVersion,
 				OperationUID:           "operation-uid",
 				BootID:                 "rollback-boot",
+				MachineID:              "machine-id",
 				ActiveSlot:             "A",
 				ArtifactGeneration:     1,
 				StateMounted:           true,
@@ -208,6 +216,7 @@ func TestServiceRecordsRollbackBootResult(t *testing.T) {
 				APIVersion:         agentprotocol.APIVersion,
 				OperationUID:       "operation-uid",
 				BootID:             "rollback-boot",
+				MachineID:          "machine-id",
 				ActiveSlot:         "A",
 				ArtifactGeneration: 1,
 				StateMounted:       true,

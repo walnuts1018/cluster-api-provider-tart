@@ -40,7 +40,8 @@ func TestSend(t *testing.T) {
 	t.Parallel()
 
 	// ローカル UDP ポートを開いて Magic Packet を受信する
-	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	listenConfig := net.ListenConfig{}
+	conn, err := listenConfig.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("ListenPacket() error = %v", err)
 	}

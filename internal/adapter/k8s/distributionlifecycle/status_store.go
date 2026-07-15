@@ -54,7 +54,7 @@ func (store *StatusStore) RecordStep(
 	snapshotRef *infrastructurev1beta1.ResourceReference,
 ) error {
 	if store.client == nil {
-		return fmt.Errorf("Kubernetes client is required")
+		return fmt.Errorf("kubernetes client is required")
 	}
 
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
@@ -110,7 +110,7 @@ func (store *StatusStore) MarkRecoveryRequired(
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	if store.client == nil {
-		return fmt.Errorf("Kubernetes client is required")
+		return fmt.Errorf("kubernetes client is required")
 	}
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		current := &infrastructurev1beta1.TartHostOperation{}

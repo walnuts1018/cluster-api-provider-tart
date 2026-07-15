@@ -15,9 +15,6 @@
 package controller
 
 import (
-	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,21 +35,16 @@ import (
 	// +kubebuilder:scaffold:imports
 )
 
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
+// これらのテストはGinkgo（BDDスタイルのGoテストフレームワーク）を使う。
 
 const (
-	capiVersion    = "v1.13.1"
-	capiCRDURLBase = "https://raw.githubusercontent.com/kubernetes-sigs/cluster-api/refs/tags/%s/config/crd/bases/%s"
-	capiClusterCRD = "cluster.x-k8s.io_clusters.yaml"
-	capiMachineCRD = "cluster.x-k8s.io_machines.yaml"
+	capiFixtureDir = "test/envtest/crds/cluster-api/v1.13.1"
 )
 
 var (
-	testEnv    *envtest.Environment
-	cfg        *rest.Config
-	k8sClient  client.Client
-	capiCRDDir string
+	testEnv   *envtest.Environment
+	cfg       *rest.Config
+	k8sClient client.Client
 )
 
 func TestControllers(t *testing.T) {
@@ -75,26 +67,18 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 
-	crdPaths := []string{filepath.Join("..", "..", "config", "crd", "bases")}
-
-	// Download CAPI core CRDs dynamically for tests
-	capiCRDDir, err = downloadCAPI_CRDs()
-	Expect(err).NotTo(HaveOccurred())
-	if capiCRDDir != "" {
-		crdPaths = append(crdPaths, capiCRDDir)
-	}
+	crdPaths := localCRDPaths()
 
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths:     crdPaths,
 		ErrorIfCRDPathMissing: true,
 	}
 
-	// Retrieve the first found binary directory to allow running tests from IDEs
-	if getFirstFoundEnvTestBinaryDir() != "" {
-		testEnv.BinaryAssetsDirectory = getFirstFoundEnvTestBinaryDir()
-	}
+	assets := findEnvTestBinaryDir()
+	Expect(assets).NotTo(BeEmpty(), "envtest binaries are required; run `mise run setup-envtest` or set KUBEBUILDER_ASSETS")
+	testEnv.BinaryAssetsDirectory = assets
 
-	// cfg is defined in this file globally.
+	// cfg はこのファイルのグローバル変数として扱う。
 	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
@@ -106,9 +90,6 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	if capiCRDDir != "" {
-		os.RemoveAll(capiCRDDir)
-	}
 	if testEnv == nil {
 		return
 	}
@@ -117,19 +98,16 @@ var _ = AfterSuite(func() {
 	}, time.Minute, time.Second).Should(Succeed())
 })
 
-// getFirstFoundEnvTestBinaryDir locates the first binary in the specified path.
-// ENVTEST-based tests depend on specific binaries, usually located in paths set by
-// controller-runtime. When running tests directly (e.g., via an IDE) without using
-// Makefile targets, the 'BinaryAssetsDirectory' must be explicitly configured.
-//
-// This function streamlines the process by finding the required binaries, similar to
-// setting the 'KUBEBUILDER_ASSETS' environment variable. To ensure the binaries are
-// properly set up, run 'make setup-envtest' beforehand.
-func getFirstFoundEnvTestBinaryDir() string {
+func findEnvTestBinaryDir() string {
+	if assets := os.Getenv("KUBEBUILDER_ASSETS"); assets != "" {
+		if stat, err := os.Stat(assets); err == nil && stat.IsDir() {
+			return assets
+		}
+	}
+
 	basePath := filepath.Join("..", "..", "bin", "k8s")
 	entries, err := os.ReadDir(basePath)
 	if err != nil {
-		logf.Log.Error(err, "Failed to read directory", "path", basePath)
 		return ""
 	}
 	for _, entry := range entries {
@@ -140,50 +118,9 @@ func getFirstFoundEnvTestBinaryDir() string {
 	return ""
 }
 
-// downloadCAPI_CRDs downloads CAPI core CRDs from GitHub and stores them in a temporary directory.
-// It returns the path to the temporary directory, or an empty string if the download fails.
-func downloadCAPI_CRDs() (string, error) {
-	tmpDir, err := os.MkdirTemp("", "capi-crd-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+func localCRDPaths() []string {
+	return []string{
+		filepath.Join("..", "..", "config", "crd", "bases"),
+		filepath.Join("..", "..", capiFixtureDir),
 	}
-
-	crds := []string{capiClusterCRD, capiMachineCRD}
-	for _, crd := range crds {
-		url := fmt.Sprintf(capiCRDURLBase, capiVersion, crd)
-		dst := filepath.Join(tmpDir, crd)
-
-		if err := downloadFile(url, dst); err != nil {
-			os.RemoveAll(tmpDir)
-			return "", fmt.Errorf("failed to download %s: %w", crd, err)
-		}
-	}
-
-	return tmpDir, nil
-}
-
-// downloadFile downloads a file from the given URL and saves it to the given destination path.
-func downloadFile(url, dst string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
 }

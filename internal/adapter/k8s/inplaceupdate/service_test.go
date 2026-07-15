@@ -31,13 +31,18 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
 
+const (
+	liveDistributionVersion   = "v1.34.0"
+	targetDistributionVersion = "v1.35.0"
+)
+
 func TestServiceStartはLiveStatusとDesiredSpecからWorkflowを開始する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	liveMachine := updateTartMachine()
-	liveMachine.Status.InstalledDistributionVersion = "v1.34.0"
+	liveMachine.Status.InstalledDistributionVersion = liveDistributionVersion
 	host := updateHost()
 	manifest := updateArtifactManifest(t)
 	workflow := &recordingWorkflow{
@@ -78,9 +83,9 @@ func TestServiceStartはTargetVersionとNodeRoleをWorkflowへ渡す(t *testing.
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	liveMachine := updateTartMachine()
-	liveMachine.Status.InstalledDistributionVersion = "v1.34.0"
+	liveMachine.Status.InstalledDistributionVersion = liveDistributionVersion
 	host := updateHost()
-	manifest := updateArtifactManifestWithKubernetesVersion(t, "v1.35.0")
+	manifest := updateArtifactManifestWithKubernetesVersion(t, targetDistributionVersion)
 	workflow := &recordingWorkflow{
 		operation: &infrastructurev1beta1.TartHostOperation{
 			ObjectMeta: metav1.ObjectMeta{Name: "operation-a", Namespace: "default"},
@@ -94,7 +99,7 @@ func TestServiceStartはTargetVersionとNodeRoleをWorkflowへ渡す(t *testing.
 
 	request := updateRequest(t, liveMachine)
 	request.Desired.Machine = updateCAPIMachine()
-	request.Desired.Machine.Spec.Version = "v1.35.0"
+	request.Desired.Machine.Spec.Version = targetDistributionVersion
 	request.Desired.Machine.Labels = map[string]string{
 		clusterv1.MachineControlPlaneLabel: "",
 	}
@@ -102,11 +107,13 @@ func TestServiceStartはTargetVersionとNodeRoleをWorkflowへ渡す(t *testing.
 		t.Fatalf("Start() error = %v", err)
 	}
 
-	if workflow.input.CurrentDistributionVersion != "v1.34.0" ||
-		workflow.input.TargetDistributionVersion != "v1.35.0" {
-		t.Fatalf("workflow versions = %q -> %q, want v1.34.0 -> v1.35.0",
+	if workflow.input.CurrentDistributionVersion != liveDistributionVersion ||
+		workflow.input.TargetDistributionVersion != targetDistributionVersion {
+		t.Fatalf("workflow versions = %q -> %q, want %s -> %s",
 			workflow.input.CurrentDistributionVersion,
-			workflow.input.TargetDistributionVersion)
+			workflow.input.TargetDistributionVersion,
+			liveDistributionVersion,
+			targetDistributionVersion)
 	}
 	if workflow.input.NodeRole != "ControlPlane" {
 		t.Fatalf("workflow node role = %q, want ControlPlane", workflow.input.NodeRole)
@@ -212,14 +219,14 @@ func updateCAPIMachine() clusterv1.Machine {
 		},
 		Spec: clusterv1.MachineSpec{
 			ClusterName: "sample",
-			Version:     "v1.34.0",
+			Version:     liveDistributionVersion,
 		},
 	}
 }
 
 func updateArtifactManifest(t *testing.T) artifact.ValidatedManifest {
 	t.Helper()
-	return updateArtifactManifestWithKubernetesVersion(t, "v1.34.0")
+	return updateArtifactManifestWithKubernetesVersion(t, liveDistributionVersion)
 }
 
 func updateArtifactManifestWithKubernetesVersion(t *testing.T, version string) artifact.ValidatedManifest {

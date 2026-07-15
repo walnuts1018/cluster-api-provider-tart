@@ -79,7 +79,7 @@ func (workflow *Workflow) applyDecision(
 	case machinedeletiondomain.CommandWaitCleaning:
 		return ResultWaiting{}, nil
 	case machinedeletiondomain.CommandFailCleaning:
-		return nil, fmt.Errorf("Cleaning operation finished in %s", command.Phase)
+		return nil, fmt.Errorf("cleaning operation finished in %s", command.Phase)
 	default:
 		return nil, fmt.Errorf("unknown TartMachine deletion command: %T", command)
 	}

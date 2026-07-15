@@ -143,6 +143,7 @@ func (service *Service) ReportBoot(
 							ObservedGeneration: operation.Generation,
 						})
 					}
+				case bootreportdomain.DecisionRecorded, bootreportdomain.DecisionDuplicate:
 				}
 			}
 			if result.Decision == bootreportdomain.DecisionRecorded &&

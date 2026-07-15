@@ -236,91 +236,122 @@ func ParsePlan(data []byte) (ValidatedPlan, error) {
 }
 
 func ValidatePlan(plan Plan) (ValidatedPlan, error) {
+	if err := validatePlanBasics(plan); err != nil {
+		return ValidatedPlan{}, err
+	}
+	if err := validatePlanArtifact(plan); err != nil {
+		return ValidatedPlan{}, err
+	}
+	if err := validatePlanRoles(plan); err != nil {
+		return ValidatedPlan{}, err
+	}
+	if err := validatePlanSteps(plan); err != nil {
+		return ValidatedPlan{}, err
+	}
+	if err := validatePlanBootstrap(plan); err != nil {
+		return ValidatedPlan{}, err
+	}
+	return ValidatedPlan{plan: plan}, nil
+}
+
+func validatePlanBasics(plan Plan) error {
 	switch {
 	case plan.APIVersion != APIVersion:
-		return ValidatedPlan{}, fmt.Errorf("unsupported apiVersion: %q", plan.APIVersion)
+		return fmt.Errorf("unsupported apiVersion: %q", plan.APIVersion)
 	case !validUID(plan.OperationUID):
-		return ValidatedPlan{}, errors.New("operationUID is invalid")
+		return errors.New("operationUID is invalid")
 	case !validUID(plan.HostUID):
-		return ValidatedPlan{}, errors.New("hostUID is invalid")
+		return errors.New("hostUID is invalid")
 	case plan.OperationType != OperationTypeProvision &&
 		plan.OperationType != OperationTypeUpdate &&
 		plan.OperationType != OperationTypeClean &&
 		plan.OperationType != OperationTypeWipeAll:
-		return ValidatedPlan{}, fmt.Errorf("unsupported operationType: %q", plan.OperationType)
+		return fmt.Errorf("unsupported operationType: %q", plan.OperationType)
 	case (plan.OperationType == OperationTypeProvision ||
 		plan.OperationType == OperationTypeClean ||
 		plan.OperationType == OperationTypeWipeAll) && plan.ActiveSlot != "":
-		return ValidatedPlan{}, fmt.Errorf("activeSlot must be empty for %s", plan.OperationType)
+		return fmt.Errorf("activeSlot must be empty for %s", plan.OperationType)
 	case plan.OperationType == OperationTypeUpdate && plan.ActiveSlot != "A" && plan.ActiveSlot != "B":
-		return ValidatedPlan{}, errors.New("activeSlot must be A or B for Update")
+		return errors.New("activeSlot must be A or B for Update")
 	case plan.Deadline.IsZero():
-		return ValidatedPlan{}, errors.New("deadline is required")
+		return errors.New("deadline is required")
 	case !deviceByIDPattern.MatchString(plan.RootDevice.DeviceName):
-		return ValidatedPlan{}, errors.New("rootDevice.deviceName must use a /dev/disk/by-id path")
+		return errors.New("rootDevice.deviceName must use a /dev/disk/by-id path")
 	case plan.RootDevice.MinSizeBytes <= 0:
-		return ValidatedPlan{}, errors.New("rootDevice.minSizeBytes must be greater than zero")
+		return errors.New("rootDevice.minSizeBytes must be greater than zero")
 	case plan.RootDevice.SerialNumber == "" && plan.RootDevice.WWN == "":
-		return ValidatedPlan{}, errors.New("rootDevice requires serialNumber or wwn")
+		return errors.New("rootDevice requires serialNumber or wwn")
 	case len(plan.AllowedTargetRoles) == 0 && plan.OperationType != OperationTypeClean:
-		return ValidatedPlan{}, errors.New("allowedTargetRoles must not be empty")
+		return errors.New("allowedTargetRoles must not be empty")
 	case len(plan.Steps) == 0:
-		return ValidatedPlan{}, errors.New("steps must not be empty")
+		return errors.New("steps must not be empty")
 	}
+	return nil
+}
 
+func validatePlanArtifact(plan Plan) error {
 	switch plan.OperationType {
 	case OperationTypeProvision, OperationTypeUpdate:
 		if plan.Artifact == nil {
-			return ValidatedPlan{}, errors.New("artifact is required")
+			return errors.New("artifact is required")
 		}
 		switch {
 		case !artifactRefPattern.MatchString(plan.Artifact.Ref):
-			return ValidatedPlan{}, errors.New("artifact.ref must be a digest-pinned OCI reference")
+			return errors.New("artifact.ref must be a digest-pinned OCI reference")
 		case !validSHA256Digest(plan.Artifact.ManifestDigest):
-			return ValidatedPlan{}, errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
+			return errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
 		case plan.Artifact.Generation == 0:
-			return ValidatedPlan{}, errors.New("artifact.generation must be greater than zero")
+			return errors.New("artifact.generation must be greater than zero")
 		}
 	case OperationTypeClean, OperationTypeWipeAll:
 		if plan.Artifact != nil {
-			return ValidatedPlan{}, fmt.Errorf("artifact must be omitted for %s", plan.OperationType)
+			return fmt.Errorf("artifact must be omitted for %s", plan.OperationType)
 		}
 	}
+	return nil
+}
 
+func validatePlanRoles(plan Plan) error {
 	roles := make(map[DiskRole]struct{}, len(plan.AllowedTargetRoles))
 	for _, role := range plan.AllowedTargetRoles {
 		if _, ok := diskRoleValues[role]; !ok {
-			return ValidatedPlan{}, fmt.Errorf("unsupported target disk role: %q", role)
+			return fmt.Errorf("unsupported target disk role: %q", role)
 		}
 		if _, exists := roles[role]; exists {
-			return ValidatedPlan{}, fmt.Errorf("duplicate target disk role: %q", role)
+			return fmt.Errorf("duplicate target disk role: %q", role)
 		}
 		roles[role] = struct{}{}
 	}
+	return nil
+}
 
+func validatePlanSteps(plan Plan) error {
 	stepNames := make(map[string]struct{}, len(plan.Steps))
 	for _, step := range plan.Steps {
 		if !uidPattern.MatchString(step.Name) {
-			return ValidatedPlan{}, fmt.Errorf("invalid step name: %q", step.Name)
+			return fmt.Errorf("invalid step name: %q", step.Name)
 		}
 		if _, exists := stepNames[step.Name]; exists {
-			return ValidatedPlan{}, fmt.Errorf("duplicate step name: %q", step.Name)
+			return fmt.Errorf("duplicate step name: %q", step.Name)
 		}
 		stepNames[step.Name] = struct{}{}
 	}
+	return nil
+}
 
+func validatePlanBootstrap(plan Plan) error {
 	if plan.Bootstrap != nil {
 		if plan.OperationType != OperationTypeProvision {
-			return ValidatedPlan{}, fmt.Errorf("bootstrap must be omitted for %s", plan.OperationType)
+			return fmt.Errorf("bootstrap must be omitted for %s", plan.OperationType)
 		}
 		if !validUID(plan.Bootstrap.MachineUID) {
-			return ValidatedPlan{}, errors.New("bootstrap.machineUID is invalid")
+			return errors.New("bootstrap.machineUID is invalid")
 		}
 		if plan.Bootstrap.Format != BootstrapFormatCloud {
-			return ValidatedPlan{}, fmt.Errorf("unsupported bootstrap format: %q", plan.Bootstrap.Format)
+			return fmt.Errorf("unsupported bootstrap format: %q", plan.Bootstrap.Format)
 		}
 	}
-	return ValidatedPlan{plan: plan}, nil
+	return nil
 }
 
 func ValidateBootReport(report BootReportRequest) error {

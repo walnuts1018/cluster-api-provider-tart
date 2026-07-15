@@ -99,7 +99,7 @@ func (runner *effectRunner) start(
 	}
 	if hasPersistedNodePlan {
 		if runner.nodeLifecyclePlans == nil {
-			return nil, false, fmt.Errorf("Node Lifecycle Plan writer is required for KubernetesBinary update")
+			return nil, false, fmt.Errorf("node Lifecycle Plan writer is required for KubernetesBinary update")
 		}
 		if err := runner.nodeLifecyclePlans.Write(
 			ctx,

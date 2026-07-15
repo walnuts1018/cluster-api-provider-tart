@@ -65,7 +65,7 @@ func (service *Service) redfishAccess(
 ) (driverdomain.RedfishAccess, error) {
 	management := host.Spec.Management
 	if management.CredentialsSecretRef == nil {
-		return driverdomain.RedfishAccess{}, fmt.Errorf("Redfish credentialsSecretRef is required")
+		return driverdomain.RedfishAccess{}, fmt.Errorf("redfish credentialsSecretRef is required")
 	}
 	credentials := &corev1.Secret{}
 	if err := service.client.Get(ctx, client.ObjectKey{
@@ -76,11 +76,11 @@ func (service *Service) redfishAccess(
 	}
 	username, ok := credentials.Data[credentialsUsernameKey]
 	if !ok || len(username) == 0 {
-		return driverdomain.RedfishAccess{}, fmt.Errorf("Redfish credentials Secret must contain %q", credentialsUsernameKey)
+		return driverdomain.RedfishAccess{}, fmt.Errorf("redfish credentials Secret must contain %q", credentialsUsernameKey)
 	}
 	password, ok := credentials.Data[credentialsPasswordKey]
 	if !ok || len(password) == 0 {
-		return driverdomain.RedfishAccess{}, fmt.Errorf("Redfish credentials Secret must contain %q", credentialsPasswordKey)
+		return driverdomain.RedfishAccess{}, fmt.Errorf("redfish credentials Secret must contain %q", credentialsPasswordKey)
 	}
 
 	var caBundle []byte
@@ -94,7 +94,7 @@ func (service *Service) redfishAccess(
 		}
 		caBundle = caSecret.Data[caBundleKey]
 		if len(caBundle) == 0 {
-			return driverdomain.RedfishAccess{}, fmt.Errorf("Redfish CA bundle Secret must contain %q", caBundleKey)
+			return driverdomain.RedfishAccess{}, fmt.Errorf("redfish CA bundle Secret must contain %q", caBundleKey)
 		}
 	}
 

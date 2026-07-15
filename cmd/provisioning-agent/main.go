@@ -151,170 +151,16 @@ func run(ctx context.Context, args []string) error {
 		return fmt.Errorf("select root disk: %w", err)
 	}
 	if cfg.prepareLayout {
-		// ProvisionではGPTを作り直す破壊操作なので、署名済みPlanとdisk identity検証後だけ実行する。
-		resolved, err := layout.NewManager(layout.NewLinuxDiskIO()).Prepare(
-			operationContext,
-			validatedPlan.Value().OperationType,
-			target,
-		)
-		if err != nil {
-			return fmt.Errorf("prepare amd64 UEFI A/B layout: %w", err)
-		}
-		slog.Info(
-			"Provisioning Agent partition layout prepared",
-			"operation_uid", cfg.operationUID,
-			"target_device", target.Path,
-			"platform_profile", layout.ProfileID,
-			"role_count", len(resolved),
-		)
-		// TODO: boot trial metadata更新後、このlayout専用診断を通常Agent実行へ統合する。
-		return nil
+		return prepareLayout(operationContext, cfg, validatedPlan, target)
 	}
 	if cfg.writePayloads {
-		artifactPublicKey, err := loadPublicKey(cfg.artifactKeyFile, "artifact")
-		if err != nil {
-			return err
-		}
-		credential, err := registrycredential.Load(cfg.registryConfig)
-		if err != nil {
-			return err
-		}
-		source, err := artifactfetch.NewOCI(
-			artifact.StaticTrustStore{cfg.artifactKeyID: artifactPublicKey},
-			credential,
-		)
-		if err != nil {
-			return err
-		}
-		progressReporter, err := agentprogress.New(
-			apiClient,
-			registration.SessionToken,
-			cfg.operationUID,
-			registration.PlanDigest,
-			registration.AgentSequence,
-		)
-		if err != nil {
-			return err
-		}
-		targetWriter := agentwriter.NewWithSanitizer(
-			layout.NewManager(layout.NewLinuxDiskIO()),
-			source,
-			agentwriter.LinuxDeviceOpener{},
-			agentwriter.NewLinuxSanitizer(),
-			func(ctx context.Context, progress agentwriter.Progress) error {
-				slog.Info(
-					"Provisioning Agent payload write progress",
-					"operation_uid", cfg.operationUID,
-					"step", progress.Step,
-					"role", progress.DiskRole,
-					"percent", progress.Percent,
-					"completed", progress.Completed,
-				)
-				return progressReporter.Report(
-					ctx,
-					progress.Step,
-					progress.DiskRole,
-					progress.Percent,
-					progress.Completed,
-				)
-			},
-		)
-		if cfg.bootTrialDriver != "" {
-			targetWriter.SetBootTrialDriver(boottrial.NewCommandDriver(cfg.bootTrialDriver, nil))
-		}
-		if err := provisioningagent.NewService(targetWriter).Execute(operationContext, validatedPlan, devices); err != nil {
-			return err
-		}
-		attributes := []any{
-			"operation_uid", cfg.operationUID,
-			"target_device", target.Path,
-		}
-		if validatedPlan.Value().Artifact != nil {
-			attributes = append(attributes, "artifact_generation", validatedPlan.Value().Artifact.Generation)
-		}
-		slog.Info("Provisioning Agent payloads written and verified", attributes...)
-		// TODO: boot試行から再起動までを含む通常Agent実行へ昇格する条件が揃うまで、書込み診断を維持する。
-		return nil
+		return writePayloads(operationContext, cfg, apiClient, registration, validatedPlan, devices, target)
 	}
 	if cfg.applyBootstrap {
-		if validatedPlan.Value().Bootstrap == nil {
-			slog.Info("Provisioning Agent bootstrap apply skipped because Plan has no bootstrap target", "operation_uid", cfg.operationUID)
-			return nil
-		}
-		bootstrapService, err := agentbootstrap.NewService(
-			cfg.stateDir,
-			cfg.bootstrapWorkDir,
-			commandBootstrapApplier{path: cfg.bootstrapAdapter},
-			time.Now,
-		)
-		if err != nil {
-			return err
-		}
-		applied, err := bootstrapService.Applied(cfg.operationUID)
-		if err != nil {
-			return fmt.Errorf("check bootstrap success marker: %w", err)
-		}
-		if applied {
-			slog.Info("Provisioning Agent bootstrap apply skipped because success marker already exists", "operation_uid", cfg.operationUID)
-			return nil
-		}
-		bundle, err := apiClient.FetchBootstrap(operationContext, cfg.operationUID, registration.SessionToken)
-		if err != nil {
-			return err
-		}
-		if bundle.MachineUID != validatedPlan.Value().Bootstrap.MachineUID ||
-			bundle.Format != validatedPlan.Value().Bootstrap.Format {
-			return errors.New("bootstrap Bundle does not match Plan target")
-		}
-		if err := bootstrapService.Apply(operationContext, bundle); err != nil {
-			return err
-		}
-		slog.Info(
-			"Provisioning Agent bootstrap applied",
-			"operation_uid", cfg.operationUID,
-			"format", bundle.Format,
-			"payload_digest", bundle.PayloadDigest,
-		)
-		return nil
+		return applyBootstrap(operationContext, cfg, apiClient, registration, validatedPlan)
 	}
 	if cfg.reportBoot {
-		bootstrapService, err := agentbootstrap.NewService(
-			cfg.stateDir,
-			cfg.bootstrapWorkDir,
-			commandBootstrapApplier{path: cfg.bootstrapAdapter},
-			time.Now,
-		)
-		if err != nil {
-			return err
-		}
-		marker, bootstrapApplied, err := bootstrapService.Marker(cfg.operationUID)
-		if err != nil {
-			return fmt.Errorf("read bootstrap success marker: %w", err)
-		}
-		if err := apiClient.ReportBoot(operationContext, registration.SessionToken, agentprotocol.BootReportRequest{
-			APIVersion:             agentprotocol.APIVersion,
-			OperationUID:           cfg.operationUID,
-			PlanDigest:             registration.PlanDigest,
-			BootID:                 cfg.bootID,
-			ActiveSlot:             cfg.activeSlot,
-			ArtifactGeneration:     cfg.artifactGeneration,
-			StateMounted:           cfg.stateMounted,
-			DataMounted:            cfg.dataMounted,
-			BootstrapApplied:       bootstrapApplied,
-			BootstrapPayloadDigest: marker.PayloadDigest,
-		}); err != nil {
-			return err
-		}
-		slog.Info(
-			"Provisioning Agent boot report submitted",
-			"operation_uid", cfg.operationUID,
-			"active_slot", cfg.activeSlot,
-			"artifact_generation", cfg.artifactGeneration,
-			"state_mounted", cfg.stateMounted,
-			"data_mounted", cfg.dataMounted,
-			"bootstrap_applied", bootstrapApplied,
-		)
-		return nil
+		return reportBoot(operationContext, cfg, apiClient, registration)
 	}
 	slog.Info(
 		"Provisioning Agent preflight completed",
@@ -323,6 +169,199 @@ func run(ctx context.Context, args []string) error {
 		"disk_count", len(devices),
 	)
 	return nil
+}
+
+func prepareLayout(
+	ctx context.Context,
+	cfg config,
+	validatedPlan agentprotocol.ValidatedPlan,
+	target disk.Device,
+) error {
+	// ProvisionではGPTを作り直す破壊操作なので、署名済みPlanとdisk identity検証後だけ実行する。
+	resolved, err := layout.NewManager(layout.NewLinuxDiskIO()).Prepare(
+		ctx,
+		validatedPlan.Value().OperationType,
+		target,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare amd64 UEFI A/B layout: %w", err)
+	}
+	slog.Info(
+		"Provisioning Agent partition layout prepared",
+		"operation_uid", cfg.operationUID,
+		"target_device", target.Path,
+		"platform_profile", layout.ProfileID,
+		"role_count", len(resolved),
+	)
+	// TODO: boot trial metadata更新後、このlayout専用診断を通常Agent実行へ統合する。
+	return nil
+}
+
+func writePayloads(
+	ctx context.Context,
+	cfg config,
+	apiClient *agentclient.Client,
+	registration agentprotocol.RegisterResponse,
+	validatedPlan agentprotocol.ValidatedPlan,
+	devices []disk.Device,
+	target disk.Device,
+) error {
+	artifactPublicKey, err := loadPublicKey(cfg.artifactKeyFile, "artifact")
+	if err != nil {
+		return err
+	}
+	credential, err := registrycredential.Load(cfg.registryConfig)
+	if err != nil {
+		return err
+	}
+	source, err := artifactfetch.NewOCI(
+		artifact.StaticTrustStore{cfg.artifactKeyID: artifactPublicKey},
+		credential,
+	)
+	if err != nil {
+		return err
+	}
+	progressReporter, err := agentprogress.New(
+		apiClient,
+		registration.SessionToken,
+		cfg.operationUID,
+		registration.PlanDigest,
+		registration.AgentSequence,
+	)
+	if err != nil {
+		return err
+	}
+	targetWriter := agentwriter.NewWithSanitizer(
+		layout.NewManager(layout.NewLinuxDiskIO()),
+		source,
+		agentwriter.LinuxDeviceOpener{},
+		agentwriter.NewLinuxSanitizer(),
+		func(ctx context.Context, progress agentwriter.Progress) error {
+			slog.Info(
+				"Provisioning Agent payload write progress",
+				"operation_uid", cfg.operationUID,
+				"step", progress.Step,
+				"role", progress.DiskRole,
+				"percent", progress.Percent,
+				"completed", progress.Completed,
+			)
+			return progressReporter.Report(
+				ctx,
+				progress.Step,
+				progress.DiskRole,
+				progress.Percent,
+				progress.Completed,
+			)
+		},
+	)
+	if cfg.bootTrialDriver != "" {
+		targetWriter.SetBootTrialDriver(boottrial.NewCommandDriver(cfg.bootTrialDriver, nil))
+	}
+	if err := provisioningagent.NewService(targetWriter).Execute(ctx, validatedPlan, devices); err != nil {
+		return err
+	}
+	attributes := []any{
+		"operation_uid", cfg.operationUID,
+		"target_device", target.Path,
+	}
+	if validatedPlan.Value().Artifact != nil {
+		attributes = append(attributes, "artifact_generation", validatedPlan.Value().Artifact.Generation)
+	}
+	slog.Info("Provisioning Agent payloads written and verified", attributes...)
+	// TODO: boot試行から再起動までを含む通常Agent実行へ昇格する条件が揃うまで、書込み診断を維持する。
+	return nil
+}
+
+func applyBootstrap(
+	ctx context.Context,
+	cfg config,
+	apiClient *agentclient.Client,
+	registration agentprotocol.RegisterResponse,
+	validatedPlan agentprotocol.ValidatedPlan,
+) error {
+	if validatedPlan.Value().Bootstrap == nil {
+		slog.Info("Provisioning Agent bootstrap apply skipped because Plan has no bootstrap target", "operation_uid", cfg.operationUID)
+		return nil
+	}
+	bootstrapService, err := newBootstrapService(cfg)
+	if err != nil {
+		return err
+	}
+	applied, err := bootstrapService.Applied(cfg.operationUID)
+	if err != nil {
+		return fmt.Errorf("check bootstrap success marker: %w", err)
+	}
+	if applied {
+		slog.Info("Provisioning Agent bootstrap apply skipped because success marker already exists", "operation_uid", cfg.operationUID)
+		return nil
+	}
+	bundle, err := apiClient.FetchBootstrap(ctx, cfg.operationUID, registration.SessionToken)
+	if err != nil {
+		return err
+	}
+	if bundle.MachineUID != validatedPlan.Value().Bootstrap.MachineUID ||
+		bundle.Format != validatedPlan.Value().Bootstrap.Format {
+		return errors.New("bootstrap Bundle does not match Plan target")
+	}
+	if err := bootstrapService.Apply(ctx, bundle); err != nil {
+		return err
+	}
+	slog.Info(
+		"Provisioning Agent bootstrap applied",
+		"operation_uid", cfg.operationUID,
+		"format", bundle.Format,
+		"payload_digest", bundle.PayloadDigest,
+	)
+	return nil
+}
+
+func reportBoot(
+	ctx context.Context,
+	cfg config,
+	apiClient *agentclient.Client,
+	registration agentprotocol.RegisterResponse,
+) error {
+	bootstrapService, err := newBootstrapService(cfg)
+	if err != nil {
+		return err
+	}
+	marker, bootstrapApplied, err := bootstrapService.Marker(cfg.operationUID)
+	if err != nil {
+		return fmt.Errorf("read bootstrap success marker: %w", err)
+	}
+	if err := apiClient.ReportBoot(ctx, registration.SessionToken, agentprotocol.BootReportRequest{
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           cfg.operationUID,
+		PlanDigest:             registration.PlanDigest,
+		BootID:                 cfg.bootID,
+		ActiveSlot:             cfg.activeSlot,
+		ArtifactGeneration:     cfg.artifactGeneration,
+		StateMounted:           cfg.stateMounted,
+		DataMounted:            cfg.dataMounted,
+		BootstrapApplied:       bootstrapApplied,
+		BootstrapPayloadDigest: marker.PayloadDigest,
+	}); err != nil {
+		return err
+	}
+	slog.Info(
+		"Provisioning Agent boot report submitted",
+		"operation_uid", cfg.operationUID,
+		"active_slot", cfg.activeSlot,
+		"artifact_generation", cfg.artifactGeneration,
+		"state_mounted", cfg.stateMounted,
+		"data_mounted", cfg.dataMounted,
+		"bootstrap_applied", bootstrapApplied,
+	)
+	return nil
+}
+
+func newBootstrapService(cfg config) (*agentbootstrap.Service, error) {
+	return agentbootstrap.NewService(
+		cfg.stateDir,
+		cfg.bootstrapWorkDir,
+		commandBootstrapApplier{path: cfg.bootstrapAdapter},
+		time.Now,
+	)
 }
 
 func parseConfig(args []string) (config, error) {

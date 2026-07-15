@@ -47,12 +47,14 @@ func ValidateTargets(plan agentprotocol.ValidatedPlan) error {
 func updateRoles(activeSlot string) map[agentprotocol.DiskRole]struct{} {
 	switch activeSlot {
 	case "A":
+		//nolint:exhaustive // 更新対象だけを返す。State/Dataやactive slotを含めると安全判定が壊れる。
 		return map[agentprotocol.DiskRole]struct{}{
 			agentprotocol.DiskRoleBoot:    {},
 			agentprotocol.DiskRoleOSB:     {},
 			agentprotocol.DiskRoleVerityB: {},
 		}
 	case "B":
+		//nolint:exhaustive // 更新対象だけを返す。State/Dataやactive slotを含めると安全判定が壊れる。
 		return map[agentprotocol.DiskRole]struct{}{
 			agentprotocol.DiskRoleBoot:    {},
 			agentprotocol.DiskRoleOSA:     {},

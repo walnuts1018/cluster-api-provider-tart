@@ -195,7 +195,7 @@ func (writer *Writer) configureBootTrial(
 		allowed[role] = struct{}{}
 	}
 	if _, ok := allowed[agentprotocol.DiskRoleBoot]; !ok {
-		return errors.New("Update Plan must allow Boot role for boot trial metadata")
+		return errors.New("update Plan must allow Boot role for boot trial metadata")
 	}
 	bootDevice, ok := resolved[agentprotocol.DiskRoleBoot]
 	if !ok {

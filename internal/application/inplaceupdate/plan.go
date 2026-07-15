@@ -125,24 +125,24 @@ func validateUpdatePlanInput(input UpdatePlanInput) error {
 	case input.Host == nil:
 		return fmt.Errorf("TartHost is required")
 	case input.OperationID == "":
-		return fmt.Errorf("Operation ID is required")
+		return fmt.Errorf("operation ID is required")
 	case input.Deadline.IsZero():
-		return fmt.Errorf("Operation deadline is required")
+		return fmt.Errorf("operation deadline is required")
 	}
 	manifest := input.Manifest.Value()
 	switch {
 	case manifest.PlatformProfile != input.TartMachine.Spec.PlatformProfile:
-		return fmt.Errorf("Artifact Platform Profile does not match TartMachine")
+		return fmt.Errorf("artifact Platform Profile does not match TartMachine")
 	case manifest.PlatformProfile != input.Host.Spec.PlatformProfile:
-		return fmt.Errorf("Artifact Platform Profile does not match TartHost")
+		return fmt.Errorf("artifact Platform Profile does not match TartHost")
 	case manifest.Architecture != string(input.Host.Spec.Architecture):
-		return fmt.Errorf("Artifact architecture does not match TartHost")
+		return fmt.Errorf("artifact architecture does not match TartHost")
 	case manifest.Kubernetes.Version != input.Machine.Spec.Version:
-		return fmt.Errorf("Artifact Kubernetes version does not match desired Machine")
+		return fmt.Errorf("artifact Kubernetes version does not match desired Machine")
 	case manifest.Generation != input.TargetArtifactGeneration:
-		return fmt.Errorf("Artifact generation does not match Update Operation")
+		return fmt.Errorf("artifact generation does not match Update Operation")
 	case manifest.Image.Digest != input.TargetImageDigest:
-		return fmt.Errorf("Artifact image digest does not match Update Operation")
+		return fmt.Errorf("artifact image digest does not match Update Operation")
 	}
 	return nil
 }

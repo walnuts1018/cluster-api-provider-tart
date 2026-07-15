@@ -125,6 +125,15 @@ func agentBootPhase(phase infrastructurev1beta1.TartHostOperationPhase) bool {
 		infrastructurev1beta1.TartHostOperationPhaseWriting,
 		infrastructurev1beta1.TartHostOperationPhaseVerifying:
 		return true
+	case infrastructurev1beta1.TartHostOperationPhasePending,
+		infrastructurev1beta1.TartHostOperationPhaseBootTrial,
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		infrastructurev1beta1.TartHostOperationPhaseRollingBack,
+		infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+		infrastructurev1beta1.TartHostOperationPhaseFailed,
+		infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired:
+		return false
 	default:
 		return false
 	}

@@ -456,8 +456,10 @@ func (session *session) postForStatus(
 	if err != nil {
 		return httpStatus{}, classifyHTTPError(err)
 	}
-	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, response.Body)
+	if err := response.Body.Close(); err != nil {
+		return httpStatus{}, driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("close Redfish response: %w", err))
+	}
 	return httpStatus{code: response.StatusCode, header: response.Header.Clone()}, nil
 }
 
@@ -470,7 +472,7 @@ func (session *session) discover(
 		return systemResource{}, virtualMediaResource{}, err
 	}
 	if root.Systems.ODataID == "" {
-		return systemResource{}, virtualMediaResource{}, driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("Systems collection is missing"))
+		return systemResource{}, virtualMediaResource{}, driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("systems collection is missing"))
 	}
 	systems := collection{}
 	if err := session.get(ctx, client, root.Systems.ODataID, &systems, http.StatusOK); err != nil {
@@ -501,7 +503,7 @@ func (session *session) discoverVirtualMedia(
 	managersPath string,
 ) (virtualMediaResource, error) {
 	if managersPath == "" {
-		return virtualMediaResource{}, driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("Managers collection is missing"))
+		return virtualMediaResource{}, driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("managers collection is missing"))
 	}
 	managers := collection{}
 	if err := session.get(ctx, client, managersPath, &managers, http.StatusOK); err != nil {
@@ -639,17 +641,26 @@ func (session *session) do(
 	if err != nil {
 		return classifyHTTPError(err)
 	}
-	defer response.Body.Close()
 	if !contains(expected, response.StatusCode) {
 		_, _ = io.Copy(io.Discard, response.Body)
+		if err := response.Body.Close(); err != nil {
+			return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("close Redfish response: %w", err))
+		}
 		return classifyHTTPStatus(response.StatusCode)
 	}
 	if into == nil {
 		_, _ = io.Copy(io.Discard, response.Body)
+		if err := response.Body.Close(); err != nil {
+			return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("close Redfish response: %w", err))
+		}
 		return nil
 	}
 	if err := json.NewDecoder(response.Body).Decode(into); err != nil {
+		_ = response.Body.Close()
 		return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("decode Redfish response: %w", err))
+	}
+	if err := response.Body.Close(); err != nil {
+		return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("close Redfish response: %w", err))
 	}
 	return nil
 }

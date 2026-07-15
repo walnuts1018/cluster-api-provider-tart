@@ -48,7 +48,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 		t.Fatalf("start envtest: %v", err)
 	}
 	t.Cleanup(func() {
-		stopCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
 		defer cancel()
 		stopped := make(chan error, 1)
 		go func() {

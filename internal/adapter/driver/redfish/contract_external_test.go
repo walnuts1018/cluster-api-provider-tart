@@ -35,6 +35,8 @@ import (
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
+const contractNormalBootTargetPXE = "Pxe"
+
 func TestAdapterContractSessionAuthenticationPreferred(t *testing.T) {
 	t.Parallel()
 
@@ -82,7 +84,7 @@ func TestAdapterContractFallsBackToBasicOnlyWhenSessionUnsupported(t *testing.T)
 	}
 }
 
-func TestAdapterContractSetsOneTimeBootOverrideAndObservesBootState(t *testing.T) {
+func TestAdapterContractSetsOneTimeBootOverrideAndReturnsToNormalBootOrderAfterPowerCycle(t *testing.T) {
 	t.Parallel()
 
 	simulator := startExternalContractSimulator(t, "supported")
@@ -121,11 +123,67 @@ func TestAdapterContractSetsOneTimeBootOverrideAndObservesBootState(t *testing.T
 	if debug.BootPatchCount != 1 {
 		t.Fatalf("BootPatchCount = %d, want 1", debug.BootPatchCount)
 	}
+	if debug.BootConsumeCount != 0 {
+		t.Fatalf("BootConsumeCount = %d, want 0 before power cycle", debug.BootConsumeCount)
+	}
+	if len(debug.NormalBootOrder) == 0 {
+		t.Fatal("NormalBootOrder is empty, want configured default target")
+	}
+	if debug.NormalBootOrder[0] != contractNormalBootTargetPXE {
+		t.Fatalf("NormalBootOrder[0] = %q, want %s", debug.NormalBootOrder[0], contractNormalBootTargetPXE)
+	}
+	if len(debug.BootHistory) != 0 {
+		t.Fatalf("BootHistory = %v, want empty before power cycle", debug.BootHistory)
+	}
 	if debug.BootEnabled != "Once" {
-		t.Fatalf("BootEnabled = %q, want Once", debug.BootEnabled)
+		t.Fatalf("BootEnabled = %q, want Once before power cycle", debug.BootEnabled)
 	}
 	if debug.BootTarget != "Cd" {
-		t.Fatalf("BootTarget = %q, want Cd", debug.BootTarget)
+		t.Fatalf("BootTarget = %q, want Cd before power cycle", debug.BootTarget)
+	}
+
+	if err := adapter.PowerOn(t.Context(), simulator.target, operationID); err != nil {
+		t.Fatalf("PowerOn() first call error = %v", err)
+	}
+
+	state, err = adapter.ObserveBootState(t.Context(), simulator.target)
+	if err != nil {
+		t.Fatalf("ObserveBootState() after first power cycle error = %v", err)
+	}
+	if state.OverrideEnabled {
+		t.Fatal("OverrideEnabled = true after first power cycle, want false")
+	}
+
+	if err := adapter.PowerOn(t.Context(), simulator.target, operationID); err != nil {
+		t.Fatalf("PowerOn() second call error = %v", err)
+	}
+
+	state, err = adapter.ObserveBootState(t.Context(), simulator.target)
+	if err != nil {
+		t.Fatalf("ObserveBootState() after second power cycle error = %v", err)
+	}
+	if state.OverrideEnabled {
+		t.Fatal("OverrideEnabled = true after second power cycle, want false")
+	}
+
+	debug = simulator.debugState(t)
+	if debug.BootPatchCount != 1 {
+		t.Fatalf("BootPatchCount = %d, want 1", debug.BootPatchCount)
+	}
+	if debug.BootConsumeCount != 1 {
+		t.Fatalf("BootConsumeCount = %d, want 1 after power cycle", debug.BootConsumeCount)
+	}
+	if len(debug.BootHistory) != 2 {
+		t.Fatalf("BootHistory length = %d, want 2", len(debug.BootHistory))
+	}
+	if debug.BootHistory[0] != "Cd" {
+		t.Fatalf("BootHistory[0] = %q, want Cd", debug.BootHistory[0])
+	}
+	if debug.BootHistory[1] != debug.NormalBootOrder[0] {
+		t.Fatalf("BootHistory[1] = %q, want %q", debug.BootHistory[1], debug.NormalBootOrder[0])
+	}
+	if debug.BootEnabled != "Disabled" {
+		t.Fatalf("BootEnabled = %q, want Disabled after boot consumption", debug.BootEnabled)
 	}
 }
 
@@ -171,17 +229,20 @@ type externalContractSimulator struct {
 }
 
 type externalContractDebugState struct {
-	SessionAttempts   int    `json:"sessionAttempts"`
-	SessionCreated    int    `json:"sessionCreated"`
-	BasicAuthRequests int    `json:"basicAuthRequests"`
-	TokenAuthRequests int    `json:"tokenAuthRequests"`
-	BootPatchCount    int    `json:"bootPatchCount"`
-	InsertCount       int    `json:"insertCount"`
-	BootEnabled       string `json:"bootEnabled"`
-	BootTarget        string `json:"bootTarget"`
-	MediaInserted     bool   `json:"mediaInserted"`
-	MediaImage        string `json:"mediaImage"`
-	MediaOperationID  string `json:"mediaOperationID"`
+	SessionAttempts   int      `json:"sessionAttempts"`
+	SessionCreated    int      `json:"sessionCreated"`
+	BasicAuthRequests int      `json:"basicAuthRequests"`
+	TokenAuthRequests int      `json:"tokenAuthRequests"`
+	BootPatchCount    int      `json:"bootPatchCount"`
+	BootConsumeCount  int      `json:"bootConsumeCount"`
+	InsertCount       int      `json:"insertCount"`
+	NormalBootOrder   []string `json:"normalBootOrder"`
+	BootHistory       []string `json:"bootHistory"`
+	BootEnabled       string   `json:"bootEnabled"`
+	BootTarget        string   `json:"bootTarget"`
+	MediaInserted     bool     `json:"mediaInserted"`
+	MediaImage        string   `json:"mediaImage"`
+	MediaOperationID  string   `json:"mediaOperationID"`
 }
 
 type externalContractReadyPayload struct {

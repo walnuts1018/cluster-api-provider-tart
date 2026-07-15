@@ -16,8 +16,9 @@ MISE_OFFLINE=1 mise run test-redfish-contract
 3. one-time BootOverride、VirtualMedia idempotency、異なるOperation/Imageの`Conflict`を検証する。
 4. controller再起動後にactive Operationを再reconcileした時も、PowerStateとBootStateを再観測する。
 5. 認証失敗は再試行せず、temporary errorだけを上限回数まで再試行する。
-6. 実HTTP/TLS越しに起動したRedfish simulator processに対して、session auth、basic fallback、BootOverride、VirtualMedia stateを確認する。
-7. `cmd/provisioning-agent` が、明示flag、kernel command line、VirtualMedia 相当の GRUB、HTTPBoot/PXE 相当の iPXE script から得た4項目を、同じ `/v1/agent/register` request へ落とすことを確認する。
+6. simulator の debug endpoint で通常 boot order と boot 履歴を観測し、1 回目の reset では override target、2 回目の reset では通常 boot order の先頭 target が使われたことを確認する。
+7. 実HTTP/TLS越しに起動したRedfish simulator processに対して、session auth、basic fallback、BootOverride、VirtualMedia stateを確認する。
+8. `cmd/provisioning-agent` が、明示flag、kernel command line、VirtualMedia 相当の GRUB、HTTPBoot/PXE 相当の iPXE script から得た4項目を、同じ `/v1/agent/register` request へ落とすことを確認する。
 
 ## repository内で確認できる主なtest
 
@@ -27,8 +28,8 @@ MISE_OFFLINE=1 mise run test-redfish-contract
   `TestAdapterRejectsAuthenticationFailureWithoutBasicFallback`
   `TestAdapterMountRejectsConflictingMedia`
   `TestAdapterSetsOneTimeBootOverride`
-- `internal/adapter/driver/redfish/contract_test.go`
-  実プロセスのRedfish simulatorへ接続し、TLS検証、session auth、basic fallback、BootOverride、VirtualMediaのcontractを確認する
+- `internal/adapter/driver/redfish/contract_external_test.go`
+  実プロセスのRedfish simulatorへ接続し、TLS検証、session auth、basic fallback、BootOverride、VirtualMediaのcontractと、debug endpoint を使った 1 回目の reset で override target、2 回目の reset で通常 boot order の先頭 target が使われたことを確認する
 - `internal/application/driver/service_test.go`
   `TestServiceRetriesTemporaryErrorAtDefinedIntervals`
   `TestServiceDoesNotRetryAuthenticationFailure`

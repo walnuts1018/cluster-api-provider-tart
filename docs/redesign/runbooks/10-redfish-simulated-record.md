@@ -34,6 +34,10 @@ MISE_OFFLINE=1 mise run test-redfish-contract
   `TestServicePrepareBootPrefersHTTPThenPXE`
   `TestServicePrepareBootUsesVirtualMediaBeforePXE`
   `TestServicePrepareBootRejectsVirtualMediaPreferenceWithoutArtifactProvider`
+- `internal/domain/agentboot/script_test.go`
+  `TestBuildScriptはregister入力をkernel引数へ正規化する`
+- `hack/agent-artifact-iso/main_test.go`
+  `TestVirtualMediaはHTTPBootとPXEと同じregister入力へ収束する`
 - `internal/controller/tarthostoperation_controller_test.go`
   `TestTartHostOperationReconcilerはPowerOn前にBootStateを観測する`
   `TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再観測する`

@@ -75,10 +75,10 @@ func TestRunStagesGrubISOInputs(t *testing.T) {
 	for _, want := range []string{
 		"linux /vmlinuz",
 		"initrd /initrd",
-		"tart.agent.controller-url=https://controller.test/agent",
-		"tart.agent.host-uid=host-uid",
-		"tart.agent.operation-uid=operation-uid",
-		"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
+		agentboot.KernelParameterControllerURL + "=https://controller.test/agent",
+		agentboot.KernelParameterHostUID + "=host-uid",
+		agentboot.KernelParameterOperationUID + "=operation-uid",
+		agentboot.KernelParameterBootMAC + "=aa:bb:cc:dd:ee:ff",
 	} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("grub.cfg does not contain %q:\n%s", want, config)
@@ -131,10 +131,10 @@ func TestVirtualMediaはHTTPBootとPXEと同じregister入力へ収束する(t *
 	gotVirtualMedia := extractAgentKernelArgumentsFromGRUBConfig(t, grubConfig(opts))
 	gotNetworkBoot := extractAgentKernelArgumentsFromIPXEScript(t, script)
 	want := []string{
-		"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
-		"tart.agent.controller-url=https://controller.test/agent",
-		"tart.agent.host-uid=host-uid",
-		"tart.agent.operation-uid=operation-uid",
+		agentboot.KernelParameterBootMAC + "=aa:bb:cc:dd:ee:ff",
+		agentboot.KernelParameterControllerURL + "=https://controller.test/agent",
+		agentboot.KernelParameterHostUID + "=host-uid",
+		agentboot.KernelParameterOperationUID + "=operation-uid",
 	}
 	slices.Sort(gotVirtualMedia)
 	slices.Sort(gotNetworkBoot)
@@ -167,7 +167,7 @@ func extractAgentKernelArgumentsFromGRUBConfig(t *testing.T, config string) []st
 
 		args := make([]string, 0, len(fields)-2)
 		for _, field := range fields[2:] {
-			if strings.HasPrefix(field, "tart.agent.") {
+			if isAgentKernelArgument(field) {
 				args = append(args, field)
 			}
 		}
@@ -189,7 +189,7 @@ func extractAgentKernelArgumentsFromIPXEScript(t *testing.T, script string) []st
 
 		args := make([]string, 0, len(fields)-2)
 		for _, field := range fields[2:] {
-			if strings.HasPrefix(field, "tart.agent.") {
+			if isAgentKernelArgument(field) {
 				args = append(args, field)
 			}
 		}
@@ -198,4 +198,13 @@ func extractAgentKernelArgumentsFromIPXEScript(t *testing.T, script string) []st
 
 	t.Fatal("kernel line not found")
 	return nil
+}
+
+func isAgentKernelArgument(argument string) bool {
+	for _, key := range agentboot.KernelParameterKeys() {
+		if strings.HasPrefix(argument, key+"=") {
+			return true
+		}
+	}
+	return false
 }

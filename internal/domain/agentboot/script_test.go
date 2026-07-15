@@ -36,10 +36,10 @@ func TestBuildScriptは検証済みArtifactの固定URLを生成する(t *testin
 		"#!ipxe\n",
 		"kernel https://boot.test/agent/v1/agent-artifacts/sha256/" + strings.Repeat("a", 64) + "/kernel",
 		"initrd=agent-initrd",
-		"tart.agent.controller-url=https://agent-api.test:8443",
-		"tart.agent.host-uid=host-uid",
-		"tart.agent.operation-uid=operation-uid",
-		"tart.agent.boot-mac=00:00:5e:00:53:01",
+		KernelParameterControllerURL + "=https://agent-api.test:8443",
+		KernelParameterHostUID + "=host-uid",
+		KernelParameterOperationUID + "=operation-uid",
+		KernelParameterBootMAC + "=00:00:5e:00:53:01",
 		"initrd --name agent-initrd https://boot.test/agent/v1/agent-artifacts/sha256/" + strings.Repeat("a", 64) + "/initrd",
 		"\nboot\n",
 	} {
@@ -101,10 +101,10 @@ func TestBuildScriptはregister入力をkernel引数へ正規化する(t *testin
 
 	got := extractKernelAgentArgumentsFromIPXEScript(t, script)
 	want := []string{
-		"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
-		"tart.agent.controller-url=https://controller.test/agent",
-		"tart.agent.host-uid=host-uid",
-		"tart.agent.operation-uid=operation-uid",
+		KernelParameterBootMAC + "=aa:bb:cc:dd:ee:ff",
+		KernelParameterControllerURL + "=https://controller.test/agent",
+		KernelParameterHostUID + "=host-uid",
+		KernelParameterOperationUID + "=operation-uid",
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
@@ -123,7 +123,7 @@ func extractKernelAgentArgumentsFromIPXEScript(t *testing.T, script string) []st
 
 		args := make([]string, 0, len(fields)-2)
 		for _, field := range fields[2:] {
-			if strings.HasPrefix(field, "tart.agent.") {
+			if isAgentKernelArgument(field) {
 				args = append(args, field)
 			}
 		}
@@ -132,4 +132,13 @@ func extractKernelAgentArgumentsFromIPXEScript(t *testing.T, script string) []st
 
 	t.Fatal("kernel line not found")
 	return nil
+}
+
+func isAgentKernelArgument(argument string) bool {
+	for _, key := range KernelParameterKeys() {
+		if strings.HasPrefix(argument, key+"=") {
+			return true
+		}
+	}
+	return false
 }

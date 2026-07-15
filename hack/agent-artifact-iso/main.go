@@ -25,6 +25,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
 )
 
 type options struct {
@@ -164,16 +166,15 @@ func validateOptions(opts options) error {
 }
 
 func grubConfig(opts options) string {
-	normalizedBootMAC, err := normalizeBootMAC(opts.bootMACAddress)
+	args, err := agentboot.KernelParameters{
+		ControllerURL: opts.controllerURL,
+		HostUID:       opts.hostUID,
+		OperationUID:  opts.operationUID,
+		BootMAC:       opts.bootMACAddress,
+	}.Arguments()
 	if err != nil {
 		// validateOptions が先に拒否するため、ここへ到達するのは将来の回帰だけである。
 		panic(err)
-	}
-	args := []string{
-		"tart.agent.controller-url=" + opts.controllerURL,
-		"tart.agent.host-uid=" + opts.hostUID,
-		"tart.agent.operation-uid=" + opts.operationUID,
-		"tart.agent.boot-mac=" + normalizedBootMAC,
 	}
 	return "set timeout=0\n" +
 		"set default=0\n" +
@@ -181,14 +182,6 @@ func grubConfig(opts options) string {
 		"  linux /vmlinuz " + strings.Join(args, " ") + "\n" +
 		"  initrd /initrd\n" +
 		"}\n"
-}
-
-func normalizeBootMAC(value string) (string, error) {
-	parsed, err := net.ParseMAC(value)
-	if err != nil {
-		return "", fmt.Errorf("parse boot MAC address: %w", err)
-	}
-	return parsed.String(), nil
 }
 
 func copyFile(source, target string, mode os.FileMode) error {

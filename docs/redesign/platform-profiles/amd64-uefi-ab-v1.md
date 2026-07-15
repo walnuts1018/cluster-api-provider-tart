@@ -58,10 +58,8 @@ A/Bの区別は一意なGPT labelで行い、OS起動時のmountはAgentが報�
   使う場合は同じdirectoryへ`virtual-media.iso`を追加する。信頼する公開鍵は
   Artifactとは別のread-only mountからcontrollerへ渡す。
 - `virtual-media.iso`は`mise run agent-artifact-virtual-media`で生成し、GRUBから
-  `/vmlinuz`と`/initrd`を起動する。ISO内のkernel argumentは`controller-url`、
-  Host UID、Operation UID、boot MACだけとし、Initial Credential、Session Token、
-  Bootstrap Dataを含めない。
-- iPXE scriptは`controller-url`、Host UID、Operation UID、boot MACだけを
+  `/vmlinuz`と`/initrd`を起動する。iPXEとVirtualMediaはどちらも
+  `controller-url`、Host UID、Operation UID、boot MACの4項目だけを
   `tart.agent.*` kernel parameterとして渡す。Initial Credential、Session Token、
   Bootstrap Dataをscriptまたはkernel command lineへ含めない。
 - `--prepare-layout-only`は署名済みPlan、deadline、disk identity、許可Roleの検証後だけ実行する。

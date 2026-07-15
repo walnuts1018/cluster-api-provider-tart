@@ -385,59 +385,62 @@ func newBootstrapService(cfg config) (*agentbootstrap.Service, error) {
 }
 
 func parseConfig(args []string) (config, error) {
-	var cfg config
+	cfg, err := loadKernelCommandLineConfig()
+	if err != nil {
+		return config{}, err
+	}
 	flags := flag.NewFlagSet("provisioning-agent", flag.ContinueOnError)
-	flags.StringVar(&cfg.controllerURL, "controller-url", "", "Agent API HTTPS base URL.")
-	flags.StringVar(&cfg.operationUID, "operation-uid", "", "Operation UID assigned by the controller.")
-	flags.StringVar(&cfg.hostUID, "host-uid", "", "TartHost UID assigned by the controller.")
-	flags.StringVar(&cfg.systemUUID, "system-uuid", "", "Host system UUID. Defaults to Linux DMI product_uuid.")
-	flags.StringVar(&cfg.bootMAC, "boot-mac-address", "", "MAC address used to boot the Agent.")
-	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", "", "PEM CA bundle used to verify the Agent API.")
-	flags.StringVar(&cfg.planKeyID, "plan-key-id", "", "Trusted Plan signing key ID.")
-	flags.StringVar(&cfg.planKeyFile, "plan-key-file", "", "PEM Ed25519 public key used to verify Plans.")
-	flags.StringVar(&cfg.artifactKeyID, "artifact-key-id", "", "Trusted OS Artifact signing key ID.")
-	flags.StringVar(&cfg.artifactKeyFile, "artifact-key-file", "", "PEM Ed25519 public key used to verify OS Artifacts.")
-	flags.StringVar(&cfg.registryConfig, "registry-config", "", "Optional Docker-compatible registry credential file.")
-	flags.StringVar(&cfg.bootTrialDriver, "boot-trial-driver", "", "Optional executable that writes boot trial metadata for Update Plans.")
-	flags.BoolVar(&cfg.preflight, "preflight-only", false, "Validate registration, signed Plan, and disk selection without writing.")
+	flags.StringVar(&cfg.controllerURL, "controller-url", cfg.controllerURL, "Agent API HTTPS base URL.")
+	flags.StringVar(&cfg.operationUID, "operation-uid", cfg.operationUID, "Operation UID assigned by the controller.")
+	flags.StringVar(&cfg.hostUID, "host-uid", cfg.hostUID, "TartHost UID assigned by the controller.")
+	flags.StringVar(&cfg.systemUUID, "system-uuid", cfg.systemUUID, "Host system UUID. Defaults to Linux DMI product_uuid.")
+	flags.StringVar(&cfg.bootMAC, "boot-mac-address", cfg.bootMAC, "MAC address used to boot the Agent.")
+	flags.StringVar(&cfg.tlsCAFile, "tls-ca-file", cfg.tlsCAFile, "PEM CA bundle used to verify the Agent API.")
+	flags.StringVar(&cfg.planKeyID, "plan-key-id", cfg.planKeyID, "Trusted Plan signing key ID.")
+	flags.StringVar(&cfg.planKeyFile, "plan-key-file", cfg.planKeyFile, "PEM Ed25519 public key used to verify Plans.")
+	flags.StringVar(&cfg.artifactKeyID, "artifact-key-id", cfg.artifactKeyID, "Trusted OS Artifact signing key ID.")
+	flags.StringVar(&cfg.artifactKeyFile, "artifact-key-file", cfg.artifactKeyFile, "PEM Ed25519 public key used to verify OS Artifacts.")
+	flags.StringVar(&cfg.registryConfig, "registry-config", cfg.registryConfig, "Optional Docker-compatible registry credential file.")
+	flags.StringVar(&cfg.bootTrialDriver, "boot-trial-driver", cfg.bootTrialDriver, "Optional executable that writes boot trial metadata for Update Plans.")
+	flags.BoolVar(&cfg.preflight, "preflight-only", cfg.preflight, "Validate registration, signed Plan, and disk selection without writing.")
 	flags.BoolVar(
 		&cfg.prepareLayout,
 		"prepare-layout-only",
-		false,
+		cfg.prepareLayout,
 		"Create or validate the amd64 UEFI A/B partition layout, then stop. Provision mode destroys the selected disk.",
 	)
 	flags.BoolVar(
 		&cfg.writePayloads,
 		"write-payloads-only",
-		false,
+		cfg.writePayloads,
 		"Verify the signed OS Artifact, prepare the layout, write OS/Verity payloads, and read them back. Provision mode destroys the selected disk.",
 	)
 	flags.BoolVar(
 		&cfg.applyBootstrap,
 		"apply-bootstrap-only",
-		false,
+		cfg.applyBootstrap,
 		"Fetch the single-use Bootstrap Bundle, run the local cloud-config adapter, and delete the applied payload original.",
 	)
 	flags.BoolVar(
 		&cfg.reportBoot,
 		"report-boot-only",
-		false,
+		cfg.reportBoot,
 		"Report installed OS boot state, mount state, and Bootstrap success marker digest to the Agent API.",
 	)
-	flags.StringVar(&cfg.stateDir, "state-dir", "/var/lib/tart", "State directory used by the installed OS bootstrap adapter.")
-	flags.StringVar(&cfg.bootstrapWorkDir, "bootstrap-work-dir", "/run/tart/bootstrap", "Temporary directory for the Bootstrap payload original.")
+	flags.StringVar(&cfg.stateDir, "state-dir", defaultString(cfg.stateDir, "/var/lib/tart"), "State directory used by the installed OS bootstrap adapter.")
+	flags.StringVar(&cfg.bootstrapWorkDir, "bootstrap-work-dir", defaultString(cfg.bootstrapWorkDir, "/run/tart/bootstrap"), "Temporary directory for the Bootstrap payload original.")
 	flags.StringVar(
 		&cfg.bootstrapAdapter,
 		"bootstrap-adapter",
-		"/usr/libexec/tart/apply-cloud-config",
+		defaultString(cfg.bootstrapAdapter, "/usr/libexec/tart/apply-cloud-config"),
 		"Local executable that applies cloud-config. The payload path is passed as the only argument.",
 	)
-	flags.StringVar(&cfg.bootID, "boot-id", "", "Installed OS boot ID observed by the first-boot reporter.")
-	flags.StringVar(&cfg.machineID, "machine-id", "", "Installed OS machine ID observed by the first-boot reporter.")
-	flags.StringVar(&cfg.activeSlot, "active-slot", "", "Installed OS active slot observed by the first-boot reporter.")
-	flags.Uint64Var(&cfg.artifactGeneration, "artifact-generation", 0, "Installed OS Artifact generation observed by the first-boot reporter.")
-	flags.BoolVar(&cfg.stateMounted, "state-mounted", false, "Set when the first-boot reporter observed the State filesystem mounted.")
-	flags.BoolVar(&cfg.dataMounted, "data-mounted", false, "Set when the first-boot reporter observed the Data filesystem mounted.")
+	flags.StringVar(&cfg.bootID, "boot-id", cfg.bootID, "Installed OS boot ID observed by the first-boot reporter.")
+	flags.StringVar(&cfg.machineID, "machine-id", cfg.machineID, "Installed OS machine ID observed by the first-boot reporter.")
+	flags.StringVar(&cfg.activeSlot, "active-slot", cfg.activeSlot, "Installed OS active slot observed by the first-boot reporter.")
+	flags.Uint64Var(&cfg.artifactGeneration, "artifact-generation", cfg.artifactGeneration, "Installed OS Artifact generation observed by the first-boot reporter.")
+	flags.BoolVar(&cfg.stateMounted, "state-mounted", cfg.stateMounted, "Set when the first-boot reporter observed the State filesystem mounted.")
+	flags.BoolVar(&cfg.dataMounted, "data-mounted", cfg.dataMounted, "Set when the first-boot reporter observed the Data filesystem mounted.")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -499,6 +502,13 @@ func parseConfig(args []string) (config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func defaultString(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func loadPublicKey(path, purpose string) (ed25519.PublicKey, error) {

@@ -122,13 +122,7 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("collect Linux disk inventory: %w", err)
 	}
-	registration, err := apiClient.Register(ctx, agentprotocol.RegisterRequest{
-		APIVersion:      agentprotocol.APIVersion,
-		OperationUID:    cfg.operationUID,
-		HostUID:         cfg.hostUID,
-		AgentInstanceID: uuid.NewString(),
-		Inventory:       inventory.ToProtocol(systemUUID, cfg.bootMAC, devices),
-	})
+	registration, err := apiClient.Register(ctx, buildRegisterRequest(cfg, systemUUID, uuid.NewString(), devices))
 	if err != nil {
 		return err
 	}
@@ -373,6 +367,16 @@ func observedMachineID(cfg config) (string, error) {
 		return "", fmt.Errorf("read machine ID: %w", err)
 	}
 	return strings.TrimSpace(string(value)), nil
+}
+
+func buildRegisterRequest(cfg config, systemUUID, agentInstanceID string, devices []disk.Device) agentprotocol.RegisterRequest {
+	return agentprotocol.RegisterRequest{
+		APIVersion:      agentprotocol.APIVersion,
+		OperationUID:    cfg.operationUID,
+		HostUID:         cfg.hostUID,
+		AgentInstanceID: agentInstanceID,
+		Inventory:       inventory.ToProtocol(systemUUID, cfg.bootMAC, devices),
+	}
 }
 
 func newBootstrapService(cfg config) (*agentbootstrap.Service, error) {

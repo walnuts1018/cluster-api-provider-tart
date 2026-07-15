@@ -21,8 +21,13 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
 func TestParseConfigRequiresExplicitPreflightInputs(t *testing.T) {
@@ -191,6 +196,117 @@ func TestParseConfigIgnoresMissingKernelCommandLineOnNonLinuxHosts(t *testing.T)
 	}
 }
 
+func TestBuildRegisterRequestは明示flagの設定をそのまま反映する(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := parseConfig([]string{
+		"--controller-url=https://controller.test.walnuts.dev",
+		"--operation-uid=operation-uid",
+		"--host-uid=host-uid",
+		"--system-uuid=system-from-flag",
+		"--boot-mac-address=00:11:22:33:44:55",
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+
+	got := buildRegisterRequest(cfg, cfg.systemUUID, "agent-instance", sampleRegisterDevices())
+	want := agentprotocol.RegisterRequest{
+		APIVersion:      agentprotocol.APIVersion,
+		OperationUID:    "operation-uid",
+		HostUID:         "host-uid",
+		AgentInstanceID: "agent-instance",
+		Inventory: agentprotocol.Inventory{
+			SystemUUID:     "system-from-flag",
+			BootMACAddress: "00:11:22:33:44:55",
+			Disks: []agentprotocol.DiskInventory{
+				{
+					DevicePath:   "/dev/nvme0n1",
+					ByIDPaths:    []string{"/dev/disk/by-id/nvme-test"},
+					SerialNumber: "serial-1",
+					WWN:          "wwn-1",
+					SizeBytes:    1024,
+					HoldsAgentOS: true,
+				},
+				{
+					DevicePath:   "/dev/sda",
+					ByIDPaths:    []string{"/dev/disk/by-id/ata-test", "/dev/disk/by-id/wwn-test"},
+					SerialNumber: "serial-2",
+					WWN:          "wwn-2",
+					SizeBytes:    2048,
+					HoldsAgentOS: false,
+				},
+			},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildRegisterRequest() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildRegisterRequestはkernelCommandLine由来でも明示flagと一致する(t *testing.T) {
+	explicit, err := parseConfig([]string{
+		"--controller-url=https://controller.test.walnuts.dev",
+		"--operation-uid=operation-uid",
+		"--host-uid=host-uid",
+		"--boot-mac-address=00:11:22:33:44:55",
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+
+	fromKernel := parseConfigFromKernelArguments(t, []string{
+		"tart.agent.controller-url=https://controller.test.walnuts.dev",
+		"tart.agent.operation-uid=operation-uid",
+		"tart.agent.host-uid=host-uid",
+		"tart.agent.boot-mac=00:11:22:33:44:55",
+	})
+
+	got := buildRegisterRequest(fromKernel, "system-uuid", "agent-instance", sampleRegisterDevices())
+	want := buildRegisterRequest(explicit, "system-uuid", "agent-instance", sampleRegisterDevices())
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("kernel command line request = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildRegisterRequestはVirtualMediaとHTTPBootPXEで一致する(t *testing.T) {
+	kernelArgs, err := agentboot.KernelParameters{
+		ControllerURL: "https://controller.test.walnuts.dev",
+		HostUID:       "host-uid",
+		OperationUID:  "operation-uid",
+		BootMAC:       "AA-BB-CC-DD-EE-FF",
+	}.Arguments()
+	if err != nil {
+		t.Fatalf("KernelParameters.Arguments() error = %v", err)
+	}
+	script, err := agentboot.BuildScript(agentboot.ScriptInput{
+		ArtifactBaseURL: "https://artifacts.test.walnuts.dev/agent",
+		AgentAPIURL:     "https://controller.test.walnuts.dev",
+		ArtifactDigest:  "sha256:" + strings.Repeat("a", 64),
+		HostUID:         "host-uid",
+		OperationUID:    "operation-uid",
+		BootMACAddress:  "AA-BB-CC-DD-EE-FF",
+	})
+	if err != nil {
+		t.Fatalf("agentboot.BuildScript() error = %v", err)
+	}
+
+	fromVirtualMedia := parseConfigFromKernelArguments(t, extractAgentKernelArgumentsFromGRUBConfig(t, grubConfigForKernelArguments(kernelArgs)))
+	fromHTTPBoot := parseConfigFromKernelArguments(t, extractAgentKernelArgumentsFromIPXEScript(t, script))
+
+	got := buildRegisterRequest(fromVirtualMedia, "system-uuid", "agent-instance", sampleRegisterDevices())
+	want := buildRegisterRequest(fromHTTPBoot, "system-uuid", "agent-instance", sampleRegisterDevices())
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("VirtualMedia request = %#v, HTTPBoot/PXE request = %#v", got, want)
+	}
+}
+
 func swapKernelCommandLineReader(reader func() ([]byte, error)) func() {
 	previous := readKernelCommandLine
 	readKernelCommandLine = reader
@@ -201,6 +317,109 @@ func swapKernelCommandLineReader(reader func() ([]byte, error)) func() {
 
 func stringsJoinFields(fields ...string) string {
 	return strings.Join(fields, " ")
+}
+
+func parseConfigFromKernelArguments(t *testing.T, kernelArguments []string) config {
+	t.Helper()
+
+	restore := swapKernelCommandLineReader(func() ([]byte, error) {
+		return []byte(stringsJoinFields(kernelArguments...)), nil
+	})
+	defer restore()
+
+	cfg, err := parseConfig([]string{
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	return cfg
+}
+
+func sampleRegisterDevices() []disk.Device {
+	return []disk.Device{
+		{
+			Path:         "/dev/nvme0n1",
+			ByIDPaths:    []string{"/dev/disk/by-id/nvme-test"},
+			SerialNumber: "serial-1",
+			WWN:          "wwn-1",
+			SizeBytes:    1024,
+			HoldsAgentOS: true,
+		},
+		{
+			Path:         "/dev/sda",
+			ByIDPaths:    []string{"/dev/disk/by-id/ata-test", "/dev/disk/by-id/wwn-test"},
+			SerialNumber: "serial-2",
+			WWN:          "wwn-2",
+			SizeBytes:    2048,
+			HoldsAgentOS: false,
+		},
+	}
+}
+
+func grubConfigForKernelArguments(kernelArguments []string) string {
+	return strings.Join([]string{
+		"set timeout=0",
+		"menuentry 'Provisioning Agent' {",
+		"\tlinux /vmlinuz initrd=/initrd " + strings.Join(kernelArguments, " "),
+		"\tinitrd /initrd",
+		"}",
+	}, "\n")
+}
+
+func extractAgentKernelArgumentsFromGRUBConfig(t *testing.T, config string) []string {
+	t.Helper()
+
+	for line := range strings.SplitSeq(config, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "linux" {
+			continue
+		}
+
+		var args []string
+		for _, field := range fields[2:] {
+			if isAgentKernelArgument(field) {
+				args = append(args, field)
+			}
+		}
+		return args
+	}
+
+	t.Fatal("linux line not found")
+	return nil
+}
+
+func extractAgentKernelArgumentsFromIPXEScript(t *testing.T, script string) []string {
+	t.Helper()
+
+	for line := range strings.SplitSeq(script, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "kernel" {
+			continue
+		}
+
+		var args []string
+		for _, field := range fields[2:] {
+			if isAgentKernelArgument(field) {
+				args = append(args, field)
+			}
+		}
+		return args
+	}
+
+	t.Fatal("kernel line not found")
+	return nil
+}
+
+func isAgentKernelArgument(argument string) bool {
+	for _, key := range agentboot.KernelParameterKeys() {
+		if strings.HasPrefix(argument, key+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {

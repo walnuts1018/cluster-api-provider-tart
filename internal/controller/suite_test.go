@@ -15,7 +15,6 @@
 package controller
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -31,15 +30,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/test/envtestutil"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	// +kubebuilder:scaffold:imports
 )
 
 // これらのテストはGinkgo（BDDスタイルのGoテストフレームワーク）を使う。
 
-const (
-	capiFixtureDir = "test/envtest/crds/cluster-api/v1.13.1"
-)
+const projectRoot = "../.."
 
 var (
 	testEnv   *envtest.Environment
@@ -74,8 +72,8 @@ var _ = BeforeSuite(func() {
 		ErrorIfCRDPathMissing: true,
 	}
 
-	assets := findEnvTestBinaryDir()
-	Expect(assets).NotTo(BeEmpty(), "envtest binaries are required; run `mise run setup-envtest` or set KUBEBUILDER_ASSETS")
+	assets := envtestutil.BinaryAssetsDirectory(projectRoot)
+	Expect(assets).NotTo(BeEmpty(), envtestutil.MissingAssetsMessage())
 	testEnv.BinaryAssetsDirectory = assets
 
 	// cfg はこのファイルのグローバル変数として扱う。
@@ -98,29 +96,9 @@ var _ = AfterSuite(func() {
 	}, time.Minute, time.Second).Should(Succeed())
 })
 
-func findEnvTestBinaryDir() string {
-	if assets := os.Getenv("KUBEBUILDER_ASSETS"); assets != "" {
-		if stat, err := os.Stat(assets); err == nil && stat.IsDir() {
-			return assets
-		}
-	}
-
-	basePath := filepath.Join("..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
-}
-
 func localCRDPaths() []string {
 	return []string{
-		filepath.Join("..", "..", "config", "crd", "bases"),
-		filepath.Join("..", "..", capiFixtureDir),
+		filepath.Join(projectRoot, "config", "crd", "bases"),
+		envtestutil.ClusterAPICRDDirectory(projectRoot),
 	}
 }

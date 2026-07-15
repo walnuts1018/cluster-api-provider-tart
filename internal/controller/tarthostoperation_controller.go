@@ -16,10 +16,15 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -49,6 +54,7 @@ type TartHostOperationReconciler struct {
 	DriverCapabilities operationexecution.DriverCapabilityObserver
 	DriverPowerState   operationexecution.DriverPowerStateObserver
 	DriverBootState    operationexecution.DriverBootStateObserver
+	Recorder           record.EventRecorder
 }
 
 const (
@@ -83,7 +89,46 @@ func (r *TartHostOperationReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	if err := r.applyResult(ctx, &operation, result); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{RequeueAfter: result.RequeueAfter}, nil
+}
+
+func (r *TartHostOperationReconciler) applyResult(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	result operationexecution.Result,
+) error {
+	if result.StatusCondition != nil {
+		if err := r.patchResultCondition(ctx, operation, *result.StatusCondition); err != nil {
+			return err
+		}
+	}
+	if result.Event != nil && r.Recorder != nil {
+		r.Recorder.Event(operation, result.Event.Type, result.Event.Reason, result.Event.Message)
+	}
+	return nil
+}
+
+func (r *TartHostOperationReconciler) patchResultCondition(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	condition metav1.Condition,
+) error {
+	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		current := &infrastructurev1beta1.TartHostOperation{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
+			return fmt.Errorf("get TartHostOperation for result condition: %w", err)
+		}
+		original := current.DeepCopy()
+		condition.ObservedGeneration = current.Generation
+		apimeta.SetStatusCondition(&current.Status.Conditions, condition)
+		if current.Status.ObservedGeneration < current.Generation {
+			current.Status.ObservedGeneration = current.Generation
+		}
+		return r.Status().Patch(ctx, current, client.MergeFrom(original))
+	})
 }
 
 func (r *TartHostOperationReconciler) operationWorkflow() *operationexecution.Workflow {
@@ -104,6 +149,9 @@ func (r *TartHostOperationReconciler) operationWorkflow() *operationexecution.Wo
 }
 
 func (r *TartHostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("tarthostoperation")
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1beta1.TartHostOperation{}).
 		// TartHostの変更でPending Operationを再reconcileする

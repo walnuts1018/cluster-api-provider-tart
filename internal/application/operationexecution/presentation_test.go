@@ -17,8 +17,13 @@ package operationexecution
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
+
+const cleaningPolicyRequiredReason = "CleaningPolicyRequired"
 
 func TestPresentは再実行待ちとFailureを写像する(t *testing.T) {
 	t.Parallel()
@@ -48,11 +53,20 @@ func TestPresentは再実行待ちとFailureを写像する(t *testing.T) {
 			},
 			assert: func(t *testing.T, result Result) {
 				t.Helper()
-				if result.Reason != "CleaningPolicyRequired" {
-					t.Fatalf("Reason = %q, want CleaningPolicyRequired", result.Reason)
+				if result.StatusCondition == nil {
+					t.Fatal("StatusCondition = nil, want Degraded condition")
 				}
-				if result.Message == "" {
-					t.Fatal("Message = empty, want message")
+				if result.StatusCondition.Type != appupdate.ConditionDegraded {
+					t.Fatalf("condition type = %q, want %q", result.StatusCondition.Type, appupdate.ConditionDegraded)
+				}
+				if result.StatusCondition.Status != metav1.ConditionTrue {
+					t.Fatalf("condition status = %q, want True", result.StatusCondition.Status)
+				}
+				if result.StatusCondition.Reason != cleaningPolicyRequiredReason {
+					t.Fatalf("condition reason = %q, want %s", result.StatusCondition.Reason, cleaningPolicyRequiredReason)
+				}
+				if result.Event == nil || result.Event.Type != "Warning" || result.Event.Reason != cleaningPolicyRequiredReason {
+					t.Fatalf("Event = %#v, want Warning %s", result.Event, cleaningPolicyRequiredReason)
 				}
 			},
 		},

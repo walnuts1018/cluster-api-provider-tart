@@ -14,12 +14,22 @@
 
 package operationexecution
 
-import "time"
+import (
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
 
 const DeadlineRequeueInterval = 1 * time.Minute
 
 type Result struct {
-	RequeueAfter time.Duration
-	Reason       string
-	Message      string
+	RequeueAfter    time.Duration
+	StatusCondition *metav1.Condition
+	Event           *Event
+}
+
+type Event struct {
+	Type    string
+	Reason  string
+	Message string
 }

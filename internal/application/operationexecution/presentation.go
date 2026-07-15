@@ -14,16 +14,32 @@
 
 package operationexecution
 
-import operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+)
 
 func present(result operationdomain.Result) Result {
 	switch selected := result.(type) {
 	case operationdomain.ObserveActive, operationdomain.AwaitMachineHealth:
 		return Result{RequeueAfter: DeadlineRequeueInterval}
 	case operationdomain.Rejected:
+		reason := failureReason(selected.Failure)
+		message := failureMessage(selected.Failure)
 		return Result{
-			Reason:  failureReason(selected.Failure),
-			Message: failureMessage(selected.Failure),
+			StatusCondition: &metav1.Condition{
+				Type:    appupdate.ConditionDegraded,
+				Status:  metav1.ConditionTrue,
+				Reason:  reason,
+				Message: message,
+			},
+			Event: &Event{
+				Type:    "Warning",
+				Reason:  reason,
+				Message: message,
+			},
 		}
 	default:
 		return Result{}

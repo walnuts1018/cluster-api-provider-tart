@@ -16,6 +16,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -444,6 +446,71 @@ func TestTartHostOperationReconcilerはClean開始時にHostをCleaningへ移す
 	}
 	if hostPhase.provisioning || hostPhase.updating {
 		t.Fatalf("unexpected host phase calls = %#v", hostPhase)
+	}
+}
+
+func TestTartHostOperationReconcilerはCleanPolicy不正をConditionとEventへ反映する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "machine-clean-invalid",
+			Namespace: "default",
+			UID:       types.UID("machine-clean-invalid-uid"),
+		},
+		Spec: infrastructurev1beta1.TartMachineSpec{
+			DeletionPolicy: infrastructurev1beta1.DeletionPolicyWipeAll,
+		},
+	}
+	operation := operationTestUpdate(host)
+	operation.Spec.Type = infrastructurev1beta1.OperationTypeClean
+	operation.Spec.MachineRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, machine, operation).
+		Build()
+	hostPhase := &recordingOperationHostPhase{}
+	recorder := record.NewFakeRecorder(1)
+	reconciler := &TartHostOperationReconciler{
+		Client:    k8sClient,
+		Scheme:    scheme,
+		PowerOn:   successfulOperationPowerOn{},
+		HostPhase: hostPhase,
+		Recorder:  recorder,
+	}
+
+	_, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if hostPhase.cleaning {
+		t.Fatal("MarkHostCleaningForDeletion() was called for rejected Operation")
+	}
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	degraded := apimeta.FindStatusCondition(current.Status.Conditions, appupdate.ConditionDegraded)
+	if degraded == nil || degraded.Reason != "CleaningPolicyRequired" {
+		t.Fatalf("Degraded condition = %#v", degraded)
+	}
+	select {
+	case event := <-recorder.Events:
+		if !strings.Contains(event, "Warning CleaningPolicyRequired") {
+			t.Fatalf("event = %q, want Warning CleaningPolicyRequired", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("event was not recorded")
 	}
 }
 

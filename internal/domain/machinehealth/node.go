@@ -21,6 +21,7 @@ const (
 	ReasonNodeNotReady              Reason = "NodeNotReady"
 	ReasonProviderIDMissing         Reason = "ProviderIDMissing"
 	ReasonProviderIDMismatch        Reason = "ProviderIDMismatch"
+	ReasonMachineIDMismatch         Reason = "MachineIDMismatch"
 	ReasonKubernetesVersionMismatch Reason = "KubernetesVersionMismatch"
 )
 
@@ -28,6 +29,8 @@ type NodeObservation struct {
 	MachineProviderID string
 	NodeProviderID    string
 	NodeReady         bool
+	ExpectedMachineID string
+	ObservedMachineID string
 	ExpectedVersion   string
 	NodeVersion       string
 }
@@ -54,6 +57,12 @@ func EvaluateNode(observation NodeObservation) Result {
 		return Result{
 			Reason:  ReasonProviderIDMismatch,
 			Message: "TartMachine and workload Node providerIDs do not match",
+		}
+	case observation.ExpectedMachineID != "" &&
+		(observation.ObservedMachineID == "" || observation.ObservedMachineID != observation.ExpectedMachineID):
+		return Result{
+			Reason:  ReasonMachineIDMismatch,
+			Message: "Workload Node machine-id does not match the expected machine-id",
 		}
 	case !observation.NodeReady:
 		return Result{

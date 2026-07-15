@@ -189,6 +189,7 @@ func TestValidateBootReportRequiresBootstrapPayloadDigestWhenApplied(t *testing.
 		OperationUID:           "operation-uid",
 		PlanDigest:             "sha256:" + strings.Repeat("a", 64),
 		BootID:                 "boot-id",
+		MachineID:              "machine-id",
 		ActiveSlot:             "A",
 		ArtifactGeneration:     1,
 		StateMounted:           true,
@@ -199,6 +200,11 @@ func TestValidateBootReportRequiresBootstrapPayloadDigestWhenApplied(t *testing.
 	if err := ValidateBootReport(report); err != nil {
 		t.Fatalf("ValidateBootReport() error = %v", err)
 	}
+	report.MachineID = ""
+	if err := ValidateBootReport(report); err == nil {
+		t.Fatal("ValidateBootReport() accepted a boot report without machineID")
+	}
+	report.MachineID = "machine-id"
 	report.BootstrapPayloadDigest = ""
 	if err := ValidateBootReport(report); err == nil {
 		t.Fatal("ValidateBootReport() accepted applied bootstrap without payload digest")

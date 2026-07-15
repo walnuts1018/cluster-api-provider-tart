@@ -107,6 +107,12 @@ type TartMachineStatus struct {
 	// +kubebuilder:validation:Enum=A;B
 	ActiveSlot OSSlot `json:"activeSlot,omitempty"`
 
+	// installedMachineID is the machine-id observed in the active OS slot.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	InstalledMachineID string `json:"installedMachineID,omitempty"`
+
 	// installedImageDigest is the digest of the OS artifact running in activeSlot.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`

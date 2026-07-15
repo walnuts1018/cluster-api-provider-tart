@@ -55,6 +55,7 @@ func PlanProvisionedStatus(
 		Status: appprovisioning.StatusWithProvisioned(
 			machine,
 			machine.Status.Addresses,
+			observation.ObservedMachineID,
 			observation.ExpectedVersion,
 		),
 	}

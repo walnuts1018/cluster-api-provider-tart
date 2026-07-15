@@ -243,6 +243,7 @@ func TestFetchBootstrapAndReportBootUseBoundSession(t *testing.T) {
 		OperationUID:       "operation-uid",
 		PlanDigest:         "sha256:" + strings.Repeat("a", 64),
 		BootID:             "boot-id",
+		MachineID:          "machine-id",
 		ActiveSlot:         "A",
 		ArtifactGeneration: 1,
 	})

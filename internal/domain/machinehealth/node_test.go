@@ -31,6 +31,8 @@ func TestEvaluateNode(t *testing.T) {
 				MachineProviderID: "tart://host-a",
 				NodeProviderID:    "tart://host-a",
 				NodeReady:         true,
+				ExpectedMachineID: "machine-id",
+				ObservedMachineID: "machine-id",
 				ExpectedVersion:   "v1.35.0",
 				NodeVersion:       "v1.35.0",
 			},
@@ -64,6 +66,17 @@ func TestEvaluateNode(t *testing.T) {
 				NodeProviderID:    "tart://host-a",
 			},
 			wantReason: ReasonNodeNotReady,
+		},
+		{
+			name: "machine-id不一致",
+			observation: NodeObservation{
+				MachineProviderID: "tart://host-a",
+				NodeProviderID:    "tart://host-a",
+				NodeReady:         true,
+				ExpectedMachineID: "machine-id-a",
+				ObservedMachineID: "machine-id-b",
+			},
+			wantReason: ReasonMachineIDMismatch,
 		},
 		{
 			name: "MachineのproviderIDがない",

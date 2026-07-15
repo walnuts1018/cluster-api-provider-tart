@@ -203,6 +203,12 @@ type BootReportStatus struct {
 	// +kubebuilder:validation:MaxLength=128
 	BootID string `json:"bootID"`
 
+	// machineID identifies the machine-id observed for this boot.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	MachineID string `json:"machineID"`
+
 	// activeSlot is the slot observed by the operating system.
 	// +required
 	// +kubebuilder:validation:Enum=A;B

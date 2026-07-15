@@ -213,6 +213,7 @@ type BootReportRequest struct {
 	OperationUID           string `json:"operationUID"`
 	PlanDigest             string `json:"planDigest"`
 	BootID                 string `json:"bootID"`
+	MachineID              string `json:"machineID"`
 	ActiveSlot             string `json:"activeSlot"`
 	ArtifactGeneration     uint64 `json:"artifactGeneration"`
 	StateMounted           bool   `json:"stateMounted"`
@@ -364,6 +365,8 @@ func ValidateBootReport(report BootReportRequest) error {
 		return errors.New("planDigest must be a canonical SHA-256 digest")
 	case !uidPattern.MatchString(report.BootID):
 		return errors.New("bootID is invalid")
+	case !uidPattern.MatchString(report.MachineID):
+		return errors.New("machineID is invalid")
 	case report.ActiveSlot != "A" && report.ActiveSlot != "B":
 		return errors.New("activeSlot must be A or B")
 	case report.ArtifactGeneration == 0:

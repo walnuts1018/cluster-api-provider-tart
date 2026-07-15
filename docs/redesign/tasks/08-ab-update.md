@@ -146,6 +146,8 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 - Update Operationのterminal phaseをTartHost phaseとTartMachine Ready conditionへ反映する処理
 - Update Operationが`AwaitingHealth`に到達した後、Node health成功を確認して
   Operation=`Succeeded`、TartMachineのActive Slot/Image Digest更新へ反映する処理
+- 初回Provisioningで観測したmachine-idを`TartMachine.status.installedMachineID`へ保存し、
+  更新後のNode health判定でworkload Nodeのmachine-idと比較する処理
 - Rollback成功後のTartMachine Ready conditionを、後続のNode health観察で上書きしない処理
 - Update Operationの`BootTrial`/`AwaitingHealth` deadline超過を`RollingBack`へ切り替え、
   `RollingBack`自体のdeadline超過を`RecoveryRequired`へ切り替える処理
@@ -171,7 +173,7 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
 
 未実装・未検証:
 
-- QEMUまたは実機によるdm-verity、boot trial、電源断、Node identity維持、E2E検証
+- QEMUまたは実機によるdm-verity、boot trial、電源断、Node UIDと実machine-idの維持、E2E検証
 
 ## 関連
 

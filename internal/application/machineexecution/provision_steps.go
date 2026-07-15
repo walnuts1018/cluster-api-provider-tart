@@ -213,7 +213,7 @@ func (steps *StepExecutor) reserveProvisionHostStep(
 	provisioner ProvisionStep,
 	machine *infrastructurev1beta1.TartMachine,
 ) (model.ProvisionHostReservationResult, error) {
-	started, err := provisioner.Start(ctx, machine, placeholderPlanDigest)
+	started, err := provisioner.Start(ctx, machine)
 	if err != nil {
 		return nil, fmt.Errorf("reserve host and start operation: %w", err)
 	}

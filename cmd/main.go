@@ -50,14 +50,17 @@ import (
 	k8sagentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentboot"
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
+	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
 	k8sdistributionlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/distributionlifecycle"
+	k8sinitialprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/initialprovisioning"
 	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
 	k8snodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycle"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
+	applicationinitialprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	applicationinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/artifactfetch"
@@ -361,6 +364,58 @@ func main() {
 		os.Exit(1)
 	}
 	reconcilers.TartMachineV1Beta1.Recorder = mgr.GetEventRecorder("tartmachine-v1beta1")
+	if osArtifactKeyID != "" || osArtifactPublicKeyFile != "" || agentPlanKeyID != "" || agentPlanPrivateKeyFile != "" {
+		required := map[string]string{
+			"os-artifact-key-id":          osArtifactKeyID,
+			"os-artifact-public-key-file": osArtifactPublicKeyFile,
+			"agent-plan-key-id":           agentPlanKeyID,
+			"agent-plan-private-key-file": agentPlanPrivateKeyFile,
+		}
+		for name, value := range required {
+			if value == "" {
+				setupLog.Error(nil, "Initial provisioning requires a configuration value", "flag", name)
+				os.Exit(1)
+			}
+		}
+		artifactPublicKey, err := signingkey.LoadPublic(osArtifactPublicKeyFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load OS Artifact verification key for initial provisioning")
+			os.Exit(1)
+		}
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
+		if err != nil {
+			setupLog.Error(err, "Failed to load Agent Plan signing key for initial provisioning")
+			os.Exit(1)
+		}
+		registryCredential, err := registrycredential.Load(osArtifactRegistryConfig)
+		if err != nil {
+			setupLog.Error(err, "Failed to load OS Artifact registry credential file for initial provisioning")
+			os.Exit(1)
+		}
+		manifestResolver, err := artifactfetch.NewOCI(
+			artifact.StaticTrustStore{osArtifactKeyID: artifactPublicKey},
+			registryCredential,
+		)
+		if err != nil {
+			setupLog.Error(err, "Failed to create OS Artifact Manifest resolver for initial provisioning")
+			os.Exit(1)
+		}
+		workflow := applicationinitialprovisioning.NewWorkflow(
+			k8sallocation.NewService(mgr.GetClient()),
+			k8sv1beta1host.NewService(mgr.GetClient()),
+			k8soperation.NewService(mgr.GetClient()),
+			k8sagentapi.NewPlanWriter(mgr.GetClient()),
+			applicationinitialprovisioning.PlanSigner{
+				KeyID:      agentPlanKeyID,
+				PrivateKey: planPrivateKey,
+			},
+		)
+		reconcilers.TartMachineV1Beta1.Provisioner = k8sinitialprovisioning.NewService(
+			mgr.GetClient(),
+			manifestResolver,
+			workflow,
+		)
+	}
 	if agentPlanKeyID != "" && agentPlanPrivateKeyFile != "" {
 		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
 		if err != nil {

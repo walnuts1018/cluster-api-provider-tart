@@ -14,12 +14,10 @@ import (
 	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
-	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
 	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
-	appprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	machinelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle"
@@ -68,6 +66,10 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	return registry, nil
+}
+
+func provideInitialProvisioningStep() machineexecution.ProvisionStep {
+	return nil
 }
 
 func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {
@@ -163,16 +165,11 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 		k8sdrivertarget.NewService,
 		k8sallocation.NewService,
 		k8smachinehealth.NewObserver,
-		k8soperation.NewService,
 		k8sv1beta1host.NewService,
 
-		appprovisioning.NewWorkflow,
+		provideInitialProvisioningStep,
 		wire.Bind(new(machineexecution.HostReferenceService), new(*k8sallocation.Service)),
 		wire.Bind(new(machineexecution.NodeHealthObserver), new(*k8smachinehealth.Observer)),
-		wire.Bind(new(machineexecution.ProvisionStep), new(*appprovisioning.Workflow)),
-		wire.Bind(new(appprovisioning.HostReserveService), new(*k8sallocation.Service)),
-		wire.Bind(new(appprovisioning.HostPhaseService), new(*k8sv1beta1host.Service)),
-		wire.Bind(new(appprovisioning.OperationService), new(*k8soperation.Service)),
 		wire.Bind(new(operationexecution.PowerOnService), new(*applicationdriver.Service)),
 		wire.Bind(new(operationexecution.BootPreparationService), new(*applicationdriver.Service)),
 		wire.Bind(new(operationexecution.HostPhaseService), new(*k8sv1beta1host.Service)),

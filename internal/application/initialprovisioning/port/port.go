@@ -23,6 +23,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	applicationhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/hostallocation"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
 type HostReserveService interface {
@@ -38,6 +39,16 @@ type HostPhaseService interface {
 type OperationService interface {
 	Start(ctx context.Context, desired *infrastructurev1beta1.TartHostOperation) (*infrastructurev1beta1.TartHostOperation, error)
 	CompleteProvision(ctx context.Context, operation *infrastructurev1beta1.TartHostOperation) error
+}
+
+// PlanWriter は署名済みProvision PlanをOperation所有のSecretへ保存する。
+type PlanWriter interface {
+	Write(
+		context.Context,
+		*infrastructurev1beta1.TartHostOperation,
+		agentprotocol.ValidatedPlan,
+		agentprotocol.Signature,
+	) error
 }
 
 type SessionTokenIssuer interface {

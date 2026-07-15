@@ -16,6 +16,8 @@ package initialprovisioning
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"testing"
 
@@ -27,6 +29,8 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
 	domainhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
 func TestRequirementsForMachineUsesExactPlatformProfileContract(t *testing.T) {
@@ -91,12 +95,17 @@ func TestWorkflowReturnsAllocationPending(t *testing.T) {
 	workflow := NewWorkflow(
 		hostReserveStub{},
 		hostPhaseStub{},
-		operationServiceStub{},
+		&operationServiceStub{},
+		&recordingPlanWriter{},
+		testPlanSigner(t),
 	)
 	result, err := workflow.Start(
 		t.Context(),
-		testMachine(),
-		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		WorkflowInput{
+			Machine:    testMachine(),
+			MachineUID: "capi-machine-uid",
+			Manifest:   validatedProvisionManifest(t),
+		},
 	)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -110,6 +119,80 @@ func TestWorkflowReturnsAllocationPending(t *testing.T) {
 	}
 }
 
+func TestWorkflowPersistsProvisionPlanAfterOperationStart(t *testing.T) {
+	t.Parallel()
+
+	signer := testPlanSigner(t)
+	writer := &recordingPlanWriter{}
+	host := matchingProvisionHost()
+	host.Labels = map[string]string{"rack": "a"}
+	workflow := NewWorkflow(
+		hostReserveStub{host: host},
+		hostPhaseStub{},
+		&operationServiceStub{},
+		writer,
+		signer,
+	)
+
+	result, err := workflow.Start(t.Context(), WorkflowInput{
+		Machine:    testMachine(),
+		MachineUID: "capi-machine-uid",
+		Manifest:   validatedProvisionManifest(t),
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	started, ok := result.(Started)
+	if !ok {
+		t.Fatalf("Start() result = %T, want Started", result)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("PlanWriter calls = %d, want 1", writer.calls)
+	}
+	if writer.operation == nil || writer.operation.Spec.PlanDigest != started.Operation.Spec.PlanDigest {
+		t.Fatalf("operation = %#v, want plan digest to match started operation", writer.operation)
+	}
+	digest, err := writer.plan.Digest()
+	if err != nil {
+		t.Fatalf("plan.Digest() error = %v", err)
+	}
+	if digest.String() != started.Operation.Spec.PlanDigest {
+		t.Fatalf("persisted plan digest = %q, want %q", digest, started.Operation.Spec.PlanDigest)
+	}
+	if err := agentprotocol.VerifySignature(
+		writer.plan,
+		writer.signature,
+		agentprotocol.StaticTrustStore{signer.KeyID: signer.PrivateKey.Public().(ed25519.PublicKey)},
+	); err != nil {
+		t.Fatalf("VerifySignature() error = %v", err)
+	}
+}
+
+func TestWorkflowReturnsPlanWriterError(t *testing.T) {
+	t.Parallel()
+
+	signer := testPlanSigner(t)
+	writer := &recordingPlanWriter{err: errors.New("plan writer failed")}
+	host := matchingProvisionHost()
+	host.Labels = map[string]string{"rack": "a"}
+	workflow := NewWorkflow(
+		hostReserveStub{host: host},
+		hostPhaseStub{},
+		&operationServiceStub{},
+		writer,
+		signer,
+	)
+
+	_, err := workflow.Start(t.Context(), WorkflowInput{
+		Machine:    testMachine(),
+		MachineUID: "capi-machine-uid",
+		Manifest:   validatedProvisionManifest(t),
+	})
+	if err == nil {
+		t.Fatal("Start() succeeded unexpectedly")
+	}
+}
+
 func TestWorkflowCompletesProvisioningInOperationThenHostOrder(t *testing.T) {
 	t.Parallel()
 
@@ -117,7 +200,9 @@ func TestWorkflowCompletesProvisioningInOperationThenHostOrder(t *testing.T) {
 	workflow := NewWorkflow(
 		hostReserveStub{},
 		hostPhaseStub{markProvisioned: func() { calls = append(calls, "host") }},
-		operationServiceStub{completeProvision: func() { calls = append(calls, "operation") }},
+		&operationServiceStub{completeProvision: func() { calls = append(calls, "operation") }},
+		&recordingPlanWriter{},
+		testPlanSigner(t),
 	)
 
 	if err := workflow.CompleteProvisioning(
@@ -141,9 +226,11 @@ func TestWorkflowStopsProvisionCompletionWhenOperationCompletionFails(t *testing
 		hostPhaseStub{
 			markProvisioned: func() { hostMarked = true },
 		},
-		operationServiceStub{
+		&operationServiceStub{
 			err: errors.New("operation failed"),
 		},
+		&recordingPlanWriter{},
+		testPlanSigner(t),
 	)
 
 	err := workflow.CompleteProvisioning(
@@ -251,13 +338,30 @@ type operationServiceStub struct {
 	operation         *infrastructurev1beta1.TartHostOperation
 	err               error
 	completeProvision func()
+	startCalls        int
 }
 
-func (s operationServiceStub) Start(
-	context.Context,
-	*infrastructurev1beta1.TartHostOperation,
+func (s *operationServiceStub) Start(
+	_ context.Context,
+	desired *infrastructurev1beta1.TartHostOperation,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
-	return s.operation, s.err
+	s.startCalls++
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.operation != nil {
+		return s.operation, nil
+	}
+	started := desired.DeepCopy()
+	name, err := operationdomain.ResourceName(string(desired.Spec.HostRef.UID))
+	if err != nil {
+		return nil, err
+	}
+	started.Name = name
+	if started.UID == "" {
+		started.UID = types.UID("operation-uid")
+	}
+	return started, nil
 }
 
 func (s operationServiceStub) CompleteProvision(
@@ -268,4 +372,38 @@ func (s operationServiceStub) CompleteProvision(
 		s.completeProvision()
 	}
 	return s.err
+}
+
+type recordingPlanWriter struct {
+	calls     int
+	operation *infrastructurev1beta1.TartHostOperation
+	plan      agentprotocol.ValidatedPlan
+	signature agentprotocol.Signature
+	err       error
+}
+
+func (writer *recordingPlanWriter) Write(
+	_ context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+	plan agentprotocol.ValidatedPlan,
+	signature agentprotocol.Signature,
+) error {
+	writer.calls++
+	writer.operation = operation.DeepCopy()
+	writer.plan = plan
+	writer.signature = signature
+	return writer.err
+}
+
+func testPlanSigner(t *testing.T) PlanSigner {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	_ = publicKey
+	return PlanSigner{
+		KeyID:      "plan-signer",
+		PrivateKey: privateKey,
+	}
 }

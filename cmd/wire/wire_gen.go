@@ -14,12 +14,10 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle"
@@ -39,11 +37,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineTemplateReconciler := provideTartMachineTemplateReconciler(k8sClient, scheme)
 	service := allocation.NewService(k8sClient)
 	observer := machinehealth.NewObserver(k8sClient)
-	v1beta1hostService := v1beta1host.NewService(k8sClient)
-	operationService := operation.NewService(k8sClient)
-	workflow := initialprovisioning.NewWorkflow(service, v1beta1hostService, operationService)
+	provisionStep := provideInitialProvisioningStep()
 	cleaningStep := provideCleaningStep()
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, workflow, cleaningStep)
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, provisionStep, cleaningStep)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -54,6 +50,7 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	if err != nil {
 		return Reconcilers{}, err
 	}
+	v1beta1hostService := v1beta1host.NewService(k8sClient)
 	drivertargetService := drivertarget.NewService(k8sClient)
 	drivercapabilityService := drivercapability.NewService(driverService, v1beta1hostService)
 	driverstateService := driverstate.NewService(driverService, driverService, v1beta1hostService)
@@ -102,6 +99,10 @@ func provideDriverRegistry(
 		return nil, err
 	}
 	return registry, nil
+}
+
+func provideInitialProvisioningStep() machineexecution.ProvisionStep {
+	return nil
 }
 
 func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Scheme) *controller.TartClusterReconciler {

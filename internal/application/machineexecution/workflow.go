@@ -22,8 +22,6 @@ import (
 	machineexecutionport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/port"
 )
 
-const placeholderPlanDigest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-
 type HostReferenceService = machineexecutionport.HostReferenceService
 type ProvisionStep = machineexecutionport.ProvisionStep
 type NodeHealthObserver = machineexecutionport.NodeHealthObserver

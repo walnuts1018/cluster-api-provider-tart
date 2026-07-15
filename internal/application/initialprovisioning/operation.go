@@ -34,12 +34,20 @@ func buildOperationDraft(
 	host *infrastructurev1beta1.TartHost,
 	planDigest string,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
+	return buildOperationDraftWithDeadline(machine, host, planDigest, metav1.NewTime(time.Now().Add(defaultOperationDeadline)))
+}
+
+func buildOperationDraftWithDeadline(
+	machine *infrastructurev1beta1.TartMachine,
+	host *infrastructurev1beta1.TartHost,
+	planDigest string,
+	deadline metav1.Time,
+) (*infrastructurev1beta1.TartHostOperation, error) {
 	operationUID, err := deterministicOperationUID(host, machine)
 	if err != nil {
 		return nil, err
 	}
 
-	deadline := metav1.NewTime(time.Now().Add(defaultOperationDeadline))
 	desiredMachine := machine.DeepCopy()
 	expectedProviderID := fmt.Sprintf("tart://%s", host.Name)
 	if desiredMachine.Spec.ProviderID != "" && desiredMachine.Spec.ProviderID != expectedProviderID {

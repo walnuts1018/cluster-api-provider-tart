@@ -34,7 +34,6 @@ type ProvisionStep interface {
 	Start(
 		ctx context.Context,
 		machine *infrastructurev1beta1.TartMachine,
-		planDigest string,
 	) (appprovisioning.StartResult, error)
 	CompleteProvisioning(
 		ctx context.Context,

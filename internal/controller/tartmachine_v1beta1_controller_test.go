@@ -884,7 +884,6 @@ func (s *provisionOrchestratorStub) CompleteProvisioning(
 func (s *provisionOrchestratorStub) Start(
 	context.Context,
 	*infrastructurev1beta1.TartMachine,
-	string,
 ) (appprovisioning.StartResult, error) {
 	s.calls++
 	return appprovisioning.Started{

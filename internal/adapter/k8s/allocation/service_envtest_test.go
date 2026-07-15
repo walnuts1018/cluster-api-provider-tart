@@ -56,7 +56,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 		}()
 		select {
 		case err := <-stopped:
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				t.Errorf("stop envtest: %v", err)
 			}
 		case <-stopCtx.Done():

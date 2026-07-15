@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 )
@@ -107,9 +108,47 @@ func InstallCertManager() error {
 		"--namespace", "cert-manager",
 		"--timeout", "5m",
 	)
+	if _, err := Run(cmd); err != nil {
+		return err
+	}
 
-	_, err := Run(cmd)
-	return err
+	return waitCertManagerWebhookCABundle(ctx)
+}
+
+func waitCertManagerWebhookCABundle(ctx context.Context) error {
+	webhooks := []struct {
+		resource string
+		name     string
+	}{
+		{
+			resource: "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+			name:     "cert-manager-webhook",
+		},
+		{
+			resource: "validatingwebhookconfigurations.admissionregistration.k8s.io",
+			name:     "cert-manager-webhook",
+		},
+	}
+	for _, webhook := range webhooks {
+		deadline := time.Now().Add(5 * time.Minute)
+		for {
+			cmd := exec.CommandContext(ctx, "kubectl", "get", webhook.resource, webhook.name,
+				"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}",
+			)
+			output, err := Run(cmd)
+			if err == nil && strings.TrimSpace(output) != "" {
+				break
+			}
+			if time.Now().After(deadline) {
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("%s/%s CA bundle was not injected", webhook.resource, webhook.name)
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	return nil
 }
 
 // IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed

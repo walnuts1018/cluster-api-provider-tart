@@ -19,6 +19,7 @@ limitations under the License.
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -46,6 +47,8 @@ const metricsServiceName = "cluster-api-provider-tart-controller-manager-metrics
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
 const metricsRoleBindingName = "cluster-api-provider-tart-metrics-binding"
 
+const cleanupCommandTimeout = 30 * time.Second
+
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
 
@@ -69,6 +72,9 @@ var _ = Describe("Manager", Ordered, func() {
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to install CRDs")
 
+		By("installing required Cluster API CRDs")
+		Expect(installRequiredClusterAPICRDs()).To(Succeed(), "Failed to install Cluster API CRDs")
+
 		By("deploying the controller-manager")
 		cmd = exec.Command("kubectl", "apply", "-k", "config/e2e")
 		_, err = utils.Run(cmd)
@@ -79,27 +85,31 @@ var _ = Describe("Manager", Ordered, func() {
 	// and deleting the namespace.
 	AfterAll(func() {
 		By("cleaning up the curl pod for metrics")
-		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace)
-		if _, err := utils.Run(cmd); err != nil {
+		cmd := exec.Command("kubectl", "delete", "pod", "curl-metrics", "-n", namespace, "--ignore-not-found=true", "--wait=false")
+		if _, err := runCleanupCommand(cmd); err != nil {
 			utils.WarnError(err)
 		}
 
 		By("undeploying the controller-manager")
-		cmd = exec.Command("kubectl", "delete", "--ignore-not-found=true", "-k", "config/e2e")
-		if _, err := utils.Run(cmd); err != nil {
+		cmd = exec.Command("kubectl", "delete", "--ignore-not-found=true", "--wait=false", "-k", "config/e2e")
+		if _, err := runCleanupCommand(cmd); err != nil {
 			utils.WarnError(err)
 		}
 
 		By("uninstalling CRDs")
-		cmd = exec.Command("mise", "run", "uninstall")
-		cmd.Env = append(os.Environ(), "IGNORE_NOT_FOUND=true")
-		if _, err := utils.Run(cmd); err != nil {
+		cmd = exec.Command("kubectl", "delete", "--ignore-not-found=true", "--wait=false", "-k", "config/crd")
+		if _, err := runCleanupCommand(cmd); err != nil {
+			utils.WarnError(err)
+		}
+
+		By("uninstalling required Cluster API CRDs")
+		if err := uninstallRequiredClusterAPICRDs(); err != nil {
 			utils.WarnError(err)
 		}
 
 		By("removing manager namespace")
-		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true")
-		if _, err := utils.Run(cmd); err != nil {
+		cmd = exec.Command("kubectl", "delete", "ns", namespace, "--ignore-not-found=true", "--wait=false")
+		if _, err := runCleanupCommand(cmd); err != nil {
 			utils.WarnError(err)
 		}
 	})
@@ -425,8 +435,9 @@ spec:
 						"-n", namespace,
 						"-f", tt.file,
 						"--ignore-not-found",
+						"--wait=false",
 					)
-					_, _ = utils.Run(cmd)
+					_, _ = runCleanupCommand(cmd)
 				}
 			})
 
@@ -498,6 +509,53 @@ func getMetricsOutput() (string, error) {
 	By("getting the curl-metrics logs")
 	cmd := exec.Command("kubectl", "logs", "curl-metrics", "-n", namespace)
 	return utils.Run(cmd)
+}
+
+func installRequiredClusterAPICRDs() error {
+	for _, crd := range requiredClusterAPICRDPaths() {
+		cmd := exec.Command("kubectl", "apply", "-f", crd)
+		if _, err := utils.Run(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func uninstallRequiredClusterAPICRDs() error {
+	for _, crd := range requiredClusterAPICRDPaths() {
+		cmd := exec.Command("kubectl", "delete", "--ignore-not-found=true", "--wait=false", "-f", crd)
+		if _, err := runCleanupCommand(cmd); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requiredClusterAPICRDPaths() []string {
+	clusterAPIDir := clusterAPIModuleDir()
+	return []string{
+		filepath.Join(clusterAPIDir, "config", "crd", "bases", "cluster.x-k8s.io_clusters.yaml"),
+		filepath.Join(clusterAPIDir, "config", "crd", "bases", "cluster.x-k8s.io_machines.yaml"),
+		filepath.Join(clusterAPIDir, "config", "crd", "bases", "cluster.x-k8s.io_machinedeployments.yaml"),
+		filepath.Join(clusterAPIDir, "bootstrap", "kubeadm", "config", "crd", "bases", "bootstrap.cluster.x-k8s.io_kubeadmconfigtemplates.yaml"),
+		filepath.Join(clusterAPIDir, "controlplane", "kubeadm", "config", "crd", "bases", "controlplane.cluster.x-k8s.io_kubeadmcontrolplanes.yaml"),
+	}
+}
+
+func clusterAPIModuleDir() string {
+	cmd := exec.Command("go", "list", "-m", "-f", "{{.Dir}}", "sigs.k8s.io/cluster-api")
+	output, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to resolve Cluster API module directory")
+	return strings.TrimSpace(output)
+}
+
+func runCleanupCommand(cmd *exec.Cmd) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cleanupCommandTimeout)
+	defer cancel()
+	cleanupCmd := exec.CommandContext(ctx, cmd.Path, cmd.Args[1:]...)
+	cleanupCmd.Env = cmd.Env
+	cleanupCmd.Stdin = cmd.Stdin
+	return utils.Run(cleanupCmd)
 }
 
 // tokenRequest is a simplified representation of the Kubernetes TokenRequest API response,

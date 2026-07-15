@@ -17,7 +17,6 @@ package agentboot
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -55,10 +54,6 @@ func BuildScript(input ScriptInput) (string, error) {
 	if !identifierPattern.MatchString(input.OperationUID) {
 		return "", errors.New("operation UID is invalid")
 	}
-	mac, err := net.ParseMAC(input.BootMACAddress)
-	if err != nil {
-		return "", errors.New("boot MAC address is invalid")
-	}
 
 	artifactPath := fmt.Sprintf("v1/agent-artifacts/sha256/%s", artifactDigest.Encoded())
 	kernelURL, err := url.JoinPath(artifactBaseURL.String(), artifactPath, "kernel")
@@ -70,13 +65,19 @@ func BuildScript(input ScriptInput) (string, error) {
 		return "", fmt.Errorf("build Agent initrd URL: %w", err)
 	}
 
-	params := []string{
-		"initrd=agent-initrd",
-		"tart.agent.controller-url=" + agentAPIURL.String(),
-		"tart.agent.host-uid=" + input.HostUID,
-		"tart.agent.operation-uid=" + input.OperationUID,
-		"tart.agent.boot-mac=" + mac.String(),
+	params, err := KernelParameters{
+		ControllerURL: agentAPIURL.String(),
+		HostUID:       input.HostUID,
+		OperationUID:  input.OperationUID,
+		BootMAC:       input.BootMACAddress,
+	}.Arguments()
+	if err != nil {
+		if strings.Contains(err.Error(), KernelParameterBootMAC) {
+			return "", errors.New("boot MAC address is invalid")
+		}
+		return "", err
 	}
+	params = append([]string{"initrd=agent-initrd"}, params...)
 	return fmt.Sprintf(
 		"#!ipxe\nkernel %s %s\ninitrd --name agent-initrd %s\nboot\n",
 		kernelURL,

@@ -18,49 +18,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
 )
 
 const defaultKernelCommandLinePath = "/proc/cmdline"
 
 var readKernelCommandLine = func() ([]byte, error) {
 	return os.ReadFile(defaultKernelCommandLinePath)
-}
-
-var kernelParameterPrefixes = []string{
-	"tart.agent.",
-}
-
-type kernelParameterBinding struct {
-	suffixes []string
-	apply    func(*config, string)
-}
-
-var kernelParameterBindings = []kernelParameterBinding{
-	{
-		suffixes: []string{"controller-url"},
-		apply: func(cfg *config, value string) {
-			cfg.controllerURL = value
-		},
-	},
-	{
-		suffixes: []string{"host-uid"},
-		apply: func(cfg *config, value string) {
-			cfg.hostUID = value
-		},
-	},
-	{
-		suffixes: []string{"operation-uid"},
-		apply: func(cfg *config, value string) {
-			cfg.operationUID = value
-		},
-	},
-	{
-		suffixes: []string{"boot-mac", "boot-mac-address"},
-		apply: func(cfg *config, value string) {
-			cfg.bootMAC = value
-		},
-	},
 }
 
 func loadKernelCommandLineConfig() (config, error) {
@@ -75,33 +40,11 @@ func loadKernelCommandLineConfig() (config, error) {
 }
 
 func parseKernelCommandLine(line string) config {
-	var cfg config
-	values := map[string]string{}
-	for field := range strings.FieldsSeq(line) {
-		key, value, ok := strings.Cut(field, "=")
-		if !ok || key == "" || value == "" {
-			continue
-		}
-		values[key] = value
+	params := agentboot.ParseKernelParameters(line)
+	return config{
+		controllerURL: params.ControllerURL,
+		hostUID:       params.HostUID,
+		operationUID:  params.OperationUID,
+		bootMAC:       params.BootMAC,
 	}
-	for _, binding := range kernelParameterBindings {
-		for _, key := range binding.keys() {
-			value, ok := values[key]
-			if !ok {
-				continue
-			}
-			binding.apply(&cfg, value)
-		}
-	}
-	return cfg
-}
-
-func (binding kernelParameterBinding) keys() []string {
-	keys := make([]string, 0, len(binding.suffixes)*len(kernelParameterPrefixes))
-	for _, prefix := range kernelParameterPrefixes {
-		for _, suffix := range binding.suffixes {
-			keys = append(keys, prefix+suffix)
-		}
-	}
-	return keys
 }

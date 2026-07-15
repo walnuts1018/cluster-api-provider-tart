@@ -21,6 +21,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,96 @@ func TestParseConfigRequiresExactlyOneMode(t *testing.T) {
 	if _, err := parseConfig(missingArtifactTrust); err == nil {
 		t.Fatal("parseConfig() accepted payload mode without Artifact trust inputs")
 	}
+}
+
+func TestParseConfigUsesKernelCommandLineAgentInputs(t *testing.T) {
+	restore := swapKernelCommandLineReader(func() ([]byte, error) {
+		return []byte(stringsJoinFields(
+			"quiet",
+			"tart.agent.controller-url=https://controller.test.walnuts.dev",
+			"tart.agent.operation-uid=operation-from-kcmdline",
+			"tart.agent.host-uid=host-from-kcmdline",
+			"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
+		)), nil
+	})
+	defer restore()
+
+	cfg, err := parseConfig([]string{
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if cfg.controllerURL != "https://controller.test.walnuts.dev" ||
+		cfg.operationUID != "operation-from-kcmdline" ||
+		cfg.hostUID != "host-from-kcmdline" ||
+		cfg.bootMAC != "aa:bb:cc:dd:ee:ff" {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+}
+
+func TestParseConfigPrefersExplicitFlagsOverKernelCommandLine(t *testing.T) {
+	restore := swapKernelCommandLineReader(func() ([]byte, error) {
+		return []byte(stringsJoinFields(
+			"tart.agent.controller-url=https://kernel.test.walnuts.dev",
+			"tart.agent.operation-uid=operation-from-kcmdline",
+			"tart.agent.host-uid=host-from-kcmdline",
+			"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
+		)), nil
+	})
+	defer restore()
+
+	cfg, err := parseConfig([]string{
+		"--controller-url=https://flag.test.walnuts.dev",
+		"--operation-uid=operation-from-flag",
+		"--host-uid=host-from-flag",
+		"--boot-mac-address=00:11:22:33:44:55",
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	})
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if cfg.controllerURL != "https://flag.test.walnuts.dev" ||
+		cfg.operationUID != "operation-from-flag" ||
+		cfg.hostUID != "host-from-flag" ||
+		cfg.bootMAC != "00:11:22:33:44:55" {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+}
+
+func TestParseConfigIgnoresMissingKernelCommandLineOnNonLinuxHosts(t *testing.T) {
+	restore := swapKernelCommandLineReader(func() ([]byte, error) {
+		return nil, os.ErrNotExist
+	})
+	defer restore()
+
+	if _, err := parseConfig([]string{
+		"--controller-url=https://controller.test.walnuts.dev",
+		"--operation-uid=operation-uid",
+		"--host-uid=host-uid",
+		"--boot-mac-address=00:11:22:33:44:55",
+		"--plan-key-id=test-key",
+		"--plan-key-file=/trust/plan.pem",
+		"--preflight-only",
+	}); err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+}
+
+func swapKernelCommandLineReader(reader func() ([]byte, error)) func() {
+	previous := readKernelCommandLine
+	readKernelCommandLine = reader
+	return func() {
+		readKernelCommandLine = previous
+	}
+}
+
+func stringsJoinFields(fields ...string) string {
+	return strings.Join(fields, " ")
 }
 
 func TestLoadPlanPublicKeyAcceptsOnlyEd25519PKIXPEM(t *testing.T) {

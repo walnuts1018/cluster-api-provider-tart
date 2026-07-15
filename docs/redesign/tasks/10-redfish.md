@@ -101,6 +101,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - Redfish adapter と `TartHostOperation` controller に BootOverride / VirtualMedia mount 状態の再観測を追加し、controller再起動後に active Operation を再concileした時も `TartHost.status.bootState` と `powerState` をBMC状態で修正できるようにした。
 - `hack/agent-artifact-iso` と `mise run agent-artifact-virtual-media` を追加し、Agent kernel/initrd と公開識別子だけを含む GRUB bootable ISO `virtual-media.iso` を生成できるようにした。Controller URL は HTTPS かつ credential/query/fragment なしだけを許可し、Initial Credential、Session Token、Bootstrap Data を kernel argument へ含めない。
 - `hack/agent-artifact-manifest` と `mise run agent-artifact-manifest` を追加し、`virtual-media.iso` が存在する場合は Agent Artifact manifest の `virtualMedia` descriptor と署名対象へ含めるようにした。
+- `cmd/provisioning-agent` に kernel command line を register 入力へ収束させる処理を追加し、`main_test.go` で `tart.agent.*` の4項目が iPXE と VirtualMedia のどちらから来ても共通の register 入力へ正規化されることを固定した。
 - `docs/redesign/runbooks/10-redfish-simulated-record.md` に、repository内testで確認できる疑似contract証跡を追加した。
 
 ### 未検証

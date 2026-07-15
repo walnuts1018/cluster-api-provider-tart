@@ -26,8 +26,8 @@ Initial Agent Credential modeを次の4種類に分ける。
 
 初期iPXE実装では`IsolatedL2`だけを有効化する。これはHost真正性を提供しない。
 `--agent-api-allow-isolated-l2`を明示しない限りAgent APIを起動しない。利用者向けStatusには、
-hardware identityなしのProfileが隔離L2を必要とすることを表示する。このStatus実装はTask 04の
-残作業とする。
+hardware identityなしのProfileが隔離L2を必要とすることを `CredentialRequirement` Condition
+として表示する。`Degraded` を流用して既存の障害表示を上書きしてはならない。
 
 全Modeで次を禁止する。
 

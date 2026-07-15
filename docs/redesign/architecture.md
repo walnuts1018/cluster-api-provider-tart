@@ -494,7 +494,7 @@ OS-only互換更新はslot rollbackの対象にできる。Kubernetes binary更�
 
 ## 14. 可観測性
 
-Condition typeは`Ready`、`Available`、`Provisioning`、`Updating`、`Degraded`の5種類とする。追加する場合はAPI変更ADRを作成する。最低限のReasonは`Provisioned`、`AllocationConflict`、`UnsupportedCapability`、`DiskIdentityMismatch`、`ArtifactVerificationFailed`、`AgentTimeout`、`BootstrapFailed`、`BootFailed`、`HealthCheckFailed`、`UpdateFailed`、`RecoveryRequired`とし、Goの定数として列挙する。Messageは英語で記録する。
+Condition typeは`Ready`、`Available`、`Provisioning`、`Updating`、`Degraded`、`CredentialRequirement`の6種類とする。追加する場合はAPI変更ADRを作成する。最低限のReasonは`Provisioned`、`AllocationConflict`、`UnsupportedCapability`、`DiskIdentityMismatch`、`ArtifactVerificationFailed`、`AgentTimeout`、`BootstrapFailed`、`BootFailed`、`HealthCheckFailed`、`UpdateFailed`、`RecoveryRequired`、`IsolatedL2Required`とし、Goの定数として列挙する。Messageは英語で記録する。
 
 メトリクスlabelは`operation_type`、`phase`、`driver`、`result`、`rollback`だけを許可する。Host名、Machine名、Operation ID、token、image URLをlabelにしない。TraceはOperation IDをattributeとしてcontroller、Driver、Agent reportを関連付ける。
 

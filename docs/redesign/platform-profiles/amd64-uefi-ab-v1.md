@@ -12,6 +12,12 @@ Supportedとは表示しない。次のいずれかが成立しない場合は�
 - State 8 GiBでkubeadm、kubelet identity、Bootstrap markerを保持できる。
 - 64 GiB disk上のData容量でTask 01のcontainerd/kubelet起動試験が成立する。
 
+## Initial Credential
+
+このProfileは`IsolatedL2`を前提とする。hardware identityを持たないため、Initial secretを
+公開boot経路へ出さず、Provisioning AgentはcontrollerへTLS接続してSession Tokenを受領する。
+`TartHost.status.conditions`では`CredentialRequirement=True`、`Reason=IsolatedL2Required`として表示する。
+
 ## Host要件
 
 | 項目 | 値 |

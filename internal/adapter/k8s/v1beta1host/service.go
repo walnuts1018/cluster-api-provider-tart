@@ -17,6 +17,7 @@ package v1beta1host
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -27,7 +28,10 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	platformprofile "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/platformprofile"
 )
+
+const credentialRequirementConditionType = "CredentialRequirement"
 
 // Service はv1beta1 TartHostのPhaseを更新するアダプターサービスである。
 // v1beta1 TartHostはSpec.ConsumerRefで排他割当を管理するためStatusにMachineRefを持たない。
@@ -54,18 +58,22 @@ func (s *Service) UpdateCapabilities(
 			return fmt.Errorf("get TartHost for capability update: %w", err)
 		}
 
+		original := current.DeepCopy()
 		values := capabilities.Values()
 		apiValues := make([]infrastructurev1beta1.Capability, 0, len(values))
 		for _, value := range values {
 			apiValues = append(apiValues, infrastructurev1beta1.Capability(value))
 		}
-		if slices.Equal(current.Status.Capabilities, apiValues) {
+		if !slices.Equal(current.Status.Capabilities, apiValues) {
+			current.Status.Capabilities = apiValues
+		}
+		current.Status.ObservedGeneration = current.Generation
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(original.Status, current.Status) {
 			return nil
 		}
-
-		original := current.DeepCopy()
-		current.Status.Capabilities = apiValues
-		current.Status.ObservedGeneration = current.Generation
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -81,13 +89,17 @@ func (s *Service) UpdatePowerState(
 		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
 			return fmt.Errorf("get TartHost for power state update: %w", err)
 		}
-		if current.Status.PowerState == state {
+		original := current.DeepCopy()
+		if current.Status.PowerState != state {
+			current.Status.PowerState = state
+		}
+		current.Status.ObservedGeneration = current.Generation
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(original.Status, current.Status) {
 			return nil
 		}
-
-		original := current.DeepCopy()
-		current.Status.PowerState = state
-		current.Status.ObservedGeneration = current.Generation
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -103,13 +115,17 @@ func (s *Service) UpdateBootState(
 		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
 			return fmt.Errorf("get TartHost for boot state update: %w", err)
 		}
-		if current.Status.BootState != nil && *current.Status.BootState == state {
+		original := current.DeepCopy()
+		if current.Status.BootState == nil || *current.Status.BootState != state {
+			current.Status.BootState = &state
+		}
+		current.Status.ObservedGeneration = current.Generation
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(original.Status, current.Status) {
 			return nil
 		}
-
-		original := current.DeepCopy()
-		current.Status.BootState = &state
-		current.Status.ObservedGeneration = current.Generation
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -162,6 +178,9 @@ func (s *Service) MarkHostAvailable(ctx context.Context, host *infrastructurev1b
 			Message:            "Host is available for allocation",
 			ObservedGeneration: current.Generation,
 		})
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -189,6 +208,9 @@ func (s *Service) ReserveForMachine(
 			Message:            fmt.Sprintf("Reserved by TartMachine %s/%s", machine.Namespace, machine.Name),
 			ObservedGeneration: current.Generation,
 		})
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -253,6 +275,9 @@ func (s *Service) MarkHostRetained(ctx context.Context, host *infrastructurev1be
 			Message:            "Host is retained with Data partition intact",
 			ObservedGeneration: current.Generation,
 		})
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -281,6 +306,9 @@ func (s *Service) MarkHostDetached(ctx context.Context, host *infrastructurev1be
 			Message:            "Host is detached with State and Data partitions intact",
 			ObservedGeneration: current.Generation,
 		})
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
 }
@@ -296,43 +324,41 @@ func (s *Service) updatePhase(
 		if err := s.client.Get(ctx, client.ObjectKeyFromObject(host), current); err != nil {
 			return fmt.Errorf("get TartHost for phase update: %w", err)
 		}
-		if current.Status.Phase == target {
-			return nil
-		}
-
-		// ホストフェーズの状態機械による遷移検証
-		currentPhase, err := hostdomain.ParsePhase(string(current.Status.Phase))
-		if err != nil {
-			// フェーズが未設定の場合は直接書き込む
-			currentPhase = hostdomain.PhaseAvailable
-		}
-		lastStable := currentPhase
-		if !currentPhase.Stable() {
-			if current.Status.LastStablePhase != "" {
-				lastStable, err = hostdomain.ParsePhase(string(current.Status.LastStablePhase))
-				if err != nil {
-					return fmt.Errorf("parse TartHost last stable phase: %w", err)
-				}
-			} else {
-				lastStable = hostdomain.PhaseAvailable
-			}
-		}
-		state, err := hostdomain.NewState(currentPhase, lastStable)
-		if err != nil {
-			return fmt.Errorf("build TartHost state: %w", err)
-		}
-		targetDomain, err := hostdomain.ParsePhase(string(target))
-		if err != nil {
-			return fmt.Errorf("parse target TartHost phase: %w", err)
-		}
-		nextState, err := state.Transition(targetDomain)
-		if err != nil {
-			return fmt.Errorf("invalid TartHost phase transition: %w", err)
-		}
-
 		original := current.DeepCopy()
-		current.Status.Phase = infrastructurev1beta1.TartHostPhase(nextState.Phase())
-		current.Status.LastStablePhase = infrastructurev1beta1.TartHostPhase(nextState.LastStablePhase())
+		if current.Status.Phase != target {
+			// ホストフェーズの状態機械による遷移検証
+			currentPhase, err := hostdomain.ParsePhase(string(current.Status.Phase))
+			if err != nil {
+				// フェーズが未設定の場合は直接書き込む
+				currentPhase = hostdomain.PhaseAvailable
+			}
+			lastStable := currentPhase
+			if !currentPhase.Stable() {
+				if current.Status.LastStablePhase != "" {
+					lastStable, err = hostdomain.ParsePhase(string(current.Status.LastStablePhase))
+					if err != nil {
+						return fmt.Errorf("parse TartHost last stable phase: %w", err)
+					}
+				} else {
+					lastStable = hostdomain.PhaseAvailable
+				}
+			}
+			state, err := hostdomain.NewState(currentPhase, lastStable)
+			if err != nil {
+				return fmt.Errorf("build TartHost state: %w", err)
+			}
+			targetDomain, err := hostdomain.ParsePhase(string(target))
+			if err != nil {
+				return fmt.Errorf("parse target TartHost phase: %w", err)
+			}
+			nextState, err := state.Transition(targetDomain)
+			if err != nil {
+				return fmt.Errorf("invalid TartHost phase transition: %w", err)
+			}
+
+			current.Status.Phase = infrastructurev1beta1.TartHostPhase(nextState.Phase())
+			current.Status.LastStablePhase = infrastructurev1beta1.TartHostPhase(nextState.LastStablePhase())
+		}
 		current.Status.ObservedGeneration = current.Generation
 		apimeta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{
 			Type:               "Available",
@@ -341,6 +367,33 @@ func (s *Service) updatePhase(
 			Message:            message,
 			ObservedGeneration: current.Generation,
 		})
+		if err := s.syncCredentialRequirementCondition(current); err != nil {
+			return err
+		}
+		if reflect.DeepEqual(original.Status, current.Status) {
+			return nil
+		}
 		return s.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})
+}
+
+func (s *Service) syncCredentialRequirementCondition(host *infrastructurev1beta1.TartHost) error {
+	requirement, ok := platformprofile.RequirementForProfile(host.Spec.PlatformProfile)
+	if !ok {
+		apimeta.RemoveStatusCondition(&host.Status.Conditions, credentialRequirementConditionType)
+		return nil
+	}
+	if !requirement.IsolatedL2Required {
+		apimeta.RemoveStatusCondition(&host.Status.Conditions, credentialRequirementConditionType)
+		return nil
+	}
+
+	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
+		Type:               credentialRequirementConditionType,
+		Status:             metav1.ConditionTrue,
+		Reason:             "IsolatedL2Required",
+		Message:            fmt.Sprintf("Platform profile %s requires an isolated provisioning L2 because it does not have hardware-bound initial credential.", host.Spec.PlatformProfile),
+		ObservedGeneration: host.Generation,
+	})
+	return nil
 }

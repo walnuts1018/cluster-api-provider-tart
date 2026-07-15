@@ -31,6 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	driverstateadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
+	v1beta1hostadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
@@ -227,6 +229,103 @@ func TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再�
 	}
 	if observer.calls != 1 {
 		t.Fatalf("ObserveBootAndPersist() calls = %d, want 1", observer.calls)
+	}
+}
+
+func TestTartHostOperationReconcilerはRedfish再起動後の再観測でStatusを上書きする(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	host.Generation = 7
+	host.Spec.Management.PowerDriver = redfishDriverName
+	host.Spec.Management.BootDriver = redfishDriverName
+	host.Spec.Management.Redfish = &infrastructurev1beta1.RedfishManagement{
+		Endpoint: "https://bmc.example.test",
+	}
+	host.Status.PowerState = infrastructurev1beta1.PowerStateOff
+	host.Status.BootState = &infrastructurev1beta1.BootStateStatus{
+		OverrideEnabled: false,
+		OverrideTarget:  infrastructurev1beta1.BootTargetPXE,
+		VirtualMedia: infrastructurev1beta1.VirtualMediaStatus{
+			Inserted:    false,
+			Image:       "https://stale.example.test/old.iso",
+			OperationID: "stale-operation",
+		},
+	}
+	operation := operationTestUpdate(host)
+	operation.Status.Phase = infrastructurev1beta1.TartHostOperationPhasePreparingBoot
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHost{}, &infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	powerObserver := &recordingOperationPowerStateObserver{
+		state: driverdomain.PowerStateOn,
+	}
+	bootObserver := &recordingOperationBootStateObserver{
+		state: driverdomain.BootState{
+			OverrideEnabled: true,
+			OverrideTarget:  driverdomain.BootTargetVirtualMedia,
+			MediaInserted:   true,
+			MediaImage:      "https://controller.example.test/agent.iso",
+			MediaOperation:  "f4353748-c9ea-41c6-b321-94197b64330e",
+		},
+	}
+	writer := v1beta1hostadapter.NewService(k8sClient)
+	reconciler := &TartHostOperationReconciler{
+		Client:           k8sClient,
+		Scheme:           scheme,
+		PowerOn:          successfulOperationPowerOn{},
+		HostPhase:        &recordingOperationHostPhase{},
+		DriverPowerState: driverstateadapter.NewService(powerObserver, nil, writer),
+		DriverBootState:  driverstateadapter.NewService(nil, bootObserver, writer),
+	}
+
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{
+		NamespacedName: client.ObjectKeyFromObject(operation),
+	})
+	if err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != operationDeadlineRequeueInterval {
+		t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, operationDeadlineRequeueInterval)
+	}
+
+	current := &infrastructurev1beta1.TartHost{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(host), current); err != nil {
+		t.Fatalf("get TartHost: %v", err)
+	}
+	if current.Status.PowerState != infrastructurev1beta1.PowerStateOn {
+		t.Fatalf("status.powerState = %q, want On", current.Status.PowerState)
+	}
+	if current.Status.BootState == nil {
+		t.Fatal("status.bootState = nil, want observed state")
+	}
+	if !current.Status.BootState.OverrideEnabled ||
+		current.Status.BootState.OverrideTarget != infrastructurev1beta1.BootTargetVirtualMedia {
+		t.Fatalf("status.bootState = %#v, want VirtualMedia override", current.Status.BootState)
+	}
+	if !current.Status.BootState.VirtualMedia.Inserted ||
+		current.Status.BootState.VirtualMedia.Image != "https://controller.example.test/agent.iso" ||
+		current.Status.BootState.VirtualMedia.OperationID != "f4353748-c9ea-41c6-b321-94197b64330e" {
+		t.Fatalf("status.bootState.virtualMedia = %#v, want mounted media", current.Status.BootState.VirtualMedia)
+	}
+	if current.Status.ObservedGeneration != current.Generation {
+		t.Fatalf("observedGeneration = %d, want %d", current.Status.ObservedGeneration, current.Generation)
+	}
+	if powerObserver.calls != 1 {
+		t.Fatalf("power observer calls = %d, want 1", powerObserver.calls)
+	}
+	if powerObserver.driver != driverdomain.Redfish {
+		t.Fatalf("power observer driver = %q, want %q", powerObserver.driver, driverdomain.Redfish)
+	}
+	if bootObserver.calls != 1 {
+		t.Fatalf("boot observer calls = %d, want 1", bootObserver.calls)
+	}
+	if bootObserver.driver != driverdomain.Redfish {
+		t.Fatalf("boot observer driver = %q, want %q", bootObserver.driver, driverdomain.Redfish)
 	}
 }
 
@@ -724,6 +823,18 @@ type recordingOperationDriverBootState struct {
 	driver driverdomain.Name
 }
 
+type recordingOperationPowerStateObserver struct {
+	calls  int
+	driver driverdomain.Name
+	state  driverdomain.PowerState
+}
+
+type recordingOperationBootStateObserver struct {
+	calls  int
+	driver driverdomain.Name
+	state  driverdomain.BootState
+}
+
 type recordingOperationBootPreparation struct {
 	calls     int
 	preferred *driverdomain.BootTarget
@@ -764,6 +875,28 @@ func (observer *recordingOperationDriverBootState) ObserveBootAndPersist(
 	observer.calls++
 	observer.driver = driver
 	return nil
+}
+
+func (observer *recordingOperationPowerStateObserver) ObservePowerState(
+	_ context.Context,
+	driver driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ applicationdriver.Invocation,
+) (driverdomain.PowerState, error) {
+	observer.calls++
+	observer.driver = driver
+	return observer.state, nil
+}
+
+func (observer *recordingOperationBootStateObserver) ObserveBootState(
+	_ context.Context,
+	driver driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ applicationdriver.Invocation,
+) (driverdomain.BootState, error) {
+	observer.calls++
+	observer.driver = driver
+	return observer.state, nil
 }
 
 func (preparation *recordingOperationBootPreparation) PrepareBoot(

@@ -15,6 +15,9 @@ MISE_OFFLINE=1 mise run test-redfish-contract
 2. HTTPBoot、VirtualMedia、PXEの選択順と明示指定時の`Unsupported`失敗を固定する。
 3. one-time BootOverride、VirtualMedia idempotency、異なるOperation/Imageの`Conflict`を検証する。
 4. controller再起動後にactive Operationを再reconcileした時も、PowerStateとBootStateを再観測する。
+   `internal/controller/tarthostoperation_controller_test.go` の
+   `TestTartHostOperationReconcilerはRedfish再起動後の再観測でStatusを上書きする`
+   で、stale な `status.powerState` と `status.bootState.virtualMedia` を再観測値で上書きする。
 5. 認証失敗は再試行せず、temporary errorだけを上限回数まで再試行する。
 6. simulator の debug endpoint で通常 boot order と boot 履歴を観測し、1 回目の reset では override target、2 回目の reset では通常 boot order の先頭 target が使われたことを確認する。
 7. 実HTTP/TLS越しに起動したRedfish simulator processに対して、session auth、basic fallback、BootOverride、VirtualMedia stateを確認する。

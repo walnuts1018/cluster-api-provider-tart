@@ -119,6 +119,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
   one-time BootOverride、VirtualMedia idempotency / conflict、BootState 観測を確認する
   contract test を追加
 - repository 管理の Redfish simulator process で、debug endpoint の boot 履歴と通常 boot order を用いて、1 回目の reset では override target、2 回目の reset では通常 boot order の先頭 target が使われたことを確認する contract test を追加
+- `internal/controller/tarthostoperation_controller_test.go` に、Redfish host の active Operation を controller 再起動後に再 reconcile したとき、初期値として入れた stale な `status.powerState` と `status.bootState.virtualMedia` が BMC 観測値で上書きされることを示す test を追加
 
 ## 関連
 

@@ -50,8 +50,11 @@ type simulator struct {
 	basicAuthRequests int
 	tokenAuthRequests int
 	bootPatchCount    int
+	bootConsumeCount  int
 	insertCount       int
 	ejectCount        int
+	normalBootOrder   []string
+	bootHistory       []string
 	bootEnabled       string
 	bootTarget        string
 	mediaInserted     bool
@@ -65,19 +68,22 @@ type readyPayload struct {
 }
 
 type debugState struct {
-	SessionSupported  bool   `json:"sessionSupported"`
-	SessionAttempts   int    `json:"sessionAttempts"`
-	SessionCreated    int    `json:"sessionCreated"`
-	BasicAuthRequests int    `json:"basicAuthRequests"`
-	TokenAuthRequests int    `json:"tokenAuthRequests"`
-	BootPatchCount    int    `json:"bootPatchCount"`
-	InsertCount       int    `json:"insertCount"`
-	EjectCount        int    `json:"ejectCount"`
-	BootEnabled       string `json:"bootEnabled"`
-	BootTarget        string `json:"bootTarget"`
-	MediaInserted     bool   `json:"mediaInserted"`
-	MediaImage        string `json:"mediaImage"`
-	MediaOperationID  string `json:"mediaOperationID"`
+	SessionSupported  bool     `json:"sessionSupported"`
+	SessionAttempts   int      `json:"sessionAttempts"`
+	SessionCreated    int      `json:"sessionCreated"`
+	BasicAuthRequests int      `json:"basicAuthRequests"`
+	TokenAuthRequests int      `json:"tokenAuthRequests"`
+	BootPatchCount    int      `json:"bootPatchCount"`
+	BootConsumeCount  int      `json:"bootConsumeCount"`
+	InsertCount       int      `json:"insertCount"`
+	EjectCount        int      `json:"ejectCount"`
+	NormalBootOrder   []string `json:"normalBootOrder"`
+	BootHistory       []string `json:"bootHistory"`
+	BootEnabled       string   `json:"bootEnabled"`
+	BootTarget        string   `json:"bootTarget"`
+	MediaInserted     bool     `json:"mediaInserted"`
+	MediaImage        string   `json:"mediaImage"`
+	MediaOperationID  string   `json:"mediaOperationID"`
 }
 
 type bootPatchRequest struct {
@@ -85,6 +91,10 @@ type bootPatchRequest struct {
 		Enabled string `json:"BootSourceOverrideEnabled"`
 		Target  string `json:"BootSourceOverrideTarget"`
 	} `json:"Boot"`
+}
+
+type resetRequest struct {
+	ResetType string `json:"ResetType"`
 }
 
 type insertMediaRequest struct {
@@ -107,6 +117,7 @@ func main() {
 
 	state := &simulator{
 		sessionSupported: *mode == "supported",
+		normalBootOrder:  []string{"Pxe", "Hdd"},
 	}
 
 	certificatePEM, keyPEM, err := generateCertificate()
@@ -258,6 +269,7 @@ func (state *simulator) handleSystem(response http.ResponseWriter, request *http
 				"BootSourceOverrideTarget@Redfish.AllowableValues": []string{"Pxe", "UefiHttp", "Cd"},
 				"BootSourceOverrideEnabled":                        snapshot.BootEnabled,
 				"BootSourceOverrideTarget":                         snapshot.BootTarget,
+				"BootOrder":                                        snapshot.NormalBootOrder,
 			},
 			"Actions": map[string]any{
 				"#ComputerSystem.Reset": map[string]string{
@@ -292,6 +304,26 @@ func (state *simulator) handleReset(response http.ResponseWriter, request *http.
 		http.NotFound(response, request)
 		return
 	}
+
+	var body resetRequest
+	if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+		http.Error(response, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	state.mu.Lock()
+	if body.ResetType == "On" {
+		usedTarget := state.currentBootTargetLocked()
+		if usedTarget != "" {
+			state.bootHistory = append(state.bootHistory, usedTarget)
+		}
+		if state.bootEnabled == "Once" {
+			state.bootConsumeCount++
+			state.bootEnabled = "Disabled"
+			state.bootTarget = ""
+		}
+	}
+	state.mu.Unlock()
 	response.WriteHeader(http.StatusNoContent)
 }
 
@@ -429,14 +461,27 @@ func (state *simulator) snapshot() debugState {
 		BasicAuthRequests: state.basicAuthRequests,
 		TokenAuthRequests: state.tokenAuthRequests,
 		BootPatchCount:    state.bootPatchCount,
+		BootConsumeCount:  state.bootConsumeCount,
 		InsertCount:       state.insertCount,
 		EjectCount:        state.ejectCount,
+		NormalBootOrder:   append([]string(nil), state.normalBootOrder...),
+		BootHistory:       append([]string(nil), state.bootHistory...),
 		BootEnabled:       state.bootEnabled,
 		BootTarget:        state.bootTarget,
 		MediaInserted:     state.mediaInserted,
 		MediaImage:        state.mediaImage,
 		MediaOperationID:  state.mediaOperationID,
 	}
+}
+
+func (state *simulator) currentBootTargetLocked() string {
+	if state.bootEnabled == "Once" || state.bootEnabled == "Continuous" {
+		return state.bootTarget
+	}
+	if len(state.normalBootOrder) == 0 {
+		return ""
+	}
+	return state.normalBootOrder[0]
 }
 
 func writeJSON(response http.ResponseWriter, body any) {

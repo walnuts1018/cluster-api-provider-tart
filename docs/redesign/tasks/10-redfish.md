@@ -98,6 +98,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `cmd/main.go` で検証済みAgent Artifactに `virtual-media.iso` がある場合だけ、Redfish VirtualMedia用のArtifact URL providerをdriver serviceへ登録するようにした。
 - Redfish adapter で session authentication を優先し、SessionService 未対応時だけ basic authentication へ fallback する挙動を unit test で固定した。
 - CA/SPKI pin 検証、Capability discovery、same Operation ID の idempotent mount、異なる mount 要求の `Conflict`、one-time BootOverride を unit test で固定した。
+- repository 管理の Redfish simulator に、通常 boot order と各 reset で実際に使われた target を観測できる debug endpoint を追加し、1 回目の reset では override target、2 回目の reset では simulator が保持する通常 boot order の先頭 target が使われたことを確認する contract test を追加した。
 - Redfish adapter と `TartHostOperation` controller に BootOverride / VirtualMedia mount 状態の再観測を追加し、controller再起動後に active Operation を再concileした時も `TartHost.status.bootState` と `powerState` をBMC状態で修正できるようにした。
 - `hack/agent-artifact-iso` と `mise run agent-artifact-virtual-media` を追加し、Agent kernel/initrd と公開識別子だけを含む GRUB bootable ISO `virtual-media.iso` を生成できるようにした。Controller URL は HTTPS かつ credential/query/fragment なしだけを許可し、Initial Credential、Session Token、Bootstrap Data を kernel argument へ含めない。
 - `hack/agent-artifact-manifest` と `mise run agent-artifact-manifest` を追加し、`virtual-media.iso` が存在する場合は Agent Artifact manifest の `virtualMedia` descriptor と署名対象へ含めるようにした。
@@ -117,6 +118,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
   session authentication 優先、SessionService unsupported 時だけ basic fallback、
   one-time BootOverride、VirtualMedia idempotency / conflict、BootState 観測を確認する
   contract test を追加
+- repository 管理の Redfish simulator process で、debug endpoint の boot 履歴と通常 boot order を用いて、1 回目の reset では override target、2 回目の reset では通常 boot order の先頭 target が使われたことを確認する contract test を追加
 
 ## 関連
 

@@ -1,11 +1,12 @@
 # Task 10: Redfish Simulated Record
 
-この記録はrepository内testによる疑似検証であり、Redfish simulatorの外部contract testや実機BMC検証の代替ではない。
+この記録はrepository内testとrepository管理のRedfish simulator processによるcontract検証をまとめたものであり、実機BMC検証の代替ではない。
 
 ## 実行command
 
 ```bash
 go test ./internal/adapter/driver/redfish ./internal/application/driver ./internal/controller -v
+MISE_OFFLINE=1 mise run test-redfish-contract
 ```
 
 ## 確認する内容
@@ -15,6 +16,7 @@ go test ./internal/adapter/driver/redfish ./internal/application/driver ./intern
 3. one-time BootOverride、VirtualMedia idempotency、異なるOperation/Imageの`Conflict`を検証する。
 4. controller再起動後にactive Operationを再reconcileした時も、PowerStateとBootStateを再観測する。
 5. 認証失敗は再試行せず、temporary errorだけを上限回数まで再試行する。
+6. 実HTTP/TLS越しに起動したRedfish simulator processに対して、session auth、basic fallback、BootOverride、VirtualMedia stateを確認する。
 
 ## repository内で確認できる主なtest
 
@@ -24,6 +26,8 @@ go test ./internal/adapter/driver/redfish ./internal/application/driver ./intern
   `TestAdapterRejectsAuthenticationFailureWithoutBasicFallback`
   `TestAdapterMountRejectsConflictingMedia`
   `TestAdapterSetsOneTimeBootOverride`
+- `internal/adapter/driver/redfish/contract_test.go`
+  実プロセスのRedfish simulatorへ接続し、TLS検証、session auth、basic fallback、BootOverride、VirtualMediaのcontractを確認する
 - `internal/application/driver/service_test.go`
   `TestServiceRetriesTemporaryErrorAtDefinedIntervals`
   `TestServiceDoesNotRetryAuthenticationFailure`
@@ -37,6 +41,5 @@ go test ./internal/adapter/driver/redfish ./internal/application/driver ./intern
 
 ## なお未検証の項目
 
-- Redfish simulatorの外部contract test
 - HTTPBoot / PXE / VirtualMediaの実機register
 - 実機vendor/model/BMC firmwareごとの差異確認

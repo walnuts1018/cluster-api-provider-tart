@@ -63,6 +63,12 @@ KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCAL
   go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
 '''
 
+[tasks.test-redfish-contract]
+description = "Redfish simulator contract test を実行する"
+run = '''
+MISE_OFFLINE=1 mise exec -- go test ./internal/adapter/driver/redfish -run 'Contract' -v
+'''
+
 [tasks.setup-test-e2e]
 description = "e2e テスト用の Kind クラスタを作成する"
 run = '''

@@ -105,9 +105,16 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 
 ### 未検証
 
-- Redfish VirtualMediaで起動可能な `virtual-media.iso` の外部contract test
-- HTTPBoot / PXE の各 Transport で実際に同じ Agent Protocol `/v1` へ register する実機/contract 検証
-- Redfish simulator の外部 contract test と実機検証記録
+- Redfish VirtualMediaで起動可能な `virtual-media.iso` の実機boot検証
+- HTTPBoot / PXE / VirtualMedia の各 Transport で実際に同じ Agent Protocol `/v1` へ register する実機/contract 検証
+- 実機検証記録
+
+### 追加の完了証跡（2026-07-16）
+
+- repository 管理の Redfish simulator process を別プロセスで起動し、実HTTP/TLS越しに
+  session authentication 優先、SessionService unsupported 時だけ basic fallback、
+  one-time BootOverride、VirtualMedia idempotency / conflict、BootState 観測を確認する
+  contract test を追加
 
 ## 関連
 

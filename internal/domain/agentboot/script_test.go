@@ -15,6 +15,7 @@
 package agentboot
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -81,4 +82,54 @@ func TestBuildScriptは危険な入力を拒否する(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildScriptはregister入力をkernel引数へ正規化する(t *testing.T) {
+	t.Parallel()
+
+	script, err := BuildScript(ScriptInput{
+		ArtifactBaseURL: "https://boot.test/base",
+		AgentAPIURL:     "https://controller.test/agent",
+		ArtifactDigest:  "sha256:" + strings.Repeat("b", 64),
+		HostUID:         "host-uid",
+		OperationUID:    "operation-uid",
+		BootMACAddress:  "AA-BB-CC-DD-EE-FF",
+	})
+	if err != nil {
+		t.Fatalf("BuildScript() error = %v", err)
+	}
+
+	got := extractKernelAgentArgumentsFromIPXEScript(t, script)
+	want := []string{
+		"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
+		"tart.agent.controller-url=https://controller.test/agent",
+		"tart.agent.host-uid=host-uid",
+		"tart.agent.operation-uid=operation-uid",
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("kernel args = %v, want %v", got, want)
+	}
+}
+
+func extractKernelAgentArgumentsFromIPXEScript(t *testing.T, script string) []string {
+	t.Helper()
+
+	for line := range strings.SplitSeq(script, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "kernel" {
+			continue
+		}
+
+		args := make([]string, 0, len(fields)-2)
+		for _, field := range fields[2:] {
+			if strings.HasPrefix(field, "tart.agent.") {
+				args = append(args, field)
+			}
+		}
+		return args
+	}
+
+	t.Fatal("kernel line not found")
+	return nil
 }

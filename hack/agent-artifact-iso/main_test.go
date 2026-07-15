@@ -17,8 +17,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
 )
 
 func TestRunStagesGrubISOInputs(t *testing.T) {
@@ -104,6 +107,45 @@ func TestRunRejectsSecretBearingKernelArguments(t *testing.T) {
 	}
 }
 
+func TestVirtualMediaはHTTPBootとPXEと同じregister入力へ収束する(t *testing.T) {
+	t.Parallel()
+
+	opts := options{
+		controllerURL:  "https://controller.test/agent",
+		hostUID:        "host-uid",
+		operationUID:   "operation-uid",
+		bootMACAddress: "AA-BB-CC-DD-EE-FF",
+	}
+	script, err := agentboot.BuildScript(agentboot.ScriptInput{
+		ArtifactBaseURL: "https://artifacts.test/agent",
+		AgentAPIURL:     opts.controllerURL,
+		ArtifactDigest:  "sha256:" + strings.Repeat("c", 64),
+		HostUID:         opts.hostUID,
+		OperationUID:    opts.operationUID,
+		BootMACAddress:  opts.bootMACAddress,
+	})
+	if err != nil {
+		t.Fatalf("agentboot.BuildScript() error = %v", err)
+	}
+
+	gotVirtualMedia := extractAgentKernelArgumentsFromGRUBConfig(t, grubConfig(opts))
+	gotNetworkBoot := extractAgentKernelArgumentsFromIPXEScript(t, script)
+	want := []string{
+		"tart.agent.boot-mac=aa:bb:cc:dd:ee:ff",
+		"tart.agent.controller-url=https://controller.test/agent",
+		"tart.agent.host-uid=host-uid",
+		"tart.agent.operation-uid=operation-uid",
+	}
+	slices.Sort(gotVirtualMedia)
+	slices.Sort(gotNetworkBoot)
+	if !slices.Equal(gotVirtualMedia, want) {
+		t.Fatalf("VirtualMedia kernel args = %v, want %v", gotVirtualMedia, want)
+	}
+	if !slices.Equal(gotNetworkBoot, want) {
+		t.Fatalf("HTTPBoot/PXE kernel args = %v, want %v", gotNetworkBoot, want)
+	}
+}
+
 func writeTestFile(t *testing.T, dir, name string, data []byte) string {
 	t.Helper()
 
@@ -112,4 +154,48 @@ func writeTestFile(t *testing.T, dir, name string, data []byte) string {
 		t.Fatalf("os.WriteFile(%s) error = %v", name, err)
 	}
 	return path
+}
+
+func extractAgentKernelArgumentsFromGRUBConfig(t *testing.T, config string) []string {
+	t.Helper()
+
+	for line := range strings.SplitSeq(config, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "linux" {
+			continue
+		}
+
+		args := make([]string, 0, len(fields)-2)
+		for _, field := range fields[2:] {
+			if strings.HasPrefix(field, "tart.agent.") {
+				args = append(args, field)
+			}
+		}
+		return args
+	}
+
+	t.Fatal("linux line not found")
+	return nil
+}
+
+func extractAgentKernelArgumentsFromIPXEScript(t *testing.T, script string) []string {
+	t.Helper()
+
+	for line := range strings.SplitSeq(script, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "kernel" {
+			continue
+		}
+
+		args := make([]string, 0, len(fields)-2)
+		for _, field := range fields[2:] {
+			if strings.HasPrefix(field, "tart.agent.") {
+				args = append(args, field)
+			}
+		}
+		return args
+	}
+
+	t.Fatal("kernel line not found")
+	return nil
 }

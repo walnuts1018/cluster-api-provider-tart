@@ -54,6 +54,7 @@ func TestExternalBootstrapOverlayDisablesEmbeddedBootstrapServers(t *testing.T) 
 		"../default",
 		"--bootstrap-bind-address=0",
 		"--tftp-bind-address=0",
+		"--ipxe-bind-address=0",
 		"/spec/template/spec/hostNetwork",
 		"/spec/template/spec/dnsPolicy",
 	} {

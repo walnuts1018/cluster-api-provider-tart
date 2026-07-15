@@ -36,12 +36,14 @@ import (
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
+const redfishBootTargetUefiHTTP = "UefiHttp"
+
 func TestAdapterDiscoversCapabilitiesWithSessionAuthentication(t *testing.T) {
 	t.Parallel()
 
 	fixture := &redfishFixture{}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	got, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{})
 	if err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
@@ -70,7 +72,7 @@ func TestAdapterFallsBackToBasicAuthenticationOnlyWhenSessionIsUnsupported(t *te
 
 	fixture := &redfishFixture{sessionUnsupported: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	if _, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{}); err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
@@ -84,7 +86,7 @@ func TestAdapterRejectsAuthenticationFailureWithoutBasicFallback(t *testing.T) {
 
 	fixture := &redfishFixture{sessionAuthFails: true}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	if _, err := adapter.DiscoverCapabilities(t.Context(), driverdomain.Redfish, target, applicationdriver.Invocation{}); !driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
 		t.Fatalf("DiscoverCapabilities() error = %v, want AuthenticationFailed", err)
 	}
@@ -136,7 +138,7 @@ func TestAdapterMountIsIdempotentForSameOperation(t *testing.T) {
 		virtualMediaOpID:     "f4353748-c9ea-41c6-b321-94197b64330e",
 	}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	artifact, err := driverdomain.NewArtifact("https://controller.example.test/agent.iso")
 	if err != nil {
 		t.Fatalf("NewArtifact() error = %v", err)
@@ -162,7 +164,7 @@ func TestAdapterMountRejectsConflictingMedia(t *testing.T) {
 		virtualMediaOpID:     "11111111-1111-1111-1111-111111111111",
 	}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	artifact, err := driverdomain.NewArtifact("https://controller.example.test/agent.iso")
 	if err != nil {
 		t.Fatalf("NewArtifact() error = %v", err)
@@ -181,7 +183,7 @@ func TestAdapterSetsOneTimeBootOverride(t *testing.T) {
 
 	fixture := &redfishFixture{}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 	operationID, err := operationdomain.ParseID("f4353748-c9ea-41c6-b321-94197b64330e")
 	if err != nil {
 		t.Fatalf("ParseID() error = %v", err)
@@ -196,8 +198,8 @@ func TestAdapterSetsOneTimeBootOverride(t *testing.T) {
 	if got := boot["BootSourceOverrideEnabled"]; got != "Once" {
 		t.Fatalf("BootSourceOverrideEnabled = %v, want Once", got)
 	}
-	if got := boot["BootSourceOverrideTarget"]; got != "UefiHttp" {
-		t.Fatalf("BootSourceOverrideTarget = %v, want UefiHttp", got)
+	if got := boot["BootSourceOverrideTarget"]; got != redfishBootTargetUefiHTTP {
+		t.Fatalf("BootSourceOverrideTarget = %v, want %s", got, redfishBootTargetUefiHTTP)
 	}
 }
 
@@ -212,7 +214,7 @@ func TestAdapterObservesBootState(t *testing.T) {
 		virtualMediaOpID:     "f4353748-c9ea-41c6-b321-94197b64330e",
 	}
 	adapter := NewWithTransport(roundTripFunc(fixture.roundTrip))
-	target := testTarget(t, nil)
+	target := testTarget(t)
 
 	state, err := adapter.ObserveBootState(t.Context(), target)
 	if err != nil {
@@ -251,7 +253,7 @@ type redfishFixture struct {
 func (fixture *redfishFixture) roundTrip(request *http.Request) (*http.Response, error) {
 	switch request.URL.Path {
 	case "/redfish/v1/":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"Systems":        map[string]string{"@odata.id": "/redfish/v1/Systems"},
 			"Managers":       map[string]string{"@odata.id": "/redfish/v1/Managers"},
 			"SessionService": map[string]string{"@odata.id": "/redfish/v1/SessionService"},
@@ -272,7 +274,7 @@ func (fixture *redfishFixture) roundTrip(request *http.Request) (*http.Response,
 	}
 	switch request.URL.Path {
 	case "/redfish/v1/Systems":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"Members": []map[string]string{{"@odata.id": "/redfish/v1/Systems/1"}},
 		}), nil
 	case "/redfish/v1/Systems/1":
@@ -283,10 +285,10 @@ func (fixture *redfishFixture) roundTrip(request *http.Request) (*http.Response,
 			}
 			return fixture.emptyResponse(http.StatusNoContent), nil
 		}
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"PowerState": "On",
 			"Boot": map[string]any{
-				"BootSourceOverrideTarget@Redfish.AllowableValues": []string{"Pxe", "UefiHttp", "Cd"},
+				"BootSourceOverrideTarget@Redfish.AllowableValues": []string{"Pxe", redfishBootTargetUefiHTTP, "Cd"},
 				"BootSourceOverrideEnabled":                        fixture.bootOverrideEnabled,
 				"BootSourceOverrideTarget":                         fixture.bootOverrideTarget,
 			},
@@ -299,19 +301,19 @@ func (fixture *redfishFixture) roundTrip(request *http.Request) (*http.Response,
 	case "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset":
 		return fixture.emptyResponse(http.StatusNoContent), nil
 	case "/redfish/v1/Managers":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"Members": []map[string]string{{"@odata.id": "/redfish/v1/Managers/1"}},
 		}), nil
 	case "/redfish/v1/Managers/1":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"VirtualMedia": map[string]string{"@odata.id": "/redfish/v1/Managers/1/VirtualMedia"},
 		}), nil
 	case "/redfish/v1/Managers/1/VirtualMedia":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"Members": []map[string]string{{"@odata.id": "/redfish/v1/Managers/1/VirtualMedia/CD1"}},
 		}), nil
 	case "/redfish/v1/Managers/1/VirtualMedia/CD1":
-		return fixture.jsonResponse(http.StatusOK, map[string]any{
+		return fixture.jsonResponse(map[string]any{
 			"MediaTypes": []string{"CD"},
 			"Image":      fixture.virtualMediaImage,
 			"Inserted":   fixture.virtualMediaInserted,
@@ -349,10 +351,10 @@ func (fixture *redfishFixture) authenticated(request *http.Request) bool {
 	return false
 }
 
-func (fixture *redfishFixture) jsonResponse(statusCode int, body any) *http.Response {
+func (fixture *redfishFixture) jsonResponse(body any) *http.Response {
 	payload, _ := json.Marshal(body)
 	return &http.Response{
-		StatusCode: statusCode,
+		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
 		Body:       io.NopCloser(bytes.NewReader(payload)),
 	}
@@ -372,13 +374,13 @@ func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error)
 	return fn(request)
 }
 
-func testTarget(t *testing.T, pins []string) driverdomain.HostTarget {
+func testTarget(t *testing.T) driverdomain.HostTarget {
 	t.Helper()
 	address, err := driverdomain.ParseMACAddress("00:00:5e:00:53:02")
 	if err != nil {
 		t.Fatalf("ParseMACAddress() error = %v", err)
 	}
-	access, err := driverdomain.NewRedfishAccess("https://bmc.example.test", "admin", "secret", nil, pins)
+	access, err := driverdomain.NewRedfishAccess("https://bmc.example.test", "admin", "secret", nil, nil)
 	if err != nil {
 		t.Fatalf("NewRedfishAccess() error = %v", err)
 	}

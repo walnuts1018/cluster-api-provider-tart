@@ -47,7 +47,8 @@ func (server *Server) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load Agent API TLS certificate: %w", err)
 	}
-	listener, err := net.Listen("tcp", server.address)
+	listenConfig := net.ListenConfig{}
+	listener, err := listenConfig.Listen(ctx, "tcp", server.address)
 	if err != nil {
 		return fmt.Errorf("listen for Agent API: %w", err)
 	}
@@ -65,7 +66,7 @@ func (server *Server) Start(ctx context.Context) error {
 	}
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if shutdownErr := httpServer.Shutdown(shutdownCtx); shutdownErr != nil {
 			crlog.FromContext(ctx).Error(shutdownErr, "Failed to shut down Agent API server")

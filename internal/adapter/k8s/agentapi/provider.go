@@ -186,7 +186,7 @@ func bootstrapBundleFromSecret(
 	payloadDigest := digest.FromBytes(payload).String()
 	if declared := string(secret.Data[BootstrapDigestKey]); declared != "" {
 		if declared != payloadDigest {
-			return agentprotocol.BootstrapBundle{}, fmt.Errorf("Bootstrap Secret payloadDigest %q does not match payload", declared)
+			return agentprotocol.BootstrapBundle{}, fmt.Errorf("bootstrap Secret payloadDigest %q does not match payload", declared)
 		}
 		payloadDigest = declared
 	}

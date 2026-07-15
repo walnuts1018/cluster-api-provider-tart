@@ -278,6 +278,8 @@ func TestServicePrepareBootPrefersHTTPThenPXE(t *testing.T) {
 			driverdomain.BootTargetHTTP: {
 				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
 			},
+			driverdomain.BootTargetPXE:          nil,
+			driverdomain.BootTargetVirtualMedia: nil,
 		},
 	}
 	registry := NewRegistry()
@@ -318,6 +320,8 @@ func TestServicePrepareBootUsesVirtualMediaBeforePXE(t *testing.T) {
 			driverdomain.BootTargetHTTP: {
 				driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable")),
 			},
+			driverdomain.BootTargetPXE:          nil,
+			driverdomain.BootTargetVirtualMedia: nil,
 		},
 	}
 	virtualMedia := &recordingVirtualMediaDriver{}
@@ -505,6 +509,8 @@ func driverdomainToCapability(name driverdomain.Name) capabilitydomain.Capabilit
 	switch name {
 	case driverdomain.WoL:
 		return capabilitydomain.PowerOn
+	case driverdomain.Redfish:
+		return ""
 	default:
 		return ""
 	}

@@ -22,19 +22,25 @@ import (
 
 const length = 64
 
-// OneTimeToken は Bootstrap Data を一度だけ配信するための不透明なドメイン値です。
-type OneTimeToken string
-
-// New は Bootstrap Data の一度きりの配信用に推測困難なトークンを生成します。
-func New() (OneTimeToken, error) {
-	token, err := random.New().SecureString(length, random.Alphanumeric)
-	if err != nil {
-		return "", fmt.Errorf("failed to generate one time token: %w", err)
-	}
-	return OneTimeToken(token), nil
+type Token struct {
+	value string
 }
 
-// String は CRD status や URL へ渡すための文字列表現を返します。
-func (t OneTimeToken) String() string {
-	return string(t)
+func New() (Token, error) {
+	token, err := random.New().SecureString(length, random.Alphanumeric)
+	if err != nil {
+		return Token{}, fmt.Errorf("generate one time token: %w", err)
+	}
+	return Token{value: token}, nil
+}
+
+func Parse(value string) (Token, error) {
+	if value == "" {
+		return Token{}, fmt.Errorf("one time token must not be empty")
+	}
+	return Token{value: value}, nil
+}
+
+func (token Token) String() string {
+	return token.value
 }

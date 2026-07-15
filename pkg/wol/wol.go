@@ -16,6 +16,7 @@ package wol
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -65,7 +66,8 @@ func (s Sender) Send(macAddress string) error {
 		return err
 	}
 
-	conn, err := net.Dial("udp", s.address)
+	dialer := &net.Dialer{}
+	conn, err := dialer.DialContext(context.Background(), "udp", s.address)
 	if err != nil {
 		return fmt.Errorf("failed to dial wol address: %w", err)
 	}

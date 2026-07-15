@@ -46,13 +46,16 @@ type ProvisionHostReservationResult interface {
 	isProvisionHostReservationResult()
 }
 
-type ProvisionHostReservationNoHost struct{}
-
-type ProvisionHostReservationStarted struct {
-	Started appprovisioning.StartResult
+type ProvisionHostReservationPending struct {
+	Reason  string
+	Message string
 }
 
-func (ProvisionHostReservationNoHost) isProvisionHostReservationResult()  {}
+type ProvisionHostReservationStarted struct {
+	Started appprovisioning.Started
+}
+
+func (ProvisionHostReservationPending) isProvisionHostReservationResult() {}
 func (ProvisionHostReservationStarted) isProvisionHostReservationResult() {}
 
 type ProviderIDStepResult interface {
@@ -72,7 +75,10 @@ type ProvisionStartStatusPatch interface {
 
 type ProvisionStartStatusWaitingForBootstrap struct{}
 
-type ProvisionStartStatusNoAvailableHost struct{}
+type ProvisionStartStatusAllocationPending struct {
+	Reason  string
+	Message string
+}
 
 type ProvisionStartStatusHostReserved struct {
 	Host      *infrastructurev1beta1.TartHost
@@ -80,7 +86,7 @@ type ProvisionStartStatusHostReserved struct {
 }
 
 func (ProvisionStartStatusWaitingForBootstrap) isProvisionStartStatusPatch() {}
-func (ProvisionStartStatusNoAvailableHost) isProvisionStartStatusPatch()     {}
+func (ProvisionStartStatusAllocationPending) isProvisionStartStatusPatch()   {}
 func (ProvisionStartStatusHostReserved) isProvisionStartStatusPatch()        {}
 
 type ProvisionStartStatusPatchResult interface {

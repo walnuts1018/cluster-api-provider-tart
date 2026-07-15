@@ -15,12 +15,28 @@
 package model
 
 import (
+	"time"
+
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	initialprovisioningevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/initialprovisioning/event"
 )
 
-type StartResult struct {
+// go-sumtype:decl StartResult
+type StartResult interface {
+	isStartResult()
+}
+
+type Started struct {
 	Host      *infrastructurev1beta1.TartHost
 	Operation *infrastructurev1beta1.TartHostOperation
 	Events    []initialprovisioningevent.Event
 }
+
+type AllocationPending struct {
+	Reason       string
+	Message      string
+	RequeueAfter time.Duration
+}
+
+func (Started) isStartResult()           {}
+func (AllocationPending) isStartResult() {}

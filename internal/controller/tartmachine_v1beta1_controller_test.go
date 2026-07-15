@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -545,7 +545,7 @@ func TestTartMachineV1Beta1ReconcilerEmitsUpdateFailureEvent(t *testing.T) {
 		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}, &infrastructurev1beta1.TartHostOperation{}).
 		WithObjects(machine, operation).
 		Build()
-	recorder := record.NewFakeRecorder(1)
+	recorder := events.NewFakeRecorder(1)
 	reconciler := &TartMachineV1Beta1Reconciler{
 		Client:   k8sClient,
 		Recorder: recorder,
@@ -887,7 +887,7 @@ func (s *provisionOrchestratorStub) Start(
 	string,
 ) (appprovisioning.StartResult, error) {
 	s.calls++
-	return appprovisioning.StartResult{
+	return appprovisioning.Started{
 		Host:      s.host,
 		Operation: s.operation,
 	}, nil

@@ -17,7 +17,6 @@ package agentsession
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -31,23 +30,27 @@ const (
 	MaximumAuthenticationFailures = 5
 )
 
-var (
-	ErrInvalidTTL     = errors.New("session token TTL must be greater than zero")
-	ErrInvalidBinding = errors.New("session token requires host and operation UID")
-	ErrInvalidDigest  = errors.New("session token digest is invalid")
-)
+var ErrInvalidDigest = errors.New("session token digest is invalid")
 
 type Token struct {
 	value string
 }
 
-// Stringはcredentialが構造化logやerror formattingへ偶発的に出ることを防ぐ。
 func (Token) String() string {
 	return "[REDACTED]"
 }
 
 func (token Token) BearerValue() string {
 	return token.value
+}
+
+type Binding struct {
+	HostUID      string
+	OperationUID string
+}
+
+func (binding Binding) Valid() bool {
+	return binding.HostUID != "" && binding.OperationUID != ""
 }
 
 type Digest [sha256.Size]byte
@@ -67,40 +70,40 @@ func (digest Digest) String() string {
 }
 
 type Session struct {
-	Digest                 Digest
-	HostUID                string
-	OperationUID           string
+	TokenDigest            Digest
+	Binding                Binding
 	ExpiresAt              time.Time
 	AuthenticationFailures int
 	Consumed               bool
 }
 
-type AuthenticationResult string
-
-const (
-	AuthenticationAccepted AuthenticationResult = "Accepted"
-	AuthenticationRejected AuthenticationResult = "Rejected"
-)
-
 func Issue(hostUID, operationUID string, now time.Time, ttl time.Duration) (Token, Session, error) {
-	if hostUID == "" || operationUID == "" {
-		return Token{}, Session{}, ErrInvalidBinding
+	binding := Binding{HostUID: hostUID, OperationUID: operationUID}
+	if !binding.Valid() {
+		return Token{}, Session{}, fmt.Errorf("issue session: %w", InvalidBinding{})
 	}
 	if ttl <= 0 {
-		return Token{}, Session{}, ErrInvalidTTL
+		return Token{}, Session{}, fmt.Errorf("issue session: %w", InvalidTTL{})
 	}
 	raw := make([]byte, TokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return Token{}, Session{}, fmt.Errorf("generate session token: %w", err)
 	}
-	value := base64.RawURLEncoding.EncodeToString(raw)
-	digest := sha256.Sum256([]byte(value))
-	return Token{value: value}, Session{
-		Digest:       digest,
-		HostUID:      hostUID,
-		OperationUID: operationUID,
-		ExpiresAt:    now.Add(ttl),
-	}, nil
+	token := Token{value: base64.RawURLEncoding.EncodeToString(raw)}
+	decision := DecideIssue(IssueCommand{
+		Token:    token.value,
+		Binding:  binding,
+		IssuedAt: now,
+		TTL:      ttl,
+	})
+	switch result := decision.(type) {
+	case IssueAccepted:
+		return token, result.Session, nil
+	case IssueRejected:
+		return Token{}, Session{}, fmt.Errorf("issue session: %w", result.Failure)
+	default:
+		return Token{}, Session{}, fmt.Errorf("issue session: unexpected decision")
+	}
 }
 
 func Authenticate(
@@ -108,26 +111,24 @@ func Authenticate(
 	providedToken, hostUID, operationUID string,
 	now time.Time,
 ) (Session, AuthenticationResult) {
-	if session.Consumed ||
-		!now.Before(session.ExpiresAt) ||
-		session.AuthenticationFailures >= MaximumAuthenticationFailures {
-		return session, AuthenticationRejected
+	decision := DecideAuthentication(AuthenticateCommand{
+		Session:       session,
+		Token:         providedToken,
+		Binding:       Binding{HostUID: hostUID, OperationUID: operationUID},
+		ObservedAt:    now,
+		ConsumeOnPass: false,
+	})
+	switch result := decision.(type) {
+	case AuthenticationAccepted:
+		return result.Session, result
+	case AuthenticationRejected:
+		return result.Session, result
+	default:
+		return session, AuthenticationRejected{Session: session, Failure: BindingMismatch{}}
 	}
-
-	providedDigest := sha256.Sum256([]byte(providedToken))
-	tokenMatches := subtle.ConstantTimeCompare(providedDigest[:], session.Digest[:]) == 1
-	bindingMatches := hostUID == session.HostUID && operationUID == session.OperationUID
-	if tokenMatches && bindingMatches {
-		return session, AuthenticationAccepted
-	}
-
-	failed := session
-	failed.AuthenticationFailures++
-	return failed, AuthenticationRejected
 }
 
 func Consume(session Session) Session {
-	consumed := session
-	consumed.Consumed = true
-	return consumed
+	session.Consumed = true
+	return session
 }

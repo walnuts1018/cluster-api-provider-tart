@@ -1,19 +1,38 @@
+// Copyright 2026.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package registrycredential
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestLoadReturnsNilWithoutConfigPath(t *testing.T) {
+func TestLoadReturnsEmptyCredentialWithoutConfigPath(t *testing.T) {
 	credential, err := Load("")
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if credential != nil {
-		t.Fatal("Load() returned credential for empty config path")
+		got, err := credential(t.Context(), "registry.test.walnuts.dev")
+		if err != nil {
+			t.Fatalf("credential() error = %v", err)
+		}
+		if got.Username != "" || got.Password != "" {
+			t.Fatalf("credential() = %#v, want empty credential", got)
+		}
 	}
 }
 
@@ -34,7 +53,7 @@ func TestLoadReadsDockerCompatibleConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	got, err := credential(context.Background(), "registry.test.walnuts.dev")
+	got, err := credential(t.Context(), "registry.test.walnuts.dev")
 	if err != nil {
 		t.Fatalf("credential() error = %v", err)
 	}

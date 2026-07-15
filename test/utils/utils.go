@@ -17,11 +17,13 @@ package utils
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 )
@@ -70,8 +72,9 @@ func Run(cmd *exec.Cmd) (string, error) {
 
 // UninstallCertManager uninstalls the cert manager
 func UninstallCertManager() {
+	ctx := context.Background()
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "delete", "-f", url)
+	cmd := exec.CommandContext(ctx, "kubectl", "delete", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		WarnError(err)
 	}
@@ -82,7 +85,7 @@ func UninstallCertManager() {
 		"cert-manager-controller",
 	}
 	for _, lease := range kubeSystemLeases {
-		cmd = exec.Command("kubectl", "delete", "lease", lease,
+		cmd = exec.CommandContext(ctx, "kubectl", "delete", "lease", lease,
 			"-n", "kube-system", "--ignore-not-found", "--force", "--grace-period=0")
 		if _, err := Run(cmd); err != nil {
 			WarnError(err)
@@ -92,21 +95,60 @@ func UninstallCertManager() {
 
 // InstallCertManager installs the cert manager bundle.
 func InstallCertManager() error {
+	ctx := context.Background()
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
-	cmd := exec.Command("kubectl", "apply", "-f", url)
+	cmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", url)
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
 	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
 	// was re-installed after uninstalling on a cluster.
-	cmd = exec.Command("kubectl", "wait", "deployment.apps/cert-manager-webhook",
+	cmd = exec.CommandContext(ctx, "kubectl", "wait", "deployment.apps/cert-manager-webhook",
 		"--for", "condition=Available",
 		"--namespace", "cert-manager",
 		"--timeout", "5m",
 	)
+	if _, err := Run(cmd); err != nil {
+		return err
+	}
 
-	_, err := Run(cmd)
-	return err
+	return waitCertManagerWebhookCABundle(ctx)
+}
+
+func waitCertManagerWebhookCABundle(ctx context.Context) error {
+	webhooks := []struct {
+		resource string
+		name     string
+	}{
+		{
+			resource: "mutatingwebhookconfigurations.admissionregistration.k8s.io",
+			name:     "cert-manager-webhook",
+		},
+		{
+			resource: "validatingwebhookconfigurations.admissionregistration.k8s.io",
+			name:     "cert-manager-webhook",
+		},
+	}
+	for _, webhook := range webhooks {
+		deadline := time.Now().Add(5 * time.Minute)
+		for {
+			cmd := exec.CommandContext(ctx, "kubectl", "get", webhook.resource, webhook.name,
+				"-o", "jsonpath={.webhooks[0].clientConfig.caBundle}",
+			)
+			output, err := Run(cmd)
+			if err == nil && strings.TrimSpace(output) != "" {
+				break
+			}
+			if time.Now().After(deadline) {
+				if err != nil {
+					return err
+				}
+				return fmt.Errorf("%s/%s CA bundle was not injected", webhook.resource, webhook.name)
+			}
+			time.Sleep(time.Second)
+		}
+	}
+	return nil
 }
 
 // IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
@@ -123,7 +165,7 @@ func IsCertManagerCRDsInstalled() bool {
 	}
 
 	// Execute the kubectl command to get all CRDs
-	cmd := exec.Command("kubectl", "get", "crds")
+	cmd := exec.CommandContext(context.Background(), "kubectl", "get", "crds")
 	output, err := Run(cmd)
 	if err != nil {
 		return false
@@ -153,7 +195,7 @@ func LoadImageToKindClusterWithName(name string) error {
 	if v, ok := os.LookupEnv("KIND"); ok {
 		kindBinary = v
 	}
-	cmd := exec.Command(kindBinary, kindOptions...)
+	cmd := exec.CommandContext(context.Background(), kindBinary, kindOptions...)
 	_, err := Run(cmd)
 	return err
 }

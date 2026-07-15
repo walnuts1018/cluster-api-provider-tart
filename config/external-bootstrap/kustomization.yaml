@@ -20,3 +20,6 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --tftp-bind-address=0
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --ipxe-bind-address=0

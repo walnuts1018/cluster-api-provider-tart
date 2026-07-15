@@ -16,11 +16,11 @@ package clusterstatus
 
 import (
 	"context"
+	"fmt"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	clusterstatushandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus/handler"
 	clusterstatusmodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus/model"
 	clusterstatusstep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus/step"
 	clusterstatusdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/clusterstatus"
@@ -34,13 +34,12 @@ type ResultUnchanged = clusterstatusmodel.ResultUnchanged
 type ResultPatched = clusterstatusmodel.ResultPatched
 
 type Workflow struct {
-	steps     *clusterstatusstep.Executor
-	decisions *clusterstatushandler.DecisionHandler
+	steps *clusterstatusstep.Executor
 }
 
 func NewWorkflow(k8sClient client.Client) *Workflow {
 	steps := clusterstatusstep.NewExecutor(k8sClient, StatusWithPlan)
-	return &Workflow{steps: steps, decisions: clusterstatushandler.NewDecisionHandler(steps)}
+	return &Workflow{steps: steps}
 }
 
 func (w *Workflow) Reconcile(ctx context.Context, cluster *infrastructurev1beta1.TartCluster) (Result, error) {
@@ -54,5 +53,24 @@ func (w *Workflow) Reconcile(ctx context.Context, cluster *infrastructurev1beta1
 		return nil, err
 	}
 
-	return w.decisions.Handle(ctx, cluster, decision)
+	return w.applyDecision(ctx, cluster, decision)
+}
+
+func (w *Workflow) applyDecision(
+	ctx context.Context,
+	cluster *infrastructurev1beta1.TartCluster,
+	decision clusterstatusdomain.Decision,
+) (Result, error) {
+	switch decided := decision.(type) {
+	case clusterstatusdomain.DecisionSkipMissingClusterLabel:
+		return ResultSkippedMissingClusterLabel{}, nil
+	case clusterstatusdomain.DecisionSkipClusterNotFound:
+		return ResultSkippedClusterNotFound{ClusterName: decided.ClusterName}, nil
+	case clusterstatusdomain.DecisionSkipPausedCluster:
+		return ResultSkippedPausedCluster{ClusterName: decided.ClusterName}, nil
+	case clusterstatusdomain.DecisionApplyStatus:
+		return w.steps.ApplyStatus(ctx, cluster, decided.Plan)
+	default:
+		return nil, fmt.Errorf("unknown cluster status decision %T", decision)
+	}
 }

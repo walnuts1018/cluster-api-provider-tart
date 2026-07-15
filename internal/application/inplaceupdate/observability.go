@@ -28,7 +28,12 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
 )
 
-const ConditionDegraded = "Degraded"
+const (
+	ConditionDegraded       = "Degraded"
+	reasonBootFailed        = "BootFailed"
+	reasonHealthCheckFailed = "HealthCheckFailed"
+	reasonRecoveryRequired  = "RecoveryRequired"
+)
 
 func SetUpdateFailureCondition(
 	status *infrastructurev1beta1.TartHostOperationStatus,
@@ -108,11 +113,19 @@ func failureReason(phase infrastructurev1beta1.TartHostOperationPhase) string {
 	case infrastructurev1beta1.TartHostOperationPhaseVerifying:
 		return "ArtifactVerificationFailed"
 	case infrastructurev1beta1.TartHostOperationPhaseBootTrial:
-		return "BootFailed"
+		return reasonBootFailed
 	case infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth:
-		return "HealthCheckFailed"
+		return reasonHealthCheckFailed
 	case infrastructurev1beta1.TartHostOperationPhaseRollingBack:
-		return "RecoveryRequired"
+		return reasonRecoveryRequired
+	case infrastructurev1beta1.TartHostOperationPhasePending,
+		infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
+		infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		infrastructurev1beta1.TartHostOperationPhaseSucceeded,
+		infrastructurev1beta1.TartHostOperationPhaseFailed,
+		infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired:
+		return "UpdateFailed"
 	default:
 		return "UpdateFailed"
 	}
@@ -129,10 +142,20 @@ func failureMessage(
 	case infrastructurev1beta1.TartHostOperationPhaseFailed:
 		return fmt.Sprintf("In-place OS update failed during %s and the previous slot is healthy", failedPhase)
 	case infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired:
-		if reason == "RecoveryRequired" {
+		if reason == reasonRecoveryRequired {
 			return "In-place OS update failed and automatic rollback did not restore health"
 		}
 		return fmt.Sprintf("In-place OS update failed during %s and automatic rollback did not restore health", failedPhase)
+	case infrastructurev1beta1.TartHostOperationPhasePending,
+		infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
+		infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
+		infrastructurev1beta1.TartHostOperationPhaseWriting,
+		infrastructurev1beta1.TartHostOperationPhaseVerifying,
+		infrastructurev1beta1.TartHostOperationPhaseBootTrial,
+		infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth,
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		infrastructurev1beta1.TartHostOperationPhaseSucceeded:
+		return "In-place OS update failed"
 	default:
 		return "In-place OS update failed"
 	}

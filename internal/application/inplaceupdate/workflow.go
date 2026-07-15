@@ -19,17 +19,8 @@ import (
 	"crypto/ed25519"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	inplaceupdateevent "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/event"
-	inplaceupdatehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/handler"
-	inplaceupdatemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/model"
-	inplaceupdateport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/port"
-	inplaceupdatestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate/step"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 )
-
-type PlanWriter = inplaceupdateport.PlanWriter
-type NodeLifecyclePlanWriter = inplaceupdateport.NodeLifecyclePlanWriter
-type OperationStarter = inplaceupdateport.OperationStarter
 
 // PlanSignerはAgent Plan専用の署名鍵を保持する。
 type PlanSigner struct {
@@ -43,22 +34,9 @@ type WorkflowInput struct {
 	Manifest artifact.ValidatedManifest
 }
 
-type Step = inplaceupdatestep.Step
-type StepStartOperation = inplaceupdatestep.StartOperation
-type StepPersistAgentPlan = inplaceupdatestep.PersistAgentPlan
-type StepPersistNodeLifecyclePlan = inplaceupdatestep.PersistNodeLifecyclePlan
-
-type Event = inplaceupdateevent.Event
-type EventOperationStarted = inplaceupdateevent.OperationStarted
-type EventAgentPlanPersisted = inplaceupdateevent.AgentPlanPersisted
-type EventNodeLifecyclePlanPersisted = inplaceupdateevent.NodeLifecyclePlanPersisted
-
-type StartResult = inplaceupdatemodel.StartResult
-
 // WorkflowはUpdate Operation作成と署名済みPlan保存を順序付ける。
 type Workflow struct {
-	steps               *inplaceupdatestep.Executor
-	commands            *inplaceupdatehandler.CommandHandler
+	effects             *effectRunner
 	signer              PlanSigner
 	nodeLifecycleSigner PlanSigner
 }
@@ -69,11 +47,12 @@ func NewWorkflow(
 	plans PlanWriter,
 	signer PlanSigner,
 ) *Workflow {
-	steps := inplaceupdatestep.NewExecutor(operations, plans)
 	return &Workflow{
-		steps:    steps,
-		commands: inplaceupdatehandler.NewCommandHandler(steps),
-		signer:   signer,
+		effects: &effectRunner{
+			operations: operations,
+			plans:      plans,
+		},
+		signer: signer,
 	}
 }
 
@@ -82,7 +61,7 @@ func (workflow *Workflow) SetNodeLifecyclePlanWriter(
 	plans NodeLifecyclePlanWriter,
 	signer PlanSigner,
 ) {
-	workflow.steps.SetNodeLifecyclePlanWriter(plans)
+	workflow.effects.setNodeLifecyclePlanWriter(plans)
 	workflow.nodeLifecycleSigner = signer
 }
 
@@ -96,28 +75,28 @@ func (workflow *Workflow) Start(
 		return StartResult{}, err
 	}
 
-	started, hasNodeLifecyclePlan, err := workflow.commands.Start(ctx, inplaceupdatehandler.StartCommand{
+	started, hasNodeLifecyclePlan, err := workflow.effects.start(ctx, startOperationEffect{
 		Operation: draft,
-		BuildAgentPlan: func(operation *infrastructurev1beta1.TartHostOperation) (inplaceupdatehandler.SignedAgentPlan, error) {
+		BuildAgentPlan: func(operation *infrastructurev1beta1.TartHostOperation) (SignedAgentPlan, error) {
 			plan, err := buildSignedAgentPlanStep(input, operation, workflow.signer)
-			return inplaceupdatehandler.SignedAgentPlan(plan), err
+			return SignedAgentPlan(plan), err
 		},
-		BuildNodeLifecyclePlan: func(operation *infrastructurev1beta1.TartHostOperation) (inplaceupdatehandler.SignedNodeLifecyclePlan, bool, error) {
+		BuildNodeLifecyclePlan: func(operation *infrastructurev1beta1.TartHostOperation) (SignedNodeLifecyclePlan, bool, error) {
 			plan, ok, err := buildSignedNodeLifecyclePlanStep(input, operation, workflow.nodeLifecycleSigner)
-			return inplaceupdatehandler.SignedNodeLifecyclePlan(plan), ok, err
+			return SignedNodeLifecyclePlan(plan), ok, err
 		},
 	})
 	if err != nil {
 		return StartResult{}, err
 	}
-	events := []inplaceupdateevent.Event{
-		EventOperationStarted{OperationID: started.Spec.OperationID},
-		EventAgentPlanPersisted{OperationID: started.Spec.OperationID},
+	events := []Event{
+		OperationStarted{OperationID: started.Spec.OperationID},
+		AgentPlanPersisted{OperationID: started.Spec.OperationID},
 	}
 	if hasNodeLifecyclePlan {
-		events = append(events, EventNodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
+		events = append(events, NodeLifecyclePlanPersisted{OperationID: started.Spec.OperationID})
 	}
-	return inplaceupdatemodel.StartResult{
+	return StartResult{
 		Operation: started,
 		Events:    events,
 	}, nil

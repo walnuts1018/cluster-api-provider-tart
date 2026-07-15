@@ -23,9 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	applicationhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/hostallocation"
 	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	domainhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
 )
 
 var ErrNoMatchingHost = allocationdomain.ErrNoMatchingHost
@@ -45,6 +47,63 @@ type Service struct {
 
 func NewService(k8sClient client.Client) *Service {
 	return &Service{client: k8sClient}
+}
+
+func (s *Service) ListCandidates(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+) ([]domainhostallocation.Candidate, error) {
+	var hosts infrastructurev1beta1.TartHostList
+	if err := s.client.List(ctx, &hosts, client.InNamespace(machine.Namespace)); err != nil {
+		return nil, fmt.Errorf("list TartHosts: %w", err)
+	}
+	sort.Slice(hosts.Items, func(i, j int) bool {
+		return hosts.Items[i].Name < hosts.Items[j].Name
+	})
+
+	candidates := make([]domainhostallocation.Candidate, 0, len(hosts.Items))
+	for i := range hosts.Items {
+		candidate, err := candidateForAllocation(&hosts.Items[i])
+		if err != nil {
+			return nil, fmt.Errorf("map TartHost %s/%s: %w", hosts.Items[i].Namespace, hosts.Items[i].Name, err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, nil
+}
+
+func (s *Service) ReserveCandidate(
+	ctx context.Context,
+	machine *infrastructurev1beta1.TartMachine,
+	host domainhostallocation.HostRef,
+) (applicationhostallocation.ReservationResult, error) {
+	current := &infrastructurev1beta1.TartHost{}
+	key := client.ObjectKey{Namespace: host.Namespace, Name: host.Name}
+	if err := s.client.Get(ctx, key, current); err != nil {
+		if apierrors.IsNotFound(err) {
+			return applicationhostallocation.RetrySelection{}, nil
+		}
+		return nil, fmt.Errorf("get TartHost %s/%s: %w", host.Namespace, host.Name, err)
+	}
+	if current.Spec.ConsumerRef != nil {
+		if consumerMatchesMachine(current.Spec.ConsumerRef, machine) {
+			return applicationhostallocation.Reserved{Host: current}, nil
+		}
+		return applicationhostallocation.RetrySelection{}, nil
+	}
+
+	current.Spec.ConsumerRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	if err := s.client.Update(ctx, current); err != nil {
+		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+			return applicationhostallocation.RetrySelection{}, nil
+		}
+		return nil, fmt.Errorf("reserve TartHost %s/%s: %w", current.Namespace, current.Name, err)
+	}
+	return applicationhostallocation.Reserved{Host: current}, nil
 }
 
 func (s *Service) Reserve(
@@ -250,4 +309,57 @@ func consumerMatchesMachine(
 		consumer.Namespace == machine.Namespace &&
 		consumer.Name == machine.Name &&
 		consumer.UID == machine.UID
+}
+
+func candidateForAllocation(host *infrastructurev1beta1.TartHost) (domainhostallocation.Candidate, error) {
+	if host.Status.Phase == "" {
+		return domainhostallocation.Candidate{}, nil
+	}
+	phase, err := hostdomain.ParsePhase(string(host.Status.Phase))
+	if err != nil {
+		return domainhostallocation.Candidate{}, fmt.Errorf("parse TartHost phase: %w", err)
+	}
+	capabilities, err := hostCapabilities(host)
+	if err != nil {
+		return domainhostallocation.Candidate{}, err
+	}
+
+	assignment := domainhostallocation.Assignment(domainhostallocation.Unassigned{})
+	if host.Spec.ConsumerRef != nil {
+		assignment = domainhostallocation.AssignedToMachine{
+			Machine: domainhostallocation.MachineRef{
+				Namespace: host.Spec.ConsumerRef.Namespace,
+				Name:      host.Spec.ConsumerRef.Name,
+				UID:       string(host.Spec.ConsumerRef.UID),
+			},
+		}
+	}
+
+	return domainhostallocation.Candidate{
+		Host: domainhostallocation.HostRef{
+			Namespace: host.Namespace,
+			Name:      host.Name,
+			UID:       string(host.UID),
+		},
+		Phase:             phase,
+		Assignment:        assignment,
+		Architecture:      string(host.Spec.Architecture),
+		Firmware:          string(host.Spec.Firmware),
+		PlatformProfile:   host.Spec.PlatformProfile,
+		RootDiskSizeBytes: host.Status.Inventory.RootDisk.SizeBytes,
+		Capabilities:      capabilities,
+		Labels:            host.Labels,
+	}, nil
+}
+
+func hostCapabilities(host *infrastructurev1beta1.TartHost) (capability.Set, error) {
+	values := make([]capability.Capability, 0, len(host.Status.Capabilities))
+	for _, value := range host.Status.Capabilities {
+		parsed, err := capability.Parse(string(value))
+		if err != nil {
+			return capability.Set{}, err
+		}
+		values = append(values, parsed)
+	}
+	return capability.NewSet(values...)
 }

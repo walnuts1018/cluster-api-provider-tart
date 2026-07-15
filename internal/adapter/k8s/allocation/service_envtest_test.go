@@ -32,22 +32,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/test/envtestutil"
 )
+
+const projectRoot = "../../../.."
 
 func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *testing.T) {
 	crd := loadTartHostCRDWithV1Beta1Storage(t)
 	testEnvironment := &envtest.Environment{
-		CRDs: []*apiextensionsv1.CustomResourceDefinition{crd},
-	}
-	if assets := findEnvtestAssets(); assets != "" {
-		testEnvironment.BinaryAssetsDirectory = assets
+		CRDs:                  []*apiextensionsv1.CustomResourceDefinition{crd},
+		BinaryAssetsDirectory: envtestutil.RequireBinaryAssetsDirectory(t, projectRoot),
 	}
 	cfg, err := testEnvironment.Start()
 	if err != nil {
 		t.Fatalf("start envtest: %v", err)
 	}
 	t.Cleanup(func() {
-		stopCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), time.Minute)
 		defer cancel()
 		stopped := make(chan error, 1)
 		go func() {
@@ -55,7 +56,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 		}()
 		select {
 		case err := <-stopped:
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				t.Errorf("stop envtest: %v", err)
 			}
 		case <-stopCtx.Done():
@@ -117,7 +118,7 @@ func TestServiceReserveAllowsOneOfOneHundredConcurrentMachinesWithAPIServer(t *t
 func loadTartHostCRDWithV1Beta1Storage(t *testing.T) *apiextensionsv1.CustomResourceDefinition {
 	t.Helper()
 	path := filepath.Join(
-		"..", "..", "..", "..", "config", "crd", "bases",
+		projectRoot, "config", "crd", "bases",
 		"infrastructure.cluster.x-k8s.io_tarthosts.yaml",
 	)
 	data, err := os.ReadFile(path)
@@ -136,18 +137,4 @@ func loadTartHostCRDWithV1Beta1Storage(t *testing.T) *apiextensionsv1.CustomReso
 		crd.Spec.Versions[i].Storage = crd.Spec.Versions[i].Name == infrastructurev1beta1.GroupVersion.Version
 	}
 	return crd
-}
-
-func findEnvtestAssets() string {
-	basePath := filepath.Join("..", "..", "..", "..", "bin", "k8s")
-	entries, err := os.ReadDir(basePath)
-	if err != nil {
-		return ""
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			return filepath.Join(basePath, entry.Name())
-		}
-	}
-	return ""
 }

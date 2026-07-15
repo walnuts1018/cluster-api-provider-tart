@@ -40,6 +40,8 @@ func Create(logLevelStr, logTypeStr string) *slog.Logger {
 	switch logType {
 	case TypeText:
 		handler = slog.NewTextHandler(os.Stdout, options)
+	case TypeJSON:
+		handler = slog.NewJSONHandler(os.Stdout, options)
 	default:
 		handler = slog.NewJSONHandler(os.Stdout, options)
 	}

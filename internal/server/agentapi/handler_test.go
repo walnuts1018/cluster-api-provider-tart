@@ -44,10 +44,17 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
+const (
+	testOperationUID       = "operation-uid"
+	testCurrentVersion     = "v1.34.0"
+	testTargetVersion      = "v1.35.0"
+	testNodeLifecycleKeyID = "node-lifecycle-key"
+)
+
 var (
 	testSignedPlan = agentprotocol.SignedPlan{Plan: agentprotocol.Plan{
 		APIVersion:    agentprotocol.APIVersion,
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 		HostUID:       "host-uid",
 		OperationType: agentprotocol.OperationTypeProvision,
 		Deadline:      time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
@@ -188,7 +195,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 		Payload:       payload,
 		PayloadDigest: digest.FromBytes(payload).String(),
 		MachineUID:    "machine-uid",
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 	}}
 	handler, _, _ := newAuthenticatedHandler(t, bootstrap)
 	handler.config.BootReports = &recordingBootReporter{}
@@ -214,7 +221,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 			path:   "/v1/operations/operation-uid/progress",
 			body: agentprotocol.ProgressRequest{
 				APIVersion:    agentprotocol.APIVersion,
-				OperationUID:  "operation-uid",
+				OperationUID:  testOperationUID,
 				PlanDigest:    testPlanDigest,
 				AgentSequence: 1,
 				Step:          "WriteImage",
@@ -228,7 +235,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 			path:   "/v1/operations/operation-uid/node-lifecycle-progress",
 			body: agentprotocol.NodeLifecycleProgressRequest{
 				APIVersion:   agentprotocol.APIVersion,
-				OperationUID: "operation-uid",
+				OperationUID: testOperationUID,
 				PlanDigest:   testPlanDigest,
 				Step:         string(distributiondomain.StepPreflightCompleted),
 				Result:       agentprotocol.NodeLifecycleResultSucceeded,
@@ -245,7 +252,7 @@ func TestHandlerRejectsInvalidSessionOnEveryProtectedEndpoint(t *testing.T) {
 			path:   "/v1/operations/operation-uid/boot-report",
 			body: agentprotocol.BootReportRequest{
 				APIVersion:         agentprotocol.APIVersion,
-				OperationUID:       "operation-uid",
+				OperationUID:       testOperationUID,
 				PlanDigest:         testPlanDigest,
 				BootID:             "boot-id",
 				ActiveSlot:         "A",
@@ -295,9 +302,9 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 	signed := nodelifecycle.SignedPlan{
 		Plan: nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
-			OperationID:    "operation-uid",
-			CurrentVersion: "v1.34.0",
-			TargetVersion:  "v1.35.0",
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
 			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
 			NodeRole:       distributiondomain.NodeRoleWorker,
 			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
@@ -305,7 +312,7 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 		},
 		Signature: agentprotocol.Signature{
 			Algorithm: agentprotocol.SignatureAlgorithm,
-			KeyID:     "node-lifecycle-key",
+			KeyID:     testNodeLifecycleKeyID,
 			Value:     "signature",
 		},
 	}
@@ -323,7 +330,7 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 		operation: &infrastructurev1beta1.TartHostOperation{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "operation"},
 			Spec: infrastructurev1beta1.TartHostOperationSpec{
-				OperationID:             "operation-uid",
+				OperationID:             testOperationUID,
 				NodeLifecyclePlanDigest: planDigest.String(),
 				HostRef: infrastructurev1beta1.ResourceReference{
 					Namespace: "default",
@@ -353,9 +360,9 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if got.Plan.OperationID != "operation-uid" ||
-		got.Plan.TargetVersion != "v1.35.0" ||
-		got.Signature.KeyID != "node-lifecycle-key" {
+	if got.Plan.OperationID != testOperationUID ||
+		got.Plan.TargetVersion != testTargetVersion ||
+		got.Signature.KeyID != testNodeLifecycleKeyID {
 		t.Fatalf("node lifecycle plan = %#v, want signed plan", got)
 	}
 }
@@ -381,7 +388,7 @@ func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T)
 	}
 	body := agentprotocol.NodeLifecycleProgressRequest{
 		APIVersion:   agentprotocol.APIVersion,
-		OperationUID: "operation-uid",
+		OperationUID: testOperationUID,
 		PlanDigest:   planDigest.String(),
 		Step:         string(distributiondomain.StepPreflightCompleted),
 		Result:       agentprotocol.NodeLifecycleResultSucceeded,
@@ -399,10 +406,10 @@ func TestHandlerRecordsNodeLifecycleStepAfterSessionAuthentication(t *testing.T)
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
 	}
-	if recorder.operation == nil || recorder.operation.Spec.OperationID != "operation-uid" {
+	if recorder.operation == nil || recorder.operation.Spec.OperationID != testOperationUID {
 		t.Fatalf("recorded operation = %#v, want operation-uid", recorder.operation)
 	}
-	if recorder.plan.OperationID != "operation-uid" ||
+	if recorder.plan.OperationID != testOperationUID ||
 		recorder.step != distributiondomain.StepPreflightCompleted {
 		t.Fatalf("recorded plan/step = %#v/%q, want PreflightCompleted", recorder.plan, recorder.step)
 	}
@@ -414,9 +421,9 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
-			OperationID:    "operation-uid",
-			CurrentVersion: "v1.34.0",
-			TargetVersion:  "v1.35.0",
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
 			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
 			NodeRole:       distributiondomain.NodeRoleControlPlane,
 			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
@@ -487,7 +494,7 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 	for _, test := range steps {
 		body := agentprotocol.NodeLifecycleProgressRequest{
 			APIVersion:   agentprotocol.APIVersion,
-			OperationUID: "operation-uid",
+			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
 			Step:         string(test.step),
 			Result:       agentprotocol.NodeLifecycleResultSucceeded,
@@ -545,9 +552,9 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
-			OperationID:    "operation-uid",
-			CurrentVersion: "v1.34.0",
-			TargetVersion:  "v1.35.0",
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
 			UpdateClass:    distributiondomain.UpdateClassStateMigration,
 			NodeRole:       distributiondomain.NodeRoleControlPlane,
 			SnapshotRef:    "etcd-snapshot-1",
@@ -566,14 +573,14 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 	for _, body := range []agentprotocol.NodeLifecycleProgressRequest{
 		{
 			APIVersion:   agentprotocol.APIVersion,
-			OperationUID: "operation-uid",
+			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
 			Step:         string(distributiondomain.StepPreflightCompleted),
 			Result:       agentprotocol.NodeLifecycleResultSucceeded,
 		},
 		{
 			APIVersion:   agentprotocol.APIVersion,
-			OperationUID: "operation-uid",
+			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
 			Step:         string(distributiondomain.StepSnapshotCreated),
 			Result:       agentprotocol.NodeLifecycleResultSucceeded,
@@ -601,7 +608,7 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 		state.token,
 		agentprotocol.NodeLifecycleProgressRequest{
 			APIVersion:   agentprotocol.APIVersion,
-			OperationUID: "operation-uid",
+			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
 			Step:         string(distributiondomain.StepKubeadmApplied),
 			Result:       agentprotocol.NodeLifecycleResultFailed,
@@ -629,7 +636,7 @@ func TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue(t *testing.T
 	secretValue := "request-value-that-must-not-be-reflected"
 	body := agentprotocol.ProgressRequest{
 		APIVersion:    agentprotocol.APIVersion,
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 		PlanDigest:    testPlanDigest,
 		AgentSequence: 1,
 		Step:          secretValue,
@@ -670,7 +677,7 @@ func TestHandlerProgressSequence(t *testing.T) {
 	for index, sequence := range sequences {
 		body := agentprotocol.ProgressRequest{
 			APIVersion:    agentprotocol.APIVersion,
-			OperationUID:  "operation-uid",
+			OperationUID:  testOperationUID,
 			PlanDigest:    testPlanDigest,
 			AgentSequence: sequence,
 			Step:          "WriteImage",
@@ -695,7 +702,7 @@ func TestHandlerRejectsProgressStepOutsidePlan(t *testing.T) {
 	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	body := agentprotocol.ProgressRequest{
 		APIVersion:    agentprotocol.APIVersion,
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 		PlanDigest:    testPlanDigest,
 		AgentSequence: 1,
 		Step:          "EraseState",
@@ -723,7 +730,7 @@ func TestHandlerAcceptsValidBootReport(t *testing.T) {
 	handler.config.BootReports = reporter
 	body := agentprotocol.BootReportRequest{
 		APIVersion:             agentprotocol.APIVersion,
-		OperationUID:           "operation-uid",
+		OperationUID:           testOperationUID,
 		PlanDigest:             testPlanDigest,
 		BootID:                 "boot-id",
 		ActiveSlot:             "A",
@@ -779,7 +786,7 @@ func TestHandlerRejectsInvalidAndConflictingBootReports(t *testing.T) {
 			handler.config.BootReports = reporter
 			body := agentprotocol.BootReportRequest{
 				APIVersion:         agentprotocol.APIVersion,
-				OperationUID:       "operation-uid",
+				OperationUID:       testOperationUID,
 				PlanDigest:         testPlanDigest,
 				BootID:             "boot-id",
 				ActiveSlot:         "A",
@@ -811,7 +818,7 @@ func TestHandlerBootstrapIsSingleShot(t *testing.T) {
 		Payload:       payload,
 		PayloadDigest: digest.FromBytes(payload).String(),
 		MachineUID:    "machine-uid",
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 	}
 	handler, sessionToken, _ := newAuthenticatedHandler(t, staticBootstrap{bundle: bundle})
 
@@ -850,7 +857,7 @@ func TestHandlerBootstrapStaysSingleShotAfterSessionReissue(t *testing.T) {
 		Payload:       payload,
 		PayloadDigest: digest.FromBytes(payload).String(),
 		MachineUID:    "machine-uid",
-		OperationUID:  "operation-uid",
+		OperationUID:  testOperationUID,
 	}
 	handler, sessionToken, k8sClient := newAuthenticatedHandler(t, staticBootstrap{bundle: bundle})
 
@@ -871,7 +878,7 @@ func TestHandlerBootstrapStaysSingleShotAfterSessionReissue(t *testing.T) {
 		t.Context(),
 		client.ObjectKey{Namespace: "default", Name: "operation"},
 		"host-uid",
-		"operation-uid",
+		testOperationUID,
 		time.Date(2026, 7, 5, 12, 1, 0, 0, time.UTC),
 	)
 	if err != nil {
@@ -922,7 +929,7 @@ func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
 				Payload:       []byte("payload"),
 				PayloadDigest: digest.FromBytes([]byte("payload")).String(),
 				MachineUID:    "machine-uid",
-				OperationUID:  "operation-uid",
+				OperationUID:  testOperationUID,
 			},
 			wantStatus: http.StatusUnprocessableEntity,
 		},
@@ -936,7 +943,7 @@ func TestHandlerRejectsUnsupportedFormatAndOversizedBootstrap(t *testing.T) {
 					Payload:       payload,
 					PayloadDigest: digest.FromBytes(payload).String(),
 					MachineUID:    "machine-uid",
-					OperationUID:  "operation-uid",
+					OperationUID:  testOperationUID,
 				}
 			}(),
 			wantStatus: http.StatusRequestEntityTooLarge,
@@ -967,9 +974,9 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		bootstrap,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
-			OperationID:    "operation-uid",
-			CurrentVersion: "v1.34.0",
-			TargetVersion:  "v1.35.0",
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
 			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
 			NodeRole:       distributiondomain.NodeRoleWorker,
 			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
@@ -1006,7 +1013,7 @@ func newAuthenticatedHandlerState(
 			UID:       types.UID("operation-object-uid"),
 		},
 		Spec: infrastructurev1beta1.TartHostOperationSpec{
-			OperationID: "operation-uid",
+			OperationID: testOperationUID,
 			PlanDigest:  testPlanDigest,
 			HostRef: infrastructurev1beta1.ResourceReference{
 				Namespace: "default",
@@ -1038,7 +1045,7 @@ func newAuthenticatedHandlerState(
 		Build()
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 	sessions := k8sagentsession.NewService(k8sClient, agentsessiondomain.DefaultTTL)
-	token, _, err := sessions.Issue(t.Context(), key, "host-uid", "operation-uid", now)
+	token, _, err := sessions.Issue(t.Context(), key, "host-uid", testOperationUID, now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}

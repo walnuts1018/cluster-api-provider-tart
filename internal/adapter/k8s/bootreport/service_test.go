@@ -17,6 +17,7 @@ package bootreport
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -124,7 +125,7 @@ func TestServiceCountsWrongSlotBootReportAsBootFailureAttempt(t *testing.T) {
 			APIVersion:             agentprotocol.APIVersion,
 			OperationUID:           "operation-uid",
 			PlanDigest:             planDigest,
-			BootID:                 "wrong-slot-boot-" + string(rune('0'+attempt)),
+			BootID:                 "wrong-slot-boot-" + strconv.Itoa(int(attempt)),
 			ActiveSlot:             "A",
 			ArtifactGeneration:     1,
 			StateMounted:           true,

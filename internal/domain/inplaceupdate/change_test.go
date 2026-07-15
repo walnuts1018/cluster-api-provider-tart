@@ -18,11 +18,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-
-	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
 func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
@@ -35,7 +30,7 @@ func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
 		{
 			name: "image ref",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.Image.Ref = artifactRef("b")
+				changes.DesiredTartMachine.ImageRef = artifactRef("b")
 			},
 			allowed:  true,
 			wantPath: FieldTartMachineImageRef,
@@ -43,7 +38,7 @@ func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
 		{
 			name: "update policy",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.UpdatePolicy.Mode = infrastructurev1beta1.UpdateModeInPlace
+				changes.DesiredTartMachine.UpdatePolicy = "InPlace"
 			},
 			allowed:  true,
 			wantPath: FieldTartMachineUpdatePolicy,
@@ -51,42 +46,42 @@ func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
 		{
 			name: "Kubernetes version",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredMachine.Spec.Version = "v1.35.0"
+				changes.DesiredMachine.Version = "v1.35.0"
 			},
 			wantPath: FieldMachineVersion,
 		},
 		{
 			name: "bootstrap payload",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredBootstrapConfig.Raw = []byte(`{"apiVersion":"bootstrap.cluster.x-k8s.io/v1beta2","kind":"KubeadmConfig","spec":{"payload":"changed"}}`)
+				changes.DesiredBootstrapConfig = map[string]string{"payload": "changed"}
 			},
 			wantPath: FieldBootstrapConfig,
 		},
 		{
 			name: "platform profile",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.PlatformProfile = "amd64-uefi-ab/v2"
+				changes.DesiredTartMachine.PlatformProfile = "amd64-uefi-ab/v2"
 			},
 			wantPath: FieldTartMachinePlatformProfile,
 		},
 		{
 			name: "host selector",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.HostSelector.MatchLabels["rack"] = "rack-b"
+				changes.DesiredTartMachine.HostSelector = map[string]string{"rack": "rack-b"}
 			},
 			wantPath: FieldTartMachineHostSelector,
 		},
 		{
 			name: "provider ID",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.ProviderID = "tart://different-host"
+				changes.DesiredTartMachine.ProviderID = "tart://different-host"
 			},
 			wantPath: FieldTartMachineProviderID,
 		},
 		{
 			name: "deletion policy",
 			mutate: func(changes *ChangeSet) {
-				changes.DesiredTartMachine.Spec.DeletionPolicy = infrastructurev1beta1.DeletionPolicyRetainData
+				changes.DesiredTartMachine.DeletionPolicy = "RetainData"
 			},
 			wantPath: FieldTartMachineDeletionPolicy,
 		},
@@ -97,10 +92,7 @@ func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
 			changes := baseChangeSet()
 			tt.mutate(&changes)
 
-			got, err := Classify(changes)
-			if err != nil {
-				t.Fatalf("Classify() error = %v", err)
-			}
+			got := Classify(changes)
 			if got.CanUpdateInPlace() != tt.allowed {
 				t.Fatalf("CanUpdateInPlace() = %t, want %t; changed=%v rejected=%v",
 					got.CanUpdateInPlace(), tt.allowed, got.Changed, got.Rejected)
@@ -119,10 +111,7 @@ func TestClassifyはOSOnly差分だけを許可する(t *testing.T) {
 }
 
 func TestClassifyは差分なしを更新対象にしない(t *testing.T) {
-	got, err := Classify(baseChangeSet())
-	if err != nil {
-		t.Fatalf("Classify() error = %v", err)
-	}
+	got := Classify(baseChangeSet())
 	if got.CanUpdateInPlace() {
 		t.Fatal("CanUpdateInPlace() = true, want false")
 	}
@@ -133,13 +122,10 @@ func TestClassifyは差分なしを更新対象にしない(t *testing.T) {
 
 func TestClassifyは許可差分と拒否差分の混在を拒否する(t *testing.T) {
 	changes := baseChangeSet()
-	changes.DesiredTartMachine.Spec.Image.Ref = artifactRef("b")
-	changes.DesiredMachine.Spec.Version = "v1.35.0"
+	changes.DesiredTartMachine.ImageRef = artifactRef("b")
+	changes.DesiredMachine.Version = "v1.35.0"
 
-	got, err := Classify(changes)
-	if err != nil {
-		t.Fatalf("Classify() error = %v", err)
-	}
+	got := Classify(changes)
 	if got.CanUpdateInPlace() {
 		t.Fatal("CanUpdateInPlace() = true, want false")
 	}
@@ -151,59 +137,34 @@ func TestClassifyは許可差分と拒否差分の混在を拒否する(t *testi
 	}
 }
 
-func TestClassifyはBootstrapのmetadata差分を無視する(t *testing.T) {
-	changes := baseChangeSet()
-	changes.DesiredBootstrapConfig.Raw = []byte(`{"apiVersion":"bootstrap.cluster.x-k8s.io/v1beta2","kind":"KubeadmConfig","metadata":{"resourceVersion":"2"},"spec":{"payload":"same"}}`)
-
-	got, err := Classify(changes)
-	if err != nil {
-		t.Fatalf("Classify() error = %v", err)
-	}
-	if len(got.Changed) != 0 {
-		t.Fatalf("Changed = %v, want empty", got.Changed)
-	}
-}
-
-func TestClassifyは不正なBootstrapConfigを拒否する(t *testing.T) {
-	changes := baseChangeSet()
-	changes.DesiredBootstrapConfig.Raw = []byte(`{`)
-
-	if _, err := Classify(changes); err == nil {
-		t.Fatal("Classify() error = nil, want malformed BootstrapConfig error")
-	}
-}
-
 func baseChangeSet() ChangeSet {
-	currentMachine := clusterv1.Machine{
-		Spec: clusterv1.MachineSpec{
-			ClusterName: "sample",
-			Version:     "v1.34.0",
-			ProviderID:  "tart://host-1",
-		},
-	}
-	currentTartMachine := infrastructurev1beta1.TartMachine{
-		Spec: infrastructurev1beta1.TartMachineSpec{
-			ProviderID:      "tart://host-1",
-			Image:           infrastructurev1beta1.ImageSpec{Ref: artifactRef("a")},
-			PlatformProfile: "amd64-uefi-ab/v1",
-			HostSelector: infrastructurev1beta1.HostSelector{
-				MatchLabels: map[string]string{"rack": "rack-a"},
-			},
-			UpdatePolicy:   infrastructurev1beta1.UpdatePolicy{Mode: infrastructurev1beta1.UpdateModeReplace},
-			DeletionPolicy: infrastructurev1beta1.DeletionPolicyWipeAll,
-		},
-	}
-	bootstrap := runtime.RawExtension{
-		Raw: []byte(`{"apiVersion":"bootstrap.cluster.x-k8s.io/v1beta2","kind":"KubeadmConfig","metadata":{"resourceVersion":"1"},"spec":{"payload":"same"}}`),
-	}
-
 	return ChangeSet{
-		CurrentMachine:         currentMachine,
-		DesiredMachine:         *currentMachine.DeepCopy(),
-		CurrentTartMachine:     currentTartMachine,
-		DesiredTartMachine:     *currentTartMachine.DeepCopy(),
-		CurrentBootstrapConfig: bootstrap,
-		DesiredBootstrapConfig: runtime.RawExtension{Raw: slices.Clone(bootstrap.Raw)},
+		CurrentMachine: MachineSpecSnapshot{
+			Version: "v1.34.0",
+			Spec:    map[string]string{"clusterName": "sample", "providerID": "tart://host-1"},
+		},
+		DesiredMachine: MachineSpecSnapshot{
+			Version: "v1.34.0",
+			Spec:    map[string]string{"clusterName": "sample", "providerID": "tart://host-1"},
+		},
+		CurrentTartMachine: TartMachineSpecSnapshot{
+			ImageRef:        artifactRef("a"),
+			UpdatePolicy:    "Replace",
+			PlatformProfile: "amd64-uefi-ab/v1",
+			HostSelector:    map[string]string{"rack": "rack-a"},
+			ProviderID:      "tart://host-1",
+			DeletionPolicy:  "WipeAll",
+		},
+		DesiredTartMachine: TartMachineSpecSnapshot{
+			ImageRef:        artifactRef("a"),
+			UpdatePolicy:    "Replace",
+			PlatformProfile: "amd64-uefi-ab/v1",
+			HostSelector:    map[string]string{"rack": "rack-a"},
+			ProviderID:      "tart://host-1",
+			DeletionPolicy:  "WipeAll",
+		},
+		CurrentBootstrapConfig: map[string]string{"payload": "same"},
+		DesiredBootstrapConfig: map[string]string{"payload": "same"},
 	}
 }
 

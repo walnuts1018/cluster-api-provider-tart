@@ -130,9 +130,13 @@ func (steps *StepExecutor) startProvisionStep(
 		return err
 	}
 	switch reservation := reservation.(type) {
-	case model.ProvisionHostReservationNoHost:
-		log.V(4).Info("No available TartHost, will retry", "machine", client.ObjectKeyFromObject(machine).String())
-		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusNoAvailableHost{}); err != nil {
+	case model.ProvisionHostReservationPending:
+		log.V(4).Info(
+			"TartMachine is waiting for host allocation",
+			"machine", client.ObjectKeyFromObject(machine).String(),
+			"reason", reservation.Reason,
+		)
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusAllocationPending(reservation)); err != nil {
 			return err
 		}
 		return nil
@@ -210,16 +214,23 @@ func (steps *StepExecutor) reserveProvisionHostStep(
 	machine *infrastructurev1beta1.TartMachine,
 ) (model.ProvisionHostReservationResult, error) {
 	started, err := provisioner.Start(ctx, machine, placeholderPlanDigest)
-	if errors.Is(err, appprovisioning.ErrNoAvailableHost) {
-		return model.ProvisionHostReservationNoHost{}, nil
-	}
 	if err != nil {
 		return nil, fmt.Errorf("reserve host and start operation: %w", err)
 	}
-	if started.Host == nil || started.Operation == nil {
-		return nil, fmt.Errorf("reserve host and start operation: Provisioner returned incomplete start result")
+	switch started := started.(type) {
+	case appprovisioning.AllocationPending:
+		return model.ProvisionHostReservationPending{
+			Reason:  started.Reason,
+			Message: started.Message,
+		}, nil
+	case appprovisioning.Started:
+		if started.Host == nil || started.Operation == nil {
+			return nil, fmt.Errorf("reserve host and start operation: Provisioner returned incomplete start result")
+		}
+		return model.ProvisionHostReservationStarted{Started: started}, nil
+	default:
+		return nil, fmt.Errorf("reserve host and start operation: unknown result %T", started)
 	}
-	return model.ProvisionHostReservationStarted{Started: started}, nil
 }
 
 func (steps *StepExecutor) ensureProviderIDStep(
@@ -255,8 +266,8 @@ func (steps *StepExecutor) patchProvisionStartStatusStep(
 	switch patch := patch.(type) {
 	case model.ProvisionStartStatusWaitingForBootstrap:
 		machine.Status = appprovisioning.StatusWithWaitingForBootstrap(machine)
-	case model.ProvisionStartStatusNoAvailableHost:
-		machine.Status = appprovisioning.StatusWithNoAvailableHost(machine)
+	case model.ProvisionStartStatusAllocationPending:
+		machine.Status = appprovisioning.StatusWithAllocationPending(machine, patch.Reason, patch.Message)
 	case model.ProvisionStartStatusHostReserved:
 		machine.Status = appprovisioning.StatusWithHostReserved(machine, patch.Host, patch.Operation)
 	default:

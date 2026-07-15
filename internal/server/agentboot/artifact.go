@@ -206,7 +206,7 @@ func (artifact Artifact) payload(name string) (*os.File, int64, error) {
 
 func (artifact Artifact) VirtualMediaURL(baseURL string) (string, error) {
 	if artifact.media == nil || artifact.Manifest().VirtualMedia == nil {
-		return "", errors.New("Agent Artifact does not contain a VirtualMedia payload")
+		return "", errors.New("agent Artifact does not contain a VirtualMedia payload")
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
@@ -214,7 +214,7 @@ func (artifact Artifact) VirtualMediaURL(baseURL string) (string, error) {
 	}
 	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("Agent Artifact base URL must be an HTTPS origin or base path")
+		return "", errors.New("agent Artifact base URL must be an HTTPS origin or base path")
 	}
 	return url.JoinPath(
 		parsed.String(),

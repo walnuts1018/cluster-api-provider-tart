@@ -27,6 +27,11 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 )
 
+const (
+	extensionCurrentVersion = "v1.34.0"
+	extensionTargetVersion  = "v1.35.0"
+)
+
 func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -54,7 +59,7 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 		{
 			name: "Kubernetes version",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
-				request.Desired.Machine.Spec.Version = "v1.35.0"
+				request.Desired.Machine.Spec.Version = extensionTargetVersion
 			},
 		},
 		{
@@ -98,7 +103,7 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 		{
 			name: "image ref with rejected version",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
-				request.Desired.Machine.Spec.Version = "v1.35.0"
+				request.Desired.Machine.Spec.Version = extensionTargetVersion
 				machine := decodeTestTartMachine(t, request.Desired.InfrastructureMachine)
 				machine.Spec.Image.Ref = extensionArtifactRef("b")
 				request.Desired.InfrastructureMachine = rawExtension(t, machine)
@@ -235,7 +240,7 @@ func machineUpdateRequest(t *testing.T) *runtimehooksv1.CanUpdateMachineRequest 
 		},
 		Spec: clusterv1.MachineSpec{
 			ClusterName: "sample",
-			Version:     "v1.34.0",
+			Version:     extensionCurrentVersion,
 			ProviderID:  "tart://host-1",
 		},
 	}

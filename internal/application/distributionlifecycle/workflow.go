@@ -17,25 +17,31 @@ package distributionlifecycle
 import (
 	"context"
 
-	distributionlifecyclehandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/handler"
-	distributionlifecyclemodel "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/model"
-	distributionlifecycleport "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/port"
-	distributionlifecyclestep "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle/step"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 )
 
-type DistributionLifecycleDriver = distributionlifecycleport.DistributionLifecycleDriver
-type SnapshotResult = distributionlifecyclemodel.SnapshotResult
-type StepResult = distributionlifecyclemodel.StepResult
-
 // WorkflowはDistribution Lifecycle PlanのStepをDriverへdispatchする。
 type Workflow struct {
-	steps *distributionlifecyclehandler.StepHandler
+	effects effectRunner
+}
+
+type Driver interface {
+	PreflightRunner
+	SnapshotCreator
+	LifecycleApplier
+	HealthObserver
 }
 
 // NewWorkflowはDistribution Lifecycle Workflowを作る。
-func NewWorkflow(driver DistributionLifecycleDriver) *Workflow {
-	return &Workflow{steps: distributionlifecyclehandler.NewStepHandler(driver)}
+func NewWorkflow(driver Driver) *Workflow {
+	return &Workflow{
+		effects: effectRunner{
+			preflight: driver,
+			snapshot:  driver,
+			apply:     driver,
+			health:    driver,
+		},
+	}
 }
 
 // RunStepは任意commandではなく、Plan内の既知StepだけをDriverへdispatchする。
@@ -44,8 +50,8 @@ func (workflow *Workflow) RunStep(
 	plan domain.Plan,
 	step domain.Step,
 ) (StepResult, error) {
-	if err := distributionlifecyclestep.EnsureRunnable(plan, step); err != nil {
+	if err := ensureRunnable(plan, step); err != nil {
 		return StepResult{}, err
 	}
-	return workflow.steps.Handle(ctx, plan, step)
+	return workflow.effects.run(ctx, plan, step)
 }

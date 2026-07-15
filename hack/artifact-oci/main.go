@@ -45,7 +45,10 @@ func main() {
 		slog.Error("failed to publish OS artifact", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println(reference)
+	if _, err := fmt.Fprintln(os.Stdout, reference); err != nil {
+		slog.Error("failed to write OS artifact reference", "error", err)
+		os.Exit(1)
+	}
 }
 
 func parseFlags() options {

@@ -39,8 +39,8 @@ var lifecycleSteps = []Step{
 	StepCommitted,
 }
 
-// StepDecisionはStep reportを永続化すべきかを表す。
-type StepDecision struct {
+// RecordDecisionはStep reportを永続化すべきかを表す。
+type RecordDecision struct {
 	AlreadyCompleted bool
 }
 
@@ -50,9 +50,9 @@ func LifecycleSteps() []Step {
 }
 
 // RecordStepは完了済みStep集合へ新しいStepを順序通りに追加する。
-func RecordStep(completed []Step, step Step) ([]Step, StepDecision, error) {
+func RecordStep(completed []Step, step Step) ([]Step, RecordDecision, error) {
 	if stepOrder(step) < 0 {
-		return nil, StepDecision{}, fmt.Errorf("unknown lifecycle step %q", step)
+		return nil, RecordDecision{}, fmt.Errorf("unknown lifecycle step %q", step)
 	}
 	return RecordPlanStep(completed, step, lifecycleSteps)
 }

@@ -130,7 +130,9 @@ func (steps *StepExecutor) recordUpdateFailureEvent(
 	}
 	steps.Recorder.Eventf(
 		machine,
+		nil,
 		"Warning",
+		"UpdateFailed",
 		"UpdateFailed",
 		"operationID=%s host=%s operationType=%s failureReason=%s message=%s",
 		operation.Spec.OperationID,

@@ -21,16 +21,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	applicationhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/hostallocation"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
-	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
 )
 
 type HostReserveService interface {
-	Reserve(
-		ctx context.Context,
-		machine *infrastructurev1beta1.TartMachine,
-		requirements allocationdomain.Requirements,
-	) (*infrastructurev1beta1.TartHost, error)
+	applicationhostallocation.HostCandidateReader
+	applicationhostallocation.HostReservationWriter
 }
 
 type HostPhaseService interface {

@@ -52,7 +52,7 @@ func (checker *TargetSupportChecker) SupportsMachine(
 	machine *clusterv1.Machine,
 ) (bool, string, error) {
 	if machine == nil {
-		return false, "", fmt.Errorf("Machine is required")
+		return false, "", fmt.Errorf("machine is required")
 	}
 	if !isControlPlaneMachine(machine) {
 		if checker.gates.Worker {

@@ -66,7 +66,7 @@ func (service *Service) Issue(
 			return ErrOperationNotFound
 		}
 
-		operation.Status.SessionTokenHash = session.Digest.String()
+		operation.Status.SessionTokenHash = session.TokenDigest.String()
 		operation.Status.SessionTokenExpiresAt = &metav1.Time{Time: session.ExpiresAt}
 		operation.Status.SessionAuthenticationFailures = 0
 		operation.Status.SessionTokenConsumed = false
@@ -124,7 +124,12 @@ func (service *Service) authenticate(
 			return ErrUnauthorized
 		}
 		updated, result := agentsessiondomain.Authenticate(session, providedToken, hostUID, operationUID, now)
-		if result == agentsessiondomain.AuthenticationAccepted && consume {
+		accepted := false
+		switch result.(type) {
+		case agentsessiondomain.AuthenticationAccepted:
+			accepted = true
+		}
+		if accepted && consume {
 			updated = agentsessiondomain.Consume(updated)
 		}
 
@@ -133,7 +138,7 @@ func (service *Service) authenticate(
 		if statusChanged {
 			operation.Status.SessionAuthenticationFailures = int32(updated.AuthenticationFailures)
 			operation.Status.SessionTokenConsumed = updated.Consumed
-			if result == agentsessiondomain.AuthenticationAccepted && consume {
+			if accepted && consume {
 				// Bootstrap配信済み状態はOperation単位で保持し、再登録後の新Sessionでも再配信しない。
 				operation.Status.BootstrapDelivered = true
 			}
@@ -141,7 +146,7 @@ func (service *Service) authenticate(
 				return err
 			}
 		}
-		if result != agentsessiondomain.AuthenticationAccepted {
+		if !accepted {
 			return ErrUnauthorized
 		}
 		return nil
@@ -157,9 +162,8 @@ func sessionFromOperation(operation *infrastructurev1beta1.TartHostOperation) (a
 		return agentsessiondomain.Session{}, err
 	}
 	return agentsessiondomain.Session{
-		Digest:                 digest,
-		HostUID:                string(operation.Spec.HostRef.UID),
-		OperationUID:           operation.Spec.OperationID,
+		TokenDigest:            digest,
+		Binding:                agentsessiondomain.Binding{HostUID: string(operation.Spec.HostRef.UID), OperationUID: operation.Spec.OperationID},
 		ExpiresAt:              operation.Status.SessionTokenExpiresAt.Time,
 		AuthenticationFailures: int(operation.Status.SessionAuthenticationFailures),
 		Consumed:               operation.Status.SessionTokenConsumed,

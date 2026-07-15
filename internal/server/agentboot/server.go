@@ -65,7 +65,7 @@ func (server *Server) Start(ctx context.Context) error {
 	}()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		if err := listener.Shutdown(shutdownCtx); err != nil {
 			crlog.FromContext(ctx).Error(err, "Failed to shut down Agent boot HTTPS server")

@@ -28,6 +28,9 @@ type PlanInput struct {
 	UpdateClass    UpdateClass
 	NodeRole       NodeRole
 	SnapshotRef    string
+
+	ControlPlaneAcceptedVersion     string
+	RequireControlPlaneTargetAccept bool
 }
 
 // PlanはNode Lifecycle Serviceが型付きStepとして実行する順序を表す。
@@ -44,72 +47,46 @@ type Plan struct {
 // BuildPlanは対象Node種別に応じたDistribution Lifecycle Step順序を作る。
 func BuildPlan(input PlanInput) (Plan, error) {
 	if input.OperationID == "" {
-		return Plan{}, fmt.Errorf("Operation ID is required")
+		return Plan{}, fmt.Errorf("operation ID is required")
 	}
-	preflight := PreflightInput{
-		CurrentVersion: input.CurrentVersion,
-		TargetVersion:  input.TargetVersion,
-		UpdateClass:    input.UpdateClass,
-		NodeRole:       input.NodeRole,
-		SnapshotRef:    input.SnapshotRef,
+	result := DecidePlan(input)
+	switch decision := result.(type) {
+	case PlanReady:
+		return decision.Plan, nil
+	case PlanRejected:
+		return Plan{}, fmt.Errorf("distribution lifecycle plan rejected: %T", decision.Failure)
+	default:
+		return Plan{}, fmt.Errorf("unsupported distribution lifecycle plan result %T", result)
 	}
-	if err := Preflight(preflight); err != nil {
-		return Plan{}, err
-	}
-
-	steps := []Step{
-		StepPreflightCompleted,
-	}
-	if input.NodeRole == NodeRoleControlPlane || input.UpdateClass == UpdateClassStateMigration {
-		steps = append(steps, StepSnapshotCreated)
-	}
-	steps = append(steps,
-		StepTargetSlotWritten,
-		StepKubeadmApplied,
-		StepTargetSlotBooted,
-		StepHealthVerified,
-		StepCommitted,
-	)
-
-	return Plan{
-		OperationID:    input.OperationID,
-		CurrentVersion: input.CurrentVersion,
-		TargetVersion:  input.TargetVersion,
-		UpdateClass:    input.UpdateClass,
-		NodeRole:       input.NodeRole,
-		SnapshotRef:    input.SnapshotRef,
-		Steps:          steps,
-	}, nil
 }
 
 // ReadyForStepはStep実行直前に満たすべきPlan内の依存を検証する。
 func ReadyForStep(plan Plan, step Step) error {
-	if indexOfStep(plan.Steps, step) < 0 {
-		return fmt.Errorf("lifecycle step %q is not part of this plan", step)
+	switch decision := DecideStep(StepCommand{Plan: plan, Step: step}).(type) {
+	case StepRunnable:
+		return nil
+	case StepBlocked:
+		return fmt.Errorf("distribution lifecycle step blocked: %T", decision.Failure)
+	default:
+		return fmt.Errorf("unsupported distribution lifecycle step decision %T", decision)
 	}
-	if step == StepKubeadmApplied &&
-		(plan.NodeRole == NodeRoleControlPlane || plan.UpdateClass == UpdateClassStateMigration) &&
-		plan.SnapshotRef == "" {
-		return fmt.Errorf("SnapshotRef is required before kubeadm apply")
-	}
-	return nil
 }
 
 // RecordPlanStepはPlanが許可するStep順序に従い、完了済みStepを1回だけ追加する。
-func RecordPlanStep(completed []Step, step Step, planSteps []Step) ([]Step, StepDecision, error) {
+func RecordPlanStep(completed []Step, step Step, planSteps []Step) ([]Step, RecordDecision, error) {
 	stepIndex := indexOfStep(planSteps, step)
 	if stepIndex < 0 {
-		return nil, StepDecision{}, fmt.Errorf("lifecycle step %q is not part of this plan", step)
+		return nil, RecordDecision{}, fmt.Errorf("lifecycle step %q is not part of this plan", step)
 	}
 	if slices.Contains(completed, step) {
-		return append([]Step(nil), completed...), StepDecision{AlreadyCompleted: true}, nil
+		return append([]Step(nil), completed...), RecordDecision{AlreadyCompleted: true}, nil
 	}
 	if stepIndex != len(completed) {
-		return nil, StepDecision{}, fmt.Errorf("lifecycle step %q cannot be recorded before %q", step, planSteps[len(completed)])
+		return nil, RecordDecision{}, fmt.Errorf("lifecycle step %q cannot be recorded before %q", step, planSteps[len(completed)])
 	}
 	next := append([]Step(nil), completed...)
 	next = append(next, step)
-	return next, StepDecision{}, nil
+	return next, RecordDecision{}, nil
 }
 
 func indexOfStep(steps []Step, step Step) int {
@@ -119,4 +96,16 @@ func indexOfStep(steps []Step, step Step) int {
 		}
 	}
 	return -1
+}
+
+func (input PlanInput) preflightInput() PreflightInput {
+	return PreflightInput{
+		CurrentVersion:                  input.CurrentVersion,
+		TargetVersion:                   input.TargetVersion,
+		UpdateClass:                     input.UpdateClass,
+		NodeRole:                        input.NodeRole,
+		ControlPlaneAcceptedVersion:     input.ControlPlaneAcceptedVersion,
+		RequireControlPlaneTargetAccept: input.RequireControlPlaneTargetAccept,
+		SnapshotRef:                     input.SnapshotRef,
+	}
 }

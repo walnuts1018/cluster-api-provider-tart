@@ -23,8 +23,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	allocationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/allocation"
+	applicationhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/application/hostallocation"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/host"
+	domainhostallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
 )
 
 func TestRequirementsForMachineUsesExactPlatformProfileContract(t *testing.T) {
@@ -83,21 +85,28 @@ func TestDesiredObjectsDigestIsStableAndChangesWithMachineSpec(t *testing.T) {
 	}
 }
 
-func TestWorkflowMapsNoMatchingHost(t *testing.T) {
+func TestWorkflowReturnsAllocationPending(t *testing.T) {
 	t.Parallel()
 
 	workflow := NewWorkflow(
-		hostReserveStub{err: allocationdomain.ErrNoMatchingHost},
+		hostReserveStub{},
 		hostPhaseStub{},
 		operationServiceStub{},
 	)
-	_, err := workflow.Start(
+	result, err := workflow.Start(
 		t.Context(),
 		testMachine(),
 		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	)
-	if !errors.Is(err, ErrNoAvailableHost) {
-		t.Fatalf("Start() error = %v, want %v", err, ErrNoAvailableHost)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	pending, ok := result.(AllocationPending)
+	if !ok {
+		t.Fatalf("Start() result = %T, want AllocationPending", result)
+	}
+	if pending.Reason != "NoAvailableHost" {
+		t.Fatalf("Reason = %q, want NoAvailableHost", pending.Reason)
 	}
 }
 
@@ -172,15 +181,47 @@ func testMachine() *infrastructurev1beta1.TartMachine {
 
 type hostReserveStub struct {
 	host *infrastructurev1beta1.TartHost
-	err  error
 }
 
-func (s hostReserveStub) Reserve(
+func (s hostReserveStub) ListCandidates(
 	context.Context,
 	*infrastructurev1beta1.TartMachine,
-	allocationdomain.Requirements,
-) (*infrastructurev1beta1.TartHost, error) {
-	return s.host, s.err
+) ([]domainhostallocation.Candidate, error) {
+	if s.host == nil {
+		return nil, nil
+	}
+	requiredCapabilities, err := capability.NewSet(capability.PowerOn)
+	if err != nil {
+		return nil, err
+	}
+	return []domainhostallocation.Candidate{
+		{
+			Host: domainhostallocation.HostRef{
+				Namespace: s.host.Namespace,
+				Name:      s.host.Name,
+				UID:       string(s.host.UID),
+			},
+			Phase:             hostdomain.PhaseAvailable,
+			Assignment:        domainhostallocation.Unassigned{},
+			Architecture:      string(s.host.Spec.Architecture),
+			Firmware:          string(s.host.Spec.Firmware),
+			PlatformProfile:   s.host.Spec.PlatformProfile,
+			RootDiskSizeBytes: s.host.Spec.RootDeviceHints.MinSizeBytes,
+			Capabilities:      requiredCapabilities,
+			Labels:            s.host.Labels,
+		},
+	}, nil
+}
+
+func (s hostReserveStub) ReserveCandidate(
+	context.Context,
+	*infrastructurev1beta1.TartMachine,
+	domainhostallocation.HostRef,
+) (applicationhostallocation.ReservationResult, error) {
+	if s.host == nil {
+		return applicationhostallocation.RetrySelection{}, nil
+	}
+	return applicationhostallocation.Reserved{Host: s.host}, nil
 }
 
 type hostPhaseStub struct {

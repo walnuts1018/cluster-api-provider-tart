@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -189,7 +190,7 @@ func copyFile(source, target string, mode os.FileMode) error {
 }
 
 func execRunner(invocation commandInvocation) error {
-	command := exec.Command(invocation.name, invocation.args...)
+	command := exec.CommandContext(context.Background(), invocation.name, invocation.args...)
 	command.Env = invocation.env
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr

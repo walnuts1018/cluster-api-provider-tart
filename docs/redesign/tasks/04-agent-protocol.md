@@ -89,7 +89,7 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 | 7 | 実装済み | Agent APIはaccess log middleware、Event、独自trace attributeを生成しない。`TestHandlerErrorResponseDoesNotReflectCredentialOrRequestValue`と`TestServicePersistsAndRestoresSession`でerror responseとStatusに平文Token/request値がないことを確認 |
 | 8 | 実装済み | `cloud-config`以外を422で拒否し、Ignition adapterは実装しない |
 | 9 | 実装済み | [ADR 0011](../adr/0011-initial-agent-credential.md)。iPXE-only MVPはInitial secretを配らず隔離L2とTLS pinningを必須にする |
-| 10 | 文書化済み、Status未実装 | ADR 0011へ制約を記録。Platform Profile確定後にTartHost Conditionへ表示する |
+| 10 | 実装済み | `TartHost.status.conditions`へ`CredentialRequirement=True`、`Reason=IsolatedL2Required`として表示し、既存の`Degraded` conditionを壊さないことをtestで固定した |
 
 実装済みの主な構成:
 
@@ -121,7 +121,6 @@ Task 06のdisk安全判定に必要なため、Planは`operationType`、Update�
 
 - Plan SecretをOperation作成時に生成するTask 07側の接続
 - `MutualTLS`、`SignedChallenge`、`BMCProtectedMedia`のRegistration Verifier
-- Platform ProfileとTartHost ConditionへのInitial Credential mode表示
 
 ## 対象外
 

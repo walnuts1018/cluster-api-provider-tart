@@ -15,7 +15,7 @@
 package machineexecution
 
 import (
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	machineexecutionhandler "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution/handler"
@@ -37,7 +37,7 @@ type StepExecutor struct {
 	HostReferences HostReferenceService
 	NodeHealth     NodeHealthObserver
 	Provisioner    ProvisionStep
-	Recorder       record.EventRecorder
+	Recorder       events.EventRecorder
 }
 
 func NewWorkflow(
@@ -45,7 +45,7 @@ func NewWorkflow(
 	hostReferences HostReferenceService,
 	nodeHealth NodeHealthObserver,
 	provisioner ProvisionStep,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 ) *Workflow {
 	return NewWorkflowWithSteps(NewStepExecutor(k8sClient, hostReferences, nodeHealth, provisioner, recorder))
 }
@@ -61,7 +61,7 @@ func NewStepExecutor(
 	hostReferences HostReferenceService,
 	nodeHealth NodeHealthObserver,
 	provisioner ProvisionStep,
-	recorder record.EventRecorder,
+	recorder events.EventRecorder,
 ) *StepExecutor {
 	return &StepExecutor{
 		Client:         k8sClient,

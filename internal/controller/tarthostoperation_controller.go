@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,7 +54,7 @@ type TartHostOperationReconciler struct {
 	DriverCapabilities operationexecution.DriverCapabilityObserver
 	DriverPowerState   operationexecution.DriverPowerStateObserver
 	DriverBootState    operationexecution.DriverBootStateObserver
-	Recorder           record.EventRecorder
+	Recorder           events.EventRecorder
 }
 
 const (
@@ -106,7 +106,7 @@ func (r *TartHostOperationReconciler) applyResult(
 		}
 	}
 	if result.Event != nil && r.Recorder != nil {
-		r.Recorder.Event(operation, result.Event.Type, result.Event.Reason, result.Event.Message)
+		r.Recorder.Eventf(operation, nil, result.Event.Type, result.Event.Reason, result.Event.Reason, result.Event.Message)
 	}
 	return nil
 }
@@ -150,7 +150,7 @@ func (r *TartHostOperationReconciler) operationWorkflow() *operationexecution.Wo
 
 func (r *TartHostOperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorderFor("tarthostoperation")
+		r.Recorder = mgr.GetEventRecorder("tarthostoperation")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrastructurev1beta1.TartHostOperation{}).

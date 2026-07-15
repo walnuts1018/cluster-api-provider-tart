@@ -77,7 +77,6 @@ func mapCleaningPolicy(
 }
 
 func domainCleaningPolicy(policy infrastructurev1beta1.DeletionPolicy) operationdomain.CleaningPolicy {
-	//nolint:exhaustive // 未指定や未知値はdomainのUnspecifiedへ閉じ込める。
 	switch policy {
 	case infrastructurev1beta1.DeletionPolicyRetainData:
 		return operationdomain.CleaningPolicyRetainData

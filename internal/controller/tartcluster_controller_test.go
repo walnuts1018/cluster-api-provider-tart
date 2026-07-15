@@ -65,6 +65,11 @@ var _ = Describe("TartCluster Controller", func() {
 					clusterv1.ClusterNameLabel: clusterName,
 				},
 			},
+			Spec: infrastructurev1beta1.TartClusterSpec{
+				ArtifactPolicy: infrastructurev1beta1.ArtifactPolicy{
+					AllowedRegistries: []string{"registry.sample.walnuts.dev"},
+				},
+			},
 		}
 		Expect(k8sClient.Create(ctx, tartCluster)).To(Succeed())
 	})

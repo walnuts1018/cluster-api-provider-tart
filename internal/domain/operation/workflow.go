@@ -34,7 +34,6 @@ func Decide(command Command) Result {
 	}
 
 	observed := []Event{EventOperationObserved{Kind: command.Kind, Phase: command.Phase}}
-	//nolint:exhaustive // 未列挙phaseは最後のIgnoreへ落として再実行可能にする。
 	switch command.Phase {
 	case "":
 		return InitializePending{Target: PhasePending, Events: observed}

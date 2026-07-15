@@ -275,7 +275,7 @@ type Decision struct {
 
 全status更新は`Patch()`で競合再試行し、phase、attempt、last boot report、Conditionsを永続化する。失敗PhaseとslotをEvent、構造化log、Trace attributeへ出す。
 
-- [ ] **Step 5: targeted testを通してコミットする**
+- [x] **Step 5: targeted testを通してコミットする**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate ./internal/controller ./internal/adapter/k8s/bootreport ./internal/adapter/k8s/v1beta1host -v`
 
@@ -290,23 +290,23 @@ git commit --signoff -m "feat: A/B更新のRollback状態遷移を実装する"
 - Modify: `config/crd/bases/infrastructure.cluster.x-k8s.io_tarthostoperations.yaml`
 - Modify: `docs/redesign/tasks/08-ab-update.md`
 
-- [ ] **Step 1: APIを変更した場合だけ生成物を更新する**
+- [x] **Step 1: APIを変更した場合だけ生成物を更新する**
 
 Run: `MISE_OFFLINE=1 mise run generate`
 
 Expected: controller-genがCRDとDeepCopyを更新する。
 
-- [ ] **Step 2: 実装済み条件と未検証条件をTask文書へ記録する**
+- [x] **Step 2: 実装済み条件と未検証条件をTask文書へ記録する**
 
 Task 01未完了のため、dm-verity、bootloader trial、電源断、Node identity維持、E2Eを未検証として残す。単体テストで確認した条件だけを完了証跡へ記録する。
 
-- [ ] **Step 3: targeted verificationを実行する**
+- [x] **Step 3: targeted verificationを実行する**
 
 Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate ./internal/server/extension ./internal/controller/... -v`
 
 Expected: PASS。
 
-- [ ] **Step 4: buildとlintを実行する**
+- [x] **Step 4: buildとlintを実行する**
 
 Run: `MISE_OFFLINE=1 mise run build`
 

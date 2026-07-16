@@ -109,7 +109,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		cancel()
 	})
 
-	It("Should deliver the Agent boot script and Artifact kernel through PXE", func() {
+	It("Should boot the Agent Artifact and register through the Agent API", func() {
 		By("Applying the workload cluster template")
 		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
 			LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
@@ -126,17 +126,20 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		Expect(workloadClusterTemplate).NotTo(BeEmpty(), "Failed to get the cluster template")
 		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the cluster template")
 
-		By("Waiting for iPXE to fetch the Agent Artifact kernel")
+		By("Waiting for the Agent to register and complete preflight")
 		Eventually(func(g Gomega) string {
 			matched, logText, err := simulators[0].LogContainsAll(
 				"http://192.168.100.1:8082/ipxe",
 				"/v1/agent-artifacts/sha256/",
 				"/kernel... ok",
+				"tart e2e provisioning-agent preflight starting",
+				"Provisioning Agent preflight completed",
+				"tart e2e provisioning-agent preflight completed",
 			)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(matched).To(BeTrue())
 			return logText
-		}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("/kernel... ok"))
+		}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("tart e2e provisioning-agent preflight completed"))
 	})
 })
 

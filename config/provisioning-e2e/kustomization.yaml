@@ -15,12 +15,6 @@ secretGenerator:
   - agent-artifact-public.pem=generated/agent-artifact-public.pem
   - agent-tls.crt=generated/agent-tls.crt
   - agent-tls.key=generated/agent-tls.key
-- name: e2e-agent-artifact
-  files:
-  - manifest.json=generated/agent-artifact/manifest.json
-  - manifest.signature.json=generated/agent-artifact/manifest.signature.json
-  - vmlinuz=generated/agent-artifact/vmlinuz
-  - initrd=generated/agent-artifact/initrd
 
 images:
 - name: controller
@@ -110,9 +104,9 @@ patches:
       path: /spec/template/spec/volumes/-
       value:
         name: e2e-agent-artifact
-        secret:
-          secretName: e2e-agent-artifact
-          defaultMode: 0440
+        hostPath:
+          path: /var/lib/tart-provisioning-e2e/agent-artifact
+          type: Directory
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy
       value: IfNotPresent

@@ -123,8 +123,6 @@ func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
 		"agent-artifact-public.pem=generated/agent-artifact-public.pem",
 		"agent-tls.crt=generated/agent-tls.crt",
 		"agent-tls.key=generated/agent-tls.key",
-		"manifest.json=generated/agent-artifact/manifest.json",
-		"manifest.signature.json=generated/agent-artifact/manifest.signature.json",
 		"--os-artifact-key-id=e2e-os-artifact",
 		"--os-artifact-public-key-file=/etc/tart-e2e/os-artifact-public.pem",
 		"--agent-plan-key-id=e2e-agent-plan",
@@ -146,9 +144,23 @@ func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
 		"path: /spec/template/spec/securityContext/fsGroup",
 		"value: 65532",
 		"defaultMode: 0440",
+		"hostPath:",
+		"path: /var/lib/tart-provisioning-e2e/agent-artifact",
+		"type: Directory",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("provisioning e2e overlay missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"vmlinuz=generated/agent-artifact/vmlinuz",
+		"initrd=generated/agent-artifact/initrd",
+		"manifest.json=generated/agent-artifact/manifest.json",
+		"manifest.signature.json=generated/agent-artifact/manifest.signature.json",
+		"secretName: e2e-agent-artifact",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("provisioning e2e overlay must not put Agent Artifact files in a Secret: found %q", forbidden)
 		}
 	}
 }

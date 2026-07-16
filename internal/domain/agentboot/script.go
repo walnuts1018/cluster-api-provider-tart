@@ -77,7 +77,7 @@ func BuildScript(input ScriptInput) (string, error) {
 		}
 		return "", err
 	}
-	params = append([]string{"initrd=agent-initrd"}, params...)
+	params = append([]string{"initrd=agent-initrd", "console=ttyS0", "ip=dhcp"}, params...)
 	return fmt.Sprintf(
 		"#!ipxe\nkernel %s %s\ninitrd --name agent-initrd %s\nboot\n",
 		kernelURL,

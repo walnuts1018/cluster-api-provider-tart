@@ -345,6 +345,12 @@ if [ ! -f "$agent_kernel" ] || [ ! -f "$agent_base_initrd" ]; then
   echo "Set PROVISIONING_E2E_AGENT_KERNEL and PROVISIONING_E2E_AGENT_INITRD, or install linux-image-generic." >&2
   exit 1
 fi
+busybox_path="${PROVISIONING_E2E_BUSYBOX:-$(command -v busybox || true)}"
+if [ ! -x "$busybox_path" ]; then
+  echo "busybox is required for provisioning E2E Agent Artifact initramfs." >&2
+  echo "Set PROVISIONING_E2E_BUSYBOX, or install busybox-static." >&2
+  exit 1
+fi
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
 rm -rf "$agent_initramfs_dir"
@@ -356,6 +362,10 @@ mkdir -p \
   "$agent_initramfs_dir/sys" \
   "$agent_initramfs_dir/tmp"
 cp "$output_dir/provisioning-agent" "$agent_initramfs_dir/bin/provisioning-agent"
+cp "$busybox_path" "$agent_initramfs_dir/bin/busybox"
+for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc; do
+  ln -sf busybox "$agent_initramfs_dir/bin/$applet"
+done
 cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
 cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
 cat > "$agent_initramfs_dir/init" <<'INIT'
@@ -370,9 +380,11 @@ mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/disk/by-id /run /tmp
 
-if command -v ipconfig >/dev/null 2>&1; then
-  ipconfig -t 30 -d eth0 || ipconfig -t 30 -d
-fi
+for iface in /sys/class/net/*; do
+  iface="${iface##*/}"
+  [ "$iface" != "lo" ] || continue
+  udhcpc -i "$iface" -q -n -t 10 -T 3 || true
+done
 
 for device in /sys/class/block/*; do
   [ -e "$device/device/serial" ] || continue

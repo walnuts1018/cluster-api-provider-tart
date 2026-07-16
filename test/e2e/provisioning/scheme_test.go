@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
@@ -38,5 +39,9 @@ func TestNewSchemeRegistersBootstrapDependencies(t *testing.T) {
 
 	if _, err := scheme.New(clusterv1.GroupVersion.WithKind("Cluster")); err != nil {
 		t.Fatalf("expected Cluster API core API to be registered: %v", err)
+	}
+
+	if _, err := scheme.New(apiextensionsv1.SchemeGroupVersion.WithKind("CustomResourceDefinitionList")); err != nil {
+		t.Fatalf("expected apiextensions/v1 CustomResourceDefinitionList to be registered: %v", err)
 	}
 }

@@ -16,6 +16,7 @@ package provisioning
 
 import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	kubeadmbootstrapv1 "sigs.k8s.io/cluster-api/api/bootstrap/kubeadm/v1beta2"
@@ -31,6 +32,7 @@ func newScheme() *runtime.Scheme {
 	_ = clusterv1.AddToScheme(scheme)
 	_ = kubeadmbootstrapv1.AddToScheme(scheme)
 	_ = kubeadmcontrolplanev1.AddToScheme(scheme)
+	_ = apiextensionsv1.AddToScheme(scheme)
 
 	return scheme
 }

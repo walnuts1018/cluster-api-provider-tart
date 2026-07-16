@@ -61,17 +61,10 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - tarthosts
+  - tartmachines
   verbs:
   - get
   - list
   - patch
   - update
-  - watch
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - tartmachines
-  verbs:
-  - get
-  - list
   - watch

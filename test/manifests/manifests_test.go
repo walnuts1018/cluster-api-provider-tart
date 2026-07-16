@@ -17,8 +17,12 @@ package manifests
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	rbacv1 "k8s.io/api/rbac/v1"
+	"sigs.k8s.io/yaml"
 )
 
 func TestManagerManifestEnablesEmbeddedBootstrapServers(t *testing.T) {
@@ -80,4 +84,40 @@ func TestWebhookPatchReusesRuntimeExtensionPort(t *testing.T) {
 	if strings.Contains(string(patchData), "containerPort: 9443") {
 		t.Fatal("webhook patch must reuse the existing manager port 9443")
 	}
+}
+
+func TestManagerRoleAllowsTartMachineMetadataPatch(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "rbac", "role.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read manager role: %v", err)
+	}
+
+	var role rbacv1.ClusterRole
+	if err := yaml.Unmarshal(data, &role); err != nil {
+		t.Fatalf("failed to parse manager role: %v", err)
+	}
+
+	rule := findPolicyRule(role.Rules, "infrastructure.cluster.x-k8s.io", "tartmachines")
+	if rule == nil {
+		t.Fatal("manager role missing tartmachines rule")
+	}
+	for _, verb := range []string{"patch", "update"} {
+		if !contains(rule.Verbs, verb) {
+			t.Fatalf("tartmachines rule missing %q verb: %v", verb, rule.Verbs)
+		}
+	}
+}
+
+func findPolicyRule(rules []rbacv1.PolicyRule, apiGroup, resource string) *rbacv1.PolicyRule {
+	for i := range rules {
+		rule := &rules[i]
+		if contains(rule.APIGroups, apiGroup) && contains(rule.Resources, resource) {
+			return rule
+		}
+	}
+	return nil
+}
+
+func contains(values []string, want string) bool {
+	return slices.Contains(values, want)
 }

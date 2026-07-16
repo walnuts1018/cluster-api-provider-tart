@@ -31,7 +31,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
@@ -44,7 +43,6 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		ctx         context.Context
 		cancel      context.CancelFunc
 		watchCancel context.CancelFunc
-		result      *clusterctl.ApplyClusterTemplateAndWaitResult
 		clusterName string
 
 		manager    *SimulatorManager
@@ -53,7 +51,6 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 
 	BeforeEach(func() {
 		ctx, cancel = context.WithCancel(context.TODO())
-		result = &clusterctl.ApplyClusterTemplateAndWaitResult{}
 		clusterName = fmt.Sprintf("tart-e2e-%s", util.RandomString(6))
 
 		Expect(bootstrapClusterProxy).NotTo(BeNil(), "BootstrapClusterProxy can't be nil")
@@ -100,20 +97,19 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		for _, sim := range simulators {
 			sim.Stop()
 		}
-		if result.Cluster != nil {
-			framework.DumpSpecResourcesAndCleanup(ctx, clusterName, bootstrapClusterProxy, artifactsFolder, namespace.Name, namespace, watchCancel, result.Cluster, e2eConfig.GetIntervals, skipCleanup)
+		if namespace != nil && !skipCleanup {
+			framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
+				Deleter: bootstrapClusterProxy.GetClient(),
+				Name:    namespace.Name,
+			})
+		}
+		if watchCancel != nil {
+			watchCancel()
 		}
 		cancel()
 	})
 
 	It("Should deliver the Agent boot script and Artifact kernel through PXE", func() {
-		result.Cluster = &clusterv1.Cluster{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      clusterName,
-				Namespace: namespace.Name,
-			},
-		}
-
 		By("Applying the workload cluster template")
 		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
 			LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),

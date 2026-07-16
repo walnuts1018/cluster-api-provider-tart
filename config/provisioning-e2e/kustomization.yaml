@@ -45,6 +45,9 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem
+    - op: replace
+      path: /spec/template/spec/containers/0/args/7
+      value: --ipxe-bind-address=:8082
     - op: add
       path: /spec/template/spec/containers/0/volumeMounts/-
       value:

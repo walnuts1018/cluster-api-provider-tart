@@ -123,6 +123,8 @@ func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
 		"--os-artifact-public-key-file=/etc/tart-e2e/os-artifact-public.pem",
 		"--agent-plan-key-id=e2e-agent-plan",
 		"--agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem",
+		"--ipxe-bind-address=:8082",
+		"path: /spec/template/spec/containers/0/args/7",
 		"mountPath: /etc/tart-e2e",
 		"path: /spec/template/spec/securityContext/fsGroup",
 		"value: 65532",

@@ -401,6 +401,152 @@ func TestFetchNodeLifecyclePlanWithRetryFailsImmediatelyOnNonRetryableAPIError(t
 	}
 }
 
+func TestNodeLifecycleServiceRecoversTemporaryOutageAcrossPlanFetchAndProgressReport(t *testing.T) {
+	deadline := time.Date(2030, 7, 16, 12, 0, 0, 0, time.UTC)
+	expectedPlan, err := nodelifecycle.FromDomainPlan(domain.Plan{
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleWorker,
+		Steps:          []domain.Step{domain.StepPreflightCompleted},
+	}, deadline)
+	if err != nil {
+		t.Fatalf("FromDomainPlan() error = %v", err)
+	}
+	signedPlan, publicKey := mustSignNodeLifecyclePlan(t, expectedPlan)
+	const sessionToken = "session-token"
+	const planPath = "/v1/operations/operation-uid/node-lifecycle-plan"
+	const progressPath = "/v1/operations/operation-uid/node-lifecycle-progress"
+
+	var (
+		mu                   sync.Mutex
+		planRequestCount     int
+		progressRequestCount int
+		paths                []string
+		authorizations       []string
+	)
+	server := newLocalTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case planPath:
+			planRequestCount++
+			currentAttempt := planRequestCount
+			mu.Unlock()
+			if currentAttempt <= 3 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				if _, err := w.Write([]byte(`{"code":"TemporaryUnavailable"}`)); err != nil {
+					t.Errorf("write plan error response: %v", err)
+				}
+				return
+			}
+			writeJSONResponse(t, w, signedPlan)
+		case progressPath:
+			progressRequestCount++
+			currentAttempt := progressRequestCount
+			mu.Unlock()
+			if currentAttempt <= 3 {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				if _, err := w.Write([]byte(`{"code":"TemporaryUnavailable"}`)); err != nil {
+					t.Errorf("write progress error response: %v", err)
+				}
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			mu.Unlock()
+			t.Errorf("unexpected path = %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	apiClient, err := agentclient.New(agentclient.Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		TrustStore: agentprotocol.StaticTrustStore{"test-key": publicKey},
+		RetryDelay: func(uint) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatalf("agentclient.New() error = %v", err)
+	}
+
+	fetchSleepCalls := 0
+	plan, err := fetchNodeLifecyclePlanWithRetry(
+		t.Context(),
+		apiClient,
+		"operation-uid",
+		sessionToken,
+		mustNodeLifecyclePlanDigest(t, expectedPlan),
+		func(context.Context, time.Duration) error {
+			fetchSleepCalls++
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("fetchNodeLifecyclePlanWithRetry() error = %v", err)
+	}
+
+	progressSleepCalls := 0
+	err = reportStepOutcomeWithRetry(
+		t.Context(),
+		apiClient,
+		sessionToken,
+		config{
+			operationUID: "operation-uid",
+			planDigest:   mustNodeLifecyclePlanDigest(t, plan),
+			step:         domain.StepPreflightCompleted,
+		},
+		distribution.StepResult{},
+		nil,
+		func(context.Context, time.Duration) error {
+			progressSleepCalls++
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("reportStepOutcomeWithRetry() error = %v", err)
+	}
+
+	if fetchSleepCalls != 1 {
+		t.Fatalf("fetch sleep calls = %d, want 1", fetchSleepCalls)
+	}
+	if progressSleepCalls != 1 {
+		t.Fatalf("progress sleep calls = %d, want 1", progressSleepCalls)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if planRequestCount != 4 {
+		t.Fatalf("plan request count = %d, want 4", planRequestCount)
+	}
+	if progressRequestCount != 4 {
+		t.Fatalf("progress request count = %d, want 4", progressRequestCount)
+	}
+	if len(paths) != 8 {
+		t.Fatalf("paths length = %d, want 8", len(paths))
+	}
+	for i := 0; i < 4; i++ {
+		if paths[i] != planPath {
+			t.Fatalf("paths[%d] = %q, want %q", i, paths[i], planPath)
+		}
+	}
+	for i := 4; i < 8; i++ {
+		if paths[i] != progressPath {
+			t.Fatalf("paths[%d] = %q, want %q", i, paths[i], progressPath)
+		}
+	}
+	for i, authorization := range authorizations {
+		if authorization != "Bearer "+sessionToken {
+			t.Fatalf("authorizations[%d] = %q, want %q", i, authorization, "Bearer "+sessionToken)
+		}
+	}
+}
+
 func TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
 	cfg := config{
 		operationUID: "operation-uid",

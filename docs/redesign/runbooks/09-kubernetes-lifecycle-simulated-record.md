@@ -18,6 +18,7 @@ go test ./cmd/node-lifecycle-service -v
 - `TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を重複記録しない`
 - `TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する`
 - `TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目の Plan 取得へ復帰できることを確認する
+- `TestNodeLifecycleServiceRecoversTemporaryOutageAcrossPlanFetchAndProgressReport` は real `agentclient` と local TLS test server を使い、最初の 3 回の `GET /node-lifecycle-plan` と後段の最初の 3 回の `POST /node-lifecycle-progress` がそれぞれ `503` でも、同一 service 実行フローが成功まで進むことを確認する
 - `TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目に `204` へ復帰できることを確認する
 
 ## シナリオ 1: 7 Step 成功 + 各 Step の重複再送

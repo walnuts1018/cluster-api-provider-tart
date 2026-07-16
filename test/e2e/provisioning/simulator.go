@@ -26,6 +26,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -171,7 +172,7 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
-	logFile := fmt.Sprintf("qemu-output-%s.log", hex.EncodeToString([]byte(s.macAddress)))
+	logFile := s.logFilePath()
 	args := []string{
 		"-enable-kvm",
 		"-m", "2048",
@@ -220,6 +221,29 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (s *HostSimulator) LogContainsAll(values ...string) (bool, string, error) {
+	data, err := os.ReadFile(s.logFilePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, "", nil
+		}
+		return false, "", err
+	}
+
+	logText := string(data)
+	for _, value := range values {
+		if !strings.Contains(logText, value) {
+			return false, logText, nil
+		}
+	}
+
+	return true, logText, nil
+}
+
+func (s *HostSimulator) logFilePath() string {
+	return fmt.Sprintf("qemu-output-%s.log", hex.EncodeToString([]byte(s.macAddress)))
 }
 
 func (s *HostSimulator) ensureRootDisk() (string, error) {

@@ -21,10 +21,8 @@ package provisioning
 import (
 	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"path/filepath"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -33,6 +31,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/clusterctl"
 	"sigs.k8s.io/cluster-api/util"
@@ -107,49 +106,41 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		cancel()
 	})
 
-	It("Should provision a workload cluster", func() {
-		cniURL := e2eConfig.Variables["CNI"]
-		Expect(cniURL).NotTo(BeEmpty(), "CNI variable should be set in e2e config")
-
-		By(fmt.Sprintf("Downloading CNI manifest from %s", cniURL))
-		cniPath := filepath.Join(artifactsFolder, "cni.yaml")
-		resp, err := http.Get(cniURL)
-		Expect(err).NotTo(HaveOccurred(), "Failed to download CNI manifest")
-		defer resp.Body.Close()
-
-		cniFile, err := os.Create(cniPath)
-		Expect(err).NotTo(HaveOccurred(), "Failed to create CNI manifest file")
-		_, err = io.Copy(cniFile, resp.Body)
-		Expect(err).NotTo(HaveOccurred(), "Failed to write CNI manifest file")
-		cniFile.Close()
-
-		clusterctl.ApplyClusterTemplateAndWait(ctx, clusterctl.ApplyClusterTemplateAndWaitInput{
-			ClusterProxy:    bootstrapClusterProxy,
-			CNIManifestPath: cniPath,
-			ConfigCluster: clusterctl.ConfigClusterInput{
-				LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
-				ClusterctlConfigPath:     clusterctlConfig,
-				KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
-				InfrastructureProvider:   e2eConfig.InfrastructureProviders()[0],
-				Flavor:                   clusterctl.DefaultFlavor,
-				Namespace:                namespace.Name,
-				ClusterName:              clusterName,
-				KubernetesVersion:        e2eConfig.Variables["KUBERNETES_VERSION"],
-				ControlPlaneMachineCount: ptr.To[int64](1),
-				WorkerMachineCount:       ptr.To[int64](1),
+	It("Should deliver the Agent boot script and Artifact kernel through PXE", func() {
+		result.Cluster = &clusterv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      clusterName,
+				Namespace: namespace.Name,
 			},
-			WaitForClusterIntervals:      e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-cluster"),
-			WaitForControlPlaneIntervals: e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-control-plane"),
-			WaitForMachineDeployments:    e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-worker-nodes"),
-		}, result)
+		}
 
-		By("Waiting for the workload cluster nodes to be ready")
-		workloadProxy := bootstrapClusterProxy.GetWorkloadCluster(ctx, namespace.Name, clusterName)
-		framework.WaitForNodesReady(ctx, framework.WaitForNodesReadyInput{
-			Lister:            workloadProxy.GetClient(),
-			Count:             2, // 1 CP + 1 Worker
-			WaitForNodesReady: e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-worker-nodes"),
+		By("Applying the workload cluster template")
+		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
+			LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
+			ClusterctlConfigPath:     clusterctlConfig,
+			KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
+			InfrastructureProvider:   e2eConfig.InfrastructureProviders()[0],
+			Flavor:                   clusterctl.DefaultFlavor,
+			Namespace:                namespace.Name,
+			ClusterName:              clusterName,
+			KubernetesVersion:        e2eConfig.Variables["KUBERNETES_VERSION"],
+			ControlPlaneMachineCount: ptr.To[int64](1),
+			WorkerMachineCount:       ptr.To[int64](0),
 		})
+		Expect(workloadClusterTemplate).NotTo(BeEmpty(), "Failed to get the cluster template")
+		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the cluster template")
+
+		By("Waiting for iPXE to fetch the Agent Artifact kernel")
+		Eventually(func(g Gomega) string {
+			matched, logText, err := simulators[0].LogContainsAll(
+				"http://192.168.100.1:8082/ipxe",
+				"/v1/agent-artifacts/sha256/",
+				"/kernel... ok",
+			)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(matched).To(BeTrue())
+			return logText
+		}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("/kernel... ok"))
 	})
 })
 

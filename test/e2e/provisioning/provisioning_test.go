@@ -66,6 +66,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		manager = NewSimulatorManager()
 		macs := []string{"00:00:5e:00:53:00", "00:00:5e:00:53:01"}
 		for i, mac := range macs {
+			diskSerial := fmt.Sprintf("tartroot%d", i)
 			host := &infrastructurev1beta1.TartHost{}
 			host.Name = fmt.Sprintf("%s-host-%d", clusterName, i)
 			host.Namespace = namespace.Name
@@ -73,13 +74,15 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
 			host.Spec.Firmware = infrastructurev1beta1.FirmwareUEFI
 			host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+			host.Spec.RootDeviceHints.DeviceName = fmt.Sprintf("/dev/disk/by-id/virtio-%s", diskSerial)
+			host.Spec.RootDeviceHints.SerialNumber = diskSerial
 			host.Spec.RootDeviceHints.MinSizeBytes = 64 * 1024 * 1024 * 1024
 			host.Spec.Management.PowerDriver = "wol"
 			host.Spec.Management.BootDriver = "ipxe"
 
 			Expect(bootstrapClusterProxy.GetClient().Create(ctx, host)).To(Succeed())
 
-			sim, err := NewHostSimulator(mac, "br0")
+			sim, err := NewHostSimulator(mac, "br0", diskSerial)
 			Expect(err).NotTo(HaveOccurred())
 			simulators = append(simulators, sim)
 			manager.Register(sim)

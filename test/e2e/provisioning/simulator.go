@@ -106,11 +106,13 @@ type HostSimulator struct {
 	macAddress      string
 	macAddressBytes []byte
 	bridge          string
+	diskSerial      string
+	diskPath        string
 	qemuCmd         *exec.Cmd
 	mu              sync.Mutex
 }
 
-func NewHostSimulator(macAddress, bridge string) (*HostSimulator, error) {
+func NewHostSimulator(macAddress, bridge, diskSerial string) (*HostSimulator, error) {
 	mac, err := net.ParseMAC(macAddress)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse MAC address %s: %w", macAddress, err)
@@ -120,6 +122,7 @@ func NewHostSimulator(macAddress, bridge string) (*HostSimulator, error) {
 		macAddress:      macAddress,
 		macAddressBytes: mac,
 		bridge:          bridge,
+		diskSerial:      diskSerial,
 	}, nil
 }
 
@@ -163,6 +166,11 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to find OVMF.fd")
 	}
 
+	diskPath, err := s.ensureRootDisk()
+	if err != nil {
+		return err
+	}
+
 	logFile := fmt.Sprintf("qemu-output-%s.log", hex.EncodeToString([]byte(s.macAddress)))
 	args := []string{
 		"-enable-kvm",
@@ -171,6 +179,8 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		"-boot", "n",
 		"-netdev", fmt.Sprintf("bridge,br=%s,id=net0", s.bridge),
 		"-device", fmt.Sprintf("virtio-net-pci,netdev=net0,mac=%s", s.macAddress),
+		"-drive", fmt.Sprintf("file=%s,if=none,id=rootdisk,format=qcow2", diskPath),
+		"-device", fmt.Sprintf("virtio-blk-pci,drive=rootdisk,serial=%s", s.diskSerial),
 		"-bios", ovmfPath,
 		"-nographic",
 		"-serial", fmt.Sprintf("file:%s", logFile),
@@ -212,6 +222,31 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	return nil
 }
 
+func (s *HostSimulator) ensureRootDisk() (string, error) {
+	if s.diskPath != "" {
+		return s.diskPath, nil
+	}
+
+	diskFile, err := os.CreateTemp("", "tart-e2e-root-*.qcow2")
+	if err != nil {
+		return "", fmt.Errorf("failed to create root disk path: %w", err)
+	}
+	diskPath := diskFile.Name()
+	if err := diskFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close root disk file: %w", err)
+	}
+	if err := os.Remove(diskPath); err != nil {
+		return "", fmt.Errorf("failed to prepare root disk file: %w", err)
+	}
+
+	if err := exec.Command("qemu-img", "create", "-f", "qcow2", diskPath, "80G").Run(); err != nil {
+		return "", fmt.Errorf("failed to create QEMU root disk: %w", err)
+	}
+
+	s.diskPath = diskPath
+	return diskPath, nil
+}
+
 func (s *HostSimulator) findOVMF() string {
 	paths := []string{
 		"/usr/share/ovmf/OVMF.fd",         // Ubuntu/macOS Brew
@@ -246,5 +281,11 @@ func (s *HostSimulator) Stop() {
 		}(pid)
 
 		s.qemuCmd = nil
+	}
+	if s.diskPath != "" {
+		if err := os.Remove(s.diskPath); err != nil && !os.IsNotExist(err) {
+			fmt.Printf("failed to remove root disk %s: %v\n", s.diskPath, err)
+		}
+		s.diskPath = ""
 	}
 }

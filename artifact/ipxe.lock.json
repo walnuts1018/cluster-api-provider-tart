@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "name": "ipxeboot.tar.gz",
+      "url": "https://boot.ipxe.org/ipxeboot.tar.gz",
+      "sizeBytes": 12971611,
+      "sha256": "1019409d8f0911a3024d746b4cf996ac2f5a1eba30a4e7fa4b224c9877e443b3"
+    }
+  ]
+}

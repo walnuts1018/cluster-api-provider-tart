@@ -16,7 +16,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   IPXE_IMAGE_NAME: ${{ github.repository }}-ipxe
-  IPXE_VERSION: v2.0.0
+  IPXE_VERSION: locked
 
 jobs:
   ipxe:
@@ -47,7 +47,8 @@ jobs:
         if: ${{ steps.ipxe-cache.outputs.cache-hit != 'true' }}
         run: |
           mkdir -p dist/ipxe
-          curl -fsSL "https://github.com/ipxe/ipxe/releases/download/${{ env.IPXE_VERSION }}/ipxeboot.tar.gz" -o /tmp/ipxeboot.tar.gz
+          go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
+          rm -rf /tmp/ipxeboot
           tar xzf /tmp/ipxeboot.tar.gz -C /tmp
           cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
           cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi

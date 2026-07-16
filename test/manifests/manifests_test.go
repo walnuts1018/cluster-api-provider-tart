@@ -151,6 +151,25 @@ func TestProvisioningE2EClusterctlConfigAcceptsGeneratedArtifactRef(t *testing.T
 	}
 }
 
+func TestIPXEDownloadUsesLockedArtifact(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join("..", "..", "mise.toml"),
+		filepath.Join("..", "..", ".github", "workflows", "release.yaml"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", path, err)
+		}
+		text := string(data)
+		if !strings.Contains(text, "hack/locked-download -lock artifact/ipxe.lock.json") {
+			t.Fatalf("%s does not use locked iPXE download", path)
+		}
+		if strings.Contains(text, "github.com/ipxe/ipxe/releases/download") {
+			t.Fatalf("%s still uses non-existent GitHub iPXE release URL", path)
+		}
+	}
+}
+
 func findPolicyRule(rules []rbacv1.PolicyRule, apiGroup, resource string) *rbacv1.PolicyRule {
 	for i := range rules {
 		rule := &rules[i]

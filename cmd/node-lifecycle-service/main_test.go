@@ -21,10 +21,13 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -267,6 +270,96 @@ func TestReportStepOutcomeFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
 	}
 }
 
+func TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	const sessionToken = "session-token"
+	const expectedPath = "/v1/operations/operation-uid/node-lifecycle-progress"
+
+	var (
+		mu             sync.Mutex
+		requestCount   int
+		paths          []string
+		authorizations []string
+	)
+	server := newLocalTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestCount++
+		paths = append(paths, r.URL.Path)
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		currentAttempt := requestCount
+		mu.Unlock()
+
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want %q", r.Method, http.MethodPost)
+		}
+		if r.URL.Path != expectedPath {
+			t.Errorf("path = %q, want %q", r.URL.Path, expectedPath)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+sessionToken {
+			t.Errorf("Authorization = %q, want %q", got, "Bearer "+sessionToken)
+		}
+		if currentAttempt <= 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := w.Write([]byte(`{"code":"TemporaryUnavailable"}`)); err != nil {
+				t.Errorf("write error response: %v", err)
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	reporter, err := agentclient.New(agentclient.Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		TrustStore: agentprotocol.StaticTrustStore{"test-key": publicKey},
+		RetryDelay: func(uint) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatalf("agentclient.New() error = %v", err)
+	}
+
+	err = reportStepOutcomeWithRetry(
+		t.Context(),
+		reporter,
+		sessionToken,
+		cfg,
+		distribution.StepResult{},
+		nil,
+		func(context.Context, time.Duration) error {
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("reportStepOutcomeWithRetry() error = %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if requestCount != 4 {
+		t.Fatalf("request count = %d, want 4", requestCount)
+	}
+	for i, path := range paths {
+		if path != expectedPath {
+			t.Fatalf("paths[%d] = %q, want %q", i, path, expectedPath)
+		}
+	}
+	for i, authorization := range authorizations {
+		if authorization != "Bearer "+sessionToken {
+			t.Fatalf("authorizations[%d] = %q, want %q", i, authorization, "Bearer "+sessionToken)
+		}
+	}
+}
+
 func TestReportStepOutcomeStopsAtDeadline(t *testing.T) {
 	cfg := config{
 		operationUID: "operation-uid",
@@ -348,4 +441,16 @@ func (runner *recordingLifecycleStepRunner) RunStep(
 		runner.deadline = deadline
 	}
 	return distribution.StepResult{}, nil
+}
+
+func newLocalTLSServer(t *testing.T, handler http.Handler) (server *httptest.Server) {
+	t.Helper()
+	listener, err := new(net.ListenConfig).Listen(t.Context(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	server = httptest.NewUnstartedServer(handler)
+	server.Listener = listener
+	server.StartTLS()
+	return server
 }

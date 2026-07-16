@@ -10,12 +10,14 @@ Task 09 の再起動耐性と `RecoveryRequired` 収束について、repository
 
 ```bash
 go test ./internal/server/agentapi -v
+go test ./cmd/node-lifecycle-service -v
 ```
 
 確認対象:
 
 - `TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を重複記録しない`
 - `TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する`
+- `TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目に `204` へ復帰できることを確認する
 
 ## シナリオ 1: 7 Step 成功 + 各 Step の重複再送
 

@@ -17,6 +17,7 @@ go test ./cmd/node-lifecycle-service -v
 
 - `TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を重複記録しない`
 - `TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する`
+- `TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目の Plan 取得へ復帰できることを確認する
 - `TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目に `204` へ復帰できることを確認する
 
 ## シナリオ 1: 7 Step 成功 + 各 Step の重複再送
@@ -67,7 +68,7 @@ go test ./cmd/node-lifecycle-service -v
 
 - Node 自体の再起動
 - 実 controller Pod の再起動
-- management API 停止を含む単一 control plane 検証
+- Plan 初回取得と Step 完了報告の両方で temporary outage 吸収を repository test では確認済みだが、management API 停止を含む単一 control plane 実機/E2E 検証
 - Runbook の実機実行記録
 
 これらは fake client では代替できないため、GitHub Actions または実機環境で別途 E2E を実行する。

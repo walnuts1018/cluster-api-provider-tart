@@ -40,7 +40,10 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-const progressReportRetryDelay = time.Second
+const (
+	progressReportRetryDelay = time.Second
+	planFetchRetryDelay      = time.Second
+)
 
 type config struct {
 	controllerURL    string
@@ -94,7 +97,14 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	plan, err := apiClient.FetchNodeLifecyclePlan(ctx, cfg.operationUID, sessionToken, cfg.planDigest)
+	plan, err := fetchNodeLifecyclePlanWithRetry(
+		ctx,
+		apiClient,
+		cfg.operationUID,
+		sessionToken,
+		cfg.planDigest,
+		sleepWithContext,
+	)
 	if err != nil {
 		return err
 	}
@@ -121,7 +131,36 @@ type lifecycleStepRunner interface {
 	RunStep(context.Context, domain.Plan, domain.Step) (distribution.StepResult, error)
 }
 
+type lifecyclePlanFetcher interface {
+	FetchNodeLifecyclePlan(context.Context, string, string, string) (nodelifecycle.ValidatedPlan, error)
+}
+
 type retrySleepFunc func(context.Context, time.Duration) error
+
+func fetchNodeLifecyclePlanWithRetry(
+	ctx context.Context,
+	fetcher lifecyclePlanFetcher,
+	operationUID string,
+	sessionToken string,
+	planDigest string,
+	sleep retrySleepFunc,
+) (nodelifecycle.ValidatedPlan, error) {
+	for {
+		plan, err := fetcher.FetchNodeLifecyclePlan(ctx, operationUID, sessionToken, planDigest)
+		if err == nil {
+			return plan, nil
+		}
+		if !isRetryablePlanFetchError(err) {
+			return nodelifecycle.ValidatedPlan{}, err
+		}
+		if ctx.Err() != nil {
+			return nodelifecycle.ValidatedPlan{}, errors.Join(err, ctx.Err())
+		}
+		if err := sleep(ctx, planFetchRetryDelay); err != nil {
+			return nodelifecycle.ValidatedPlan{}, errors.Join(err, ctx.Err())
+		}
+	}
+}
 
 func executeNodeLifecycleStep(
 	ctx context.Context,
@@ -218,6 +257,14 @@ func reportNodeLifecycleProgressUntilDeadline(
 }
 
 func isRetryableProgressReportError(err error) bool {
+	return isRetryableAgentAPIError(err)
+}
+
+func isRetryablePlanFetchError(err error) bool {
+	return isRetryableAgentAPIError(err)
+}
+
+func isRetryableAgentAPIError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) {
 		return false
 	}

@@ -19,6 +19,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"net"
@@ -270,6 +271,136 @@ func TestReportStepOutcomeFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
 	}
 }
 
+func TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
+	expectedPlan, err := nodelifecycle.FromDomainPlan(domain.Plan{
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleWorker,
+		Steps:          []domain.Step{domain.StepPreflightCompleted},
+	}, time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FromDomainPlan() error = %v", err)
+	}
+	signedPlan, publicKey := mustSignNodeLifecyclePlan(t, expectedPlan)
+	const sessionToken = "session-token"
+	const expectedPath = "/v1/operations/operation-uid/node-lifecycle-plan"
+
+	var (
+		mu             sync.Mutex
+		requestCount   int
+		paths          []string
+		authorizations []string
+	)
+	server := newLocalTLSServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestCount++
+		paths = append(paths, r.URL.Path)
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		currentAttempt := requestCount
+		mu.Unlock()
+
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %q, want %q", r.Method, http.MethodGet)
+		}
+		if r.URL.Path != expectedPath {
+			t.Errorf("path = %q, want %q", r.URL.Path, expectedPath)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+sessionToken {
+			t.Errorf("Authorization = %q, want %q", got, "Bearer "+sessionToken)
+		}
+		if currentAttempt <= 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := w.Write([]byte(`{"code":"TemporaryUnavailable"}`)); err != nil {
+				t.Errorf("write error response: %v", err)
+			}
+			return
+		}
+		writeJSONResponse(t, w, signedPlan)
+	}))
+	defer server.Close()
+
+	fetcher, err := agentclient.New(agentclient.Config{
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		TrustStore: agentprotocol.StaticTrustStore{"test-key": publicKey},
+		RetryDelay: func(uint) time.Duration { return 0 },
+	})
+	if err != nil {
+		t.Fatalf("agentclient.New() error = %v", err)
+	}
+	sleepCalls := 0
+
+	plan, err := fetchNodeLifecyclePlanWithRetry(
+		t.Context(),
+		fetcher,
+		"operation-uid",
+		sessionToken,
+		mustNodeLifecyclePlanDigest(t, expectedPlan),
+		func(context.Context, time.Duration) error {
+			sleepCalls++
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("fetchNodeLifecyclePlanWithRetry() error = %v", err)
+	}
+	if sleepCalls != 1 {
+		t.Fatalf("sleep calls = %d, want 1", sleepCalls)
+	}
+	if plan.Value().OperationID != expectedPlan.Value().OperationID {
+		t.Fatalf("operation id = %q, want %q", plan.Value().OperationID, expectedPlan.Value().OperationID)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requestCount != 4 {
+		t.Fatalf("request count = %d, want 4", requestCount)
+	}
+	for i, path := range paths {
+		if path != expectedPath {
+			t.Fatalf("paths[%d] = %q, want %q", i, path, expectedPath)
+		}
+	}
+	for i, authorization := range authorizations {
+		if authorization != "Bearer "+sessionToken {
+			t.Fatalf("authorizations[%d] = %q, want %q", i, authorization, "Bearer "+sessionToken)
+		}
+	}
+}
+
+func TestFetchNodeLifecyclePlanWithRetryFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
+	fetcher := &recordingLifecyclePlanFetcher{
+		errors: []error{
+			&agentclient.APIError{StatusCode: http.StatusUnauthorized, Code: "Unauthorized"},
+		},
+	}
+	sleepCalls := 0
+
+	_, err := fetchNodeLifecyclePlanWithRetry(
+		t.Context(),
+		fetcher,
+		"operation-uid",
+		"session-token",
+		"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		func(context.Context, time.Duration) error {
+			sleepCalls++
+			return nil
+		},
+	)
+	var apiErr *agentclient.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("fetchNodeLifecyclePlanWithRetry() error = %v, want unauthorized API error", err)
+	}
+	if fetcher.calls != 1 {
+		t.Fatalf("fetch attempts = %d, want 1", fetcher.calls)
+	}
+	if sleepCalls != 0 {
+		t.Fatalf("sleep calls = %d, want 0", sleepCalls)
+	}
+}
+
 func TestReportStepOutcomeWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
 	cfg := config{
 		operationUID: "operation-uid",
@@ -426,6 +557,32 @@ func (reporter *recordingLifecycleProgressReporter) ReportNodeLifecycleProgress(
 	return err
 }
 
+type recordingLifecyclePlanFetcher struct {
+	plans  []nodelifecycle.ValidatedPlan
+	errors []error
+	calls  int
+}
+
+func (fetcher *recordingLifecyclePlanFetcher) FetchNodeLifecyclePlan(
+	_ context.Context,
+	_, _, _ string,
+) (nodelifecycle.ValidatedPlan, error) {
+	fetcher.calls++
+	if len(fetcher.errors) != 0 {
+		err := fetcher.errors[0]
+		fetcher.errors = fetcher.errors[1:]
+		if err != nil {
+			return nodelifecycle.ValidatedPlan{}, err
+		}
+	}
+	if len(fetcher.plans) == 0 {
+		return nodelifecycle.ValidatedPlan{}, errors.New("unexpected FetchNodeLifecyclePlan call")
+	}
+	plan := fetcher.plans[0]
+	fetcher.plans = fetcher.plans[1:]
+	return plan, nil
+}
+
 type recordingLifecycleStepRunner struct {
 	deadline time.Time
 	called   bool
@@ -453,4 +610,40 @@ func newLocalTLSServer(t *testing.T, handler http.Handler) (server *httptest.Ser
 	server.Listener = listener
 	server.StartTLS()
 	return server
+}
+
+func mustNodeLifecyclePlanDigest(t *testing.T, plan nodelifecycle.ValidatedPlan) string {
+	t.Helper()
+	digest, err := plan.Digest()
+	if err != nil {
+		t.Fatalf("Digest() error = %v", err)
+	}
+	return digest.String()
+}
+
+func mustSignNodeLifecyclePlan(
+	t *testing.T,
+	plan nodelifecycle.ValidatedPlan,
+) (nodelifecycle.SignedPlan, ed25519.PublicKey) {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+	signature, err := nodelifecycle.Sign(plan, "test-key", privateKey)
+	if err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+	return nodelifecycle.SignedPlan{
+		Plan:      plan.Value(),
+		Signature: signature,
+	}, publicKey
+}
+
+func writeJSONResponse(t *testing.T, writer http.ResponseWriter, value any) {
+	t.Helper()
+	writer.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(writer).Encode(value); err != nil {
+		t.Errorf("Encode() error = %v", err)
+	}
 }

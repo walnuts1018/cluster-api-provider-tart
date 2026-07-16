@@ -2,9 +2,39 @@ name: E2E Provisioning Test
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/e2e-provisioning.yaml"
+      - "api/**"
+      - "cmd/**"
+      - "config/**"
+      - "internal/**"
+      - "test/e2e/provisioning/**"
+      - "test/e2e/config/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/e2e-provisioning.yaml"
+      - "api/**"
+      - "cmd/**"
+      - "config/**"
+      - "internal/**"
+      - "test/e2e/provisioning/**"
+      - "test/e2e/config/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e-provisioning:

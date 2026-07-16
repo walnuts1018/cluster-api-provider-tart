@@ -261,6 +261,8 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 
 サンプル、Workflow、scriptの存在だけを確認するテストは禁止する。Go applicationの入力に対する出力または状態遷移を検証する。
 
+検証の追加方針は[CI検証方針](ci-verification.md)に従う。未検証項目は、まずCI上のDomain/Application test、Contract/Simulator test、QEMU test、Provisioning E2Eのいずれかへ変換する。CIで完全に代替できない実機依存の確認だけを実機Lab証跡として分離する。
+
 ## 14. 移行と削除
 
 1. v1alpha1 API、旧flow、旧iPXE bootstrap serverを削除する。

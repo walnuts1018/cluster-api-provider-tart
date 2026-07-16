@@ -60,6 +60,7 @@
 - Race条件は並列testまたはenvtestで再現する。
 - Error分類ごとに少なくとも1つのtestを持つ。
 - application logic以外の「fileが存在する」だけのtestを追加しない。
+- 新しい検証は、まず[CI検証方針](../ci-verification.md)に従ってGitHub Actions上で再現できる形へ落とす。
 - `mise run test-e2e`と`mise run test-provisioning-e2e`をlocalで実行しない。
 
 ### Evidence

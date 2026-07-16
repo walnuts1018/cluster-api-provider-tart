@@ -11,6 +11,7 @@
 - [アーキテクチャ](architecture.md)
 - [AI Agent向けWorkflow設計規約](ai-workflow-architecture.md)
 - [Application Workflowパッケージ整理方針](application-workflow-package-map.md)
+- [CI検証方針](ci-verification.md)
 - [全体の実装計画](implementation-plan.md)
 - [Platform Profile一覧](platform-profiles/README.md)
 - [Runbook一覧](runbooks/README.md)
@@ -57,3 +58,5 @@
 - CRD、Webhook、Controllerの生成と更新にはKubebuilderまたはcontroller-genを使用する。
 
 タスクの受け入れ条件は最終的な完了判定として維持する。実装途中のコミットでは、未検証の条件と実機確認が必要な事項をタスク文書へ記録してよい。
+
+検証は可能な限りCIで再現できる形へ寄せる。ローカルまたは実機Labでしか実行できない確認を追加する場合も、同じ失敗分類やProtocol契約を検査するCI上のContract Test、Simulator Test、QEMU Testのいずれかを先に用意し、CIで担保できない残差だけをRunbookへ明記する。

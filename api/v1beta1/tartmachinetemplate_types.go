@@ -63,6 +63,8 @@ type TartMachineTemplateResourceSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=tartmachinetemplates,scope=Namespaced,categories=cluster-api
+// +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta1=v1beta1"
+// +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1beta1"
 
 type TartMachineTemplate struct {
 	metav1.TypeMeta   `json:",inline"`

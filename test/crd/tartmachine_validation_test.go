@@ -19,6 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"sigs.k8s.io/yaml"
 )
 
 func TestTartMachineCRDAllowsRealisticBootParameters(t *testing.T) {
@@ -74,4 +77,41 @@ func TestTartMachineTemplateCRDRequiresArtifactModel(t *testing.T) {
 			t.Fatalf("CRD missing %q", want)
 		}
 	}
+}
+
+func TestCAPIContractCRDLabels(t *testing.T) {
+	for _, name := range []string{
+		"infrastructure.cluster.x-k8s.io_tartclusters.yaml",
+		"infrastructure.cluster.x-k8s.io_tartclustertemplates.yaml",
+		"infrastructure.cluster.x-k8s.io_tartmachines.yaml",
+		"infrastructure.cluster.x-k8s.io_tartmachinetemplates.yaml",
+	} {
+		t.Run(name, func(t *testing.T) {
+			crd := readCRD(t, name)
+
+			for label, want := range map[string]string{
+				"cluster.x-k8s.io/v1beta1": "v1beta1",
+				"cluster.x-k8s.io/v1beta2": "v1beta1",
+			} {
+				if got := crd.Labels[label]; got != want {
+					t.Fatalf("CRD %s label %s = %q, want %q", crd.Name, label, got, want)
+				}
+			}
+		})
+	}
+}
+
+func readCRD(t *testing.T, name string) *apiextensionsv1.CustomResourceDefinition {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "crd", "bases", name))
+	if err != nil {
+		t.Fatalf("failed to read CRD %s: %v", name, err)
+	}
+
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := yaml.Unmarshal(data, crd); err != nil {
+		t.Fatalf("failed to parse CRD %s: %v", name, err)
+	}
+	return crd
 }

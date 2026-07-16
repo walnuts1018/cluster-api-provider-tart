@@ -135,7 +135,7 @@ func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
 }
 
 func TestExecuteNodeLifecycleStepUsesPlanDeadlineForStepAndProgress(t *testing.T) {
-	deadline := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	deadline := time.Now().Add(24 * time.Hour).UTC()
 	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
 		OperationID:    "operation-uid",
 		CurrentVersion: "v1.35.0",
@@ -167,6 +167,7 @@ func TestExecuteNodeLifecycleStepUsesPlanDeadlineForStepAndProgress(t *testing.T
 }
 
 func TestExecuteNodeLifecycleStepRejectsExpiredPlanDeadline(t *testing.T) {
+	deadline := time.Now().Add(-time.Hour).UTC()
 	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
 		OperationID:    "operation-uid",
 		CurrentVersion: "v1.35.0",
@@ -174,7 +175,7 @@ func TestExecuteNodeLifecycleStepRejectsExpiredPlanDeadline(t *testing.T) {
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
 		Steps:          []domain.Step{domain.StepPreflightCompleted},
-	}, time.Date(2026, 7, 15, 11, 0, 0, 0, time.UTC))
+	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)
 	}
@@ -272,6 +273,7 @@ func TestReportStepOutcomeFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
 }
 
 func TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
+	deadline := time.Now().Add(24 * time.Hour).UTC()
 	expectedPlan, err := nodelifecycle.FromDomainPlan(domain.Plan{
 		OperationID:    "operation-uid",
 		CurrentVersion: "v1.35.0",
@@ -279,7 +281,7 @@ func TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted(t *te
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
 		Steps:          []domain.Step{domain.StepPreflightCompleted},
-	}, time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
+	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)
 	}

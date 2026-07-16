@@ -157,6 +157,14 @@ func markE2EHostAvailable(ctx context.Context, client crclient.Client, host *inf
 	before := host.DeepCopy()
 	host.Status.Phase = infrastructurev1beta1.TartHostPhaseAvailable
 	host.Status.LastStablePhase = infrastructurev1beta1.TartHostPhaseAvailable
+	host.Status.Capabilities = []infrastructurev1beta1.Capability{
+		infrastructurev1beta1.CapabilityPowerOn,
+	}
+	host.Status.Inventory.RootDisk = infrastructurev1beta1.ObservedDisk{
+		DeviceName:   host.Spec.RootDeviceHints.DeviceName,
+		SerialNumber: host.Spec.RootDeviceHints.SerialNumber,
+		SizeBytes:    host.Spec.RootDeviceHints.MinSizeBytes,
+	}
 	host.Status.ObservedGeneration = host.Generation
 	apimeta.SetStatusCondition(&host.Status.Conditions, metav1.Condition{
 		Type:               "Available",

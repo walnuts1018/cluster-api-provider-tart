@@ -135,6 +135,9 @@ func TestClassifyは許可差分と拒否差分の混在を拒否する(t *testi
 	if !slices.Contains(got.Rejected, FieldMachineVersion) {
 		t.Errorf("Rejected = %v, want machine version", got.Rejected)
 	}
+	if slices.Contains(got.Rejected, FieldMachineSpec) {
+		t.Errorf("Rejected = %v, must not contain machine spec when only version changed", got.Rejected)
+	}
 }
 
 func baseChangeSet() ChangeSet {

@@ -29,20 +29,30 @@ type UpdateTargetFeatureGates struct {
 	SingleControlPlane bool
 }
 
+// DistributionLifecycleFeatureGatesはDistribution Lifecycle更新で対象Machineを受理できる範囲を表す。
+type DistributionLifecycleFeatureGates struct {
+	Worker             bool
+	MultiControlPlane  bool
+	SingleControlPlane bool
+}
+
 // TargetSupportCheckerは対象Machine種別とfeature gateの組み合わせを判定する。
 type TargetSupportChecker struct {
-	reader client.Reader
-	gates  UpdateTargetFeatureGates
+	reader            client.Reader
+	updateGates       UpdateTargetFeatureGates
+	distributionGates DistributionLifecycleFeatureGates
 }
 
 // NewTargetSupportCheckerは対象判定器を生成する。
 func NewTargetSupportChecker(
 	reader client.Reader,
-	gates UpdateTargetFeatureGates,
+	updateGates UpdateTargetFeatureGates,
+	distributionGates DistributionLifecycleFeatureGates,
 ) *TargetSupportChecker {
 	return &TargetSupportChecker{
-		reader: reader,
-		gates:  gates,
+		reader:            reader,
+		updateGates:       updateGates,
+		distributionGates: distributionGates,
 	}
 }
 
@@ -51,30 +61,16 @@ func (checker *TargetSupportChecker) SupportsMachine(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (bool, string, error) {
-	if machine == nil {
-		return false, "", fmt.Errorf("machine is required")
-	}
-	if !isControlPlaneMachine(machine) {
-		if checker.gates.Worker {
-			return true, "", nil
-		}
-		return false, "worker in-place updates are disabled by feature gate", nil
-	}
-
-	count, err := checker.controlPlaneMachineCount(ctx, machine)
-	if err != nil {
-		return false, "", err
-	}
-	if count <= 1 {
-		if checker.gates.SingleControlPlane {
-			return true, "", nil
-		}
-		return false, "single control plane in-place updates are disabled by feature gate", nil
-	}
-	if checker.gates.MultiControlPlane {
-		return true, "", nil
-	}
-	return false, "multi control plane in-place updates are disabled by feature gate", nil
+	return checker.supportsMachine(
+		ctx,
+		machine,
+		checker.updateGates.Worker,
+		checker.updateGates.MultiControlPlane,
+		checker.updateGates.SingleControlPlane,
+		"worker in-place updates are disabled by feature gate",
+		"multi control plane in-place updates are disabled by feature gate",
+		"single control plane in-place updates are disabled by feature gate",
+	)
 }
 
 // SupportsMachineSetは対象MachineSetがfeature gateで許可されているかを返す。
@@ -82,13 +78,86 @@ func (checker *TargetSupportChecker) SupportsMachineSet(
 	_ context.Context,
 	machineSet *clusterv1.MachineSet,
 ) (bool, string, error) {
+	return supportsWorkerMachineSet(machineSet, checker.updateGates.Worker, "worker in-place updates are disabled by feature gate")
+}
+
+// SupportsDistributionLifecycleMachineは対象MachineがDistribution Lifecycle更新で許可されているかを返す。
+func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachine(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+) (bool, string, error) {
+	return checker.supportsMachine(
+		ctx,
+		machine,
+		checker.distributionGates.Worker,
+		checker.distributionGates.MultiControlPlane,
+		checker.distributionGates.SingleControlPlane,
+		"worker distribution lifecycle updates are disabled by feature gate",
+		"multi control plane distribution lifecycle updates are disabled by feature gate",
+		"single control plane distribution lifecycle updates are disabled by feature gate",
+	)
+}
+
+// SupportsDistributionLifecycleMachineSetは対象MachineSetがDistribution Lifecycle更新で許可されているかを返す。
+func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachineSet(
+	_ context.Context,
+	machineSet *clusterv1.MachineSet,
+) (bool, string, error) {
+	return supportsWorkerMachineSet(
+		machineSet,
+		checker.distributionGates.Worker,
+		"worker distribution lifecycle updates are disabled by feature gate",
+	)
+}
+
+func (checker *TargetSupportChecker) supportsMachine(
+	ctx context.Context,
+	machine *clusterv1.Machine,
+	workerEnabled bool,
+	multiControlPlaneEnabled bool,
+	singleControlPlaneEnabled bool,
+	workerReason string,
+	multiControlPlaneReason string,
+	singleControlPlaneReason string,
+) (bool, string, error) {
+	if machine == nil {
+		return false, "", fmt.Errorf("machine is required")
+	}
+	if !isControlPlaneMachine(machine) {
+		if workerEnabled {
+			return true, "", nil
+		}
+		return false, workerReason, nil
+	}
+
+	count, err := checker.controlPlaneMachineCount(ctx, machine)
+	if err != nil {
+		return false, "", err
+	}
+	if count <= 1 {
+		if singleControlPlaneEnabled {
+			return true, "", nil
+		}
+		return false, singleControlPlaneReason, nil
+	}
+	if multiControlPlaneEnabled {
+		return true, "", nil
+	}
+	return false, multiControlPlaneReason, nil
+}
+
+func supportsWorkerMachineSet(
+	machineSet *clusterv1.MachineSet,
+	workerEnabled bool,
+	disabledReason string,
+) (bool, string, error) {
 	if machineSet == nil {
 		return false, "", fmt.Errorf("MachineSet is required")
 	}
-	if checker.gates.Worker {
+	if workerEnabled {
 		return true, "", nil
 	}
-	return false, "worker in-place updates are disabled by feature gate", nil
+	return false, disabledReason, nil
 }
 
 func (checker *TargetSupportChecker) controlPlaneMachineCount(

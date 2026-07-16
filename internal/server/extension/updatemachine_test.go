@@ -107,7 +107,7 @@ func TestUpdateMachineHandlerは無効な対象で開始しない(t *testing.T) 
 			}
 			handler := NewUpdateMachineHandlerWithSupport(
 				starter,
-				newTestTargetSupportChecker(t, test.gates),
+				newTestTargetSupportChecker(t, test.gates, DistributionLifecycleFeatureGates{}),
 			)
 			request := updateMachineRequest()
 			if test.mutate != nil {

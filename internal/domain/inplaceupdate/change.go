@@ -85,8 +85,8 @@ func classifyMachine(
 ) {
 	if current.Version != desired.Version {
 		classification.reject(FieldMachineVersion)
-		current.Version = desired.Version
 	}
+	current.Version = desired.Version
 	if !reflect.DeepEqual(current.Spec, desired.Spec) {
 		classification.reject(FieldMachineSpec)
 	}

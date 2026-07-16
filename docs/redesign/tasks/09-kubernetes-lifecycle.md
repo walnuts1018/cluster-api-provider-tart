@@ -144,6 +144,8 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - KubernetesBinary Update Operation作成時にworker/control plane別Node Lifecycle Planを生成し、
   `TartHostOperation.spec.nodeLifecyclePlanDigest`とOperation所有のimmutable Secretへ保存する接続
 - `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
+- Distribution Lifecycle feature gateが有効な対象に限り、`CanUpdateMachine`/`CanUpdateMachineSet`
+  がKubernetes version差分をin-place update対象として受理し、無効時はpatchなしで通常置換へfallbackする
 - `docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
   `RecoveryRequired` と `SnapshotRef` を前提にした手動復旧 Runbook を追加
 - `internal/adapter/k8s/distributionlifecycle/status_store_test.go` に、

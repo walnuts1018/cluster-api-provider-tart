@@ -644,6 +644,11 @@ func main() {
 				MultiControlPlane:  updateFeatureGates.MultiControlPlane,
 				SingleControlPlane: updateFeatureGates.SingleControlPlane,
 			},
+			extension.DistributionLifecycleFeatureGates{
+				Worker:             updateFeatureGates.DistributionLifecycle.Worker,
+				MultiControlPlane:  updateFeatureGates.DistributionLifecycle.MultiControlPlane,
+				SingleControlPlane: updateFeatureGates.DistributionLifecycle.SingleControlPlane,
+			},
 		)
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension manager")

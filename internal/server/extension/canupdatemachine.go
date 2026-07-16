@@ -18,8 +18,11 @@ import (
 	"context"
 	"fmt"
 
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/inplaceupdate"
 )
 
 // CanUpdateMachineHandlerはOSOnly allowlistと対象gateを束ねる。
@@ -58,6 +61,16 @@ func (handler *CanUpdateMachineHandler) Handle(
 		response.SetMessage("failed to classify in-place update: " + err.Error())
 		return
 	}
+	classification, versionSupported, err := allowMachineVersionIfEligible(ctx, handler.support, request.Desired.Machine, classification)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate distribution lifecycle target")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to evaluate distribution lifecycle target: " + err.Error())
+		return
+	}
+	if versionSupported {
+		classification = classificationWithMachineVersionAllowed(classification)
+	}
 	if !classification.CanUpdateInPlace() {
 		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
 		response.SetMessage(fmt.Sprintf(
@@ -75,5 +88,40 @@ func (handler *CanUpdateMachineHandler) Handle(
 	}
 	response.InfrastructureMachinePatch = patch
 	response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
-	response.SetMessage("OS-only in-place update is supported")
+	response.SetMessage("in-place update is supported")
+}
+
+func allowMachineVersionIfEligible(
+	ctx context.Context,
+	support *TargetSupportChecker,
+	machine clusterv1.Machine,
+	classification domain.Classification,
+) (domain.Classification, bool, error) {
+	if !classificationContainsOnlyMachineVersionReject(classification) {
+		return classification, false, nil
+	}
+	supported, _, err := support.SupportsDistributionLifecycleMachine(ctx, &machine)
+	if err != nil {
+		return domain.Classification{}, false, err
+	}
+	if !supported {
+		return classification, false, nil
+	}
+	return classification, true, nil
+}
+
+func classificationContainsOnlyMachineVersionReject(classification domain.Classification) bool {
+	if len(classification.Rejected) != 1 {
+		return false
+	}
+	return classification.Rejected[0] == domain.FieldMachineVersion
+}
+
+func classificationWithMachineVersionAllowed(classification domain.Classification) domain.Classification {
+	if !classificationContainsOnlyMachineVersionReject(classification) {
+		return classification
+	}
+	classification.Rejected = classification.Rejected[:0]
+	classification.Allowed = append(classification.Allowed, domain.FieldMachineVersion)
+	return classification
 }

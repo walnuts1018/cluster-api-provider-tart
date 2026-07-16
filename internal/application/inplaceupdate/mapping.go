@@ -55,6 +55,8 @@ func mapChangeSet(input ClassificationInput) (domain.ChangeSet, error) {
 
 	currentMachineSpec := input.CurrentMachine.Spec.DeepCopy()
 	desiredMachineSpec := input.DesiredMachine.Spec.DeepCopy()
+	currentMachineSpec.Version = ""
+	desiredMachineSpec.Version = ""
 
 	return domain.ChangeSet{
 		CurrentMachine: domain.MachineSpecSnapshot{

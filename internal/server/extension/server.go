@@ -37,6 +37,7 @@ func NewManager(
 	reader client.Reader,
 	updateStarter UpdateStarter,
 	gates UpdateTargetFeatureGates,
+	distributionGates DistributionLifecycleFeatureGates,
 ) (*Manager, error) {
 	s, err := server.New(server.Options{
 		Catalog:  catalog,
@@ -50,7 +51,7 @@ func NewManager(
 	}
 
 	// Register extension handlers for in-place update hooks.
-	support := NewTargetSupportChecker(reader, gates)
+	support := NewTargetSupportChecker(reader, gates, distributionGates)
 	if err := s.AddExtensionHandler(server.ExtensionHandler{
 		Hook:           runtimehooksv1.CanUpdateMachine,
 		HandlerFunc:    NewCanUpdateMachineHandler(support).Handle,

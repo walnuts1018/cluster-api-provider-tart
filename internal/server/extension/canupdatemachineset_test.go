@@ -27,9 +27,10 @@ import (
 
 func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing.T) {
 	tests := []struct {
-		name      string
-		mutate    func(*runtimehooksv1.CanUpdateMachineSetRequest)
-		wantPatch bool
+		name              string
+		mutate            func(*runtimehooksv1.CanUpdateMachineSetRequest)
+		distributionGates DistributionLifecycleFeatureGates
+		wantPatch         bool
 	}{
 		{
 			name: "image ref",
@@ -56,6 +57,14 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 			},
 		},
 		{
+			name: "Kubernetes version with distribution lifecycle gate",
+			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
+				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.35.0"
+			},
+			distributionGates: DistributionLifecycleFeatureGates{Worker: true},
+			wantPatch:         true,
+		},
+		{
 			name: "bootstrap template",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
 				request.Desired.BootstrapConfigTemplate = bootstrapConfigTemplate(`{"payload":"changed"}`)
@@ -77,7 +86,11 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 			tt.mutate(request)
 			response := &runtimehooksv1.CanUpdateMachineSetResponse{}
 			handler := NewCanUpdateMachineSetHandler(
-				NewTargetSupportChecker(nil, UpdateTargetFeatureGates{Worker: true}),
+				NewTargetSupportChecker(
+					nil,
+					UpdateTargetFeatureGates{Worker: true},
+					tt.distributionGates,
+				),
 			)
 
 			handler.Handle(t.Context(), request, response)
@@ -109,7 +122,9 @@ func TestHandleCanUpdateMachineSetはworkerGate無効ならPatchを返さない(
 	template.Spec.Template.Spec.Image.Ref = extensionArtifactRef("b")
 	request.Desired.InfrastructureMachineTemplate = rawExtension(t, template)
 	response := &runtimehooksv1.CanUpdateMachineSetResponse{}
-	handler := NewCanUpdateMachineSetHandler(NewTargetSupportChecker(nil, UpdateTargetFeatureGates{}))
+	handler := NewCanUpdateMachineSetHandler(
+		NewTargetSupportChecker(nil, UpdateTargetFeatureGates{}, DistributionLifecycleFeatureGates{}),
+	)
 
 	handler.Handle(t.Context(), request, response)
 
@@ -195,8 +210,8 @@ func assertTemplateOSOnlyPatch(t *testing.T, patch runtimehooksv1.Patch) {
 	if err := json.Unmarshal(patch.Patch, &value); err != nil {
 		t.Fatalf("json.Unmarshal(patch) error = %v", err)
 	}
-	if len(value.Spec.Template.Spec) == 0 {
-		t.Fatalf("patch = %s, want template spec", patch.Patch)
+	if value.Spec.Template.Spec == nil {
+		t.Fatalf("patch = %s, want template spec object", patch.Patch)
 	}
 	for key := range value.Spec.Template.Spec {
 		if key != "image" && key != "updatePolicy" {

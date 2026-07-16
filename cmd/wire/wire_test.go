@@ -50,3 +50,18 @@ func TestInitializeReconcilersBuildsV1Beta1Composition(t *testing.T) {
 		t.Fatal("driver service is nil")
 	}
 }
+
+func TestInitializeReconcilersDoesNotFreezeMutableTartMachineWorkflow(t *testing.T) {
+	t.Parallel()
+
+	reconcilers, err := InitializeReconcilers(fake.NewClientBuilder().Build(), runtime.NewScheme())
+	if err != nil {
+		t.Fatalf("InitializeReconcilers() error = %v", err)
+	}
+	if reconcilers.TartMachineV1Beta1 == nil {
+		t.Fatal("TartMachineV1Beta1 reconciler is nil")
+	}
+	if reconcilers.TartMachineV1Beta1.Lifecycle != nil {
+		t.Fatal("TartMachineV1Beta1 Lifecycle must be composed at reconcile time so startup configuration can replace Provisioner and Cleaner")
+	}
+}

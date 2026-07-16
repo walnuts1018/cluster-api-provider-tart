@@ -75,6 +75,8 @@ type ProvisionStartStatusPatch interface {
 
 type ProvisionStartStatusWaitingForBootstrap struct{}
 
+type ProvisionStartStatusProvisionerMissing struct{}
+
 type ProvisionStartStatusAllocationPending struct {
 	Reason  string
 	Message string
@@ -86,6 +88,7 @@ type ProvisionStartStatusHostReserved struct {
 }
 
 func (ProvisionStartStatusWaitingForBootstrap) isProvisionStartStatusPatch() {}
+func (ProvisionStartStatusProvisionerMissing) isProvisionStartStatusPatch()  {}
 func (ProvisionStartStatusAllocationPending) isProvisionStartStatusPatch()   {}
 func (ProvisionStartStatusHostReserved) isProvisionStartStatusPatch()        {}
 

@@ -100,6 +100,9 @@ func (steps *StepExecutor) startProvisionStep(
 	var provisioner ProvisionStep
 	switch dependency := dependency.(type) {
 	case provisionStartDependencyUnavailable:
+		if err := steps.applyProvisionStartStatusPatchStep(ctx, machine, model.ProvisionStartStatusProvisionerMissing{}); err != nil {
+			return err
+		}
 		return nil
 	case provisionStartDependencyAvailable:
 		provisioner = dependency.Provisioner
@@ -266,6 +269,12 @@ func (steps *StepExecutor) patchProvisionStartStatusStep(
 	switch patch := patch.(type) {
 	case model.ProvisionStartStatusWaitingForBootstrap:
 		machine.Status = appprovisioning.StatusWithWaitingForBootstrap(machine)
+	case model.ProvisionStartStatusProvisionerMissing:
+		machine.Status = appprovisioning.StatusWithProvisionFailed(
+			machine,
+			"ProvisionerNotConfigured",
+			"Initial provisioning is disabled because OS artifact and agent plan signing configuration is not configured",
+		)
 	case model.ProvisionStartStatusAllocationPending:
 		machine.Status = appprovisioning.StatusWithAllocationPending(machine, patch.Reason, patch.Message)
 	case model.ProvisionStartStatusHostReserved:

@@ -20,7 +20,6 @@ import (
 	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
 	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	machinelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinelifecycle"
 	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
@@ -101,12 +100,7 @@ func provideTartMachineV1Beta1Reconciler(
 	cleaner machinedeletion.CleaningStep,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
-		Client: k8sClient,
-		Lifecycle: machinelifecycle.NewWorkflowWithSteps(
-			resourcefinalizer.NewTartMachineWorkflow(k8sClient),
-			machineexecution.NewWorkflow(k8sClient, hostReferences, nodeHealth, provisioner, nil),
-			machinedeletion.NewWorkflow(k8sClient, cleaner),
-		),
+		Client:         k8sClient,
 		HostReferences: hostReferences,
 		NodeHealth:     nodeHealth,
 		Provisioner:    provisioner,

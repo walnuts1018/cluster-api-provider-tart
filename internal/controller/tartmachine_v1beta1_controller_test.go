@@ -244,6 +244,80 @@ func TestTartMachineV1Beta1ReconcilerDoesNotProvisionBeforeHealthGate(t *testing
 	}
 }
 
+func TestTartMachineV1Beta1ReconcilerSetsFailureWhenProvisionerMissing(t *testing.T) {
+	t.Parallel()
+
+	testScheme := newV1Beta1TestScheme(t)
+	bootstrapSecretName := "machine-bootstrap"
+	owner := &clusterv1.Machine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "owner-machine",
+			Namespace: "default",
+			UID:       types.UID("owner-machine-uid"),
+		},
+		Spec: clusterv1.MachineSpec{
+			Bootstrap: clusterv1.Bootstrap{DataSecretName: &bootstrapSecretName},
+		},
+	}
+	host := &infrastructurev1beta1.TartHost{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "host-missing-provisioner",
+			Namespace: owner.Namespace,
+			UID:       types.UID("host-missing-provisioner-uid"),
+		},
+	}
+	machine := &infrastructurev1beta1.TartMachine{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "machine-missing-provisioner",
+			Namespace:  owner.Namespace,
+			UID:        types.UID("machine-missing-provisioner-uid"),
+			Generation: 5,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: clusterv1.GroupVersion.String(),
+				Kind:       "Machine",
+				Name:       owner.Name,
+				UID:        owner.UID,
+			}},
+		},
+		Status: infrastructurev1beta1.TartMachineStatus{
+			HostRef: &infrastructurev1beta1.ResourceReference{
+				Namespace: host.Namespace,
+				Name:      host.Name,
+				UID:       host.UID,
+			},
+		},
+	}
+	host.Spec.ConsumerRef = &infrastructurev1beta1.ResourceReference{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+	}
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartMachine{}).
+		WithObjects(machine, host, owner).
+		Build()
+	reconciler := &TartMachineV1Beta1Reconciler{
+		Client:         k8sClient,
+		HostReferences: k8sallocation.NewService(k8sClient),
+	}
+
+	if _, err := reconciler.Reconcile(t.Context(), requestFor(machine)); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartMachine{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(machine), current); err != nil {
+		t.Fatalf("get TartMachine: %v", err)
+	}
+	condition := apimeta.FindStatusCondition(current.Status.Conditions, appprovisioning.ConditionReady)
+	if condition == nil ||
+		condition.Status != metav1.ConditionFalse ||
+		condition.Reason != "ProvisionerNotConfigured" {
+		t.Fatalf("Ready condition = %#v", condition)
+	}
+}
+
 func TestTartMachineV1Beta1ReconcilerResumesOperationAfterHostReferenceRepair(t *testing.T) {
 	t.Parallel()
 

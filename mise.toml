@@ -393,8 +393,8 @@ echo "tart e2e provisioning-agent preflight completed"
 poweroff -f || halt -f || sh
 INIT
 chmod 0755 "$agent_initramfs_dir/init"
-cp "$agent_kernel" "$agent_artifact_dir/vmlinuz"
-cp "$agent_base_initrd" "$agent_artifact_dir/initrd"
+sudo cat "$agent_kernel" > "$agent_artifact_dir/vmlinuz"
+sudo cat "$agent_base_initrd" > "$agent_artifact_dir/initrd"
 (cd "$agent_initramfs_dir" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) >> "$agent_artifact_dir/initrd"
 
 ARTIFACT_IMAGE="$output_dir/os.img" \

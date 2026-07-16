@@ -71,6 +71,9 @@ func (collector *LinuxCollector) Collect() ([]disk.Device, error) {
 	devices := make([]disk.Device, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
+		if !isDiskCandidate(name) {
+			continue
+		}
 		if _, err := os.Stat(filepath.Join(collector.paths.SysClassBlock, name, "partition")); err == nil {
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
@@ -195,6 +198,15 @@ func rootMountDevice(mountInfo string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func isDiskCandidate(name string) bool {
+	for _, prefix := range []string{"loop", "ram", "zram", "fd", "sr"} {
+		if strings.HasPrefix(name, prefix) {
+			return false
+		}
+	}
+	return true
 }
 
 func wholeDiskFromSysTarget(target string) (string, bool) {

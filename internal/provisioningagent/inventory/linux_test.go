@@ -36,6 +36,8 @@ func TestLinuxCollectorCollectsWholeDisksAndAgentOSHolder(t *testing.T) {
 		filepath.Join(paths.SysClassBlock, "sda1"),
 		filepath.Join(paths.SysClassBlock, "nvme0n1/device"),
 		filepath.Join(paths.SysClassBlock, "nvme0n1/slaves"),
+		filepath.Join(paths.SysClassBlock, "loop0"),
+		filepath.Join(paths.SysClassBlock, "sr0"),
 		paths.SysDevBlock,
 		paths.DevDiskByID,
 		filepath.Dir(paths.MountInfo),
@@ -50,6 +52,8 @@ func TestLinuxCollectorCollectsWholeDisksAndAgentOSHolder(t *testing.T) {
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sda1/partition"), "1\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sda1/size"), "1048576\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "nvme0n1/size"), "4194304\n")
+	writeTestFile(t, filepath.Join(paths.SysClassBlock, "loop0/size"), "0\n")
+	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sr0/size"), "0\n")
 	writeTestFile(t, paths.MountInfo, "31 22 8:1 / / rw,relatime - ext4 /dev/sda1 rw\n")
 	if err := os.Symlink("../../../devices/pci/block/sda/sda1", filepath.Join(paths.SysDevBlock, "8:1")); err != nil {
 		t.Fatal(err)

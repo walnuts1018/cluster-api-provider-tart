@@ -16,6 +16,7 @@ package extension
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -226,6 +227,37 @@ func TestHandleCanUpdateMachineは無効な対象ではPatchを返さず通常�
 	}
 }
 
+func TestHandleCanUpdateMachineはsingleControlPlaneDistributionLifecycleのExperimental理由を返す(t *testing.T) {
+	request := machineUpdateRequest(t)
+	markControlPlaneMachine(&request.Current.Machine)
+	markControlPlaneMachine(&request.Desired.Machine)
+	request.Desired.Machine.Spec.Version = extensionTargetVersion
+	response := &runtimehooksv1.CanUpdateMachineResponse{}
+	handler := NewCanUpdateMachineHandler(
+		newTestTargetSupportChecker(
+			t,
+			UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
+			DistributionLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
+			request.Current.Machine.DeepCopy(),
+		),
+	)
+
+	handler.Handle(t.Context(), request, response)
+
+	if response.Status != runtimehooksv1.ResponseStatusSuccess {
+		t.Fatalf("Status = %q, want %q; message=%q",
+			response.Status, runtimehooksv1.ResponseStatusSuccess, response.Message)
+	}
+	if response.InfrastructureMachinePatch.IsDefined() {
+		t.Fatalf("InfrastructureMachinePatch.IsDefined() = true, want false; message=%q", response.Message)
+	}
+	assertContainsAll(t, response.Message,
+		"single control plane",
+		"Experimental",
+		"management API outage E2E pending",
+	)
+}
+
 func TestHandleCanUpdateMachineは不正なInfraMachineをFailureにする(t *testing.T) {
 	request := machineUpdateRequest(t)
 	request.Desired.InfrastructureMachine.Raw = []byte(`{`)
@@ -386,4 +418,13 @@ func controlPlaneMachine(name string) *clusterv1.Machine {
 		Spec: clusterv1.MachineSpec{ClusterName: "sample"},
 	}
 	return machine
+}
+
+func assertContainsAll(t *testing.T, value string, want ...string) {
+	t.Helper()
+	for _, token := range want {
+		if !strings.Contains(value, token) {
+			t.Fatalf("value %q does not contain %q", value, token)
+		}
+	}
 }

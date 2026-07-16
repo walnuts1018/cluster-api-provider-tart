@@ -36,6 +36,12 @@ type DistributionLifecycleFeatureGates struct {
 	SingleControlPlane bool
 }
 
+type targetDisabledReasons struct {
+	worker             string
+	multiControlPlane  string
+	singleControlPlane string
+}
+
 // TargetSupportCheckerは対象Machine種別とfeature gateの組み合わせを判定する。
 type TargetSupportChecker struct {
 	reader            client.Reader
@@ -61,15 +67,16 @@ func (checker *TargetSupportChecker) SupportsMachine(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (bool, string, error) {
+	reasons := updateTargetDisabledReasons()
 	return checker.supportsMachine(
 		ctx,
 		machine,
 		checker.updateGates.Worker,
 		checker.updateGates.MultiControlPlane,
 		checker.updateGates.SingleControlPlane,
-		"worker in-place updates are disabled by feature gate",
-		"multi control plane in-place updates are disabled by feature gate",
-		"single control plane in-place updates are disabled by feature gate",
+		reasons.worker,
+		reasons.multiControlPlane,
+		reasons.singleControlPlane,
 	)
 }
 
@@ -78,7 +85,7 @@ func (checker *TargetSupportChecker) SupportsMachineSet(
 	_ context.Context,
 	machineSet *clusterv1.MachineSet,
 ) (bool, string, error) {
-	return supportsWorkerMachineSet(machineSet, checker.updateGates.Worker, "worker in-place updates are disabled by feature gate")
+	return supportsWorkerMachineSet(machineSet, checker.updateGates.Worker, updateTargetDisabledReasons().worker)
 }
 
 // SupportsDistributionLifecycleMachineは対象MachineがDistribution Lifecycle更新で許可されているかを返す。
@@ -86,15 +93,16 @@ func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachine(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (bool, string, error) {
+	reasons := distributionLifecycleDisabledReasons()
 	return checker.supportsMachine(
 		ctx,
 		machine,
 		checker.distributionGates.Worker,
 		checker.distributionGates.MultiControlPlane,
 		checker.distributionGates.SingleControlPlane,
-		"worker distribution lifecycle updates are disabled by feature gate",
-		"multi control plane distribution lifecycle updates are disabled by feature gate",
-		"single control plane distribution lifecycle updates are disabled by feature gate",
+		reasons.worker,
+		reasons.multiControlPlane,
+		reasons.singleControlPlane,
 	)
 }
 
@@ -106,8 +114,25 @@ func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachineSet(
 	return supportsWorkerMachineSet(
 		machineSet,
 		checker.distributionGates.Worker,
-		"worker distribution lifecycle updates are disabled by feature gate",
+		distributionLifecycleDisabledReasons().worker,
 	)
+}
+
+func updateTargetDisabledReasons() targetDisabledReasons {
+	return targetDisabledReasons{
+		worker:             "worker in-place updates are disabled by feature gate",
+		multiControlPlane:  "multi control plane in-place updates are disabled by feature gate",
+		singleControlPlane: "single control plane in-place updates are disabled by feature gate",
+	}
+}
+
+func distributionLifecycleDisabledReasons() targetDisabledReasons {
+	return targetDisabledReasons{
+		worker:            "worker distribution lifecycle updates are disabled by feature gate",
+		multiControlPlane: "multi control plane distribution lifecycle updates are disabled by feature gate",
+		singleControlPlane: "single control plane distribution lifecycle updates are disabled by feature gate: " +
+			"Experimental while management API outage E2E pending",
+	}
 }
 
 func (checker *TargetSupportChecker) supportsMachine(

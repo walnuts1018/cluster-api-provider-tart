@@ -43,6 +43,20 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 - backup/restore/Recovery Runbook
 - E2E証跡
 
+## 初期Release Matrixの基準
+
+Task 09 完了直後の release candidate では、更新系の公開状態を少なくとも次のように整理する。
+
+| 項目 | 対象 | 状態 | 追加条件 |
+|---|---|---|---|
+| 初期Provisioning | Ubuntu 24.04 amd64 UEFI kubeadm | Supported | Task 07/10 の release gate を満たす |
+| OSOnly更新 | worker | Experimental | feature gate 必須。Task 08 の failure injection/E2E 継続実行前 |
+| KubernetesBinary更新 | worker | Experimental | feature gate 必須。Task 09 の実機/E2E 継続実行前 |
+| KubernetesBinary更新 | 3台以上の control plane | Experimental | feature gate 必須。snapshot/apply/recovery の E2E 継続実行前 |
+| KubernetesBinary更新 | 単一 control plane | Experimental | management API 停止中の復帰を含む E2E 成功まで維持 |
+
+Supported へ変更する時は、対象行ごとに `target-state.md` と Release Note を同じ変更で更新する。
+
 ## 受け入れ条件
 
 ### 全作業単位共通
@@ -98,6 +112,12 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 - Experimental機能はfeature gateと既知制約をRelease Noteへ記載する。
 - migration toolが旧flow利用objectを0件と報告するまで旧field/codeを削除しない。
 - Architecture Skill、AGENTS.md、installation、sampleを同じreleaseで更新する。
+
+### Release Noteに必ず記載する既知制約
+
+- single control plane の `KubernetesBinary` 更新は Experimental のままとし、feature gate なしでは受理しない。
+- 上記対象は management API outage を含む controller 再接続 E2E が未完了である間、Supported に昇格しない。
+- `StateMigration` の自動復旧は未提供であり、`RecoveryRequired` 到達時は Runbook ベースの手動復旧が必要。
 
 ## 完了証跡
 

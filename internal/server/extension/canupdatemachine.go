@@ -61,7 +61,12 @@ func (handler *CanUpdateMachineHandler) Handle(
 		response.SetMessage("failed to classify in-place update: " + err.Error())
 		return
 	}
-	classification, versionSupported, err := allowMachineVersionIfEligible(ctx, handler.support, request.Desired.Machine, classification)
+	classification, versionSupported, distributionReason, err := allowMachineVersionIfEligible(
+		ctx,
+		handler.support,
+		request.Desired.Machine,
+		classification,
+	)
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate distribution lifecycle target")
 		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
@@ -70,6 +75,10 @@ func (handler *CanUpdateMachineHandler) Handle(
 	}
 	if versionSupported {
 		classification = classificationWithMachineVersionAllowed(classification)
+	} else if distributionReason != "" {
+		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
+		response.SetMessage("in-place update not selected; " + distributionReason)
+		return
 	}
 	if !classification.CanUpdateInPlace() {
 		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
@@ -96,18 +105,18 @@ func allowMachineVersionIfEligible(
 	support *TargetSupportChecker,
 	machine clusterv1.Machine,
 	classification domain.Classification,
-) (domain.Classification, bool, error) {
+) (domain.Classification, bool, string, error) {
 	if !classificationContainsOnlyMachineVersionReject(classification) {
-		return classification, false, nil
+		return classification, false, "", nil
 	}
-	supported, _, err := support.SupportsDistributionLifecycleMachine(ctx, &machine)
+	supported, reason, err := support.SupportsDistributionLifecycleMachine(ctx, &machine)
 	if err != nil {
-		return domain.Classification{}, false, err
+		return domain.Classification{}, false, "", err
 	}
 	if !supported {
-		return classification, false, nil
+		return classification, false, reason, nil
 	}
-	return classification, true, nil
+	return classification, true, "", nil
 }
 
 func classificationContainsOnlyMachineVersionReject(classification domain.Classification) bool {

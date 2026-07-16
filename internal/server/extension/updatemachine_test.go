@@ -127,6 +127,29 @@ func TestUpdateMachineHandlerは無効な対象で開始しない(t *testing.T) 
 	}
 }
 
+func TestTargetSupportCheckerはsingleControlPlaneDistributionLifecycleをExperimental理由で拒否する(t *testing.T) {
+	machine := controlPlaneMachine("cp-1")
+	checker := newTestTargetSupportChecker(
+		t,
+		UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
+		DistributionLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
+		machine,
+	)
+
+	supported, reason, err := checker.SupportsDistributionLifecycleMachine(t.Context(), machine)
+	if err != nil {
+		t.Fatalf("SupportsDistributionLifecycleMachine() error = %v", err)
+	}
+	if supported {
+		t.Fatalf("SupportsDistributionLifecycleMachine() = true, want false; reason=%q", reason)
+	}
+	assertContainsAll(t, reason,
+		"single control plane",
+		"Experimental",
+		"management API outage E2E pending",
+	)
+}
+
 type staticUpdateStarter struct {
 	operation *infrastructurev1beta1.TartHostOperation
 	err       error

@@ -363,11 +363,33 @@ mkdir -p \
   "$agent_initramfs_dir/tmp"
 cp "$output_dir/provisioning-agent" "$agent_initramfs_dir/bin/provisioning-agent"
 cp "$busybox_path" "$agent_initramfs_dir/bin/busybox"
-for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc; do
+for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc ifconfig route; do
   ln -sf busybox "$agent_initramfs_dir/bin/$applet"
 done
 cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
 cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
+cat > "$agent_initramfs_dir/bin/udhcpc-script" <<'UDHCPC'
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+  bound|renew)
+    ifconfig "$interface" "$ip" netmask "$subnet" up
+    if [ -n "${router:-}" ]; then
+      for gateway in $router; do
+        route add default gw "$gateway" dev "$interface" || true
+        break
+      done
+    fi
+    if [ -n "${dns:-}" ]; then
+      : > /etc/resolv.conf
+      for nameserver in $dns; do
+        echo "nameserver $nameserver" >> /etc/resolv.conf
+      done
+    fi
+    ;;
+esac
+UDHCPC
 cat > "$agent_initramfs_dir/init" <<'INIT'
 #!/bin/sh
 set -eu
@@ -378,12 +400,13 @@ export PATH
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
-mkdir -p /dev/disk/by-id /run /tmp
+mkdir -p /dev/disk/by-id /etc /run /tmp
 
 for iface in /sys/class/net/*; do
   iface="${iface##*/}"
   [ "$iface" != "lo" ] || continue
-  udhcpc -i "$iface" -q -n -t 10 -T 3 || true
+  ifconfig "$iface" up || true
+  udhcpc -i "$iface" -q -n -t 5 -T 3 -s /bin/udhcpc-script || true
 done
 
 for device in /sys/class/block/*; do
@@ -405,6 +428,7 @@ echo "tart e2e provisioning-agent preflight completed"
 poweroff -f || halt -f || sh
 INIT
 chmod 0755 "$agent_initramfs_dir/init"
+chmod 0755 "$agent_initramfs_dir/bin/udhcpc-script"
 sudo cat "$agent_kernel" > "$agent_artifact_dir/vmlinuz"
 sudo cat "$agent_base_initrd" > "$agent_artifact_dir/initrd"
 (cd "$agent_initramfs_dir" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) >> "$agent_artifact_dir/initrd"

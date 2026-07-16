@@ -124,7 +124,9 @@ func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
 		"--agent-plan-key-id=e2e-agent-plan",
 		"--agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem",
 		"mountPath: /etc/tart-e2e",
-		"defaultMode: 0400",
+		"path: /spec/template/spec/securityContext/fsGroup",
+		"value: 65532",
+		"defaultMode: 0440",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("provisioning e2e overlay missing %q", want)

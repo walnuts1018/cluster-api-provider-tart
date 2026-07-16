@@ -31,6 +31,9 @@ patches:
       path: /spec/template/spec/dnsPolicy
       value: ClusterFirstWithHostNet
     - op: add
+      path: /spec/template/spec/securityContext/fsGroup
+      value: 65532
+    - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --os-artifact-key-id=e2e-os-artifact
     - op: add
@@ -54,7 +57,7 @@ patches:
         name: e2e-provisioning-keys
         secret:
           secretName: e2e-provisioning-keys
-          defaultMode: 0400
+          defaultMode: 0440
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy
       value: IfNotPresent

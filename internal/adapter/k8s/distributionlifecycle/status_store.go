@@ -23,6 +23,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
+	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 )
 
@@ -104,8 +105,8 @@ func (store *StatusStore) RecordStep(
 	})
 }
 
-// MarkRecoveryRequiredはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する。
-func (store *StatusStore) MarkRecoveryRequired(
+// MarkStepFailureはNode Lifecycle Step失敗時に更新クラスごとの失敗遷移を永続化する。
+func (store *StatusStore) MarkStepFailure(
 	ctx context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
@@ -115,16 +116,28 @@ func (store *StatusStore) MarkRecoveryRequired(
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		current := &infrastructurev1beta1.TartHostOperation{}
 		if err := store.client.Get(ctx, client.ObjectKeyFromObject(operation), current); err != nil {
-			return fmt.Errorf("get TartHostOperation for recovery status: %w", err)
+			return fmt.Errorf("get TartHostOperation for lifecycle failure status: %w", err)
 		}
 		if current.UID != operation.UID || current.Spec.OperationID != operation.Spec.OperationID {
-			return fmt.Errorf("TartHostOperation identity changed while recording recovery status")
+			return fmt.Errorf("TartHostOperation identity changed while recording lifecycle failure status")
 		}
-		if current.Spec.UpdateClass == infrastructurev1beta1.UpdateClassStateMigration && current.Status.SnapshotRef == nil {
-			return fmt.Errorf("SnapshotRef is required before marking StateMigration recovery")
+
+		targetPhase := infrastructurev1beta1.TartHostOperationPhaseRollingBack
+		if current.Spec.UpdateClass == infrastructurev1beta1.UpdateClassStateMigration {
+			if current.Status.SnapshotRef == nil {
+				return fmt.Errorf("SnapshotRef is required before marking StateMigration recovery")
+			}
+			targetPhase = infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired
 		}
+
 		original := current.DeepCopy()
-		current.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseRecoveryRequired
+		current.Status.Phase = targetPhase
+		appupdate.UpdateFailureCondition(
+			&current.Status,
+			current.Generation,
+			infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+			targetPhase,
+		)
 		current.Status.ObservedGeneration = current.Generation
 		return store.client.Status().Patch(ctx, current, client.MergeFrom(original))
 	})

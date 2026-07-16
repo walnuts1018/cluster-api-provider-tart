@@ -146,7 +146,7 @@ type recordingNodeLifecycleStatus struct {
 	plan        distributiondomain.Plan
 	step        distributiondomain.Step
 	snapshotRef *infrastructurev1beta1.ResourceReference
-	recovery    bool
+	failed      bool
 }
 
 func (status *recordingNodeLifecycleStatus) RecordStep(
@@ -163,12 +163,12 @@ func (status *recordingNodeLifecycleStatus) RecordStep(
 	return nil
 }
 
-func (status *recordingNodeLifecycleStatus) MarkRecoveryRequired(
+func (status *recordingNodeLifecycleStatus) MarkStepFailure(
 	_ context.Context,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) error {
 	status.operation = operation
-	status.recovery = true
+	status.failed = true
 	return nil
 }
 
@@ -628,6 +628,85 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 	}
 	if got := current.Status.CompletedSteps; len(got) != 2 || got[0] != "PreflightCompleted" || got[1] != "SnapshotCreated" {
 		t.Fatalf("completedSteps = %#v, want PreflightCompleted/SnapshotCreated retained", got)
+	}
+}
+
+func TestHandlerはKubernetesBinary失敗時にRollingBackへ遷移する(t *testing.T) {
+	state := newAuthenticatedHandlerState(
+		t,
+		nil,
+		nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleWorker,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps: []distributiondomain.Step{
+				distributiondomain.StepPreflightCompleted,
+				distributiondomain.StepTargetSlotWritten,
+				distributiondomain.StepKubeadmApplied,
+			},
+		},
+		func(operation *infrastructurev1beta1.TartHostOperation) {
+			operation.Spec.UpdateClass = infrastructurev1beta1.UpdateClassKubernetesBinary
+		},
+	)
+
+	for _, body := range []agentprotocol.NodeLifecycleProgressRequest{
+		{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: testOperationUID,
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepPreflightCompleted),
+			Result:       agentprotocol.NodeLifecycleResultSucceeded,
+		},
+		{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: testOperationUID,
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepTargetSlotWritten),
+			Result:       agentprotocol.NodeLifecycleResultSucceeded,
+		},
+	} {
+		response := performJSONRequest(
+			t,
+			state.newHandler(),
+			http.MethodPost,
+			"/v1/operations/operation-uid/node-lifecycle-progress",
+			state.token,
+			body,
+		)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+		}
+	}
+
+	response := performJSONRequest(
+		t,
+		state.newHandler(),
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		state.token,
+		agentprotocol.NodeLifecycleProgressRequest{
+			APIVersion:   agentprotocol.APIVersion,
+			OperationUID: testOperationUID,
+			PlanDigest:   state.nodePlanDigest,
+			Step:         string(distributiondomain.StepKubeadmApplied),
+			Result:       agentprotocol.NodeLifecycleResultFailed,
+		},
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+
+	current := getOperation(t, state.k8sClient, state.key)
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		t.Fatalf("phase = %q, want RollingBack", current.Status.Phase)
+	}
+	if got := current.Status.CompletedSteps; len(got) != 2 || got[0] != "PreflightCompleted" || got[1] != "TargetSlotWritten" {
+		t.Fatalf("completedSteps = %#v, want PreflightCompleted/TargetSlotWritten retained", got)
 	}
 }
 

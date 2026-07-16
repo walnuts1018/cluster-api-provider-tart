@@ -119,6 +119,8 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - `TartHostOperation.status.completedSteps`、`lifecyclePhase`、`snapshotRef`へLifecycle Step結果を保存する
   Kubernetes adapter
 - StateMigration失敗時に`RecoveryRequired`へ遷移し、既存`SnapshotRef`を保持するStatus更新
+- Node Lifecycle Serviceの失敗報告時、`KubernetesBinary`は`RollingBack`へ遷移して旧slot復帰へ進み、
+  `StateMigration`だけを`RecoveryRequired`へ遷移させるStatus更新
 - Node Ready、期待version、static Pod、etcd quorum、API healthをCommit前に評価するHealth Gate純粋判定
 - `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
   `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver

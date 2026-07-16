@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -153,6 +154,36 @@ func TestStatusStoreは永続化済みSnapshotRefでKubeadmAppliedを記録す�
 	}
 }
 
+func TestStatusStoreはKubernetesBinary失敗時にRollingBackへ遷移する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	operation := testOperation()
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(operation).
+		Build()
+	store := NewStatusStore(k8sClient)
+
+	if err := store.MarkStepFailure(t.Context(), operation); err != nil {
+		t.Fatalf("MarkStepFailure() error = %v", err)
+	}
+
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseRollingBack {
+		t.Fatalf("phase = %q, want RollingBack", current.Status.Phase)
+	}
+	condition := apimeta.FindStatusCondition(current.Status.Conditions, "Degraded")
+	if condition == nil || condition.Reason != "UpdateFailed" {
+		t.Fatalf("degraded condition = %#v, want UpdateFailed", condition)
+	}
+}
+
 func TestStatusStoreはStateMigration失敗時にRecoveryRequiredへ遷移しSnapshotRefを保持する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
@@ -172,8 +203,8 @@ func TestStatusStoreはStateMigration失敗時にRecoveryRequiredへ遷移しSna
 		Build()
 	store := NewStatusStore(k8sClient)
 
-	if err := store.MarkRecoveryRequired(t.Context(), operation); err != nil {
-		t.Fatalf("MarkRecoveryRequired() error = %v", err)
+	if err := store.MarkStepFailure(t.Context(), operation); err != nil {
+		t.Fatalf("MarkStepFailure() error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartHostOperation{}
@@ -185,6 +216,10 @@ func TestStatusStoreはStateMigration失敗時にRecoveryRequiredへ遷移しSna
 	}
 	if current.Status.SnapshotRef == nil || current.Status.SnapshotRef.Name != "etcd-snapshot-1" {
 		t.Fatalf("snapshotRef = %#v, want retained", current.Status.SnapshotRef)
+	}
+	condition := apimeta.FindStatusCondition(current.Status.Conditions, "Degraded")
+	if condition == nil || condition.Reason != "UpdateFailed" {
+		t.Fatalf("degraded condition = %#v, want UpdateFailed", condition)
 	}
 }
 

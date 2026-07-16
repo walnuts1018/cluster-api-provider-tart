@@ -79,7 +79,7 @@ type NodeLifecycleStatusRecorder interface {
 		distributiondomain.Step,
 		*infrastructurev1beta1.ResourceReference,
 	) error
-	MarkRecoveryRequired(context.Context, *infrastructurev1beta1.TartHostOperation) error
+	MarkStepFailure(context.Context, *infrastructurev1beta1.TartHostOperation) error
 }
 
 type BootstrapProvider interface {
@@ -284,7 +284,7 @@ func (handler *Handler) nodeLifecycleProgress(writer http.ResponseWriter, reques
 		return
 	}
 	if body.Result == agentprotocol.NodeLifecycleResultFailed {
-		if err := handler.config.NodeLifecycleStatus.MarkRecoveryRequired(request.Context(), operation); err != nil {
+		if err := handler.config.NodeLifecycleStatus.MarkStepFailure(request.Context(), operation); err != nil {
 			handler.internalError(writer)
 			return
 		}

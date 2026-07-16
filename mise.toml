@@ -640,12 +640,30 @@ fi
 # 3. Download iPXE binaries
 mkdir -p /tmp/tftpboot
 if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
-  echo "Downloading iPXE binaries..."
-  go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
-  rm -rf /tmp/ipxeboot
-  tar xzf /tmp/ipxeboot.tar.gz -C /tmp
-  mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
-  rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
+  packaged_ipxe=""
+  for candidate in \
+    /usr/lib/ipxe/ipxe.efi \
+    /usr/lib/ipxe/ipxe-x86_64.efi \
+    /usr/share/ipxe/ipxe.efi \
+    /usr/share/ipxe/ipxe-x86_64.efi \
+    /usr/lib/ipxe/snponly.efi \
+    /usr/share/ipxe/snponly.efi; do
+    if [ -f "$candidate" ]; then
+      packaged_ipxe="$candidate"
+      break
+    fi
+  done
+  if [ -n "$packaged_ipxe" ]; then
+    echo "Using packaged iPXE binary: $packaged_ipxe"
+    cp "$packaged_ipxe" /tmp/tftpboot/ipxe-x86_64.efi
+  else
+    echo "Downloading iPXE binaries..."
+    go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
+    rm -rf /tmp/ipxeboot
+    tar xzf /tmp/ipxeboot.tar.gz -C /tmp
+    mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
+    rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
+  fi
 fi
 
 # 4. Start dnsmasq

@@ -410,9 +410,8 @@ for iface in /sys/class/net/*; do
 done
 
 for device in /sys/class/block/*; do
-  [ -e "$device/device/serial" ] || continue
   name="${device##*/}"
-  serial="$(cat "$device/device/serial" 2>/dev/null || true)"
+  serial="$(cat "$device/device/serial" 2>/dev/null || cat "$device/serial" 2>/dev/null || true)"
   [ -n "$serial" ] || continue
   ln -sf "../../$name" "/dev/disk/by-id/virtio-$serial"
 done

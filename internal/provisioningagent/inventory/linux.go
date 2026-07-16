@@ -86,7 +86,7 @@ func (collector *LinuxCollector) Collect() ([]disk.Device, error) {
 		devices = append(devices, disk.Device{
 			Path:         filepath.Join("/dev", name),
 			ByIDPaths:    byID[name],
-			SerialNumber: readOptional(filepath.Join(collector.paths.SysClassBlock, name, "device", "serial")),
+			SerialNumber: readFirstOptional(filepath.Join(collector.paths.SysClassBlock, name, "device", "serial"), filepath.Join(collector.paths.SysClassBlock, name, "serial")),
 			WWN:          readFirstOptional(filepath.Join(collector.paths.SysClassBlock, name, "device", "wwid"), filepath.Join(collector.paths.SysClassBlock, name, "wwid")),
 			SizeBytes:    sizeBytes,
 			HoldsAgentOS: agentOSDevices[name],

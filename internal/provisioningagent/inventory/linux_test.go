@@ -52,6 +52,7 @@ func TestLinuxCollectorCollectsWholeDisksAndAgentOSHolder(t *testing.T) {
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sda1/partition"), "1\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sda1/size"), "1048576\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "nvme0n1/size"), "4194304\n")
+	writeTestFile(t, filepath.Join(paths.SysClassBlock, "nvme0n1/serial"), "SERIAL-B\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "loop0/size"), "0\n")
 	writeTestFile(t, filepath.Join(paths.SysClassBlock, "sr0/size"), "0\n")
 	writeTestFile(t, paths.MountInfo, "31 22 8:1 / / rw,relatime - ext4 /dev/sda1 rw\n")
@@ -74,6 +75,9 @@ func TestLinuxCollectorCollectsWholeDisksAndAgentOSHolder(t *testing.T) {
 	}
 	if devices[0].Path != "/dev/nvme0n1" || devices[0].HoldsAgentOS {
 		t.Fatalf("devices[0] = %#v", devices[0])
+	}
+	if devices[0].SerialNumber != "SERIAL-B" {
+		t.Fatalf("devices[0].SerialNumber = %q, want SERIAL-B", devices[0].SerialNumber)
 	}
 	if devices[1].Path != "/dev/sda" || !devices[1].HoldsAgentOS {
 		t.Fatalf("devices[1] = %#v", devices[1])

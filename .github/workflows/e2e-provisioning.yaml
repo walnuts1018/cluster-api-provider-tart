@@ -138,6 +138,8 @@ jobs:
           sudo sh -c "iptables -t nat -L -n -v > $CLUSTER_LOG_DIR/iptables-nat.txt 2>&1" || true
           sudo sh -c "iptables -L -n -v > $CLUSTER_LOG_DIR/iptables-filter.txt 2>&1" || true
           pgrep -af "qemu" > "$CLUSTER_LOG_DIR/qemu-status.txt" 2>&1 || true
+          cp ./qemu-output-*.log "$CLUSTER_LOG_DIR/" 2>/dev/null || true
+          cp ./*.pcap "$CLUSTER_LOG_DIR/" 2>/dev/null || true
           ip addr > "$CLUSTER_LOG_DIR/network-interfaces.txt" 2>&1 || true
 
           echo "=== Debug information collected ==="

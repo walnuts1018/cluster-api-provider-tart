@@ -21,12 +21,17 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -125,15 +130,222 @@ func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
 	}
 }
 
+func TestExecuteNodeLifecycleStepUsesPlanDeadlineForStepAndProgress(t *testing.T) {
+	deadline := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleWorker,
+		Steps:          []domain.Step{domain.StepPreflightCompleted},
+	}, deadline)
+	if err != nil {
+		t.Fatalf("FromDomainPlan() error = %v", err)
+	}
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	runner := &recordingLifecycleStepRunner{}
+	reporter := &recordingLifecycleProgressReporter{}
+
+	if err := executeNodeLifecycleStep(t.Context(), runner, reporter, "session-token", cfg, plan); err != nil {
+		t.Fatalf("executeNodeLifecycleStep() error = %v", err)
+	}
+	if !runner.deadline.Equal(deadline) {
+		t.Fatalf("runner deadline = %s, want %s", runner.deadline, deadline)
+	}
+	if !reporter.deadline.Equal(deadline) {
+		t.Fatalf("reporter deadline = %s, want %s", reporter.deadline, deadline)
+	}
+}
+
+func TestExecuteNodeLifecycleStepRejectsExpiredPlanDeadline(t *testing.T) {
+	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
+		OperationID:    "operation-uid",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    domain.UpdateClassKubernetesBinary,
+		NodeRole:       domain.NodeRoleWorker,
+		Steps:          []domain.Step{domain.StepPreflightCompleted},
+	}, time.Date(2026, 7, 15, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FromDomainPlan() error = %v", err)
+	}
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	runner := &recordingLifecycleStepRunner{}
+	reporter := &recordingLifecycleProgressReporter{}
+
+	if err := executeNodeLifecycleStep(t.Context(), runner, reporter, "session-token", cfg, plan); err == nil {
+		t.Fatal("executeNodeLifecycleStep() accepted an expired plan deadline")
+	}
+	if runner.called {
+		t.Fatal("RunStep() was called for an expired plan deadline")
+	}
+	if reporter.calls != 0 {
+		t.Fatalf("report attempts = %d, want 0", reporter.calls)
+	}
+}
+
+func TestReportStepOutcomeRetriesTemporaryErrorUntilSuccess(t *testing.T) {
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	reporter := &recordingLifecycleProgressReporter{
+		reportErrors: []error{
+			&agentclient.APIError{StatusCode: http.StatusServiceUnavailable, Code: "TemporaryUnavailable"},
+			&url.Error{Op: http.MethodPost, URL: "https://controller.test.walnuts.dev", Err: context.DeadlineExceeded},
+		},
+	}
+	sleepCalls := 0
+
+	err := reportStepOutcomeWithRetry(
+		t.Context(),
+		reporter,
+		"session-token",
+		cfg,
+		distribution.StepResult{},
+		nil,
+		func(context.Context, time.Duration) error {
+			sleepCalls++
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("reportStepOutcomeWithRetry() error = %v", err)
+	}
+	if reporter.calls != 3 {
+		t.Fatalf("report attempts = %d, want 3", reporter.calls)
+	}
+	if sleepCalls != 2 {
+		t.Fatalf("sleep calls = %d, want 2", sleepCalls)
+	}
+}
+
+func TestReportStepOutcomeFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	reporter := &recordingLifecycleProgressReporter{
+		reportErrors: []error{
+			&agentclient.APIError{StatusCode: http.StatusUnauthorized, Code: "Unauthorized"},
+		},
+	}
+	sleepCalls := 0
+
+	err := reportStepOutcomeWithRetry(
+		t.Context(),
+		reporter,
+		"session-token",
+		cfg,
+		distribution.StepResult{},
+		nil,
+		func(context.Context, time.Duration) error {
+			sleepCalls++
+			return nil
+		},
+	)
+	var apiErr *agentclient.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("reportStepOutcomeWithRetry() error = %v, want unauthorized API error", err)
+	}
+	if reporter.calls != 1 {
+		t.Fatalf("report attempts = %d, want 1", reporter.calls)
+	}
+	if sleepCalls != 0 {
+		t.Fatalf("sleep calls = %d, want 0", sleepCalls)
+	}
+}
+
+func TestReportStepOutcomeStopsAtDeadline(t *testing.T) {
+	cfg := config{
+		operationUID: "operation-uid",
+		planDigest:   "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		step:         domain.StepPreflightCompleted,
+	}
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+	defer cancel()
+	reporter := &recordingLifecycleProgressReporter{
+		reportErrors: []error{
+			&agentclient.APIError{StatusCode: http.StatusServiceUnavailable, Code: "TemporaryUnavailable"},
+		},
+	}
+	sleepCalls := 0
+
+	err := reportStepOutcomeWithRetry(
+		ctx,
+		reporter,
+		"session-token",
+		cfg,
+		distribution.StepResult{},
+		nil,
+		func(context.Context, time.Duration) error {
+			sleepCalls++
+			return nil
+		},
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("reportStepOutcomeWithRetry() error = %v, want deadline exceeded", err)
+	}
+	if reporter.calls != 1 {
+		t.Fatalf("report attempts = %d, want 1", reporter.calls)
+	}
+	if sleepCalls != 0 {
+		t.Fatalf("sleep calls = %d, want 0", sleepCalls)
+	}
+}
+
 type recordingLifecycleProgressReporter struct {
-	requests []agentprotocol.NodeLifecycleProgressRequest
+	requests     []agentprotocol.NodeLifecycleProgressRequest
+	reportErrors []error
+	deadline     time.Time
+	calls        int
 }
 
 func (reporter *recordingLifecycleProgressReporter) ReportNodeLifecycleProgress(
-	_ context.Context,
+	ctx context.Context,
 	_ string,
 	request agentprotocol.NodeLifecycleProgressRequest,
 ) error {
+	reporter.calls++
+	if deadline, ok := ctx.Deadline(); ok {
+		reporter.deadline = deadline
+	}
 	reporter.requests = append(reporter.requests, request)
-	return nil
+	if len(reporter.reportErrors) == 0 {
+		return nil
+	}
+	err := reporter.reportErrors[0]
+	reporter.reportErrors = reporter.reportErrors[1:]
+	if err == nil {
+		return nil
+	}
+	return err
+}
+
+type recordingLifecycleStepRunner struct {
+	deadline time.Time
+	called   bool
+}
+
+func (runner *recordingLifecycleStepRunner) RunStep(
+	ctx context.Context,
+	_ domain.Plan,
+	_ domain.Step,
+) (distribution.StepResult, error) {
+	runner.called = true
+	if deadline, ok := ctx.Deadline(); ok {
+		runner.deadline = deadline
+	}
+	return distribution.StepResult{}, nil
 }

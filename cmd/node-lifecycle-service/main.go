@@ -24,17 +24,23 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	kubeadmadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/kubeadm"
 	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
+
+const progressReportRetryDelay = time.Second
 
 type config struct {
 	controllerURL    string
@@ -92,10 +98,6 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	domainPlan, err := plan.DomainPlan()
-	if err != nil {
-		return err
-	}
 	runtime := kubeadmadapter.NewRuntime(kubeadmadapter.RuntimeConfig{
 		KubeadmPath: cfg.kubeadmPath,
 		EtcdctlPath: cfg.etcdctlPath,
@@ -104,12 +106,8 @@ func run(ctx context.Context, args []string) error {
 		NodeName:    cfg.nodeName,
 	})
 	workflow := distribution.NewWorkflow(kubeadmadapter.NewDriver(runtime))
-	result, stepErr := workflow.RunStep(ctx, domainPlan, cfg.step)
-	if err := reportStepOutcome(ctx, apiClient, sessionToken, cfg, result, stepErr); err != nil {
+	if err := executeNodeLifecycleStep(ctx, workflow, apiClient, sessionToken, cfg, plan); err != nil {
 		return err
-	}
-	if stepErr != nil {
-		return stepErr
 	}
 	slog.Info("Node Lifecycle step completed", "operation_uid", cfg.operationUID, "step", cfg.step)
 	return nil
@@ -119,6 +117,39 @@ type lifecycleProgressReporter interface {
 	ReportNodeLifecycleProgress(context.Context, string, agentprotocol.NodeLifecycleProgressRequest) error
 }
 
+type lifecycleStepRunner interface {
+	RunStep(context.Context, domain.Plan, domain.Step) (distribution.StepResult, error)
+}
+
+type retrySleepFunc func(context.Context, time.Duration) error
+
+func executeNodeLifecycleStep(
+	ctx context.Context,
+	runner lifecycleStepRunner,
+	reporter lifecycleProgressReporter,
+	sessionToken string,
+	cfg config,
+	plan nodelifecycle.ValidatedPlan,
+) error {
+	if !time.Now().Before(plan.Value().Deadline) {
+		return errors.New("node lifecycle plan deadline has expired")
+	}
+	domainPlan, err := plan.DomainPlan()
+	if err != nil {
+		return err
+	}
+	planCtx, cancel := context.WithDeadline(ctx, plan.Value().Deadline)
+	defer cancel()
+	result, stepErr := runner.RunStep(planCtx, domainPlan, cfg.step)
+	if err := reportStepOutcome(planCtx, reporter, sessionToken, cfg, result, stepErr); err != nil {
+		return err
+	}
+	if stepErr != nil {
+		return stepErr
+	}
+	return nil
+}
+
 func reportStepOutcome(
 	ctx context.Context,
 	reporter lifecycleProgressReporter,
@@ -126,6 +157,18 @@ func reportStepOutcome(
 	cfg config,
 	result distribution.StepResult,
 	stepErr error,
+) error {
+	return reportStepOutcomeWithRetry(ctx, reporter, sessionToken, cfg, result, stepErr, sleepWithContext)
+}
+
+func reportStepOutcomeWithRetry(
+	ctx context.Context,
+	reporter lifecycleProgressReporter,
+	sessionToken string,
+	cfg config,
+	result distribution.StepResult,
+	stepErr error,
+	sleep retrySleepFunc,
 ) error {
 	report := agentprotocol.NodeLifecycleProgressRequest{
 		APIVersion:   agentprotocol.APIVersion,
@@ -138,7 +181,7 @@ func reportStepOutcome(
 	if stepErr != nil {
 		report.Result = agentprotocol.NodeLifecycleResultFailed
 	}
-	if err := reporter.ReportNodeLifecycleProgress(ctx, sessionToken, report); err != nil {
+	if err := reportNodeLifecycleProgressUntilDeadline(ctx, reporter, sessionToken, report, sleep); err != nil {
 		if stepErr != nil {
 			return errors.Join(stepErr, fmt.Errorf("report Node Lifecycle step failure: %w", err))
 		}
@@ -148,6 +191,61 @@ func reportStepOutcome(
 		return stepErr
 	}
 	return nil
+}
+
+func reportNodeLifecycleProgressUntilDeadline(
+	ctx context.Context,
+	reporter lifecycleProgressReporter,
+	sessionToken string,
+	report agentprotocol.NodeLifecycleProgressRequest,
+	sleep retrySleepFunc,
+) error {
+	for {
+		err := reporter.ReportNodeLifecycleProgress(ctx, sessionToken, report)
+		if err == nil {
+			return nil
+		}
+		if !isRetryableProgressReportError(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return errors.Join(err, ctx.Err())
+		}
+		if err := sleep(ctx, progressReportRetryDelay); err != nil {
+			return errors.Join(err, ctx.Err())
+		}
+	}
+}
+
+func isRetryableProgressReportError(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	if apiErr, ok := errors.AsType[*agentclient.APIError](err); ok {
+		return apiErr.StatusCode == http.StatusRequestTimeout ||
+			apiErr.StatusCode == http.StatusTooEarly ||
+			apiErr.StatusCode == http.StatusTooManyRequests ||
+			apiErr.StatusCode >= http.StatusInternalServerError
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if _, ok := errors.AsType[*url.Error](err); ok {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr)
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func parseConfig(args []string) (config, error) {

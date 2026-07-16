@@ -530,7 +530,7 @@ func TestNodeLifecycleServiceRecoversTemporaryOutageAcrossPlanFetchAndProgressRe
 	if len(paths) != 8 {
 		t.Fatalf("paths length = %d, want 8", len(paths))
 	}
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		if paths[i] != planPath {
 			t.Fatalf("paths[%d] = %q, want %q", i, paths[i], planPath)
 		}

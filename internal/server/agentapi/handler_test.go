@@ -547,6 +547,113 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 	}
 }
 
+func TestHandlerは一時停止復帰後もfreshHandler経由で完了Stepを一度だけ保存する(t *testing.T) {
+	state := newAuthenticatedHandlerState(
+		t,
+		nil,
+		nodelifecycle.Plan{
+			APIVersion:     nodelifecycle.APIVersion,
+			OperationID:    testOperationUID,
+			CurrentVersion: testCurrentVersion,
+			TargetVersion:  testTargetVersion,
+			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:       distributiondomain.NodeRoleControlPlane,
+			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps: []distributiondomain.Step{
+				distributiondomain.StepPreflightCompleted,
+				distributiondomain.StepHealthVerified,
+			},
+		},
+		nil,
+	)
+	const outageCount = 3
+	attempts := 0
+	handler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		attempts++
+		if attempts <= outageCount {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			if _, err := writer.Write([]byte(`{"code":"TemporaryUnavailable","message":"temporary outage"}`)); err != nil {
+				t.Fatalf("writer.Write() error = %v", err)
+			}
+			return
+		}
+		state.newHandler().ServeHTTP(writer, request)
+	})
+	body := agentprotocol.NodeLifecycleProgressRequest{
+		APIVersion:   agentprotocol.APIVersion,
+		OperationUID: testOperationUID,
+		PlanDigest:   state.nodePlanDigest,
+		Step:         string(distributiondomain.StepPreflightCompleted),
+		Result:       agentprotocol.NodeLifecycleResultSucceeded,
+	}
+
+	for range outageCount {
+		response := performJSONRequest(
+			t,
+			handler,
+			http.MethodPost,
+			"/v1/operations/operation-uid/node-lifecycle-progress",
+			state.token,
+			body,
+		)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusServiceUnavailable, response.Body.String())
+		}
+	}
+	assertOperationStatus(
+		t,
+		state.k8sClient,
+		state.key,
+		nil,
+		"",
+		"",
+		"",
+	)
+
+	response := performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		state.token,
+		body,
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	assertOperationStatus(
+		t,
+		state.k8sClient,
+		state.key,
+		[]string{"PreflightCompleted"},
+		"Preflight",
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		"",
+	)
+
+	response = performJSONRequest(
+		t,
+		handler,
+		http.MethodPost,
+		"/v1/operations/operation-uid/node-lifecycle-progress",
+		state.token,
+		body,
+	)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("duplicate status = %d, want %d; body=%s", response.Code, http.StatusNoContent, response.Body.String())
+	}
+	assertOperationStatus(
+		t,
+		state.k8sClient,
+		state.key,
+		[]string{"PreflightCompleted"},
+		"Preflight",
+		infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
+		"",
+	)
+}
+
 func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する(t *testing.T) {
 	state := newAuthenticatedHandlerState(
 		t,

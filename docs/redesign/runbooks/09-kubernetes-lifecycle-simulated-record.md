@@ -16,6 +16,7 @@ go test ./cmd/node-lifecycle-service -v
 確認対象:
 
 - `TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を重複記録しない`
+- `TestHandlerは一時停止復帰後もfreshHandler経由で完了Stepを一度だけ保存する` は fake Kubernetes client 上の `TartHostOperation.status` を正本にして、最初の 3 回の `POST /node-lifecycle-progress` が `503` でも、各 request ごとに fresh `Handler` を作り直した復帰後 request で `completedSteps` が 1 回だけ増えることを確認する
 - `TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRecoveryRequiredへ遷移する`
 - `TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted` は management API が最初の 3 request で `503` を返しても、node-lifecycle-service 外側 retry で 4 回目の Plan 取得へ復帰できることを確認する
 - `TestNodeLifecycleServiceRecoversTemporaryOutageAcrossPlanFetchAndProgressReport` は real `agentclient` と local TLS test server を使い、最初の 3 回の `GET /node-lifecycle-plan` と後段の最初の 3 回の `POST /node-lifecycle-progress` がそれぞれ `503` でも、同一 service 実行フローが成功まで進むことを確認する
@@ -64,6 +65,26 @@ go test ./cmd/node-lifecycle-service -v
 
 - 失敗報告後も `SnapshotRef` は失われない
 - 自動で `Succeeded` や `Failed` へ進まず、Runbook 前提どおり `RecoveryRequired` に停止する
+
+## シナリオ 3: temporary outage 復帰後の fresh Handler 再受理
+
+前提:
+
+- control plane 向け `KubernetesBinary` Plan
+- 最初の 3 回の `POST /node-lifecycle-progress` は management API 停止相当として `503`
+- 4 回目以降は毎回 fresh `Handler` へ委譲し、controller restart 相当でも process memory に依存しないことを確認する
+
+期待した `TartHostOperation.status`:
+
+- outage 中は `completedSteps=[]`
+- 復帰直後の `PreflightCompleted` 成功で `completedSteps=["PreflightCompleted"]`
+- 同じ request の重複再送後も `completedSteps` は増えない
+
+判定:
+
+- outage 応答では Kubernetes 上の Status が変化しない
+- 復帰後の最初の成功 request だけが `completedSteps` を 1 回追加する
+- 重複再送は `204 No Content` を返しても `completedSteps` を再追加しない
 
 ## 残っていること
 

@@ -588,8 +588,8 @@ if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then
     --enable-tftp \
     --tftp-root=/tmp/tftpboot \
     --dhcp-boot=tag:!ipxe,ipxe-x86_64.efi \
-    --dhcp-boot=tag:ipxe,tag:e2ehost0,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00 \
-    --dhcp-boot=tag:ipxe,tag:e2ehost1,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01 \
+    --dhcp-boot=tag:ipxe,tag:e2ehost0,https://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00 \
+    --dhcp-boot=tag:ipxe,tag:e2ehost1,https://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01 \
     --dhcp-leasefile=/tmp/dnsmasq.leases \
     --log-dhcp \
     --keep-in-foreground &

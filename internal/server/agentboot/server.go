@@ -53,10 +53,7 @@ func (server *Server) Start(ctx context.Context) error {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       60 * time.Second,
-		TLSConfig: &tls.Config{
-			MinVersion:   tls.VersionTLS13,
-			Certificates: []tls.Certificate{certificate},
-		},
+		TLSConfig:         agentBootTLSConfig(certificate),
 	}
 	errCh := make(chan error, 1)
 	go func() {
@@ -84,4 +81,13 @@ func (server *Server) Start(ctx context.Context) error {
 
 func (server *Server) NeedLeaderElection() bool {
 	return true
+}
+
+func agentBootTLSConfig(certificate tls.Certificate) *tls.Config {
+	// iPXEやNIC firmwareのHTTPS実装はTLS 1.3に対応していないことがある。
+	// Agent APIは更新可能なAgentだけが使うためTLS 1.3を維持するが、boot経路はTLS 1.2を許可する。
+	return &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{certificate},
+	}
 }

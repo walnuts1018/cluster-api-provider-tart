@@ -212,9 +212,9 @@ func (artifact Artifact) VirtualMediaURL(baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse Agent Artifact base URL: %w", err)
 	}
-	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+	if (parsed.Scheme != "https" && parsed.Scheme != "http") || parsed.Host == "" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", errors.New("agent Artifact base URL must be an HTTPS origin or base path")
+		return "", errors.New("agent Artifact base URL must be an HTTP(S) origin or base path")
 	}
 	return url.JoinPath(
 		parsed.String(),

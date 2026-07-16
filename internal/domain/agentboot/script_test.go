@@ -67,7 +67,6 @@ func TestBuildScriptは危険な入力を拒否する(t *testing.T) {
 		name   string
 		mutate func(*ScriptInput)
 	}{
-		{name: "平文Artifact URL", mutate: func(input *ScriptInput) { input.ArtifactBaseURL = "http://boot.test" }},
 		{name: "平文Agent API URL", mutate: func(input *ScriptInput) { input.AgentAPIURL = "http://agent-api.test" }},
 		{name: "不正digest", mutate: func(input *ScriptInput) { input.ArtifactDigest = "sha256:invalid" }},
 		{name: "改行を含むHost UID", mutate: func(input *ScriptInput) { input.HostUID = "host\nchain evil" }},
@@ -81,6 +80,26 @@ func TestBuildScriptは危険な入力を拒否する(t *testing.T) {
 				t.Fatal("BuildScript() accepted unsafe input")
 			}
 		})
+	}
+}
+
+func TestBuildScriptはArtifact配信だけHTTPを許可する(t *testing.T) {
+	script, err := BuildScript(ScriptInput{
+		ArtifactBaseURL: "http://boot.test/agent",
+		AgentAPIURL:     "https://agent-api.test:8443",
+		ArtifactDigest:  "sha256:" + strings.Repeat("a", 64),
+		HostUID:         "host-uid",
+		OperationUID:    "operation-uid",
+		BootMACAddress:  "00:00:5e:00:53:01",
+	})
+	if err != nil {
+		t.Fatalf("BuildScript() error = %v", err)
+	}
+	if !strings.Contains(script, "kernel http://boot.test/agent/v1/agent-artifacts/sha256/") {
+		t.Fatalf("script does not contain HTTP Artifact kernel URL:\n%s", script)
+	}
+	if !strings.Contains(script, KernelParameterControllerURL+"=https://agent-api.test:8443") {
+		t.Fatalf("script does not keep HTTPS Agent API URL:\n%s", script)
 	}
 }
 

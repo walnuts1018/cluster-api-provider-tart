@@ -26,14 +26,15 @@ import (
 )
 
 type Server struct {
-	address  string
-	certFile string
-	keyFile  string
-	handler  *Handler
+	address   string
+	certFile  string
+	keyFile   string
+	allowHTTP bool
+	handler   *Handler
 }
 
-func NewServer(address, certFile, keyFile string, handler *Handler) *Server {
-	return &Server{address: address, certFile: certFile, keyFile: keyFile, handler: handler}
+func NewServer(address, certFile, keyFile string, allowHTTP bool, handler *Handler) *Server {
+	return &Server{address: address, certFile: certFile, keyFile: keyFile, allowHTTP: allowHTTP, handler: handler}
 }
 
 func (server *Server) Start(ctx context.Context) error {
@@ -43,7 +44,7 @@ func (server *Server) Start(ctx context.Context) error {
 		}
 	}()
 	certificate, err := tls.LoadX509KeyPair(server.certFile, server.keyFile)
-	if err != nil {
+	if err != nil && !server.allowHTTP {
 		return fmt.Errorf("load Agent boot TLS certificate: %w", err)
 	}
 	listener := &http.Server{
@@ -53,10 +54,17 @@ func (server *Server) Start(ctx context.Context) error {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      2 * time.Minute,
 		IdleTimeout:       60 * time.Second,
-		TLSConfig:         agentBootTLSConfig(certificate),
+	}
+	if !server.allowHTTP {
+		listener.TLSConfig = agentBootTLSConfig(certificate)
 	}
 	errCh := make(chan error, 1)
 	go func() {
+		if server.allowHTTP {
+			crlog.FromContext(ctx).Info("Starting Agent boot HTTP server", "addr", server.address)
+			errCh <- listener.ListenAndServe()
+			return
+		}
 		crlog.FromContext(ctx).Info("Starting Agent boot HTTPS server", "addr", server.address)
 		errCh <- listener.ListenAndServeTLS("", "")
 	}()

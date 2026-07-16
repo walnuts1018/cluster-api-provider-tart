@@ -113,6 +113,7 @@ func main() {
 	var agentArtifactBaseURL string
 	var agentBootCertFile string
 	var agentBootKeyFile string
+	var agentBootAllowHTTP bool
 	var osArtifactKeyID string
 	var osArtifactPublicKeyFile string
 	var osArtifactRegistryConfig string
@@ -147,9 +148,10 @@ func main() {
 	flag.StringVar(&agentArtifactRoot, "agent-artifact-root", "", "The verified Agent Artifact file root. Empty disables the v1 Agent boot server.")
 	flag.StringVar(&agentArtifactKeyID, "agent-artifact-key-id", "", "The trusted Agent Artifact signing key ID.")
 	flag.StringVar(&agentArtifactPublicKeyFile, "agent-artifact-public-key-file", "", "The trusted Agent Artifact Ed25519 public key file, mounted separately from the Artifact.")
-	flag.StringVar(&agentArtifactBaseURL, "agent-artifact-base-url", "", "The HTTPS base URL used to deliver the Agent Artifact and iPXE script.")
+	flag.StringVar(&agentArtifactBaseURL, "agent-artifact-base-url", "", "The HTTP(S) base URL used to deliver the Agent Artifact and iPXE script.")
 	flag.StringVar(&agentBootCertFile, "agent-boot-cert-file", "", "The Agent boot HTTPS TLS certificate file.")
 	flag.StringVar(&agentBootKeyFile, "agent-boot-key-file", "", "The Agent boot HTTPS TLS private key file.")
+	flag.BoolVar(&agentBootAllowHTTP, "agent-boot-allow-http", false, "Allow plain HTTP Agent boot delivery for isolated L2 test environments.")
 	flag.StringVar(&osArtifactKeyID, "os-artifact-key-id", "", "The trusted OS Artifact signing key ID used by in-place updates.")
 	flag.StringVar(&osArtifactPublicKeyFile, "os-artifact-public-key-file", "", "The trusted OS Artifact Ed25519 public key file used by in-place updates.")
 	flag.StringVar(
@@ -339,14 +341,16 @@ func main() {
 			"agent-artifact-key-id":          agentArtifactKeyID,
 			"agent-artifact-public-key-file": agentArtifactPublicKeyFile,
 			"agent-artifact-base-url":        agentArtifactBaseURL,
-			"agent-boot-cert-file":           agentBootCertFile,
-			"agent-boot-key-file":            agentBootKeyFile,
 		}
 		for name, value := range required {
 			if value == "" {
 				setupLog.Error(nil, "Agent Artifact delivery requires a configuration value", "flag", name)
 				os.Exit(1)
 			}
+		}
+		if !agentBootAllowHTTP && (agentBootCertFile == "" || agentBootKeyFile == "") {
+			setupLog.Error(nil, "Agent Artifact delivery requires Agent boot TLS certificate and key unless HTTP boot delivery is explicitly allowed")
+			os.Exit(1)
 		}
 		if ipxeBindAddress == "0" {
 			setupLog.Error(nil, "Agent Artifact delivery requires the iPXE listener")
@@ -520,6 +524,7 @@ func main() {
 			ipxeBindAddress,
 			agentBootCertFile,
 			agentBootKeyFile,
+			agentBootAllowHTTP,
 			handler,
 		)); err != nil {
 			if closeErr := artifact.Close(); closeErr != nil {

@@ -36,7 +36,7 @@ type ScriptInput struct {
 }
 
 func BuildScript(input ScriptInput) (string, error) {
-	artifactBaseURL, err := parseHTTPSBaseURL("Artifact", input.ArtifactBaseURL)
+	artifactBaseURL, err := parseArtifactBaseURL(input.ArtifactBaseURL)
 	if err != nil {
 		return "", err
 	}
@@ -86,14 +86,36 @@ func BuildScript(input ScriptInput) (string, error) {
 	), nil
 }
 
+func parseArtifactBaseURL(value string) (*url.URL, error) {
+	parsed, err := parseBaseURL("Artifact", value)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return nil, errors.New("artifact base URL must be an HTTP(S) origin or base path")
+	}
+	return parsed, nil
+}
+
 func parseHTTPSBaseURL(name, value string) (*url.URL, error) {
+	parsed, err := parseBaseURL(name, value)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.Scheme != "https" {
+		return nil, fmt.Errorf("%s base URL must be an HTTPS origin or base path", name)
+	}
+	return parsed, nil
+}
+
+func parseBaseURL(name, value string) (*url.URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s base URL: %w", name, err)
 	}
-	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil ||
+	if parsed.Host == "" || parsed.User != nil ||
 		parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, fmt.Errorf("%s base URL must be an HTTPS origin or base path", name)
+		return nil, fmt.Errorf("%s base URL must be an origin or base path", name)
 	}
 	return parsed, nil
 }

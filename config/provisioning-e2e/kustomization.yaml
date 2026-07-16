@@ -80,13 +80,10 @@ patches:
       value: --agent-artifact-public-key-file=/etc/tart-e2e/agent-artifact-public.pem
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --agent-artifact-base-url=https://192.168.100.1:8082
+      value: --agent-artifact-base-url=http://192.168.100.1:8082
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --agent-boot-cert-file=/etc/tart-e2e/agent-tls.crt
-    - op: add
-      path: /spec/template/spec/containers/0/args/-
-      value: --agent-boot-key-file=/etc/tart-e2e/agent-tls.key
+      value: --agent-boot-allow-http
     - op: replace
       path: /spec/template/spec/containers/0/args/7
       value: --ipxe-bind-address=:8082

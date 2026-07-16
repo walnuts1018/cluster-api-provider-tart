@@ -137,9 +137,8 @@ func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
 		"--agent-artifact-root=/var/lib/tart-agent-artifact",
 		"--agent-artifact-key-id=e2e-agent-artifact",
 		"--agent-artifact-public-key-file=/etc/tart-e2e/agent-artifact-public.pem",
-		"--agent-artifact-base-url=https://192.168.100.1:8082",
-		"--agent-boot-cert-file=/etc/tart-e2e/agent-tls.crt",
-		"--agent-boot-key-file=/etc/tart-e2e/agent-tls.key",
+		"--agent-artifact-base-url=http://192.168.100.1:8082",
+		"--agent-boot-allow-http",
 		"--ipxe-bind-address=:8082",
 		"path: /spec/template/spec/containers/0/args/7",
 		"mountPath: /etc/tart-e2e",
@@ -203,8 +202,8 @@ func TestProvisioningE2EDnsmasqChainsIPXEClientsToAgentScript(t *testing.T) {
 		"--dhcp-host=00:00:5e:00:53:00,set:e2ehost0,192.168.100.93",
 		"--dhcp-host=00:00:5e:00:53:01,set:e2ehost1,192.168.100.94",
 		"--dhcp-boot=tag:!ipxe,ipxe-x86_64.efi",
-		"--dhcp-boot=tag:ipxe,tag:e2ehost0,https://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00",
-		"--dhcp-boot=tag:ipxe,tag:e2ehost1,https://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01",
+		"--dhcp-boot=tag:ipxe,tag:e2ehost0,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00",
+		"--dhcp-boot=tag:ipxe,tag:e2ehost1,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("provisioning e2e dnsmasq config missing %q", want)

@@ -43,16 +43,20 @@ func DumpClusterState(artifactDir string) error {
 		{"controllers.txt", "Controller Deployments", "kubectl", []string{"get", "deployments", "-n", "cluster-api-provider-tart-system", "-o", "yaml"}},
 		{"pods.txt", "All Pods", "kubectl", []string{"get", "pods", "--all-namespaces", "-o", "wide"}},
 		{"events.txt", "Recent Events", "kubectl", []string{"get", "events", "--all-namespaces", "--sort-by=.lastTimestamp", "-o", "yaml"}},
-		{"cluster-api.txt", "Cluster API Resources", "kubectl", []string{"get", "clusters,clustersets,machines,machineclasses,machinedeployments,machinepools,machinehealthchecksets,machinehealthchecks,kubeadmcontrolplanes,kubeadmconfigconfigs,kubeadmconfigtemplates,tartclusters,tartmachines,tartmachinetemplates", "--all-namespaces", "-o", "yaml"}},
 		{"services.txt", "Services", "kubectl", []string{"get", "services", "--all-namespaces", "-o", "wide"}},
 		{"networkpolicies.txt", "NetworkPolicies", "kubectl", []string{"get", "networkpolicies", "--all-namespaces", "-o", "wide"}},
 		{"ipaddressclaims.txt", "IPAddressClaims (Cluster API)", "kubectl", []string{"get", "ipaddressclaims", "--all-namespaces", "-o", "wide"}},
-		{"ipaddresspools.txt", "IPAddressPools (Cluster API)", "kubectl", []string{"get", "ipaddresspools", "--all-namespaces", "-o", "wide"}},
 	}
 
 	for _, dump := range dumps {
 		if err := dumpResource(dump.filename, dump.title, dump.cmd, dump.args, artifactDir); err != nil {
 			fmt.Printf("Warning: failed to dump %s: %v\n", dump.title, err)
+		}
+	}
+	clusterAPIArtifactDir := filepath.Join(artifactDir, "cluster-api")
+	for _, resource := range debugClusterAPIResources() {
+		if err := dumpResource(resource.Filename, resource.Resource, "kubectl", []string{"get", resource.Resource, "--all-namespaces", "-o", "yaml"}, clusterAPIArtifactDir); err != nil {
+			fmt.Printf("Warning: failed to dump %s: %v\n", resource.Resource, err)
 		}
 	}
 
@@ -167,7 +171,7 @@ func DumpDnsmasqState(artifactDir string) error {
 	return nil
 }
 
-// dumpResource executes a kubectl command and writes the output to a file.
+// dumpResource executes a command and writes the output to a file.
 func dumpResource(filename, title, cmd string, args []string, artifactDir string) error {
 	output, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {
@@ -175,5 +179,8 @@ func dumpResource(filename, title, cmd string, args []string, artifactDir string
 	}
 
 	filePath := filepath.Join(artifactDir, filename)
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		return fmt.Errorf("create artifact directory: %w", err)
+	}
 	return os.WriteFile(filePath, output, 0o644)
 }

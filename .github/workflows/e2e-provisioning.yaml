@@ -11,6 +11,7 @@ on:
       - "internal/**"
       - "test/e2e/provisioning/**"
       - "test/e2e/config/**"
+      - "test/utils/**"
       - "mise.toml"
       - "go.mod"
       - "go.sum"
@@ -25,6 +26,7 @@ on:
       - "internal/**"
       - "test/e2e/provisioning/**"
       - "test/e2e/config/**"
+      - "test/utils/**"
       - "mise.toml"
       - "go.mod"
       - "go.sum"
@@ -89,7 +91,25 @@ jobs:
           kubectl get events --all-namespaces --sort-by=.lastTimestamp -o yaml > "$CLUSTER_LOG_DIR/events.yaml" 2>&1 || true
 
           echo "--- Getting Cluster API resources ---"
-          kubectl get clusters,clustersets,machines,machineclasses,machinedeployments,machinepools,machinehealthchecksets,machinehealthchecks,kubeadmcontrolplanes,kubeadmconfigconfigs,kubeadmconfigtemplates,tartclusters,tartmachines,tartmachinetemplates --all-namespaces -o yaml > "$CLUSTER_LOG_DIR/cluster-api-resources.yaml" 2>&1 || true
+          mkdir -p "$CLUSTER_LOG_DIR/cluster-api"
+          for resource in \
+            clusters.cluster.x-k8s.io \
+            clusterclasses.cluster.x-k8s.io \
+            machines.cluster.x-k8s.io \
+            machinesets.cluster.x-k8s.io \
+            machinedeployments.cluster.x-k8s.io \
+            machinepools.cluster.x-k8s.io \
+            machinehealthchecks.cluster.x-k8s.io \
+            kubeadmcontrolplanes.controlplane.cluster.x-k8s.io \
+            kubeadmconfigs.bootstrap.cluster.x-k8s.io \
+            kubeadmconfigtemplates.bootstrap.cluster.x-k8s.io \
+            tartclusters.infrastructure.cluster.x-k8s.io \
+            tarthosts.infrastructure.cluster.x-k8s.io \
+            tarthostoperations.infrastructure.cluster.x-k8s.io \
+            tartmachines.infrastructure.cluster.x-k8s.io \
+            tartmachinetemplates.infrastructure.cluster.x-k8s.io; do
+            kubectl get "$resource" --all-namespaces -o yaml > "$CLUSTER_LOG_DIR/cluster-api/${resource}.yaml" 2>&1 || true
+          done
 
           echo "--- Getting services ---"
           kubectl get services --all-namespaces -o wide > "$CLUSTER_LOG_DIR/services.txt" 2>&1 || true
@@ -99,7 +119,6 @@ jobs:
 
           echo "--- Getting IP address claims and pools ---"
           kubectl get ipaddressclaims --all-namespaces -o wide > "$CLUSTER_LOG_DIR/ipaddressclaims.txt" 2>&1 || true
-          kubectl get ipaddresspools --all-namespaces -o wide > "$CLUSTER_LOG_DIR/ipaddresspools.txt" 2>&1 || true
 
           echo "--- Getting controller pod logs ---"
           for pod in $(kubectl get pods -l control-plane=controller-manager -o jsonpath='{.items[*].metadata.name}' -n cluster-api-provider-tart-system 2>/dev/null || echo ""); do

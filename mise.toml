@@ -582,10 +582,15 @@ if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then
     --port=0 \
     --dhcp-range=192.168.100.50,192.168.100.200,255.255.255.0,12h \
     --dhcp-option=option:router,192.168.100.1 \
+    --dhcp-userclass=set:ipxe,iPXE \
+    --dhcp-match=set:ipxe,175 \
+    --dhcp-host=00:00:5e:00:53:00,set:e2ehost0,192.168.100.93 \
+    --dhcp-host=00:00:5e:00:53:01,set:e2ehost1,192.168.100.94 \
     --enable-tftp \
     --tftp-root=/tmp/tftpboot \
     --dhcp-boot=tag:!ipxe,ipxe-x86_64.efi \
-    --dhcp-boot=tag:ipxe,http://192.168.100.1:8082/ipxe \
+    --dhcp-boot=tag:ipxe,tag:e2ehost0,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00 \
+    --dhcp-boot=tag:ipxe,tag:e2ehost1,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01 \
     --dhcp-leasefile=/tmp/dnsmasq.leases \
     --log-dhcp \
     --keep-in-foreground &

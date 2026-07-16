@@ -272,7 +272,7 @@ go run ./hack/artifact-oci \
 [tasks.prepare-provisioning-e2e-artifact]
 description = "Provisioning E2E用の署名済みOS Artifactとmanager鍵Secret入力を生成する"
 run = '''
-set -euo pipefail
+set -eu
 
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
 registry_name="${PROVISIONING_E2E_REGISTRY_NAME:-capt-e2e-registry-55000}"

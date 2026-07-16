@@ -417,9 +417,19 @@ for device in /sys/class/block/*; do
   ln -sf "../../$name" "/dev/disk/by-id/virtio-$serial"
 done
 
+system_uuid=""
+for arg in $(cat /proc/cmdline); do
+  case "$arg" in
+    tart.agent.host-uid=*)
+      system_uuid="${arg#tart.agent.host-uid=}"
+      ;;
+  esac
+done
+
 echo "tart e2e provisioning-agent preflight starting"
 /bin/provisioning-agent \
   --preflight-only \
+  --system-uuid="$system_uuid" \
   --tls-ca-file=/etc/tart/agent-tls.crt \
   --plan-key-id=e2e-agent-plan \
   --plan-key-file=/etc/tart/agent-plan-public.pem

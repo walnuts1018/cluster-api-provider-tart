@@ -25,10 +25,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/cluster-api/test/framework"
 	"sigs.k8s.io/cluster-api/test/framework/bootstrap"
@@ -86,6 +88,9 @@ var _ = BeforeSuite(func() {
 
 	By("Initializing the bootstrap cluster")
 	initBootstrapCluster(bootstrapClusterProxy, e2eConfig, clusterctlConfigPath, artifactsFolder)
+
+	By("Waiting for CAPI provider webhooks to become ready")
+	waitForProviderWebhooksReady(bootstrapClusterProxy)
 })
 
 var _ = AfterSuite(func() {
@@ -140,6 +145,74 @@ func initBootstrapCluster(bootstrapClusterProxy framework.ClusterProxy, e2eConfi
 		InfrastructureProviders: e2eConfig.InfrastructureProviders(),
 		LogFolder:               filepath.Join(artifactFolder, "clusters", bootstrapClusterProxy.GetName()),
 	}, e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-controllers")...)
+}
+
+func waitForProviderWebhooksReady(bootstrapClusterProxy framework.ClusterProxy) {
+	webhooks := []providerWebhook{
+		{
+			namespace:  "capi-system",
+			service:    "capi-webhook-service",
+			mutating:   "capi-mutating-webhook-configuration",
+			validating: "capi-validating-webhook-configuration",
+		},
+		{
+			namespace:  "capi-kubeadm-bootstrap-system",
+			service:    "capi-kubeadm-bootstrap-webhook-service",
+			mutating:   "capi-kubeadm-bootstrap-mutating-webhook-configuration",
+			validating: "capi-kubeadm-bootstrap-validating-webhook-configuration",
+		},
+		{
+			namespace:  "capi-kubeadm-control-plane-system",
+			service:    "capi-kubeadm-control-plane-webhook-service",
+			mutating:   "capi-kubeadm-control-plane-mutating-webhook-configuration",
+			validating: "capi-kubeadm-control-plane-validating-webhook-configuration",
+		},
+	}
+
+	clientSet := bootstrapClusterProxy.GetClientSet()
+	Eventually(func(g Gomega) {
+		for _, webhook := range webhooks {
+			slices, err := clientSet.DiscoveryV1().EndpointSlices(webhook.namespace).List(ctx, metav1.ListOptions{
+				LabelSelector: "kubernetes.io/service-name=" + webhook.service,
+			})
+			g.Expect(err).NotTo(HaveOccurred(), "Webhook endpoint slices should be readable for %s/%s", webhook.namespace, webhook.service)
+			g.Expect(slices.Items).NotTo(BeEmpty(), "Webhook endpoint slices should exist for %s/%s", webhook.namespace, webhook.service)
+
+			hasReadyEndpoint := false
+			for _, slice := range slices.Items {
+				for _, endpoint := range slice.Endpoints {
+					if endpoint.Conditions.Ready != nil && !*endpoint.Conditions.Ready {
+						continue
+					}
+					if len(endpoint.Addresses) > 0 {
+						hasReadyEndpoint = true
+					}
+				}
+			}
+			g.Expect(hasReadyEndpoint).To(BeTrue(), "Webhook endpoints should be ready for %s/%s", webhook.namespace, webhook.service)
+
+			mutating, err := clientSet.AdmissionregistrationV1().MutatingWebhookConfigurations().Get(ctx, webhook.mutating, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred(), "MutatingWebhookConfiguration should exist: %s", webhook.mutating)
+			g.Expect(mutating.Webhooks).NotTo(BeEmpty(), "MutatingWebhookConfiguration should have webhooks: %s", webhook.mutating)
+			for _, entry := range mutating.Webhooks {
+				g.Expect(entry.ClientConfig.CABundle).NotTo(BeEmpty(), "Mutating webhook CA bundle should be injected: %s/%s", webhook.mutating, entry.Name)
+			}
+
+			validating, err := clientSet.AdmissionregistrationV1().ValidatingWebhookConfigurations().Get(ctx, webhook.validating, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred(), "ValidatingWebhookConfiguration should exist: %s", webhook.validating)
+			g.Expect(validating.Webhooks).NotTo(BeEmpty(), "ValidatingWebhookConfiguration should have webhooks: %s", webhook.validating)
+			for _, entry := range validating.Webhooks {
+				g.Expect(entry.ClientConfig.CABundle).NotTo(BeEmpty(), "Validating webhook CA bundle should be injected: %s/%s", webhook.validating, entry.Name)
+			}
+		}
+	}, 3*time.Minute, 2*time.Second).Should(Succeed())
+}
+
+type providerWebhook struct {
+	namespace  string
+	service    string
+	mutating   string
+	validating string
 }
 
 func tearDown(bootstrapClusterProvider bootstrap.ClusterProvider, bootstrapClusterProxy framework.ClusterProxy) {

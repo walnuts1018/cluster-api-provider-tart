@@ -36,6 +36,7 @@ go.work.sum
 .cache/
 .worktree/
 dist/
+config/provisioning-e2e/generated/
 
 # OS Artifact build outputs and downloaded locked packages
 artifact/mkosi/mkosi.cache/

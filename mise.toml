@@ -269,6 +269,71 @@ go run ./hack/artifact-oci \
   -provenance "$ARTIFACT_PROVENANCE"
 '''
 
+[tasks.prepare-provisioning-e2e-artifact]
+description = "Provisioning E2E用の署名済みOS Artifactとmanager鍵Secret入力を生成する"
+run = '''
+set -euo pipefail
+
+CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
+registry_name="${PROVISIONING_E2E_REGISTRY_NAME:-capt-e2e-registry-55000}"
+registry_host="${PROVISIONING_E2E_REGISTRY_HOST:-127.0.0.1:55000}"
+output_dir="${PROVISIONING_E2E_OUTPUT_DIR:-dist/provisioning-e2e}"
+generated_dir="config/provisioning-e2e/generated"
+artifact_dir="$output_dir/artifact"
+
+if ! "$CONTAINER_TOOL" container inspect "$registry_name" >/dev/null 2>&1; then
+  "$CONTAINER_TOOL" run -d -p "${registry_host#*:}:5000" --restart=always --name "$registry_name" registry:2 >/dev/null
+elif ! "$CONTAINER_TOOL" ps --filter "name=$registry_name" --filter "status=running" --quiet | grep -q .; then
+  "$CONTAINER_TOOL" start "$registry_name" >/dev/null
+fi
+
+mkdir -p "$output_dir" "$generated_dir" "$artifact_dir"
+if [ ! -f "$output_dir/os-artifact-private.pem" ]; then
+  openssl genpkey -algorithm Ed25519 -out "$output_dir/os-artifact-private.pem"
+fi
+if [ ! -f "$generated_dir/os-artifact-public.pem" ]; then
+  openssl pkey -in "$output_dir/os-artifact-private.pem" -pubout -out "$generated_dir/os-artifact-public.pem"
+fi
+if [ ! -f "$generated_dir/agent-plan-private.pem" ]; then
+  openssl genpkey -algorithm Ed25519 -out "$generated_dir/agent-plan-private.pem"
+fi
+
+printf 'provisioning e2e os image\n' > "$output_dir/os.img"
+printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
+printf 'provisioning e2e kernel\n' > "$output_dir/vmlinuz"
+printf 'provisioning e2e initrd\n' > "$output_dir/initrd"
+printf '{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}\n' > "$output_dir/sbom.cdx.json"
+printf '{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}\n' > "$output_dir/provenance.intoto.json"
+
+ARTIFACT_IMAGE="$output_dir/os.img" \
+ARTIFACT_VERITY="$output_dir/os.verity" \
+ARTIFACT_KERNEL="$output_dir/vmlinuz" \
+ARTIFACT_INITRD="$output_dir/initrd" \
+ARTIFACT_VERITY_ROOT_HASH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+ARTIFACT_SIGNING_KEY="$output_dir/os-artifact-private.pem" \
+ARTIFACT_SIGNING_KEY_ID="e2e-os-artifact" \
+ARTIFACT_OUTPUT_DIR="$artifact_dir" \
+  mise run artifact-manifest
+
+artifact_ref="$(
+  ARTIFACT_REPOSITORY="$registry_host/tart/ubuntu" \
+  ARTIFACT_TAG="e2e" \
+  ARTIFACT_IMAGE="$output_dir/os.img" \
+  ARTIFACT_VERITY="$output_dir/os.verity" \
+  ARTIFACT_KERNEL="$output_dir/vmlinuz" \
+  ARTIFACT_INITRD="$output_dir/initrd" \
+  ARTIFACT_SBOM="$output_dir/sbom.cdx.json" \
+  ARTIFACT_PROVENANCE="$output_dir/provenance.intoto.json" \
+  ARTIFACT_OUTPUT_DIR="$artifact_dir" \
+    mise run artifact-push | tail -n 1
+)"
+
+{
+  printf 'OS_ARTIFACT_REF=%s\n' "$artifact_ref"
+  printf 'OS_ARTIFACT_REGISTRY=%s\n' "$registry_host"
+} > "$output_dir/env"
+'''
+
 [tasks.artifact-provenance]
 description = "Artifact Manifestとlock fileからSLSA provenanceを生成する"
 run = '''
@@ -420,6 +485,7 @@ kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
 run = '''
 IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+mise run prepare-provisioning-e2e-artifact
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
@@ -505,6 +571,9 @@ IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
 mise run setup-test-provisioning-k3s
 mise run build-installer-e2e
+set -a
+. "${PROVISIONING_E2E_OUTPUT_DIR:-dist/provisioning-e2e}/env"
+set +a
 "$CONTAINER_TOOL" build -t "$IMG" .
 # Load image into k3s to ensure it's available locally
 if command -v k3s &> /dev/null; then

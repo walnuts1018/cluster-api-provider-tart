@@ -4,6 +4,15 @@ kind: Kustomization
 resources:
 - ../external-bootstrap
 
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+- name: e2e-provisioning-keys
+  files:
+  - os-artifact-public.pem=generated/os-artifact-public.pem
+  - agent-plan-private.pem=generated/agent-plan-private.pem
+
 images:
 - name: controller
   newName: ghcr.io/walnuts1018/cluster-api-provider-tart
@@ -23,10 +32,28 @@ patches:
       value: ClusterFirstWithHostNet
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --bootstrap-bind-address=0
+      value: --os-artifact-key-id=e2e-os-artifact
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --tftp-bind-address=0
+      value: --os-artifact-public-key-file=/etc/tart-e2e/os-artifact-public.pem
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-plan-key-id=e2e-agent-plan
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem
+    - op: add
+      path: /spec/template/spec/containers/0/volumeMounts/-
+      value:
+        name: e2e-provisioning-keys
+        mountPath: /etc/tart-e2e
+        readOnly: true
+    - op: add
+      path: /spec/template/spec/volumes/-
+      value:
+        name: e2e-provisioning-keys
+        secret:
+          secretName: e2e-provisioning-keys
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy
       value: IfNotPresent

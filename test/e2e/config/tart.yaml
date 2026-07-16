@@ -50,6 +50,8 @@ variables:
   CLUSTER_NAME: "tart-test"
   CONTROL_PLANE_MACHINE_COUNT: "1"
   WORKER_MACHINE_COUNT: "1"
+  OS_ARTIFACT_REF: "${OS_ARTIFACT_REF}"
+  OS_ARTIFACT_REGISTRY: "${OS_ARTIFACT_REGISTRY}"
 
 intervals:
   default/wait-controllers: ["3m", "10s"]

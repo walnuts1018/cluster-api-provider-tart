@@ -108,6 +108,46 @@ func TestManagerRoleAllowsTartMachineMetadataPatch(t *testing.T) {
 	}
 }
 
+func TestProvisioningE2EOverlayConfiguresInitialProvisioning(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "provisioning-e2e", "kustomization.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read provisioning e2e kustomization: %v", err)
+	}
+
+	text := string(data)
+	for _, want := range []string{
+		"e2e-provisioning-keys",
+		"os-artifact-public.pem=generated/os-artifact-public.pem",
+		"agent-plan-private.pem=generated/agent-plan-private.pem",
+		"--os-artifact-key-id=e2e-os-artifact",
+		"--os-artifact-public-key-file=/etc/tart-e2e/os-artifact-public.pem",
+		"--agent-plan-key-id=e2e-agent-plan",
+		"--agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem",
+		"mountPath: /etc/tart-e2e",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("provisioning e2e overlay missing %q", want)
+		}
+	}
+}
+
+func TestProvisioningE2EClusterctlConfigAcceptsGeneratedArtifactRef(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "test", "e2e", "config", "tart.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read provisioning e2e clusterctl config: %v", err)
+	}
+
+	text := string(data)
+	for _, want := range []string{
+		`OS_ARTIFACT_REF: "${OS_ARTIFACT_REF}"`,
+		`OS_ARTIFACT_REGISTRY: "${OS_ARTIFACT_REGISTRY}"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("provisioning e2e clusterctl config missing %q", want)
+		}
+	}
+}
+
 func findPolicyRule(rules []rbacv1.PolicyRule, apiGroup, resource string) *rbacv1.PolicyRule {
 	for i := range rules {
 		rule := &rules[i]

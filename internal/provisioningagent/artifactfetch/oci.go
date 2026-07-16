@@ -25,6 +25,7 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/artifactoci"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/ociremote"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
 	"oras.land/oras-go/v2/content"
@@ -78,7 +79,8 @@ func NewOCI(trustStore artifact.TrustStore, credential auth.CredentialFunc) (*OC
 			if err != nil {
 				return nil, err
 			}
-			if credential != nil {
+			ociremote.AllowLoopbackPlainHTTP(repo)
+			if credential != nil && !ociremote.IsLoopbackRegistry(repo.Reference.Registry) {
 				repo.Client = &auth.Client{
 					Client:     orasretry.DefaultClient,
 					Cache:      auth.NewCache(),

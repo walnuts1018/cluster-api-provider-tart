@@ -23,6 +23,7 @@ import (
 	"os"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/artifactoci"
+	"github.com/walnuts1018/cluster-api-provider-tart/internal/ociremote"
 	oras "oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/file"
 	"oras.land/oras-go/v2/registry/remote"
@@ -97,13 +98,16 @@ func push(ctx context.Context, opts options) (reference string, err error) {
 	if err != nil {
 		return "", fmt.Errorf("create remote repository: %w", err)
 	}
-	repository.Client = &auth.Client{
-		Client: retry.DefaultClient,
-		Cache:  auth.NewCache(),
-		Credential: auth.StaticCredential(repository.Reference.Registry, auth.Credential{
-			Username: opts.username,
-			Password: opts.password,
-		}),
+	ociremote.AllowLoopbackPlainHTTP(repository)
+	if !ociremote.IsLoopbackRegistry(repository.Reference.Registry) {
+		repository.Client = &auth.Client{
+			Client: retry.DefaultClient,
+			Cache:  auth.NewCache(),
+			Credential: auth.StaticCredential(repository.Reference.Registry, auth.Credential{
+				Username: opts.username,
+				Password: opts.password,
+			}),
+		}
 	}
 
 	published, err := oras.Copy(ctx, store, opts.tag, repository, opts.tag, oras.DefaultCopyOptions)

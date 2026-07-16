@@ -34,7 +34,8 @@ func buildOperationDraft(
 	host *infrastructurev1beta1.TartHost,
 	planDigest string,
 ) (*infrastructurev1beta1.TartHostOperation, error) {
-	return buildOperationDraftWithDeadline(machine, host, planDigest, metav1.NewTime(time.Now().Add(defaultOperationDeadline)))
+	deadline := metav1.NewTime(time.Now().UTC().Truncate(time.Second).Add(defaultOperationDeadline))
+	return buildOperationDraftWithDeadline(machine, host, planDigest, deadline)
 }
 
 func buildOperationDraftWithDeadline(

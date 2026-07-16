@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -165,6 +166,37 @@ func TestWorkflowPersistsProvisionPlanAfterOperationStart(t *testing.T) {
 		agentprotocol.StaticTrustStore{signer.KeyID: signer.PrivateKey.Public().(ed25519.PublicKey)},
 	); err != nil {
 		t.Fatalf("VerifySignature() error = %v", err)
+	}
+}
+
+func TestWorkflowAcceptsAPIServerDeadlinePrecisionOnOperationStart(t *testing.T) {
+	t.Parallel()
+
+	signer := testPlanSigner(t)
+	writer := &recordingPlanWriter{}
+	host := matchingProvisionHost()
+	host.Labels = map[string]string{"rack": "a"}
+	workflow := NewWorkflow(
+		hostReserveStub{host: host},
+		hostPhaseStub{},
+		&operationServiceStub{truncateDeadlineToSecond: true},
+		writer,
+		signer,
+	)
+
+	result, err := workflow.Start(t.Context(), WorkflowInput{
+		Machine:    testMachine(),
+		MachineUID: "capi-machine-uid",
+		Manifest:   validatedProvisionManifest(t),
+	})
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if _, ok := result.(Started); !ok {
+		t.Fatalf("Start() result = %T, want Started", result)
+	}
+	if writer.calls != 1 {
+		t.Fatalf("PlanWriter calls = %d, want 1", writer.calls)
 	}
 }
 
@@ -335,10 +367,11 @@ func (s hostPhaseStub) MarkHostProvisioned(
 }
 
 type operationServiceStub struct {
-	operation         *infrastructurev1beta1.TartHostOperation
-	err               error
-	completeProvision func()
-	startCalls        int
+	operation                *infrastructurev1beta1.TartHostOperation
+	err                      error
+	completeProvision        func()
+	truncateDeadlineToSecond bool
+	startCalls               int
 }
 
 func (s *operationServiceStub) Start(
@@ -353,6 +386,9 @@ func (s *operationServiceStub) Start(
 		return s.operation, nil
 	}
 	started := desired.DeepCopy()
+	if s.truncateDeadlineToSecond {
+		started.Spec.Deadline.Time = started.Spec.Deadline.Time.UTC().Truncate(time.Second)
+	}
 	name, err := operationdomain.ResourceName(string(desired.Spec.HostRef.UID))
 	if err != nil {
 		return nil, err

@@ -139,7 +139,7 @@ func (workflow *Workflow) Start(ctx context.Context, input WorkflowInput) (Start
 		return nil, fmt.Errorf("mark TartHost reserved: %w", err)
 	}
 
-	deadline := time.Now().Add(defaultOperationDeadline)
+	deadline := metav1.NewTime(time.Now().UTC().Truncate(time.Second).Add(defaultOperationDeadline))
 	operationID, err := deterministicOperationUID(allocationResult.Host, input.Machine)
 	if err != nil {
 		return nil, err
@@ -149,13 +149,13 @@ func (workflow *Workflow) Start(ctx context.Context, input WorkflowInput) (Start
 		Host:        allocationResult.Host,
 		Machine:     input.Machine,
 		MachineUID:  input.MachineUID,
-		Deadline:    deadline,
+		Deadline:    deadline.Time,
 		Manifest:    input.Manifest,
 	}, workflow.signer.KeyID, workflow.signer.PrivateKey)
 	if err != nil {
 		return nil, err
 	}
-	desired, err := buildOperationDraftWithDeadline(input.Machine, allocationResult.Host, candidatePlan.Digest.String(), metav1.NewTime(deadline))
+	desired, err := buildOperationDraftWithDeadline(input.Machine, allocationResult.Host, candidatePlan.Digest.String(), deadline)
 	if err != nil {
 		return nil, err
 	}

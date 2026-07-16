@@ -4,8 +4,8 @@
     {
       "name": "ipxeboot.tar.gz",
       "url": "https://boot.ipxe.org/ipxeboot.tar.gz",
-      "sizeBytes": 12971611,
-      "sha256": "1019409d8f0911a3024d746b4cf996ac2f5a1eba30a4e7fa4b224c9877e443b3"
+      "sizeBytes": 12981067,
+      "sha256": "7875db63bbe9b25880fd588a6f89dfb40816015003960635a648746dbb4b6cee"
     }
   ]
 }

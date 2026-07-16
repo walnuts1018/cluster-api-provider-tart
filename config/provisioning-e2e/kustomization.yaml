@@ -12,6 +12,15 @@ secretGenerator:
   files:
   - os-artifact-public.pem=generated/os-artifact-public.pem
   - agent-plan-private.pem=generated/agent-plan-private.pem
+  - agent-artifact-public.pem=generated/agent-artifact-public.pem
+  - agent-tls.crt=generated/agent-tls.crt
+  - agent-tls.key=generated/agent-tls.key
+- name: e2e-agent-artifact
+  files:
+  - manifest.json=generated/agent-artifact/manifest.json
+  - manifest.signature.json=generated/agent-artifact/manifest.signature.json
+  - vmlinuz=generated/agent-artifact/vmlinuz
+  - initrd=generated/agent-artifact/initrd
 
 images:
 - name: controller
@@ -45,6 +54,39 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --agent-plan-private-key-file=/etc/tart-e2e/agent-plan-private.pem
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-api-bind-address=:8444
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-api-cert-file=/etc/tart-e2e/agent-tls.crt
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-api-key-file=/etc/tart-e2e/agent-tls.key
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-api-url=https://192.168.100.1:8444
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-api-allow-isolated-l2
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-artifact-root=/var/lib/tart-agent-artifact
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-artifact-key-id=e2e-agent-artifact
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-artifact-public-key-file=/etc/tart-e2e/agent-artifact-public.pem
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-artifact-base-url=https://192.168.100.1:8082
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-boot-cert-file=/etc/tart-e2e/agent-tls.crt
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --agent-boot-key-file=/etc/tart-e2e/agent-tls.key
     - op: replace
       path: /spec/template/spec/containers/0/args/7
       value: --ipxe-bind-address=:8082
@@ -55,11 +97,24 @@ patches:
         mountPath: /etc/tart-e2e
         readOnly: true
     - op: add
+      path: /spec/template/spec/containers/0/volumeMounts/-
+      value:
+        name: e2e-agent-artifact
+        mountPath: /var/lib/tart-agent-artifact
+        readOnly: true
+    - op: add
       path: /spec/template/spec/volumes/-
       value:
         name: e2e-provisioning-keys
         secret:
           secretName: e2e-provisioning-keys
+          defaultMode: 0440
+    - op: add
+      path: /spec/template/spec/volumes/-
+      value:
+        name: e2e-agent-artifact
+        secret:
+          secretName: e2e-agent-artifact
           defaultMode: 0440
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy

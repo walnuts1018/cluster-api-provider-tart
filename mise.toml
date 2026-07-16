@@ -282,6 +282,7 @@ registry_host="${PROVISIONING_E2E_REGISTRY_HOST:-127.0.0.1:55000}"
 output_dir="${PROVISIONING_E2E_OUTPUT_DIR:-dist/provisioning-e2e}"
 generated_dir="config/provisioning-e2e/generated"
 artifact_dir="$output_dir/artifact"
+agent_artifact_dir="$generated_dir/agent-artifact"
 
 if ! "$CONTAINER_TOOL" container inspect "$registry_name" >/dev/null 2>&1; then
   "$CONTAINER_TOOL" run -d -p "${registry_host#*:}:5000" --restart=always --name "$registry_name" registry:2 >/dev/null
@@ -289,7 +290,7 @@ elif ! "$CONTAINER_TOOL" ps --filter "name=$registry_name" --filter "status=runn
   "$CONTAINER_TOOL" start "$registry_name" >/dev/null
 fi
 
-mkdir -p "$output_dir" "$generated_dir" "$artifact_dir"
+mkdir -p "$output_dir" "$generated_dir" "$artifact_dir" "$agent_artifact_dir"
 if [ ! -f "$output_dir/os-artifact-private.pem" ]; then
   openssl genpkey -algorithm Ed25519 -out "$output_dir/os-artifact-private.pem"
 fi
@@ -299,6 +300,23 @@ fi
 if [ ! -f "$generated_dir/agent-plan-private.pem" ]; then
   openssl genpkey -algorithm Ed25519 -out "$generated_dir/agent-plan-private.pem"
 fi
+if [ ! -f "$output_dir/agent-artifact-private.pem" ]; then
+  openssl genpkey -algorithm Ed25519 -out "$output_dir/agent-artifact-private.pem"
+fi
+openssl pkey \
+  -in "$output_dir/agent-artifact-private.pem" \
+  -pubout \
+  -out "$generated_dir/agent-artifact-public.pem"
+openssl req \
+  -x509 \
+  -newkey rsa:2048 \
+  -sha256 \
+  -nodes \
+  -days 1 \
+  -subj "/CN=192.168.100.1" \
+  -addext "subjectAltName=IP:192.168.100.1,DNS:hoge.test.walnuts.dev" \
+  -keyout "$generated_dir/agent-tls.key" \
+  -out "$generated_dir/agent-tls.crt"
 
 printf 'provisioning e2e os image\n' > "$output_dir/os.img"
 printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
@@ -306,6 +324,8 @@ printf 'provisioning e2e kernel\n' > "$output_dir/vmlinuz"
 printf 'provisioning e2e initrd\n' > "$output_dir/initrd"
 printf '{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}\n' > "$output_dir/sbom.cdx.json"
 printf '{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}\n' > "$output_dir/provenance.intoto.json"
+printf 'provisioning e2e agent kernel\n' > "$agent_artifact_dir/vmlinuz"
+printf 'provisioning e2e agent initrd\n' > "$agent_artifact_dir/initrd"
 
 ARTIFACT_IMAGE="$output_dir/os.img" \
 ARTIFACT_VERITY="$output_dir/os.verity" \
@@ -329,6 +349,14 @@ artifact_ref="$(
   ARTIFACT_OUTPUT_DIR="$artifact_dir" \
     mise run artifact-push | tail -n 1
 )"
+
+AGENT_ARTIFACT_REFERENCE="oci://$registry_host/tart/provisioning-agent@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
+AGENT_ARTIFACT_KERNEL="$agent_artifact_dir/vmlinuz" \
+AGENT_ARTIFACT_INITRD="$agent_artifact_dir/initrd" \
+AGENT_ARTIFACT_SIGNING_KEY="$output_dir/agent-artifact-private.pem" \
+AGENT_ARTIFACT_SIGNING_KEY_ID="e2e-agent-artifact" \
+AGENT_ARTIFACT_OUTPUT_DIR="$agent_artifact_dir" \
+  mise run agent-artifact-manifest
 
 {
   printf 'OS_ARTIFACT_REF=%s\n' "$artifact_ref"

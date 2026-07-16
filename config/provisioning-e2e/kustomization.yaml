@@ -54,6 +54,7 @@ patches:
         name: e2e-provisioning-keys
         secret:
           secretName: e2e-provisioning-keys
+          defaultMode: 0400
     - op: add
       path: /spec/template/spec/containers/0/imagePullPolicy
       value: IfNotPresent

@@ -183,6 +183,10 @@ func verify(ctx context.Context, cfg config) error {
 	if err != nil {
 		return err
 	}
+	firstBootDropInPath, err := writeTextFile(filepath.Join(cfg.workDir, "qemu-firstboot.conf"), qemuFirstBootDropIn())
+	if err != nil {
+		return err
+	}
 
 	if err := injectTrustMaterial(ctx, osTestImagePath, cfg.workDir,
 		injectedFile{
@@ -200,6 +204,10 @@ func verify(ctx context.Context, cfg config) error {
 		injectedFile{
 			sourcePath: artifactGenerationPath,
 			targetPath: "/etc/tart/artifact-generation",
+		},
+		injectedFile{
+			sourcePath: firstBootDropInPath,
+			targetPath: "/etc/systemd/system/tart-first-boot.service.d/10-qemu-smoke.conf",
 		},
 	); err != nil {
 		return err
@@ -471,6 +479,15 @@ func writeTextFile(path, content string) (string, error) {
 		return "", fmt.Errorf("write %s: %w", path, err)
 	}
 	return path, nil
+}
+
+func qemuFirstBootDropIn() string {
+	return strings.Join([]string{
+		"[Service]",
+		"Environment=TART_STATE_DIR=/run/tart/state",
+		"Environment=TART_BOOTSTRAP_ADAPTER=/bin/true",
+		"",
+	}, "\n")
 }
 
 func buildSignedPlan(

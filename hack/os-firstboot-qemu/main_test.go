@@ -160,6 +160,20 @@ func TestWriteTextFileは内容を書き出す(t *testing.T) {
 	}
 }
 
+func TestQEMUFirstBootDropInはReadOnlyRoot向けの一時Stateを使う(t *testing.T) {
+	got := qemuFirstBootDropIn()
+
+	for _, want := range []string{
+		"[Service]",
+		"Environment=TART_STATE_DIR=/run/tart/state",
+		"Environment=TART_BOOTSTRAP_ADAPTER=/bin/true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("qemuFirstBootDropIn() does not contain %q\n%s", want, got)
+		}
+	}
+}
+
 func TestReadLogTailは直近80行を返す(t *testing.T) {
 	lines := make([]string, 0, 90)
 	for i := range 90 {

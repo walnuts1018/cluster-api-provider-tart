@@ -77,6 +77,23 @@ func TestCloudConfigAdapterはCABPKPayloadをNoCloudDatasourceとして適用す
 	}
 }
 
+func TestRepartVerityHashはDataPartitionの最小化設定と対応する(t *testing.T) {
+	root := readText(t, "mkosi.repart/10-root.conf")
+	verity := readText(t, "mkosi.repart/20-root-verity.conf")
+
+	if !strings.Contains(root, "Verity=data") || !strings.Contains(root, "VerityMatchKey=root") {
+		t.Fatalf("root partition must be paired with the verity hash partition\n%s", root)
+	}
+	if !strings.Contains(verity, "Verity=hash") || !strings.Contains(verity, "VerityMatchKey=root") {
+		t.Fatalf("verity partition must be paired with the root data partition\n%s", verity)
+	}
+	if strings.Contains(verity, "Minimize=") &&
+		!strings.Contains(root, "Minimize=") &&
+		!strings.Contains(root, "CopyBlocks=") {
+		t.Fatalf("verity hash partition minimization requires root partition Minimize or CopyBlocks\nroot:\n%s\nverity:\n%s", root, verity)
+	}
+}
+
 func readText(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

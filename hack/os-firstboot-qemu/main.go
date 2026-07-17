@@ -531,7 +531,7 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 	if err != nil {
 		return err
 	}
-	firstBootObservation, err := waitForBootTrialMetadataWrite(ctx, firstBootSerialLogPath)
+	firstBootObservation, err := waitForBootTrialMetadataWrite(ctx, metadataDiskPath)
 	if stopErr := firstBootQEMU.stop(); stopErr != nil {
 		slog.Warn("Failed to stop QEMU after metadata write", "error", stopErr)
 	}
@@ -1628,9 +1628,9 @@ func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObse
 	}
 }
 
-func waitForBootTrialMetadataWrite(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
+func waitForBootTrialMetadataWrite(ctx context.Context, metadataDiskPath string) (bootTrialMetadataObservation, error) {
 	deadline := time.Now().Add(10 * time.Second)
-	if value, ok := bootTrialMetadataWriteFromLog(serialLogPath); ok {
+	if value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath); ok {
 		return value, nil
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -1639,14 +1639,14 @@ func waitForBootTrialMetadataWrite(ctx context.Context, serialLogPath string) (b
 	for {
 		select {
 		case <-ctx.Done():
-			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence in the serial log")
+			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence on the metadata disk")
 		case <-ticker.C:
-			value, ok := bootTrialMetadataWriteFromLog(serialLogPath)
+			value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath)
 			if ok {
 				return value, nil
 			}
 			if time.Now().After(deadline) {
-				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence in the serial log")
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence on the metadata disk")
 			}
 		}
 	}
@@ -1707,6 +1707,18 @@ func bootTrialMetadataWriteFromLog(path string) (bootTrialMetadataObservation, b
 
 func bootTrialMetadataReadFromLog(path string) (bootTrialMetadataObservation, bool) {
 	return bootTrialMetadataFromLog(path, serialMarkerBootMetadataRead, false)
+}
+
+func bootTrialMetadataWriteFromDisk(path string) (bootTrialMetadataObservation, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return bootTrialMetadataObservation{}, false
+	}
+	record, err := parseBootTrialMetadataRecord(strings.TrimSpace(strings.TrimRight(string(data), "\x00")))
+	if err != nil {
+		return bootTrialMetadataObservation{}, false
+	}
+	return bootTrialMetadataObservation{Record: record}, true
 }
 
 func bootTrialMetadataFromLog(path, recordMarker string, requireSync bool) (bootTrialMetadataObservation, bool) {

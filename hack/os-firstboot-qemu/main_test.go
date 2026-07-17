@@ -177,6 +177,29 @@ func TestBootEntrySelectionFromLogは選択されたEntryを読む(t *testing.T)
 	}
 }
 
+func TestBootTrialMetadataWriteFromDiskはゼロ埋めrawからJSONを読む(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "boot-metadata.raw")
+	recordJSON := mustJSON(bootTrialMetadataRecord{
+		ActiveSlot:         "B",
+		TargetSlot:         "B",
+		RollbackSlot:       "A",
+		ArtifactGeneration: 2,
+		RemainingAttempts:  2,
+	})
+	data := append([]byte(recordJSON), make([]byte, 256-len(recordJSON))...)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, ok := bootTrialMetadataWriteFromDisk(path)
+	if !ok {
+		t.Fatal("bootTrialMetadataWriteFromDisk() = not found, want persisted record")
+	}
+	if got.Record.ActiveSlot != "B" || got.Record.RemainingAttempts != 2 {
+		t.Fatalf("bootTrialMetadataWriteFromDisk() = %+v", got.Record)
+	}
+}
+
 func TestWriteTextFileは内容を書き出す(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample.txt")
 

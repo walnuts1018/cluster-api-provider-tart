@@ -1720,13 +1720,13 @@ func rootObservationFromLog(path string) (rootObservation, bool, bool) {
 
 	for _, line := range lines {
 		switch {
-		case strings.HasPrefix(line, serialMarkerRootSource):
-			observed.Source = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootSource))
+		case strings.Contains(line, serialMarkerRootSource):
+			observed.Source = markerPayload(line, serialMarkerRootSource)
 			hasSource = true
-		case strings.HasPrefix(line, serialMarkerRootOptions):
-			observed.Options = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootOptions))
-		case strings.HasPrefix(line, serialMarkerRootReadOnly):
-			observed.MountedReadOnly = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootReadOnly)) == "true"
+		case strings.Contains(line, serialMarkerRootOptions):
+			observed.Options = markerPayload(line, serialMarkerRootOptions)
+		case strings.Contains(line, serialMarkerRootReadOnly):
+			observed.MountedReadOnly = markerPayload(line, serialMarkerRootReadOnly) == "true"
 			hasReadOnly = true
 		}
 	}
@@ -1765,18 +1765,26 @@ func bootTrialMetadataFromLog(path, recordMarker string, requireSync bool) (boot
 
 	for _, line := range lines {
 		switch {
-		case strings.HasPrefix(line, recordMarker):
-			record, err := parseBootTrialMetadataRecord(strings.TrimSpace(strings.TrimPrefix(line, recordMarker)))
+		case strings.Contains(line, recordMarker):
+			record, err := parseBootTrialMetadataRecord(markerPayload(line, recordMarker))
 			if err != nil {
 				return bootTrialMetadataObservation{}, false
 			}
 			observation.Record = record
 			hasRecord = true
-		case requireSync && strings.HasPrefix(line, serialMarkerBootMetadataSynced):
-			hasSync = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerBootMetadataSynced)) == "true"
+		case requireSync && strings.Contains(line, serialMarkerBootMetadataSynced):
+			hasSync = markerPayload(line, serialMarkerBootMetadataSynced) == "true"
 		}
 	}
 	return observation, hasRecord && hasSync
+}
+
+func markerPayload(line, marker string) string {
+	_, after, ok := strings.Cut(line, marker)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(after)
 }
 
 func parseBootTrialMetadataRecord(raw string) (bootTrialMetadataRecord, error) {
@@ -1817,8 +1825,8 @@ func bootEntrySelectionFromLog(path string) (bootEntrySelectionObservation, bool
 		return bootEntrySelectionObservation{}, false
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if after, ok := strings.CutPrefix(line, serialMarkerBootEntrySelected); ok {
-			selectedEntry := strings.TrimSpace(after)
+		if strings.Contains(line, serialMarkerBootEntrySelected) {
+			selectedEntry := markerPayload(line, serialMarkerBootEntrySelected)
 			if selectedEntry == "" {
 				return bootEntrySelectionObservation{}, false
 			}

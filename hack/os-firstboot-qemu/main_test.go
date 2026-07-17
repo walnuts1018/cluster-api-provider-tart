@@ -165,7 +165,7 @@ func TestParseConfigは未知のScenarioを拒否する(t *testing.T) {
 
 func TestBootEntrySelectionFromLogは選択されたEntryを読む(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serial.log")
-	if err := os.WriteFile(path, []byte(serialMarkerBootEntrySelected+"rollback\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("systemd[1]: "+serialMarkerBootEntrySelected+"rollback\n"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 
@@ -259,9 +259,9 @@ func TestVerifyBootReportはReadOnlyRoot起動後の基本状態を受け入れ�
 func TestRootObservationFromLogはReadOnlyRoot証跡を読む(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serial.log")
 	logText := strings.Join([]string{
-		serialMarkerRootSource + "/dev/vda",
-		serialMarkerRootOptions + "ro,relatime",
-		serialMarkerRootReadOnly + "true",
+		"kernel: " + serialMarkerRootSource + "/dev/vda",
+		"systemd[1]: " + serialMarkerRootOptions + "ro,relatime",
+		"tart-agent[123]: " + serialMarkerRootReadOnly + "true",
 		"",
 	}, "\n")
 	if err := os.WriteFile(path, []byte(logText), 0o644); err != nil {
@@ -376,6 +376,32 @@ func TestBootTrialMetadataFromLogはWriteとReadのJSONを読む(t *testing.T) {
 	}
 	if written.Record != read.Record {
 		t.Fatalf("metadata mismatch: written=%#v read=%#v", written.Record, read.Record)
+	}
+}
+
+func TestBootTrialMetadataReadFromLogはprefix付きの行からJSONを読む(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serial.log")
+	recordJSON := mustJSON(bootTrialMetadataRecord{
+		ActiveSlot:         "B",
+		TargetSlot:         "B",
+		RollbackSlot:       "A",
+		ArtifactGeneration: 2,
+		RemainingAttempts:  2,
+	})
+	logText := strings.Join([]string{
+		"kernel: " + serialMarkerBootMetadataRead + recordJSON,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(logText), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, ok := bootTrialMetadataReadFromLog(path)
+	if !ok {
+		t.Fatal("bootTrialMetadataReadFromLog() = not found, want prefixed marker")
+	}
+	if got.Record.ActiveSlot != "B" || got.Record.RemainingAttempts != 2 {
+		t.Fatalf("bootTrialMetadataReadFromLog() = %+v", got.Record)
 	}
 }
 

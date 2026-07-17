@@ -37,6 +37,6 @@
 
 1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで`pull_request`と`main` pushに対して継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
 2. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
-3. Task 01のA/B、read-only root、dm-verity、boot trial rollbackをQEMU task化し、CPU modelとArtifact digestをartifactへ保存する。
+3. Task 01のA/B、read-only root、dm-verity、boot trial rollbackをCIで継続実行し、QEMU first-boot証跡とdm-verity改変logへCPU modelとArtifact digestを紐付けて保存する。
 4. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
 5. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。

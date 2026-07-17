@@ -100,9 +100,11 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 - Artifact Manifestとlock fileからSLSA provenance v1を生成する処理を追加した。
 - OS/Verity/kernel/initrd、Manifest、署名、SBOM、provenanceをOCI Artifactへまとめ、digest固定参照を出力する処理を追加した。
 - Linux上のbuild確認とGHCR公開を行うGitHub Actions workflowを追加した。
+- OS Artifact workflowに`mise run artifact-test-dm-verity`を追加し、`veritysetup verify`の成功系と、
+  OS imageへ1 byte改変を入れた後の失敗系を継続検証するようにした。
 - OS Artifact workflowに`mise run artifact-test-firstboot-qemu`を追加し、mkosi成果物のOS imageをQEMUで起動して
   first-boot unitがfake Agent APIへBootReportを送ることを検証する。証跡にはCPU model、disk size、
-  OS image digest、serial log、BootReport要約を保存する。
+  OS image digest、serial log、BootReport要約、read-only root mount観測値を保存する。
 - `pkg/agentartifact`、`internal/server/agentboot`、`internal/provisioningagent/artifactfetch`に
   Agent Artifact/OS Artifactの署名・digest検証を追加し、controllerとAgentの双方が信頼していない署名鍵や
   改変済みpayloadを拒否するようにした。
@@ -114,7 +116,7 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 - mkosi案の初回Linux buildは、全Ubuntu snapshot timestampで`503 Service Unavailable`となり、
   filesystem生成前に停止した。入力固定を外して通常mirrorへfallbackせず、snapshot endpointの
   1秒/2秒backoff付き事前検査を追加した。成果物名と2回buildの一致はservice復旧後に再検証する。
-- dm-verity block改変検出、read-only root boot、x86-64-v1 QEMU bootはTask 01の保留に伴い未検証。
+- x86-64-v1 QEMU bootはTask 01の保留に伴い未検証。
 - State/Data bind mount契約とbootloader方式はTask 01の測定結果がないため確定していない。
 - Image Builder raw変換案とAnsible role再利用案の比較は未実施で、ADR 0009は`Proposed`のままとする。
 - release用署名鍵の運用と、2回build一致を含むreproducibility証跡は未検証。

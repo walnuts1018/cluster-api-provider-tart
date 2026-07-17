@@ -59,6 +59,10 @@ const (
 	targetDiskSerial = "qemu-firstboot-tgt"
 	bootMAC          = "52:54:00:12:34:56"
 	activeSlot       = "A"
+
+	serialMarkerRootSource   = "TART_QEMU_ROOT_SOURCE="
+	serialMarkerRootOptions  = "TART_QEMU_ROOT_OPTIONS="
+	serialMarkerRootReadOnly = "TART_QEMU_ROOT_READ_ONLY="
 )
 
 type config struct {
@@ -91,6 +95,12 @@ type fakeServer struct {
 type qemuProcess struct {
 	cmd        *exec.Cmd
 	exitResult chan error
+}
+
+type rootObservation struct {
+	Source          string `json:"source"`
+	Options         string `json:"options"`
+	MountedReadOnly bool   `json:"mountedReadOnly"`
 }
 
 func main() {
@@ -138,34 +148,18 @@ func verify(ctx context.Context, cfg config) error {
 	ctx, cancel := context.WithTimeout(ctx, cfg.timeout)
 	defer cancel()
 
-	workDir, err := ensureWorkDir(cfg.workDir)
+	workspace, err := prepareWorkspace(cfg)
 	if err != nil {
 		return err
 	}
-	cfg.workDir = workDir
-
-	artifactDir, err := filepath.Abs(cfg.artifactDir)
-	if err != nil {
-		return fmt.Errorf("resolve artifact directory: %w", err)
-	}
-	serialLogPath := filepath.Join(cfg.workDir, "serial.log")
-
-	paths, err := resolveArtifacts(artifactDir)
+	cfg.workDir = workspace.workDir
+	paths, err := resolveArtifacts(workspace.artifactDir)
 	if err != nil {
 		return err
 	}
-	osTestImagePath := filepath.Join(cfg.workDir, "os-test.img")
-	if err := copyFile(paths.osImagePath, osTestImagePath); err != nil {
-		return fmt.Errorf("copy OS image: %w", err)
-	}
-	imageInfo, err := os.Stat(osTestImagePath)
-	if err != nil {
-		return fmt.Errorf("stat copied OS image: %w", err)
-	}
-	targetDiskPath := filepath.Join(cfg.workDir, "target.raw")
-	if err := createTargetDisk(targetDiskPath, imageInfo.Size()); err != nil {
-		return err
-	}
+	osTestImagePath := workspace.osTestImage
+	targetDiskPath := workspace.targetDisk
+	serialLogPath := workspace.serialLog
 
 	planPublicKeyPath, planPrivateKey, err := generatePlanPublicKey(filepath.Join(cfg.workDir, "agent-plan-public.pem"))
 	if err != nil {
@@ -217,7 +211,7 @@ func verify(ctx context.Context, cfg config) error {
 	bootstrapDigest := canonicalSHA256(bootstrapPayload)
 
 	deadline := time.Now().Add(cfg.timeout).UTC()
-	signedPlan, planDigest, err := buildSignedPlan(planPrivateKey, imageInfo.Size(), deadline)
+	signedPlan, planDigest, err := buildSignedPlan(planPrivateKey, workspace.diskSizeBytes, deadline)
 	if err != nil {
 		return err
 	}
@@ -253,45 +247,123 @@ func verify(ctx context.Context, cfg config) error {
 
 	select {
 	case report := <-server.bootReports:
-		if err := verifyBootReport(report, bootstrapDigest); err != nil {
-			return &verificationError{
-				reason:        err.Error(),
-				serialLogPath: serialLogPath,
-			}
-		}
-		if ok, err := serialLogContainsOne(serialLogPath,
-			"Tart first boot bootstrap and health report",
-			"Provisioning Agent boot report submitted",
-		); err != nil {
-			slog.Warn("Failed to inspect serial log", "error", err, "serial_log", serialLogPath)
-		} else if !ok {
-			slog.Warn("Boot report was received, but the expected serial log marker was absent", "serial_log", serialLogPath)
-		}
-		if err := qemu.stop(); err != nil {
-			slog.Warn("Failed to stop QEMU after successful boot report", "error", err)
-		}
-		if err := writeEvidence(cfg, paths, osTestImagePath, imageInfo.Size(), bootstrapDigest, report, serialLogPath); err != nil {
-			return fmt.Errorf("write QEMU first-boot evidence: %w", err)
-		}
-		return nil
+		return handleBootReportSuccess(ctx, qemu, cfg, workspace, paths, bootstrapDigest, report, serialLogPath)
 	case err := <-qemu.exitResult:
-		reason := "QEMU exited before the first-boot BootReport arrived"
-		if err != nil {
-			reason = fmt.Sprintf("%s: %v", reason, err)
-		}
-		return &verificationError{
-			reason:        reason,
-			serialLogPath: serialLogPath,
-		}
+		return qemuExitError(err, serialLogPath)
 	case <-ctx.Done():
-		reason := "timed out waiting for the first-boot BootReport"
-		if logHint, err := readLogTail(serialLogPath); err == nil && strings.TrimSpace(logHint) != "" {
-			reason = fmt.Sprintf("%s: %s", reason, logHint)
-		}
+		return qemuTimeoutError(serialLogPath)
+	}
+}
+
+type workspaceState struct {
+	workDir       string
+	artifactDir   string
+	osTestImage   string
+	targetDisk    string
+	serialLog     string
+	diskSizeBytes int64
+}
+
+func prepareWorkspace(cfg config) (workspaceState, error) {
+	workDir, err := ensureWorkDir(cfg.workDir)
+	if err != nil {
+		return workspaceState{}, err
+	}
+	artifactDir, err := filepath.Abs(cfg.artifactDir)
+	if err != nil {
+		return workspaceState{}, fmt.Errorf("resolve artifact directory: %w", err)
+	}
+	paths, err := resolveArtifacts(artifactDir)
+	if err != nil {
+		return workspaceState{}, err
+	}
+	osTestImagePath := filepath.Join(workDir, "os-test.img")
+	if err := copyFile(paths.osImagePath, osTestImagePath); err != nil {
+		return workspaceState{}, fmt.Errorf("copy OS image: %w", err)
+	}
+	imageInfo, err := os.Stat(osTestImagePath)
+	if err != nil {
+		return workspaceState{}, fmt.Errorf("stat copied OS image: %w", err)
+	}
+	targetDiskPath := filepath.Join(workDir, "target.raw")
+	if err := createTargetDisk(targetDiskPath, imageInfo.Size()); err != nil {
+		return workspaceState{}, err
+	}
+	return workspaceState{
+		workDir:       workDir,
+		artifactDir:   artifactDir,
+		osTestImage:   osTestImagePath,
+		targetDisk:    targetDiskPath,
+		serialLog:     filepath.Join(workDir, "serial.log"),
+		diskSizeBytes: imageInfo.Size(),
+	}, nil
+}
+
+func handleBootReportSuccess(
+	ctx context.Context,
+	qemu *qemuProcess,
+	cfg config,
+	workspace workspaceState,
+	paths artifactPaths,
+	bootstrapDigest string,
+	report agentprotocol.BootReportRequest,
+	serialLogPath string,
+) error {
+	if err := verifyBootReport(report, bootstrapDigest); err != nil {
 		return &verificationError{
-			reason:        reason,
+			reason:        err.Error(),
 			serialLogPath: serialLogPath,
 		}
+	}
+	if ok, err := serialLogContainsOne(serialLogPath,
+		"Tart first boot bootstrap and health report",
+		"Provisioning Agent boot report submitted",
+	); err != nil {
+		slog.Warn("Failed to inspect serial log", "error", err, "serial_log", serialLogPath)
+	} else if !ok {
+		slog.Warn("Boot report was received, but the expected serial log marker was absent", "serial_log", serialLogPath)
+	}
+	rootObserved, err := waitForRootObservation(ctx, serialLogPath)
+	if err != nil {
+		return &verificationError{
+			reason:        err.Error(),
+			serialLogPath: serialLogPath,
+		}
+	}
+	if !rootObserved.MountedReadOnly {
+		return &verificationError{
+			reason:        fmt.Sprintf("guest root filesystem was not mounted read-only: source=%q options=%q", rootObserved.Source, rootObserved.Options),
+			serialLogPath: serialLogPath,
+		}
+	}
+	if err := qemu.stop(); err != nil {
+		slog.Warn("Failed to stop QEMU after successful boot report", "error", err)
+	}
+	if err := writeEvidence(cfg, paths, workspace.osTestImage, workspace.diskSizeBytes, bootstrapDigest, report, serialLogPath, rootObserved); err != nil {
+		return fmt.Errorf("write QEMU first-boot evidence: %w", err)
+	}
+	return nil
+}
+
+func qemuExitError(err error, serialLogPath string) error {
+	reason := "QEMU exited before the first-boot BootReport arrived"
+	if err != nil {
+		reason = fmt.Sprintf("%s: %v", reason, err)
+	}
+	return &verificationError{
+		reason:        reason,
+		serialLogPath: serialLogPath,
+	}
+}
+
+func qemuTimeoutError(serialLogPath string) error {
+	reason := "timed out waiting for the first-boot BootReport"
+	if logHint, err := readLogTail(serialLogPath); err == nil && strings.TrimSpace(logHint) != "" {
+		reason = fmt.Sprintf("%s: %s", reason, logHint)
+	}
+	return &verificationError{
+		reason:        reason,
+		serialLogPath: serialLogPath,
 	}
 }
 
@@ -725,6 +797,7 @@ type evidence struct {
 	InitrdPath      string                          `json:"initrdPath"`
 	BootstrapDigest string                          `json:"bootstrapDigest"`
 	BootReport      agentprotocol.BootReportRequest `json:"bootReport"`
+	Root            rootObservation                 `json:"root"`
 	SerialLogPath   string                          `json:"serialLogPath"`
 }
 
@@ -736,6 +809,7 @@ func writeEvidence(
 	bootstrapDigest string,
 	report agentprotocol.BootReportRequest,
 	serialLogPath string,
+	root rootObservation,
 ) error {
 	imageDigest, err := fileSHA256(osImagePath)
 	if err != nil {
@@ -749,6 +823,7 @@ func writeEvidence(
 		InitrdPath:      artifacts.initrdPath,
 		BootstrapDigest: bootstrapDigest,
 		BootReport:      report,
+		Root:            root,
 		SerialLogPath:   serialLogPath,
 	}, "", "  ")
 	if err != nil {
@@ -827,6 +902,55 @@ func verifyBootReport(report agentprotocol.BootReportRequest, bootstrapDigest st
 	default:
 		return nil
 	}
+}
+
+func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObservation, error) {
+	deadline := time.Now().Add(10 * time.Second)
+	if value, ok, hasReadOnly := rootObservationFromLog(serialLogPath); ok && hasReadOnly {
+		return value, nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return rootObservation{}, errors.New("timed out waiting for read-only root evidence in the serial log")
+		case <-ticker.C:
+			value, ok, hasReadOnly := rootObservationFromLog(serialLogPath)
+			if ok && hasReadOnly {
+				return value, nil
+			}
+			if time.Now().After(deadline) {
+				return rootObservation{}, errors.New("timed out waiting for read-only root evidence in the serial log")
+			}
+		}
+	}
+}
+
+func rootObservationFromLog(path string) (rootObservation, bool, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return rootObservation{}, false, false
+	}
+	lines := strings.Split(string(data), "\n")
+	observed := rootObservation{}
+	hasSource := false
+	hasReadOnly := false
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, serialMarkerRootSource):
+			observed.Source = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootSource))
+			hasSource = true
+		case strings.HasPrefix(line, serialMarkerRootOptions):
+			observed.Options = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootOptions))
+		case strings.HasPrefix(line, serialMarkerRootReadOnly):
+			observed.MountedReadOnly = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerRootReadOnly)) == "true"
+			hasReadOnly = true
+		}
+	}
+	return observed, hasSource, hasReadOnly
 }
 
 func serialLogContainsOne(path string, needles ...string) (bool, error) {

@@ -24,6 +24,17 @@ if findmnt -T /var/lib/kubelet >/dev/null 2>&1; then
   data_mounted="--data-mounted"
 fi
 
+root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+root_options="$(findmnt -n -o OPTIONS / 2>/dev/null || true)"
+root_read_only="false"
+if printf '%s\n' "$root_options" | grep -Eq '(^|,)ro(,|$)'; then
+  root_read_only="true"
+fi
+
+printf 'TART_QEMU_ROOT_SOURCE=%s\n' "$root_source"
+printf 'TART_QEMU_ROOT_OPTIONS=%s\n' "$root_options"
+printf 'TART_QEMU_ROOT_READ_ONLY=%s\n' "$root_read_only"
+
 /usr/bin/provisioning-agent \
   --apply-bootstrap-only \
   --system-uuid="$system_uuid" \

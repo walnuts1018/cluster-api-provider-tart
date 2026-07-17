@@ -579,6 +579,34 @@ go run ./hack/os-firstboot-qemu \
   -cpu "${ARTIFACT_QEMU_CPU:-qemu64}"
 '''
 
+[tasks.artifact-test-dm-verity]
+description = "mkosi成果物のdm-verity検証とblock改変検出を確認する（Linux専用）"
+run = '''
+if [ "$(uname -s)" != Linux ]; then
+  echo "artifact-test-dm-verity requires Linux" >&2
+  exit 1
+fi
+: "${ARTIFACT_OUTPUT_DIR:=dist/os-artifact}"
+evidence_dir="${ARTIFACT_VERITY_WORK_DIR:-$ARTIFACT_OUTPUT_DIR/dm-verity}"
+mkdir -p "$evidence_dir"
+data_copy="$evidence_dir/os.img"
+hash_copy="$evidence_dir/os.verity"
+cp --sparse=always "$ARTIFACT_OUTPUT_DIR/os.img" "$data_copy"
+cp --sparse=always "$ARTIFACT_OUTPUT_DIR/os.verity" "$hash_copy"
+root_hash="$(tr -d '\n' < "$ARTIFACT_OUTPUT_DIR/verity-root-hash")"
+printf '%s\n' "$root_hash" > "$evidence_dir/root-hash.txt"
+sha256sum "$data_copy" "$hash_copy" > "$evidence_dir/digests-before.txt"
+veritysetup verify "$data_copy" "$hash_copy" "$root_hash" \
+  >"$evidence_dir/verify-before.log" 2>&1
+printf '!' | dd of="$data_copy" bs=1 seek=4096 conv=notrunc status=none
+sha256sum "$data_copy" "$hash_copy" > "$evidence_dir/digests-after.txt"
+if veritysetup verify "$data_copy" "$hash_copy" "$root_hash" \
+  >"$evidence_dir/verify-after.log" 2>&1; then
+  echo "dm-verity verification unexpectedly succeeded after tampering" >&2
+  exit 1
+fi
+'''
+
 [tasks.agent-artifact-virtual-media]
 description = "Agent kernel/initrdからRedfish VirtualMedia用ISOを生成する"
 run = '''

@@ -76,10 +76,15 @@ jobs:
       - name: Install OS artifact verification dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs python3-pefile systemd-boot
+          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs python3-pefile systemd-boot cryptsetup-bin
 
       - name: Build OS and Verity payloads
         run: mise run artifact-build-mkosi
+
+      - name: Verify dm-verity detects OS payload tampering
+        env:
+          ARTIFACT_VERITY_WORK_DIR: dist/os-artifact/dm-verity
+        run: mise run artifact-test-dm-verity
 
       - name: Boot OS artifact and verify first boot report
         env:
@@ -96,6 +101,11 @@ jobs:
           path: |
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
+            dist/os-artifact/dm-verity/root-hash.txt
+            dist/os-artifact/dm-verity/digests-before.txt
+            dist/os-artifact/dm-verity/digests-after.txt
+            dist/os-artifact/dm-verity/verify-before.log
+            dist/os-artifact/dm-verity/verify-after.log
           if-no-files-found: warn
 
       - name: Prepare signing key
@@ -145,6 +155,11 @@ jobs:
             dist/os-artifact/provenance.intoto.json
             dist/os-artifact/packages.json
             dist/os-artifact/verity-root-hash
+            dist/os-artifact/dm-verity/root-hash.txt
+            dist/os-artifact/dm-verity/digests-before.txt
+            dist/os-artifact/dm-verity/digests-after.txt
+            dist/os-artifact/dm-verity/verify-before.log
+            dist/os-artifact/dm-verity/verify-after.log
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
           if-no-files-found: error

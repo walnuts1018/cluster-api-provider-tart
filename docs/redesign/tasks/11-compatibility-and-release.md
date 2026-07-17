@@ -63,6 +63,7 @@ Supported へ変更する時は、対象行ごとに `target-state.md` と Relea
 - 人間向けの参照文書として `docs/release/README.md` を追加し、既存 runbook への導線を定義した。
 - `docs/release-notes/unreleased.md` を追加し、現行 release candidate の公開状態と既知制約を記録した。
 - `OS Artifact` workflow は `pull_request` と `main` push でも path filter 付きで継続実行し、QEMU first-boot evidence を release gate の継続証跡として保存するようにした。
+- `OS Artifact` workflow に `artifact-test-dm-verity` を追加し、`veritysetup verify` による正常系と block改変失敗系のlogを release gate 証跡へ保存するようにした。
 - この変更は release candidate の公開導線だけを追加する。Supported 昇格判定や追加 platform の完了証跡は未実装であり、各受け入れ条件の消化は今後の作業で継続する。
 
 ## 受け入れ条件
@@ -118,6 +119,7 @@ Supported へ変更する時は、対象行ごとに `target-state.md` と Relea
 
 - Supported Matrixの全行に最新release candidateのE2E証跡がある。
 - Ubuntu 24.04 amd64 UEFI kubeadmのOS Artifact workflowは、`workflow_dispatch`に加えて、artifact build/QEMU first-boot/manifest/provenanceに影響する変更で`push`/`pull_request`でも継続実行されている。
+- 上記workflowは、QEMU first-bootのread-only root証跡と`veritysetup verify`のblock改変失敗logをartifactへ保存している。
 - Experimental機能はfeature gateと既知制約をRelease Noteへ記載する。
 - migration toolが旧flow利用objectを0件と報告するまで旧field/codeを削除しない。
 - Architecture Skill、AGENTS.md、installation、sampleを同じreleaseで更新する。

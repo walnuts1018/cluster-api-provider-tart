@@ -73,7 +73,9 @@ OS Artifact workflowでは`mise run artifact-test-firstboot-qemu`を実行する
 4. first-boot unitが`--apply-bootstrap-only`と`--report-boot-only`を順に実行し、
    BootReportの`bootstrapApplied=true`、`activeSlot=A`、`artifactGeneration=1`、
    `bootstrapPayloadDigest`一致を確認する。
-5. 成功時は`dist/os-artifact/qemu-firstboot/evidence.json`と`serial.log`をbuild evidence artifactへ含める。
+5. guestの`findmnt /`結果から、serial logと`evidence.json`へroot mount source、mount options、
+   `mountedReadOnly=true`を保存する。
+6. 成功時は`dist/os-artifact/qemu-firstboot/evidence.json`と`serial.log`をbuild evidence artifactへ含める。
    失敗時も同directoryをfailure artifactとしてuploadする。
 
 ## GitHub Actionsで確認したProvisioning E2E

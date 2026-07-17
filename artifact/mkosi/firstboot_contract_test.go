@@ -53,6 +53,9 @@ func TestFirstBootScriptはBootstrap適用後にMarkerを使ってBootReportを�
 		"--system-uuid=\"$system_uuid\"",
 		"--active-slot=\"$active_slot\"",
 		"--artifact-generation=\"$artifact_generation\"",
+		"TART_QEMU_ROOT_SOURCE=",
+		"TART_QEMU_ROOT_OPTIONS=",
+		"TART_QEMU_ROOT_READ_ONLY=",
 		"--state-mounted",
 		"--data-mounted",
 	} {

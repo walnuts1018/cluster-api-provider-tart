@@ -33,6 +33,7 @@ import (
 
 func TestBuildKernelCommandLineはfirstbootAgent入力を揃える(t *testing.T) {
 	got := buildKernelCommandLine("https://10.0.2.2:8443")
+	fields := strings.Fields(got)
 
 	for _, want := range []string{
 		"root=/dev/vda",
@@ -47,6 +48,9 @@ func TestBuildKernelCommandLineはfirstbootAgent入力を揃える(t *testing.T)
 		if !strings.Contains(got, want) {
 			t.Fatalf("buildKernelCommandLine() = %q, want substring %q", got, want)
 		}
+	}
+	if slices.Contains(fields, "rw") {
+		t.Fatalf("buildKernelCommandLine() = %q, want read-only root flags only", got)
 	}
 }
 
@@ -180,6 +184,48 @@ func TestQEMUFirstBootDropInはReadOnlyRoot向けの一時Stateを使う(t *test
 		if !strings.Contains(got, want) {
 			t.Fatalf("qemuFirstBootDropIn() does not contain %q\n%s", want, got)
 		}
+	}
+}
+
+func TestVerifyBootReportはReadOnlyRoot起動後の基本状態を受け入れる(t *testing.T) {
+	bootstrapDigest := "sha256:" + strings.Repeat("a", 64)
+
+	err := verifyBootReport(agentprotocol.BootReportRequest{
+		APIVersion:             agentprotocol.APIVersion,
+		OperationUID:           operationUID,
+		PlanDigest:             "sha256:" + strings.Repeat("b", 64),
+		BootID:                 "boot-1",
+		MachineID:              "machine-1",
+		ActiveSlot:             activeSlot,
+		ArtifactGeneration:     1,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: bootstrapDigest,
+	}, bootstrapDigest)
+	if err != nil {
+		t.Fatalf("verifyBootReport() error = %v", err)
+	}
+}
+
+func TestRootObservationFromLogはReadOnlyRoot証跡を読む(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serial.log")
+	logText := strings.Join([]string{
+		serialMarkerRootSource + "/dev/vda",
+		serialMarkerRootOptions + "ro,relatime",
+		serialMarkerRootReadOnly + "true",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(logText), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, hasSource, hasReadOnly := rootObservationFromLog(path)
+	if !hasSource || !hasReadOnly {
+		t.Fatalf("rootObservationFromLog() flags = (%t, %t), want true, true", hasSource, hasReadOnly)
+	}
+	if got.Source != "/dev/vda" || got.Options != "ro,relatime" || !got.MountedReadOnly {
+		t.Fatalf("rootObservationFromLog() = %#v", got)
 	}
 }
 

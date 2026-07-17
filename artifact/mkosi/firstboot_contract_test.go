@@ -28,6 +28,8 @@ func TestFirstBootUnitはkubelet開始前にBootstrapとBootReportを実行す�
 		"After=network-online.target",
 		"Before=kubelet.service",
 		"ExecStart=/usr/libexec/tart/first-boot",
+		"StandardOutput=journal+console",
+		"StandardError=journal+console",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(unit, want) {

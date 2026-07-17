@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -156,6 +157,28 @@ func TestWriteTextFileは内容を書き出す(t *testing.T) {
 	}
 	if string(data) != "hello\n" {
 		t.Fatalf("file contents = %q", data)
+	}
+}
+
+func TestReadLogTailは直近80行を返す(t *testing.T) {
+	lines := make([]string, 0, 90)
+	for i := range 90 {
+		lines = append(lines, "line-"+strconv.Itoa(i))
+	}
+	path := filepath.Join(t.TempDir(), "serial.log")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, err := readLogTail(path)
+	if err != nil {
+		t.Fatalf("readLogTail() error = %v", err)
+	}
+	if strings.Contains(got, "line-9") {
+		t.Fatalf("readLogTail() contains dropped prefix: %q", got)
+	}
+	if !strings.Contains(got, "line-10") || !strings.Contains(got, "line-89") {
+		t.Fatalf("readLogTail() = %q, want line-10 through line-89", got)
 	}
 }
 

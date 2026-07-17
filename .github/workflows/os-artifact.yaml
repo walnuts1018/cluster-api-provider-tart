@@ -56,7 +56,8 @@ jobs:
         with:
           name: ubuntu-24.04-amd64-firstboot-qemu-failure
           path: |
-            dist/os-artifact/qemu-firstboot/
+            dist/os-artifact/qemu-firstboot/evidence.json
+            dist/os-artifact/qemu-firstboot/serial.log
           if-no-files-found: warn
 
       - name: Prepare signing key

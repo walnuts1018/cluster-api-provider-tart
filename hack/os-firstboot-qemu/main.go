@@ -834,7 +834,7 @@ func readLogTail(path string) (string, error) {
 	if len(lines) == 0 {
 		return "", nil
 	}
-	start := max(len(lines)-5, 0)
+	start := max(len(lines)-80, 0)
 	return strings.Join(lines[start:], " | "), nil
 }
 

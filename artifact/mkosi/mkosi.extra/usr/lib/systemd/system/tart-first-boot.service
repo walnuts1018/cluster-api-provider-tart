@@ -10,6 +10,8 @@ ConditionPathExists=/etc/tart/agent-tls.crt
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/tart/first-boot
+StandardOutput=journal+console
+StandardError=journal+console
 RemainAfterExit=yes
 
 [Install]

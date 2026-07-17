@@ -42,6 +42,10 @@ metadata 永続化と再読込の確認であり、simulator rollback evidence �
 3. 上記 1, 2 を CI に残せない場合でも、同じ判定条件を検査する CI 証跡と、なぜ残差が
    実機/QEMU にしか置けないかを Runbook または Task 文書に明記すること。
 
+CI で継続収集する証跡の役割分担と、2026-07-17 時点でなお実機差分として残る項目は
+[Task 01: Foundation Spikes Simulated Record](../runbooks/01-foundation-spikes-simulated-record.md)
+を正本とする。
+
 ## 入力
 
 次の値を検証環境の固定入力とする。

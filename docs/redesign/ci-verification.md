@@ -48,3 +48,7 @@
 7. 上記6のうち boot選択実証系を GitHub Actions にまだ載せられない場合は、Task 文書と Runbook に「CI で未代替の理由」「残っている失敗分類」「利用する QEMU/実機環境」「合格条件」を明記する。
 8. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
 9. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。
+
+Task 01 の boot trial rollback は、上記 6 の 3 系統を
+[Task 01: Foundation Spikes Simulated Record](runbooks/01-foundation-spikes-simulated-record.md)
+へ集約し、その文書を CI 証跡の役割分担の正本として扱う。

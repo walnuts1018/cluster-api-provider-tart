@@ -31,10 +31,11 @@
 3. CIで完全再現できない場合は、SimulatorまたはContract Testで近い失敗分類を固定し、実機Labでだけ確認する残差をRunbookへ分離する。
 4. 「workflowが存在する」「scriptが存在する」だけを検証するtestは追加しない。
 5. 重いE2EはGitHub Actionsのpath filter、manual dispatch、scheduled runを使い分ける。ただしSupportedへ昇格する対象はrelease前に必ず成功結果を残す。
+6. OS Artifact workflowは`workflow_dispatch`を維持したまま、`artifact/mkosi`、`hack/os-firstboot-qemu`、artifact manifest/provenance、workflow定義、`mise.toml`、関連Task文書の変更で`push`/`pull_request`でも継続実行する。
 
 ## 現時点の優先順位
 
-1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
+1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで`pull_request`と`main` pushに対して継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
 2. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
 3. Task 01のA/B、read-only root、dm-verity、boot trial rollbackをQEMU task化し、CPU modelとArtifact digestをartifactへ保存する。
 4. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。

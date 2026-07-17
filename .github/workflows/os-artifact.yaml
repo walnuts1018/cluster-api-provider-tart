@@ -13,9 +13,47 @@ on:
         required: true
         type: string
         default: dev
+  pull_request:
+    paths:
+      - ".github/workflows/os-artifact.yaml"
+      - "artifact/locks/**"
+      - "artifact/mkosi/**"
+      - "cmd/provisioning-agent/**"
+      - "docs/redesign/ci-verification.md"
+      - "docs/redesign/tasks/11-compatibility-and-release.md"
+      - "hack/os-firstboot-qemu/**"
+      - "hack/artifact-manifest/**"
+      - "hack/artifact-provenance/**"
+      - "internal/provisioningagent/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
+      - "pkg/agentprotocol/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/os-artifact.yaml"
+      - "artifact/locks/**"
+      - "artifact/mkosi/**"
+      - "cmd/provisioning-agent/**"
+      - "docs/redesign/ci-verification.md"
+      - "docs/redesign/tasks/11-compatibility-and-release.md"
+      - "hack/os-firstboot-qemu/**"
+      - "hack/artifact-manifest/**"
+      - "hack/artifact-provenance/**"
+      - "internal/provisioningagent/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
+      - "pkg/agentprotocol/**"
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   ubuntu-24-04-amd64:
@@ -112,7 +150,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish OCI Artifact
-        if: inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
           ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository }}-os-ubuntu-24.04-amd64
           ARTIFACT_TAG: ${{ inputs.image_tag }}

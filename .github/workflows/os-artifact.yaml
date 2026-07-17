@@ -88,7 +88,7 @@ jobs:
       - name: Install OS artifact verification dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs python3-pefile systemd-boot cryptsetup-bin
+          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs python3-pefile systemd-boot cryptsetup-bin dosfstools ovmf
 
       - name: Build OS and Verity payloads
         run: mise run artifact-build-mkosi
@@ -110,6 +110,13 @@ jobs:
           ARTIFACT_BOOTMETA_QEMU_WORK_DIR: dist/os-artifact/boot-trial-metadata-persistence
         run: mise run artifact-test-boot-trial-metadata-persistence
 
+      - name: Verify bootloader rollback after three failed target boots
+        env:
+          ARTIFACT_QEMU_CPU: qemu64
+          ARTIFACT_QEMU_TIMEOUT: 10m
+          ARTIFACT_BOOTLOADER_QEMU_WORK_DIR: dist/os-artifact/bootloader-rollback
+        run: mise run artifact-test-bootloader-rollback
+
       - name: Boot OS artifact and verify first boot report
         env:
           ARTIFACT_QEMU_CPU: qemu64
@@ -128,6 +135,11 @@ jobs:
             dist/os-artifact/boot-trial-metadata-persistence/evidence.json
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
+            dist/os-artifact/bootloader-rollback/evidence.json
+            dist/os-artifact/bootloader-rollback/serial-boot1.log
+            dist/os-artifact/bootloader-rollback/serial-boot2.log
+            dist/os-artifact/bootloader-rollback/serial-boot3.log
+            dist/os-artifact/bootloader-rollback/serial-boot4.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/dm-verity/root-hash.txt
@@ -192,6 +204,11 @@ jobs:
             dist/os-artifact/boot-trial-metadata-persistence/evidence.json
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
+            dist/os-artifact/bootloader-rollback/evidence.json
+            dist/os-artifact/bootloader-rollback/serial-boot1.log
+            dist/os-artifact/bootloader-rollback/serial-boot2.log
+            dist/os-artifact/bootloader-rollback/serial-boot3.log
+            dist/os-artifact/bootloader-rollback/serial-boot4.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/qemu-firstboot/evidence.json

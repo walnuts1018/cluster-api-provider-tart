@@ -39,6 +39,12 @@
 1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで`pull_request`と`main` pushに対して継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
 2. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
 3. Task 01のboot trial rollbackについては、CIでsimulator rollback evidenceを継続収集し、rollback判定に使った入力、期待した状態遷移、Artifact/Profile識別子をartifactへ保存する。これはbootloader実機/QEMU実証の代替ではなく、Task 01で別途行うQEMU・実機検証の残差を減らすための継続証跡とする。
-4. `hack/os-firstboot-qemu` の direct-kernel QEMU では、boot metadata を永続ディスクへ書いた直後に強制停止し、次回 boot で読み戻す CI 証跡を別系統で残す。これは storage write-through と再読込の確認であり、simulator rollback evidence の代替でも、bootloader 実装そのものや acceptance 8 の 4th boot 非選択証明の代替でもない。
-5. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
-6. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。
+4. `hack/os-firstboot-qemu` の direct-kernel QEMU では、boot metadata を永続ディスクへ書いた直後に強制停止し、次回 boot で読み戻す CI 証跡を別系統で残す。これは storage write-through と再読込の確認であり、simulator rollback evidence の代替でも、bootloader 実装そのものの代替でもない。
+5. `hack/os-firstboot-qemu --scenario bootloader-rollback` では、OVMF + systemd-boot の実 bootloader 経路で `tart-target+3.conf` の tries 消費と、4th boot の rollback entry 選択を検証する。artifact には少なくとも `evidence.json` と `serial-boot1.log` から `serial-boot4.log` を保存する。
+6. acceptance 8 を実装する前提では、CI 証跡要件を次の3系統に分けて管理する。
+   - rollback判定系: simulator rollback evidence として、失敗回数、旧slot復帰判定、期待状態遷移、Artifact/Profile識別子を保存する。
+   - metadata永続化系: direct-kernel QEMU として、boot metadata 更新直後の強制停止後も trial counter または同等情報が次回 boot で再読込されることを保存する。
+   - boot選択実証系: bootloader を通した QEMU または実機で、1st から 4th boot までの slot 選択結果を保存する。少なくとも 3rd failure 後に旧slotが起動し、4th boot で新slotを再選択しないことが分かる console log、boot menu state、または同等の artifact を要件とする。
+7. 上記6のうち boot選択実証系を GitHub Actions にまだ載せられない場合は、Task 文書と Runbook に「CI で未代替の理由」「残っている失敗分類」「利用する QEMU/実機環境」「合格条件」を明記する。
+8. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
+9. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。

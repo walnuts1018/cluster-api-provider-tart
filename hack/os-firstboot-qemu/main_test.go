@@ -162,6 +162,21 @@ func TestParseConfigは未知のScenarioを拒否する(t *testing.T) {
 	}
 }
 
+func TestBootEntrySelectionFromLogは選択されたEntryを読む(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serial.log")
+	if err := os.WriteFile(path, []byte(serialMarkerBootEntrySelected+"rollback\n"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, ok := bootEntrySelectionFromLog(path)
+	if !ok {
+		t.Fatal("bootEntrySelectionFromLog() = not found, want rollback marker")
+	}
+	if got.SelectedEntry != "rollback" {
+		t.Fatalf("SelectedEntry = %q, want rollback", got.SelectedEntry)
+	}
+}
+
 func TestWriteTextFileは内容を書き出す(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sample.txt")
 
@@ -274,6 +289,37 @@ func TestQEMUBootTrialMetadataScriptは期待する永続化対象を固定す�
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("qemuBootTrialMetadataScript() does not contain %q\n%s", want, got)
+		}
+	}
+}
+
+func TestQEMUBootloaderRollbackScriptはKernelCmdlineから選択Entryを出力する(t *testing.T) {
+	got := qemuBootloaderRollbackScript()
+
+	for _, want := range []string{
+		serialMarkerBootEntrySelected,
+		"tart.qemu.boot-entry=target",
+		"tart.qemu.boot-entry=rollback",
+		"systemctl poweroff --force --force",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("qemuBootloaderRollbackScript() does not contain %q\n%s", want, got)
+		}
+	}
+}
+
+func TestBootloaderEntryConfigは指定rootと識別子を埋め込む(t *testing.T) {
+	got := bootloaderEntryConfig("Target", "2", "/vmlinuz", "/initrd", "/dev/vdb", "target")
+
+	for _, want := range []string{
+		"title Target",
+		"version 2",
+		"linux /vmlinuz",
+		"initrd /initrd",
+		"options root=/dev/vdb ro console=ttyS0 tart.qemu.boot-entry=target",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("bootloaderEntryConfig() does not contain %q\n%s", want, got)
 		}
 	}
 }

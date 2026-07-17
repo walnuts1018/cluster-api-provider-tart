@@ -17,15 +17,30 @@
 Task 01を再開した際は、暫定レイアウトで受け入れ条件を検証し、不成立ならProfile IDを
 `amd64-uefi-ab/v2`へ上げる。既存の`v1`レイアウトを黙って変更しない。
 
-2026-07-17時点では、boot trial rollbackについてCI上でsimulator rollback evidenceの
-継続収集を行っている。これはrollback判定の入力と状態遷移を固定するための証跡であり、
-bootloader実装、電源断後の永続化、実際のboot経路を確認するQEMU/実機検証の代替ではない。
+2026-07-17時点では、acceptance 8 に関して CI 上で simulator rollback evidence の継続
+収集を行っている。これは rollback 判定の入力と状態遷移を固定するための証跡であり、
+「3回失敗で旧slotへ戻る」という判定ロジックの継続監視だけを担う。bootloader 実装、
+電源断後の永続化、実際の boot 経路、4回目 boot で新slotを再選択しないことの証明は、
+別の QEMU/実機検証で残す必要がある。
 
 同日までに、`hack/os-firstboot-qemu` の direct-kernel QEMU で、boot metadata を永続
-ディスクへ書き込んだ直後に強制停止し、次回 boot で読み戻す CI 証跡の追加作業も進めて
-いる。これは metadata 永続化と再読込の確認であり、simulator rollback evidence の代替
-ではない。bootloader 実装そのものと、acceptance 8 の 4th boot 非選択証明はまだ未完了
-で、この証跡で置き換えない。
+ディスクへ書き込んだ直後に強制停止し、次回 boot で読み戻す CI 証跡を追加した。これは
+metadata 永続化と再読込の確認であり、simulator rollback evidence の代替ではない。
+
+さらに、OVMF + systemd-boot を通した `hack/os-firstboot-qemu --scenario bootloader-rollback`
+で、`tart-target+3.conf` が 1st から 3rd boot で `+2-1`、`+1-2`、`+0-3` へ順に rename
+され、4th boot で `tart.qemu.boot-entry=rollback` が選択される CI 証跡を追加する。
+この証跡は acceptance 8 の完了証跡候補である一方、slot rootfs そのものの切替や実機差分は
+なお別管理とする。
+
+したがって 2026-07-17 時点で acceptance 8 に残る確認事項は、少なくとも次の3点である。
+
+1. bootloader を経由した boot trial 消費と旧slot復帰を、QEMU または実機で 4 回連続
+   boot の事実として記録し続けること。
+2. 3 回目失敗後に旧slotが起動し、4 回目 boot でも新slotを再選択しないことを、console
+   log または同等の boot source 証跡で示すこと。
+3. 上記 1, 2 を CI に残せない場合でも、同じ判定条件を検査する CI 証跡と、なぜ残差が
+   実機/QEMU にしか置けないかを Runbook または Task 文書に明記すること。
 
 ## 入力
 
@@ -79,6 +94,10 @@ bootloader実装、電源断後の永続化、実際のboot経路を確認する
 
 - `mise run <qemu-task>`の全出力
 - CIで継続収集したsimulator rollback evidence
+- acceptance 8 について、rollback判定入力と状態遷移を示すCI artifact名またはjob名
+- acceptance 8 について、4回分のboot順序と各回のslot選択結果を示すQEMU/実機証跡
+- `OS Artifact` workflow の `Verify bootloader rollback after three failed target boots`
+  job 出力と `dist/os-artifact/bootloader-rollback/*`
 - partition table (`sfdisk --json`)
 - `findmnt --json`出力
 - boot trial 4回分のconsole log

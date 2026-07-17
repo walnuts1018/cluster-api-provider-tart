@@ -68,11 +68,13 @@ const (
 	serialMarkerBootMetadataWritten = "TART_QEMU_BOOTMETA_WRITTEN="
 	serialMarkerBootMetadataSynced  = "TART_QEMU_BOOTMETA_SYNCED="
 	serialMarkerBootMetadataRead    = "TART_QEMU_BOOTMETA_READ="
+	serialMarkerBootEntrySelected   = "TART_QEMU_BOOTENTRY_SELECTED="
 )
 
 const (
 	scenarioFirstBoot                = "firstboot"
 	scenarioBootTrialMetadataPersist = "boot-trial-metadata-persistence"
+	scenarioBootloaderRollback       = "bootloader-rollback"
 )
 
 type config struct {
@@ -114,6 +116,21 @@ type qemuDrive struct {
 	serial string
 }
 
+type firmwareMode string
+
+const (
+	firmwareModeDirectKernel firmwareMode = "direct-kernel"
+	firmwareModeOVMF         firmwareMode = "ovmf"
+)
+
+type qemuBootOptions struct {
+	firmware   firmwareMode
+	kernelPath string
+	initrdPath string
+	kernelArgs string
+	biosPath   string
+}
+
 type rootObservation struct {
 	Source          string `json:"source"`
 	Options         string `json:"options"`
@@ -130,6 +147,16 @@ type bootTrialMetadataRecord struct {
 
 type bootTrialMetadataObservation struct {
 	Record bootTrialMetadataRecord `json:"record"`
+}
+
+type bootEntrySelectionObservation struct {
+	SelectedEntry string `json:"selectedEntry"`
+}
+
+type bootloaderRollbackAttemptResult struct {
+	SerialLogPath  string                        `json:"serialLogPath"`
+	SelectedEntry  bootEntrySelectionObservation `json:"selectedEntry"`
+	EntryFilenames []string                      `json:"entryFilenames"`
 }
 
 func main() {
@@ -159,7 +186,7 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&cfg.workDir, "work-dir", cfg.workDir, "Working directory used for copied images, injected trust material, and serial logs.")
 	flags.DurationVar(&cfg.timeout, "timeout", cfg.timeout, "Overall timeout for the QEMU verification run.")
 	flags.StringVar(&cfg.cpu, "cpu", cfg.cpu, "QEMU CPU model.")
-	flags.StringVar(&cfg.scenario, "scenario", cfg.scenario, "Verification scenario: firstboot or boot-trial-metadata-persistence.")
+	flags.StringVar(&cfg.scenario, "scenario", cfg.scenario, "Verification scenario: firstboot, boot-trial-metadata-persistence, or bootloader-rollback.")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -173,9 +200,14 @@ func parseConfig(args []string) (config, error) {
 		return config{}, errors.New("--cpu must not be empty")
 	}
 	switch cfg.scenario {
-	case scenarioFirstBoot, scenarioBootTrialMetadataPersist:
+	case scenarioFirstBoot, scenarioBootTrialMetadataPersist, scenarioBootloaderRollback:
 	default:
-		return config{}, fmt.Errorf("--scenario must be one of %q or %q", scenarioFirstBoot, scenarioBootTrialMetadataPersist)
+		return config{}, fmt.Errorf(
+			"--scenario must be one of %q, %q, or %q",
+			scenarioFirstBoot,
+			scenarioBootTrialMetadataPersist,
+			scenarioBootloaderRollback,
+		)
 	}
 	return cfg, nil
 }
@@ -186,6 +218,8 @@ func verify(ctx context.Context, cfg config) error {
 		return verifyFirstBoot(ctx, cfg)
 	case scenarioBootTrialMetadataPersist:
 		return verifyBootTrialMetadataPersistence(ctx, cfg)
+	case scenarioBootloaderRollback:
+		return verifyBootloaderRollback(ctx, cfg)
 	default:
 		return fmt.Errorf("unsupported scenario %q", cfg.scenario)
 	}
@@ -285,11 +319,15 @@ func verifyFirstBoot(ctx context.Context, cfg config) error {
 	qemu, err := startQEMU(
 		ctx,
 		cfg,
-		paths,
-		osTestImagePath,
+		qemuBootOptions{
+			firmware:   firmwareModeDirectKernel,
+			kernelPath: paths.kernelPath,
+			initrdPath: paths.initrdPath,
+			kernelArgs: buildKernelCommandLine(server.controllerURL),
+		},
 		serialLogPath,
-		server.controllerURL,
 		[]qemuDrive{
+			{path: osTestImagePath, id: "rootdisk", serial: rootDiskSerial},
 			{path: targetDiskPath, id: "targetdisk", serial: targetDiskSerial},
 		},
 	)
@@ -478,11 +516,15 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 	firstBootQEMU, err := startQEMU(
 		ctx,
 		cfg,
-		paths,
-		workspace.osTestImage,
+		qemuBootOptions{
+			firmware:   firmwareModeDirectKernel,
+			kernelPath: paths.kernelPath,
+			initrdPath: paths.initrdPath,
+			kernelArgs: buildKernelCommandLine(""),
+		},
 		firstBootSerialLogPath,
-		"",
 		[]qemuDrive{
+			{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
 			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
 		},
 	)
@@ -504,11 +546,15 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 	secondBootQEMU, err := startQEMU(
 		ctx,
 		cfg,
-		paths,
-		workspace.osTestImage,
+		qemuBootOptions{
+			firmware:   firmwareModeDirectKernel,
+			kernelPath: paths.kernelPath,
+			initrdPath: paths.initrdPath,
+			kernelArgs: buildKernelCommandLine(""),
+		},
 		secondBootSerialLogPath,
-		"",
 		[]qemuDrive{
+			{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
 			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
 		},
 	)
@@ -546,6 +592,155 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 		secondBootObservation,
 	); err != nil {
 		return fmt.Errorf("write boot metadata persistence evidence: %w", err)
+	}
+	return nil
+}
+
+func verifyBootloaderRollback(ctx context.Context, cfg config) error {
+	ctx, cancel := context.WithTimeout(ctx, cfg.timeout)
+	defer cancel()
+
+	workspace, err := prepareWorkspace(cfg)
+	if err != nil {
+		return err
+	}
+	cfg.workDir = workspace.workDir
+	paths, err := resolveArtifacts(workspace.artifactDir)
+	if err != nil {
+		return err
+	}
+	bootEntryScriptPath, err := writeTextFile(
+		filepath.Join(cfg.workDir, "qemu-bootloader-rollback.sh"),
+		qemuBootloaderRollbackScript(),
+	)
+	if err != nil {
+		return err
+	}
+	bootEntryServicePath, err := writeTextFile(
+		filepath.Join(cfg.workDir, "qemu-bootloader-rollback.service"),
+		qemuBootloaderRollbackUnit(),
+	)
+	if err != nil {
+		return err
+	}
+	if err := injectTrustMaterial(ctx, workspace.osTestImage, cfg.workDir,
+		injectedFile{
+			targetPath:    "/etc/systemd/system/tart-first-boot.service",
+			symlinkTarget: "/dev/null",
+		},
+		injectedFile{
+			targetPath:    "/etc/systemd/system/systemd-bless-boot.service",
+			symlinkTarget: "/dev/null",
+		},
+		injectedFile{
+			sourcePath: bootEntryScriptPath,
+			targetPath: "/usr/local/lib/tart/qemu-bootloader-rollback.sh",
+			mode:       0o755,
+		},
+		injectedFile{
+			sourcePath: bootEntryServicePath,
+			targetPath: "/etc/systemd/system/qemu-bootloader-rollback.service",
+		},
+		injectedFile{
+			targetPath:    "/etc/systemd/system/multi-user.target.wants/qemu-bootloader-rollback.service",
+			symlinkTarget: "../qemu-bootloader-rollback.service",
+		},
+	); err != nil {
+		return err
+	}
+
+	espDiskPath := filepath.Join(cfg.workDir, "esp.raw")
+	if err := createBootloaderESPDisk(ctx, cfg.workDir, espDiskPath, paths, "/dev/vdb"); err != nil {
+		return err
+	}
+	biosPath, err := findOVMFFirmware()
+	if err != nil {
+		return err
+	}
+
+	results := make([]bootloaderRollbackAttemptResult, 0, 4)
+
+	for attempt := range 4 {
+		serialLogPath := filepath.Join(cfg.workDir, fmt.Sprintf("serial-boot%d.log", attempt+1))
+		qemu, err := startQEMU(
+			ctx,
+			cfg,
+			qemuBootOptions{
+				firmware: firmwareModeOVMF,
+				biosPath: biosPath,
+			},
+			serialLogPath,
+			[]qemuDrive{
+				{path: espDiskPath, id: "espdisk", serial: "qemu-esp"},
+				{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
+			},
+		)
+		if err != nil {
+			return err
+		}
+		selected, err := waitForBootEntrySelection(ctx, serialLogPath)
+		if err != nil {
+			if stopErr := qemu.stop(); stopErr != nil {
+				slog.Warn("Failed to stop QEMU after boot entry selection timeout", "error", stopErr)
+			}
+			return &verificationError{
+				reason:        err.Error(),
+				serialLogPath: serialLogPath,
+			}
+		}
+		exitErr := <-qemu.exitResult
+		if exitErr != nil {
+			return &verificationError{
+				reason:        fmt.Sprintf("QEMU exited unexpectedly after boot entry selection: %v", exitErr),
+				serialLogPath: serialLogPath,
+			}
+		}
+		entryFilenames, err := bootloaderEntryFilenames(ctx, cfg.workDir, espDiskPath)
+		if err != nil {
+			return err
+		}
+		results = append(results, bootloaderRollbackAttemptResult{
+			SerialLogPath:  serialLogPath,
+			SelectedEntry:  selected,
+			EntryFilenames: entryFilenames,
+		})
+	}
+
+	for attempt := range 3 {
+		if results[attempt].SelectedEntry.SelectedEntry != "target" {
+			return &verificationError{
+				reason:        fmt.Sprintf("boot %d selected %q, want target", attempt+1, results[attempt].SelectedEntry.SelectedEntry),
+				serialLogPath: results[attempt].SerialLogPath,
+			}
+		}
+	}
+	if results[3].SelectedEntry.SelectedEntry != "rollback" {
+		return &verificationError{
+			reason:        fmt.Sprintf("boot 4 selected %q, want rollback", results[3].SelectedEntry.SelectedEntry),
+			serialLogPath: results[3].SerialLogPath,
+		}
+	}
+	expectedEntries := [][]string{
+		{"tart-rollback.conf", "tart-target+2-1.conf"},
+		{"tart-rollback.conf", "tart-target+1-2.conf"},
+		{"tart-rollback.conf", "tart-target+0-3.conf"},
+		{"tart-rollback.conf", "tart-target+0-3.conf"},
+	}
+	for attempt, want := range expectedEntries {
+		if !slices.Equal(results[attempt].EntryFilenames, want) {
+			return &verificationError{
+				reason: fmt.Sprintf(
+					"boot %d entry filenames = %v, want %v",
+					attempt+1,
+					results[attempt].EntryFilenames,
+					want,
+				),
+				serialLogPath: results[attempt].SerialLogPath,
+			}
+		}
+	}
+	if err := writeBootloaderRollbackEvidence(cfg, paths, espDiskPath, workspace.osTestImage, biosPath, results); err != nil {
+		return fmt.Errorf("write bootloader rollback evidence: %w", err)
 	}
 	return nil
 }
@@ -631,6 +826,99 @@ func createTargetDisk(path string, sizeBytes int64) error {
 		return fmt.Errorf("close target disk image: %w", err)
 	}
 	return nil
+}
+
+func createBootloaderESPDisk(
+	ctx context.Context,
+	workDir, espDiskPath string,
+	artifacts artifactPaths,
+	rootDevice string,
+) error {
+	if err := createTargetDisk(espDiskPath, 128<<20); err != nil {
+		return err
+	}
+	layout := strings.Join([]string{
+		"label: gpt",
+		",96MiB,U,*",
+		"",
+	}, "\n")
+	if err := runPrivilegedInput(ctx, layout, "sfdisk", espDiskPath); err != nil {
+		return fmt.Errorf("partition ESP disk: %w", err)
+	}
+	systemdBootEFIPath, err := findSystemdBootEFI()
+	if err != nil {
+		return err
+	}
+	return withLoopPartitions(ctx, espDiskPath, func(partitions []string) error {
+		if len(partitions) != 1 {
+			return fmt.Errorf("ESP disk partitions = %d, want 1", len(partitions))
+		}
+		if err := runPrivileged(ctx, "mkfs.fat", "-F", "32", partitions[0]); err != nil {
+			return fmt.Errorf("format ESP filesystem: %w", err)
+		}
+		return withMountedPartition(ctx, workDir, partitions[0], func(mountDir string) error {
+			for _, dir := range []string{
+				filepath.Join(mountDir, "EFI", "BOOT"),
+				filepath.Join(mountDir, "loader", "entries"),
+			} {
+				if err := runPrivileged(ctx, "mkdir", "-p", dir); err != nil {
+					return fmt.Errorf("prepare ESP directory %s: %w", dir, err)
+				}
+			}
+			if err := runPrivileged(ctx, "install", "-D", "-m", "0644", systemdBootEFIPath, filepath.Join(mountDir, "EFI", "BOOT", "BOOTX64.EFI")); err != nil {
+				return fmt.Errorf("install systemd-boot EFI binary: %w", err)
+			}
+			loaderConfPath, err := writeTextFile(filepath.Join(workDir, "loader.conf"), strings.Join([]string{
+				"default tart-*",
+				"timeout 0",
+				"editor no",
+				"",
+			}, "\n"))
+			if err != nil {
+				return err
+			}
+			targetEntryPath, err := writeTextFile(
+				filepath.Join(workDir, "tart-target+3.conf"),
+				bootloaderEntryConfig("Tart Target", "2", "/vmlinuz", "/initrd", rootDevice, "target"),
+			)
+			if err != nil {
+				return err
+			}
+			rollbackEntryPath, err := writeTextFile(
+				filepath.Join(workDir, "tart-rollback.conf"),
+				bootloaderEntryConfig("Tart Rollback", "1", "/vmlinuz", "/initrd", rootDevice, "rollback"),
+			)
+			if err != nil {
+				return err
+			}
+			for _, file := range []struct {
+				source string
+				dest   string
+			}{
+				{source: artifacts.kernelPath, dest: filepath.Join(mountDir, "vmlinuz")},
+				{source: artifacts.initrdPath, dest: filepath.Join(mountDir, "initrd")},
+				{source: loaderConfPath, dest: filepath.Join(mountDir, "loader", "loader.conf")},
+				{source: targetEntryPath, dest: filepath.Join(mountDir, "loader", "entries", "tart-target+3.conf")},
+				{source: rollbackEntryPath, dest: filepath.Join(mountDir, "loader", "entries", "tart-rollback.conf")},
+			} {
+				if err := runPrivileged(ctx, "install", "-D", "-m", "0644", file.source, file.dest); err != nil {
+					return fmt.Errorf("install %s into ESP: %w", filepath.Base(file.dest), err)
+				}
+			}
+			return nil
+		})
+	})
+}
+
+func bootloaderEntryConfig(title, version, kernelPath, initrdPath, rootDevice, selectedEntry string) string {
+	return strings.Join([]string{
+		"title " + title,
+		"version " + version,
+		"linux " + kernelPath,
+		"initrd " + initrdPath,
+		"options root=" + rootDevice + " ro console=ttyS0 tart.qemu.boot-entry=" + selectedEntry,
+		"",
+	}, "\n")
 }
 
 func generatePlanPublicKey(targetPath string) (string, ed25519.PrivateKey, error) {
@@ -810,6 +1098,44 @@ func qemuBootTrialMetadataScript() string {
 	}, "\n")
 }
 
+func qemuBootloaderRollbackUnit() string {
+	return strings.Join([]string{
+		"[Unit]",
+		"Description=QEMU bootloader rollback smoke",
+		"After=local-fs.target",
+		"",
+		"[Service]",
+		"Type=oneshot",
+		"ExecStart=/usr/local/lib/tart/qemu-bootloader-rollback.sh",
+		"StandardOutput=journal+console",
+		"StandardError=journal+console",
+		"",
+		"[Install]",
+		"WantedBy=multi-user.target",
+		"",
+	}, "\n")
+}
+
+func qemuBootloaderRollbackScript() string {
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"selected=unknown",
+		"case \"$(cat /proc/cmdline)\" in",
+		"  *tart.qemu.boot-entry=target*)",
+		"    selected=target",
+		"    ;;",
+		"  *tart.qemu.boot-entry=rollback*)",
+		"    selected=rollback",
+		"    ;;",
+		"esac",
+		"echo '" + serialMarkerBootEntrySelected + "'\"$selected\"",
+		"sync",
+		"systemctl poweroff --force --force",
+		"",
+	}, "\n")
+}
+
 func buildSignedPlan(
 	privateKey ed25519.PrivateKey,
 	minSizeBytes int64,
@@ -982,8 +1308,8 @@ func hasSessionToken(request *http.Request) bool {
 func startQEMU(
 	ctx context.Context,
 	cfg config,
-	artifacts artifactPaths,
-	osImagePath, serialLogPath, controllerURL string,
+	options qemuBootOptions,
+	serialLogPath string,
 	extraDrives []qemuDrive,
 ) (*qemuProcess, error) {
 	if _, err := exec.LookPath("qemu-system-x86_64"); err != nil {
@@ -992,23 +1318,29 @@ func startQEMU(
 	if err := os.WriteFile(serialLogPath, nil, 0o644); err != nil {
 		return nil, fmt.Errorf("create serial log file: %w", err)
 	}
-	kernelArgs := buildKernelCommandLine(controllerURL)
 	args := []string{
 		"-accel", qemuAccelerator(),
 		"-m", "2048",
 		"-smp", "2",
 		"-cpu", cfg.cpu,
-		"-kernel", artifacts.kernelPath,
-		"-initrd", artifacts.initrdPath,
-		"-append", kernelArgs,
-		"-netdev", "user,id=net0",
-		"-device", "virtio-net-pci,netdev=net0,mac=" + bootMAC,
-		"-drive", "file=" + osImagePath + ",if=none,id=rootdisk,format=raw",
-		"-device", "virtio-blk-pci,drive=rootdisk,serial=" + rootDiskSerial,
 		"-serial", "file:" + serialLogPath,
 		"-nographic",
 		"-display", "none",
 		"-no-reboot",
+	}
+	switch options.firmware {
+	case firmwareModeDirectKernel:
+		args = append(args,
+			"-kernel", options.kernelPath,
+			"-initrd", options.initrdPath,
+			"-append", options.kernelArgs,
+			"-netdev", "user,id=net0",
+			"-device", "virtio-net-pci,netdev=net0,mac="+bootMAC,
+		)
+	case firmwareModeOVMF:
+		args = append(args, "-bios", options.biosPath)
+	default:
+		return nil, fmt.Errorf("unsupported QEMU firmware mode %q", options.firmware)
 	}
 	for _, drive := range extraDrives {
 		args = append(args,
@@ -1102,6 +1434,24 @@ type bootTrialMetadataEvidence struct {
 	SecondBootSerialLogPath string                       `json:"secondBootSerialLogPath"`
 }
 
+type bootloaderRollbackAttemptEvidence struct {
+	Attempt        int      `json:"attempt"`
+	SelectedEntry  string   `json:"selectedEntry"`
+	EntryFilenames []string `json:"entryFilenames"`
+	SerialLogPath  string   `json:"serialLogPath"`
+}
+
+type bootloaderRollbackEvidence struct {
+	CPU           string                              `json:"cpu"`
+	Scenario      string                              `json:"scenario"`
+	BIOSPath      string                              `json:"biosPath"`
+	OSImageDigest string                              `json:"osImageDigest"`
+	ESPDiskDigest string                              `json:"espDiskDigest"`
+	KernelPath    string                              `json:"kernelPath"`
+	InitrdPath    string                              `json:"initrdPath"`
+	Attempts      []bootloaderRollbackAttemptEvidence `json:"attempts"`
+}
+
 func writeBootTrialMetadataEvidence(
 	cfg config,
 	artifacts artifactPaths,
@@ -1134,6 +1484,50 @@ func writeBootTrialMetadataEvidence(
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode boot metadata evidence: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.workDir, "evidence.json"), append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write evidence.json: %w", err)
+	}
+	return nil
+}
+
+func writeBootloaderRollbackEvidence(
+	cfg config,
+	artifacts artifactPaths,
+	espDiskPath string,
+	osImagePath string,
+	biosPath string,
+	results []bootloaderRollbackAttemptResult,
+) error {
+	osImageDigest, err := fileSHA256(osImagePath)
+	if err != nil {
+		return err
+	}
+	espDiskDigest, err := fileSHA256(espDiskPath)
+	if err != nil {
+		return err
+	}
+	attempts := make([]bootloaderRollbackAttemptEvidence, 0, len(results))
+	for index, result := range results {
+		attempts = append(attempts, bootloaderRollbackAttemptEvidence{
+			Attempt:        index + 1,
+			SelectedEntry:  result.SelectedEntry.SelectedEntry,
+			EntryFilenames: slices.Clone(result.EntryFilenames),
+			SerialLogPath:  result.SerialLogPath,
+		})
+	}
+	data, err := json.MarshalIndent(bootloaderRollbackEvidence{
+		CPU:           cfg.cpu,
+		Scenario:      cfg.scenario,
+		BIOSPath:      biosPath,
+		OSImageDigest: osImageDigest,
+		ESPDiskDigest: espDiskDigest,
+		KernelPath:    artifacts.kernelPath,
+		InitrdPath:    artifacts.initrdPath,
+		Attempts:      attempts,
+	}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode bootloader rollback evidence: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(cfg.workDir, "evidence.json"), append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write evidence.json: %w", err)
@@ -1349,6 +1743,75 @@ func parseBootTrialMetadataRecord(raw string) (bootTrialMetadataRecord, error) {
 	return record, nil
 }
 
+func waitForBootEntrySelection(ctx context.Context, serialLogPath string) (bootEntrySelectionObservation, error) {
+	deadline := time.Now().Add(30 * time.Second)
+	if value, ok := bootEntrySelectionFromLog(serialLogPath); ok {
+		return value, nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return bootEntrySelectionObservation{}, errors.New("timed out waiting for boot entry selection evidence in the serial log")
+		case <-ticker.C:
+			value, ok := bootEntrySelectionFromLog(serialLogPath)
+			if ok {
+				return value, nil
+			}
+			if time.Now().After(deadline) {
+				return bootEntrySelectionObservation{}, errors.New("timed out waiting for boot entry selection evidence in the serial log")
+			}
+		}
+	}
+}
+
+func bootEntrySelectionFromLog(path string) (bootEntrySelectionObservation, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return bootEntrySelectionObservation{}, false
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if after, ok := strings.CutPrefix(line, serialMarkerBootEntrySelected); ok {
+			selectedEntry := strings.TrimSpace(after)
+			if selectedEntry == "" {
+				return bootEntrySelectionObservation{}, false
+			}
+			return bootEntrySelectionObservation{SelectedEntry: selectedEntry}, true
+		}
+	}
+	return bootEntrySelectionObservation{}, false
+}
+
+func bootloaderEntryFilenames(ctx context.Context, workDir, espDiskPath string) ([]string, error) {
+	var filenames []string
+	if err := withLoopPartitions(ctx, espDiskPath, func(partitions []string) error {
+		if len(partitions) != 1 {
+			return fmt.Errorf("ESP disk partitions = %d, want 1", len(partitions))
+		}
+		return withMountedPartition(ctx, workDir, partitions[0], func(mountDir string) error {
+			entriesDir := filepath.Join(mountDir, "loader", "entries")
+			entries, err := os.ReadDir(entriesDir)
+			if err != nil {
+				return fmt.Errorf("read loader entries: %w", err)
+			}
+			filenames = filenames[:0]
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				filenames = append(filenames, entry.Name())
+			}
+			slices.Sort(filenames)
+			return nil
+		})
+	}); err != nil {
+		return nil, err
+	}
+	return filenames, nil
+}
+
 func serialLogContainsOne(path string, needles ...string) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1423,7 +1886,94 @@ func pkixName(commonName string) pkix.Name {
 	return pkix.Name{CommonName: commonName}
 }
 
+func findOVMFFirmware() (string, error) {
+	for _, path := range []string{
+		"/usr/share/ovmf/OVMF.fd",
+		"/usr/share/OVMF/OVMF.fd",
+		"/usr/share/qemu/ovmf-x86_64.bin",
+	} {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("find OVMF firmware: supported OVMF.fd path was not found")
+}
+
+func findSystemdBootEFI() (string, error) {
+	for _, path := range []string{
+		"/usr/lib/systemd/boot/efi/systemd-bootx64.efi",
+		"/usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed",
+		"/lib/systemd/boot/efi/systemd-bootx64.efi",
+	} {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("find systemd-boot EFI binary: supported path was not found")
+}
+
+func withLoopPartitions(ctx context.Context, imagePath string, fn func([]string) error) error {
+	loopDevice, err := runPrivilegedOutput(ctx, "losetup", "--find", "--show", "--partscan", imagePath)
+	if err != nil {
+		return fmt.Errorf("attach loop device: %w", err)
+	}
+	loopDevice = strings.TrimSpace(loopDevice)
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cleanupCancel()
+		if err := runPrivileged(cleanupCtx, "losetup", "-d", loopDevice); err != nil {
+			slog.Warn("Failed to detach loop device", "error", err, "loop_device", loopDevice)
+		}
+	}()
+	partitions, err := filepath.Glob(loopDevice + "p*")
+	if err != nil {
+		return fmt.Errorf("resolve loop partitions: %w", err)
+	}
+	if len(partitions) == 0 {
+		return fmt.Errorf("loop device %s has no partitions", loopDevice)
+	}
+	slices.Sort(partitions)
+	return fn(partitions)
+}
+
+func withMountedPartition(ctx context.Context, workDir, partitionPath string, fn func(string) error) error {
+	mountDir, err := os.MkdirTemp(workDir, "partition-mount-")
+	if err != nil {
+		return fmt.Errorf("create partition mount directory: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(mountDir); removeErr != nil {
+			slog.Warn("Failed to remove partition mount directory", "error", removeErr, "mount_dir", mountDir)
+		}
+	}()
+	if err := runPrivileged(ctx, "mount", partitionPath, mountDir); err != nil {
+		return fmt.Errorf("mount partition %s: %w", partitionPath, err)
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cleanupCancel()
+		if err := runPrivileged(cleanupCtx, "umount", mountDir); err != nil {
+			slog.Warn("Failed to unmount partition", "error", err, "mount_dir", mountDir)
+		}
+	}()
+	return fn(mountDir)
+}
+
 func runPrivileged(ctx context.Context, name string, args ...string) error {
+	_, err := runPrivilegedCommand(ctx, "", name, args...)
+	return err
+}
+
+func runPrivilegedInput(ctx context.Context, input string, name string, args ...string) error {
+	_, err := runPrivilegedCommand(ctx, input, name, args...)
+	return err
+}
+
+func runPrivilegedOutput(ctx context.Context, name string, args ...string) (string, error) {
+	return runPrivilegedCommand(ctx, "", name, args...)
+}
+
+func runPrivilegedCommand(ctx context.Context, input string, name string, args ...string) (string, error) {
 	commandName := name
 	commandArgs := args
 	if os.Geteuid() != 0 {
@@ -1431,13 +1981,16 @@ func runPrivileged(ctx context.Context, name string, args ...string) error {
 		commandArgs = append([]string{name}, args...)
 	}
 	command := exec.CommandContext(ctx, commandName, commandArgs...)
+	if input != "" {
+		command.Stdin = strings.NewReader(input)
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		trimmed := strings.TrimSpace(string(output))
 		if trimmed == "" {
-			return err
+			return "", err
 		}
-		return fmt.Errorf("%w: %s", err, trimmed)
+		return "", fmt.Errorf("%w: %s", err, trimmed)
 	}
-	return nil
+	return strings.TrimSpace(string(output)), nil
 }

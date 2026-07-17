@@ -11,6 +11,7 @@ on:
         options:
           - full
           - replacement-only
+          - retained-wipe-only
   pull_request:
     paths:
       - ".github/workflows/e2e-provisioning.yaml"
@@ -74,6 +75,11 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'replacement-only'
         run: |
           echo 'PROVISIONING_E2E_GINKGO_FOCUS=Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension' >> "$GITHUB_ENV"
+
+      - name: Select retained WipeAll E2E scenario
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'retained-wipe-only'
+        run: |
+          echo 'PROVISIONING_E2E_GINKGO_FOCUS=Should reallocate a retained or detached Host only after manual WipeAll completes' >> "$GITHUB_ENV"
 
       - name: Run E2E Provisioning Test
         run: |

@@ -56,6 +56,8 @@ mise run test-provisioning-e2e
    `MachineDeployment`をsurge相当で2 replicasへ拡張したときにCAPI標準controllerが
    replacement candidate `Machine`を作成し、別HostのProvisioning Agent登録まで進むことを確認する。
    その後、元の`Machine`削除要求まで送る。
+6. 全Hostを`Retained`または`Detached`にした状態では通常のHost割当が`NoAvailableHost`で待機し、
+   `machineRef=nil`の手動`WipeAll`完了後だけHostが`Available`へ戻り、同じ`TartMachine`へ再割当されることを確認する。
 
 成功したrun:
 
@@ -78,3 +80,15 @@ mise run test-provisioning-e2e
 `Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension`
 だけを実行できる。通常の `push` / `pull_request` ではこのテストを含む全件を実行し、
 `ExtensionConfig` が未登録のまま CAPI 標準の Machine 置換経路が成立することを継続監視する。
+
+## Retained/Detached Host再利用の検証
+
+`workflow_dispatch` では `scenario=retained-wipe-only` を選ぶと、
+`test/e2e/provisioning/provisioning_test.go` の
+`Should reallocate a retained or detached Host only after manual WipeAll completes`
+だけを実行できる。このシナリオは実diskの全block消去を証明するものではなく、CI上で次を継続監視する。
+
+1. `Retained`/`Detached` Hostを通常のMachine作成で割り当てない。
+2. `machineRef=nil`の手動`WipeAll` Operationをcontrollerが受理する。
+3. 手動`WipeAll`完了後にHostを`Available`へ戻す。
+4. `Available`へ戻ったHostを新しいMachineへ再割当できる。

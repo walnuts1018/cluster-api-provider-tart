@@ -78,9 +78,9 @@ GitHub Actions上のProvisioning E2Eを実装した。
 | 7 | 実装済み、OS image統合未検証 | Provisioning Agentに`--apply-bootstrap-only`を追加し、Bundleを一時fileへ保存、local cloud-config adapter成功後にpayload原本を削除し、payload digest/adapter version/適用時刻だけをState markerへ残す処理を実装。first-boot経由のOS image統合は未検証 |
 | 8-10 | 実装済み、実機未検証 | controller/application側でDeletionPolicyごとのCleaning Operation、Host phase遷移、WipeAll deadline算出を追加。署名済みCleaning Plan、Agent側device sanitize優先、fallbackのzero overwrite処理を実装済み。実機確認は未完 |
 | 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
-| 12 | 実装済み、E2E未検証 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eだけが未検証 |
+| 12 | CI E2E実装済み | Retained/Detachedを通常選択候補から除外するdomain/application testを追加済み。GitHub Actionsの`scenario=retained-wipe-only`で、全HostをRetained/Detachedにした状態では`TartMachine`が`NoAvailableHost`で待機し、手動`WipeAll`完了後に対象Hostへ再割当されることを検証する |
 | 13 | CI E2E実装済み | GitHub Actionsの`E2E Provisioning Test`で、`workflow_dispatch`の`scenario=replacement-only`を使うと`ExtensionConfig`未登録のまま固定Bootstrap Secretを参照する最小`MachineDeployment`をsurge相当で2 replicasへ拡張し、CAPI標準controllerがreplacement candidate `Machine`を作成して別HostのProvisioning Agent登録まで進むことを検証する。その後、元の`Machine`削除要求まで送る。Node Ready後のrolling replacement完走はOS image統合後に追加検証する |
-| 14-15 | 実装済み、実機未検証 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。disk容量別deadline算出、署名済みCleaning Plan、Agent側device sanitize優先、fallbackのzero overwrite処理を実装済み。実機確認は未完 |
+| 14-15 | CI E2E実装済み、実機ディスク消去未検証 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。`scenario=retained-wipe-only`で手動`WipeAll` Operation作成、Host=`Cleaning`、Operation=`Succeeded`、Host=`Available`への収束を検証する。disk容量別deadline算出、署名済みCleaning Plan、Agent側device sanitize優先、fallbackのzero overwrite処理は実装済み。実機での全logical block消去確認だけが未完 |
 
 実装済みの補助機能:
 

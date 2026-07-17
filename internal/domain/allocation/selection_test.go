@@ -64,6 +64,12 @@ func TestMatch(t *testing.T) {
 		{name: "利用可能でない", candidate: replace(matching, func(candidate *Candidate) {
 			candidate.Phase = hostdomain.PhaseReserved
 		}), want: MismatchPhase},
+		{name: "Data保持Hostは割当対象外", candidate: replace(matching, func(candidate *Candidate) {
+			candidate.Phase = hostdomain.PhaseRetained
+		}), want: MismatchPhase},
+		{name: "State保持Hostは割当対象外", candidate: replace(matching, func(candidate *Candidate) {
+			candidate.Phase = hostdomain.PhaseDetached
+		}), want: MismatchPhase},
 		{name: "割り当て済み", candidate: replace(matching, func(candidate *Candidate) {
 			candidate.Assigned = true
 		}), want: MismatchAssigned},

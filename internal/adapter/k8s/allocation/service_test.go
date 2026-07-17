@@ -169,6 +169,51 @@ func TestServiceReserveReturnsHostAlreadyClaimedBySameMachine(t *testing.T) {
 	}
 }
 
+func TestServiceReserveSkipsRetainedAndDetachedHostsUntilWipeAllMakesHostAvailable(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	testScheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(testScheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	retained := matchingHost()
+	retained.Name = "host-retained"
+	retained.UID = types.UID("host-retained-uid")
+	retained.Status.Phase = infrastructurev1beta1.TartHostPhaseRetained
+	detached := matchingHost()
+	detached.Name = "host-detached"
+	detached.UID = types.UID("host-detached-uid")
+	detached.Status.Phase = infrastructurev1beta1.TartHostPhaseDetached
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(testScheme).
+		WithObjects(retained, detached).
+		Build()
+	service := NewService(k8sClient)
+	requirements := matchingRequirements(t)
+
+	if _, err := service.Reserve(ctx, concurrentMachine(1), requirements); !errors.Is(err, ErrNoMatchingHost) {
+		t.Fatalf("Reserve() error = %v, want %v", err, ErrNoMatchingHost)
+	}
+
+	current := &infrastructurev1beta1.TartHost{}
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: retained.Namespace, Name: retained.Name}, current); err != nil {
+		t.Fatalf("get retained TartHost: %v", err)
+	}
+	current.Status.Phase = infrastructurev1beta1.TartHostPhaseAvailable
+	if err := k8sClient.Update(ctx, current); err != nil {
+		t.Fatalf("mark retained TartHost Available: %v", err)
+	}
+
+	got, err := service.Reserve(ctx, concurrentMachine(2), requirements)
+	if err != nil {
+		t.Fatalf("Reserve() after WipeAll error = %v", err)
+	}
+	if got.UID != retained.UID {
+		t.Fatalf("Reserve() UID = %q, want %q", got.UID, retained.UID)
+	}
+}
+
 func TestServiceEnsureMachineHostReferenceRejectsDifferentConsumerUID(t *testing.T) {
 	t.Parallel()
 

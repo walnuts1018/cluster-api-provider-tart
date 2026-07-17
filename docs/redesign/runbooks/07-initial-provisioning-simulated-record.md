@@ -66,6 +66,7 @@ mise run test-provisioning-e2e
 | 2026-07-16 18:30 UTC | 29524189625 | `38bf639` |
 | 2026-07-17 00:23 UTC | 29544626964 | `main` push |
 | 2026-07-17 09:06 UTC | 29568145426 | `e03c8a0` (`scenario=replacement-only`) |
+| 2026-07-17 09:31 UTC | 29570274422 | `07a29ad` (`scenario=retained-wipe-only`) |
 
 ## なお未検証の項目
 

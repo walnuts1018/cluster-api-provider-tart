@@ -151,6 +151,15 @@ func TestParseConfigは既定値を持つ(t *testing.T) {
 	if cfg.cpu != defaultCPU {
 		t.Fatalf("cpu = %q, want %q", cfg.cpu, defaultCPU)
 	}
+	if cfg.scenario != defaultScenario {
+		t.Fatalf("scenario = %q, want %q", cfg.scenario, defaultScenario)
+	}
+}
+
+func TestParseConfigは未知のScenarioを拒否する(t *testing.T) {
+	if _, err := parseConfig([]string{"--scenario", "unknown"}); err == nil {
+		t.Fatal("parseConfig() accepted an unknown scenario")
+	}
 }
 
 func TestWriteTextFileは内容を書き出す(t *testing.T) {
@@ -248,6 +257,56 @@ func TestReadLogTailは直近80行を返す(t *testing.T) {
 	}
 	if !strings.Contains(got, "line-10") || !strings.Contains(got, "line-89") {
 		t.Fatalf("readLogTail() = %q, want line-10 through line-89", got)
+	}
+}
+
+func TestQEMUBootTrialMetadataScriptは期待する永続化対象を固定する(t *testing.T) {
+	got := qemuBootTrialMetadataScript()
+
+	for _, want := range []string{
+		metadataDiskSerial,
+		serialMarkerBootMetadataWritten,
+		serialMarkerBootMetadataSynced + "true",
+		serialMarkerBootMetadataRead,
+		`"activeSlot":"B"`,
+		`"rollbackSlot":"A"`,
+		`"remainingAttempts":2`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("qemuBootTrialMetadataScript() does not contain %q\n%s", want, got)
+		}
+	}
+}
+
+func TestBootTrialMetadataFromLogはWriteとReadのJSONを読む(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "serial.log")
+	recordJSON := mustJSON(bootTrialMetadataRecord{
+		ActiveSlot:         "B",
+		TargetSlot:         "B",
+		RollbackSlot:       "A",
+		ArtifactGeneration: 2,
+		RemainingAttempts:  2,
+	})
+	logText := strings.Join([]string{
+		serialMarkerBootMetadataWritten + recordJSON,
+		serialMarkerBootMetadataSynced + "true",
+		serialMarkerBootMetadataRead + recordJSON,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(logText), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	written, synced := bootTrialMetadataWriteFromLog(path)
+	if !synced {
+		t.Fatal("bootTrialMetadataWriteFromLog() did not detect synced write")
+	}
+	read, ok := bootTrialMetadataReadFromLog(path)
+	if !ok {
+		t.Fatal("bootTrialMetadataReadFromLog() did not detect persisted metadata")
+	}
+	if written.Record != read.Record {
+		t.Fatalf("metadata mismatch: written=%#v read=%#v", written.Record, read.Record)
 	}
 }
 

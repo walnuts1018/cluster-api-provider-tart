@@ -579,6 +579,21 @@ go run ./hack/os-firstboot-qemu \
   -cpu "${ARTIFACT_QEMU_CPU:-qemu64}"
 '''
 
+[tasks.artifact-test-boot-trial-metadata-persistence]
+description = "boot metadata更新直後の電源断後もboot trial回数が残ることをQEMUで検証する（Linux専用）"
+run = '''
+if [ "$(uname -s)" != Linux ]; then
+  echo "artifact-test-boot-trial-metadata-persistence requires Linux" >&2
+  exit 1
+fi
+go run ./hack/os-firstboot-qemu \
+  -scenario boot-trial-metadata-persistence \
+  -artifact-dir "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}" \
+  -work-dir "${ARTIFACT_BOOTMETA_QEMU_WORK_DIR:-dist/os-artifact/boot-trial-metadata-persistence}" \
+  -timeout "${ARTIFACT_QEMU_TIMEOUT:-10m}" \
+  -cpu "${ARTIFACT_QEMU_CPU:-qemu64}"
+'''
+
 [tasks.artifact-test-boot-trial-rollback]
 description = "boot trial rollback状態機械のCI simulator証跡を生成する"
 run = '''

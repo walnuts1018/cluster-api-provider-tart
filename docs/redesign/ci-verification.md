@@ -39,5 +39,6 @@
 1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで`pull_request`と`main` pushに対して継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
 2. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
 3. Task 01のboot trial rollbackについては、CIでsimulator rollback evidenceを継続収集し、rollback判定に使った入力、期待した状態遷移、Artifact/Profile識別子をartifactへ保存する。これはbootloader実機/QEMU実証の代替ではなく、Task 01で別途行うQEMU・実機検証の残差を減らすための継続証跡とする。
-4. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
-5. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。
+4. `hack/os-firstboot-qemu` の direct-kernel QEMU では、boot metadata を永続ディスクへ書いた直後に強制停止し、次回 boot で読み戻す CI 証跡を別系統で残す。これは storage write-through と再読込の確認であり、simulator rollback evidence の代替でも、bootloader 実装そのものや acceptance 8 の 4th boot 非選択証明の代替でもない。
+5. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
+6. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。

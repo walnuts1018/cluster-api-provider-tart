@@ -103,6 +103,13 @@ jobs:
           ARTIFACT_BOOT_TRIAL_WORK_DIR: dist/os-artifact/boot-trial-rollback
         run: mise run artifact-test-boot-trial-rollback
 
+      - name: Verify boot metadata persistence after forced power loss
+        env:
+          ARTIFACT_QEMU_CPU: qemu64
+          ARTIFACT_QEMU_TIMEOUT: 10m
+          ARTIFACT_BOOTMETA_QEMU_WORK_DIR: dist/os-artifact/boot-trial-metadata-persistence
+        run: mise run artifact-test-boot-trial-metadata-persistence
+
       - name: Boot OS artifact and verify first boot report
         env:
           ARTIFACT_QEMU_CPU: qemu64
@@ -118,6 +125,9 @@ jobs:
           path: |
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
+            dist/os-artifact/boot-trial-metadata-persistence/evidence.json
+            dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
+            dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/dm-verity/root-hash.txt
@@ -179,6 +189,9 @@ jobs:
             dist/os-artifact/dm-verity/digests-after.txt
             dist/os-artifact/dm-verity/verify-before.log
             dist/os-artifact/dm-verity/verify-after.log
+            dist/os-artifact/boot-trial-metadata-persistence/evidence.json
+            dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
+            dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/qemu-firstboot/evidence.json

@@ -21,6 +21,12 @@ Task 01を再開した際は、暫定レイアウトで受け入れ条件を検�
 継続収集を行っている。これはrollback判定の入力と状態遷移を固定するための証跡であり、
 bootloader実装、電源断後の永続化、実際のboot経路を確認するQEMU/実機検証の代替ではない。
 
+同日までに、`hack/os-firstboot-qemu` の direct-kernel QEMU で、boot metadata を永続
+ディスクへ書き込んだ直後に強制停止し、次回 boot で読み戻す CI 証跡の追加作業も進めて
+いる。これは metadata 永続化と再読込の確認であり、simulator rollback evidence の代替
+ではない。bootloader 実装そのものと、acceptance 8 の 4th boot 非選択証明はまだ未完了
+で、この証跡で置き換えない。
+
 ## 入力
 
 次の値を検証環境の固定入力とする。

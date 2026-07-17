@@ -49,20 +49,30 @@ const (
 	defaultArtifactDir = "dist/os-artifact"
 	defaultTimeout     = 10 * time.Minute
 	defaultCPU         = "qemu64"
+	defaultScenario    = scenarioFirstBoot
 
-	operationUID     = "qemu-firstboot-operation"
-	hostUID          = "qemu-firstboot-host"
-	machineUID       = "qemu-firstboot-machine"
-	sessionToken     = "qemu-firstboot-session-token"
-	planKeyID        = "e2e-agent-plan"
-	rootDiskSerial   = "qemu-firstboot-root"
-	targetDiskSerial = "qemu-firstboot-tgt"
-	bootMAC          = "52:54:00:12:34:56"
-	activeSlot       = "A"
+	operationUID       = "qemu-firstboot-operation"
+	hostUID            = "qemu-firstboot-host"
+	machineUID         = "qemu-firstboot-machine"
+	sessionToken       = "qemu-firstboot-session-token"
+	planKeyID          = "e2e-agent-plan"
+	rootDiskSerial     = "qemu-firstboot-root"
+	targetDiskSerial   = "qemu-firstboot-tgt"
+	metadataDiskSerial = "qemu-bootmeta"
+	bootMAC            = "52:54:00:12:34:56"
+	activeSlot         = "A"
 
-	serialMarkerRootSource   = "TART_QEMU_ROOT_SOURCE="
-	serialMarkerRootOptions  = "TART_QEMU_ROOT_OPTIONS="
-	serialMarkerRootReadOnly = "TART_QEMU_ROOT_READ_ONLY="
+	serialMarkerRootSource          = "TART_QEMU_ROOT_SOURCE="
+	serialMarkerRootOptions         = "TART_QEMU_ROOT_OPTIONS="
+	serialMarkerRootReadOnly        = "TART_QEMU_ROOT_READ_ONLY="
+	serialMarkerBootMetadataWritten = "TART_QEMU_BOOTMETA_WRITTEN="
+	serialMarkerBootMetadataSynced  = "TART_QEMU_BOOTMETA_SYNCED="
+	serialMarkerBootMetadataRead    = "TART_QEMU_BOOTMETA_READ="
+)
+
+const (
+	scenarioFirstBoot                = "firstboot"
+	scenarioBootTrialMetadataPersist = "boot-trial-metadata-persistence"
 )
 
 type config struct {
@@ -70,6 +80,7 @@ type config struct {
 	workDir     string
 	timeout     time.Duration
 	cpu         string
+	scenario    string
 }
 
 type verificationError struct {
@@ -97,10 +108,28 @@ type qemuProcess struct {
 	exitResult chan error
 }
 
+type qemuDrive struct {
+	path   string
+	id     string
+	serial string
+}
+
 type rootObservation struct {
 	Source          string `json:"source"`
 	Options         string `json:"options"`
 	MountedReadOnly bool   `json:"mountedReadOnly"`
+}
+
+type bootTrialMetadataRecord struct {
+	ActiveSlot         string `json:"activeSlot"`
+	TargetSlot         string `json:"targetSlot"`
+	RollbackSlot       string `json:"rollbackSlot"`
+	ArtifactGeneration uint64 `json:"artifactGeneration"`
+	RemainingAttempts  int    `json:"remainingAttempts"`
+}
+
+type bootTrialMetadataObservation struct {
+	Record bootTrialMetadataRecord `json:"record"`
 }
 
 func main() {
@@ -123,12 +152,14 @@ func parseConfig(args []string) (config, error) {
 		artifactDir: defaultArtifactDir,
 		timeout:     defaultTimeout,
 		cpu:         defaultCPU,
+		scenario:    defaultScenario,
 	}
 	flags := flag.NewFlagSet("os-firstboot-qemu", flag.ContinueOnError)
 	flags.StringVar(&cfg.artifactDir, "artifact-dir", cfg.artifactDir, "Path to the mkosi artifact directory containing os.img, vmlinuz, and initrd.")
 	flags.StringVar(&cfg.workDir, "work-dir", cfg.workDir, "Working directory used for copied images, injected trust material, and serial logs.")
 	flags.DurationVar(&cfg.timeout, "timeout", cfg.timeout, "Overall timeout for the QEMU verification run.")
 	flags.StringVar(&cfg.cpu, "cpu", cfg.cpu, "QEMU CPU model.")
+	flags.StringVar(&cfg.scenario, "scenario", cfg.scenario, "Verification scenario: firstboot or boot-trial-metadata-persistence.")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -141,10 +172,26 @@ func parseConfig(args []string) (config, error) {
 	if strings.TrimSpace(cfg.cpu) == "" {
 		return config{}, errors.New("--cpu must not be empty")
 	}
+	switch cfg.scenario {
+	case scenarioFirstBoot, scenarioBootTrialMetadataPersist:
+	default:
+		return config{}, fmt.Errorf("--scenario must be one of %q or %q", scenarioFirstBoot, scenarioBootTrialMetadataPersist)
+	}
 	return cfg, nil
 }
 
 func verify(ctx context.Context, cfg config) error {
+	switch cfg.scenario {
+	case scenarioFirstBoot:
+		return verifyFirstBoot(ctx, cfg)
+	case scenarioBootTrialMetadataPersist:
+		return verifyBootTrialMetadataPersistence(ctx, cfg)
+	default:
+		return fmt.Errorf("unsupported scenario %q", cfg.scenario)
+	}
+}
+
+func verifyFirstBoot(ctx context.Context, cfg config) error {
 	ctx, cancel := context.WithTimeout(ctx, cfg.timeout)
 	defer cancel()
 
@@ -235,7 +282,17 @@ func verify(ctx context.Context, cfg config) error {
 		}
 	}()
 
-	qemu, err := startQEMU(ctx, cfg, paths, osTestImagePath, targetDiskPath, serialLogPath, server.controllerURL)
+	qemu, err := startQEMU(
+		ctx,
+		cfg,
+		paths,
+		osTestImagePath,
+		serialLogPath,
+		server.controllerURL,
+		[]qemuDrive{
+			{path: targetDiskPath, id: "targetdisk", serial: targetDiskSerial},
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -365,6 +422,132 @@ func qemuTimeoutError(serialLogPath string) error {
 		reason:        reason,
 		serialLogPath: serialLogPath,
 	}
+}
+
+func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
+	ctx, cancel := context.WithTimeout(ctx, cfg.timeout)
+	defer cancel()
+
+	workspace, err := prepareWorkspace(cfg)
+	if err != nil {
+		return err
+	}
+	cfg.workDir = workspace.workDir
+	paths, err := resolveArtifacts(workspace.artifactDir)
+	if err != nil {
+		return err
+	}
+	metadataDiskPath := filepath.Join(cfg.workDir, "boot-metadata.raw")
+	if err := createTargetDisk(metadataDiskPath, 1<<20); err != nil {
+		return err
+	}
+	metadataScriptPath, err := writeTextFile(
+		filepath.Join(cfg.workDir, "qemu-boot-trial-metadata.sh"),
+		qemuBootTrialMetadataScript(),
+	)
+	if err != nil {
+		return err
+	}
+	metadataServicePath, err := writeTextFile(
+		filepath.Join(cfg.workDir, "qemu-boot-trial-metadata.service"),
+		qemuBootTrialMetadataUnit(),
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := injectTrustMaterial(ctx, workspace.osTestImage, cfg.workDir,
+		injectedFile{
+			sourcePath: metadataScriptPath,
+			targetPath: "/usr/local/lib/tart/qemu-boot-trial-metadata.sh",
+			mode:       0o755,
+		},
+		injectedFile{
+			sourcePath: metadataServicePath,
+			targetPath: "/etc/systemd/system/qemu-boot-trial-metadata.service",
+		},
+		injectedFile{
+			targetPath:    "/etc/systemd/system/multi-user.target.wants/qemu-boot-trial-metadata.service",
+			symlinkTarget: "../qemu-boot-trial-metadata.service",
+		},
+	); err != nil {
+		return err
+	}
+
+	firstBootSerialLogPath := filepath.Join(cfg.workDir, "serial-boot1.log")
+	firstBootQEMU, err := startQEMU(
+		ctx,
+		cfg,
+		paths,
+		workspace.osTestImage,
+		firstBootSerialLogPath,
+		"",
+		[]qemuDrive{
+			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	firstBootObservation, err := waitForBootTrialMetadataWrite(ctx, firstBootSerialLogPath)
+	if stopErr := firstBootQEMU.stop(); stopErr != nil {
+		slog.Warn("Failed to stop QEMU after metadata write", "error", stopErr)
+	}
+	if err != nil {
+		return &verificationError{
+			reason:        err.Error(),
+			serialLogPath: firstBootSerialLogPath,
+		}
+	}
+
+	secondBootSerialLogPath := filepath.Join(cfg.workDir, "serial-boot2.log")
+	secondBootQEMU, err := startQEMU(
+		ctx,
+		cfg,
+		paths,
+		workspace.osTestImage,
+		secondBootSerialLogPath,
+		"",
+		[]qemuDrive{
+			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
+		},
+	)
+	if err != nil {
+		return err
+	}
+	secondBootObservation, err := waitForBootTrialMetadataRead(ctx, secondBootSerialLogPath)
+	if stopErr := secondBootQEMU.stop(); stopErr != nil {
+		slog.Warn("Failed to stop QEMU after metadata read", "error", stopErr)
+	}
+	if err != nil {
+		return &verificationError{
+			reason:        err.Error(),
+			serialLogPath: secondBootSerialLogPath,
+		}
+	}
+	if firstBootObservation.Record != secondBootObservation.Record {
+		return &verificationError{
+			reason: fmt.Sprintf(
+				"boot metadata did not persist across forced power loss: written=%+v read=%+v",
+				firstBootObservation.Record,
+				secondBootObservation.Record,
+			),
+			serialLogPath: secondBootSerialLogPath,
+		}
+	}
+	if err := writeBootTrialMetadataEvidence(
+		cfg,
+		paths,
+		workspace.osTestImage,
+		metadataDiskPath,
+		firstBootSerialLogPath,
+		secondBootSerialLogPath,
+		firstBootObservation,
+		secondBootObservation,
+	); err != nil {
+		return fmt.Errorf("write boot metadata persistence evidence: %w", err)
+	}
+	return nil
 }
 
 type artifactPaths struct {
@@ -513,8 +696,10 @@ func generateServerCertificate(workDir string) (tls.Certificate, string, error) 
 }
 
 type injectedFile struct {
-	sourcePath string
-	targetPath string
+	sourcePath    string
+	targetPath    string
+	symlinkTarget string
+	mode          os.FileMode
 }
 
 func injectTrustMaterial(ctx context.Context, imagePath, workDir string, files ...injectedFile) error {
@@ -539,8 +724,25 @@ func injectTrustMaterial(ctx context.Context, imagePath, workDir string, files .
 
 	for _, file := range files {
 		targetPath := filepath.Join(mountDir, strings.TrimPrefix(file.targetPath, "/"))
-		if err := runPrivileged(ctx, "install", "-D", "-m", "0644", file.sourcePath, targetPath); err != nil {
-			return fmt.Errorf("inject %s into OS image: %w", file.targetPath, err)
+		targetDir := filepath.Dir(targetPath)
+		if err := runPrivileged(ctx, "mkdir", "-p", targetDir); err != nil {
+			return fmt.Errorf("prepare parent directory for %s: %w", file.targetPath, err)
+		}
+		switch {
+		case file.symlinkTarget != "":
+			if err := runPrivileged(ctx, "ln", "-snf", file.symlinkTarget, targetPath); err != nil {
+				return fmt.Errorf("inject symlink %s into OS image: %w", file.targetPath, err)
+			}
+		case file.sourcePath != "":
+			mode := file.mode
+			if mode == 0 {
+				mode = 0o644
+			}
+			if err := runPrivileged(ctx, "install", "-D", "-m", fmt.Sprintf("%#o", mode.Perm()), file.sourcePath, targetPath); err != nil {
+				return fmt.Errorf("inject %s into OS image: %w", file.targetPath, err)
+			}
+		default:
+			return fmt.Errorf("inject %s into OS image: source or symlink target is required", file.targetPath)
 		}
 	}
 	return nil
@@ -559,6 +761,51 @@ func qemuFirstBootDropIn() string {
 		"Environment=TART_STATE_DIR=/run/tart/state",
 		"Environment=TART_BOOTSTRAP_ADAPTER=/bin/true",
 		"Environment=TART_SYSTEM_UUID=00000000-0000-4000-8000-000000000001",
+		"",
+	}, "\n")
+}
+
+func qemuBootTrialMetadataUnit() string {
+	return strings.Join([]string{
+		"[Unit]",
+		"Description=QEMU boot trial metadata persistence smoke",
+		"After=local-fs.target",
+		"",
+		"[Service]",
+		"Type=simple",
+		"ExecStart=/usr/local/lib/tart/qemu-boot-trial-metadata.sh",
+		"StandardOutput=journal+console",
+		"StandardError=journal+console",
+		"",
+		"[Install]",
+		"WantedBy=multi-user.target",
+		"",
+	}, "\n")
+}
+
+func qemuBootTrialMetadataScript() string {
+	recordJSON := mustJSON(bootTrialMetadataRecord{
+		ActiveSlot:         "B",
+		TargetSlot:         "B",
+		RollbackSlot:       "A",
+		ArtifactGeneration: 2,
+		RemainingAttempts:  2,
+	})
+	return strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"metadata_device=/dev/disk/by-id/virtio-" + metadataDiskSerial,
+		"metadata_record='" + recordJSON + "'",
+		"current_record=$(dd if=\"$metadata_device\" bs=256 count=1 status=none 2>/dev/null | tr -d '\\000')",
+		"if [ -n \"$current_record\" ]; then",
+		"  echo '" + serialMarkerBootMetadataRead + "'\"$current_record\"",
+		"  exit 0",
+		"fi",
+		"printf '%s' \"$metadata_record\" | dd of=\"$metadata_device\" bs=256 conv=fsync,notrunc status=none",
+		"echo '" + serialMarkerBootMetadataWritten + recordJSON + "'",
+		"sync",
+		"echo '" + serialMarkerBootMetadataSynced + "true'",
+		"sleep 300",
 		"",
 	}, "\n")
 }
@@ -736,7 +983,8 @@ func startQEMU(
 	ctx context.Context,
 	cfg config,
 	artifacts artifactPaths,
-	osImagePath, targetDiskPath, serialLogPath, controllerURL string,
+	osImagePath, serialLogPath, controllerURL string,
+	extraDrives []qemuDrive,
 ) (*qemuProcess, error) {
 	if _, err := exec.LookPath("qemu-system-x86_64"); err != nil {
 		return nil, fmt.Errorf("find qemu-system-x86_64: %w", err)
@@ -757,12 +1005,16 @@ func startQEMU(
 		"-device", "virtio-net-pci,netdev=net0,mac=" + bootMAC,
 		"-drive", "file=" + osImagePath + ",if=none,id=rootdisk,format=raw",
 		"-device", "virtio-blk-pci,drive=rootdisk,serial=" + rootDiskSerial,
-		"-drive", "file=" + targetDiskPath + ",if=none,id=targetdisk,format=raw",
-		"-device", "virtio-blk-pci,drive=targetdisk,serial=" + targetDiskSerial,
 		"-serial", "file:" + serialLogPath,
 		"-nographic",
 		"-display", "none",
 		"-no-reboot",
+	}
+	for _, drive := range extraDrives {
+		args = append(args,
+			"-drive", "file="+drive.path+",if=none,id="+drive.id+",format=raw",
+			"-device", "virtio-blk-pci,drive="+drive.id+",serial="+drive.serial,
+		)
 	}
 	cmd := exec.CommandContext(ctx, "qemu-system-x86_64", args...)
 	cmd.Stdout = io.Discard
@@ -791,6 +1043,7 @@ func qemuAccelerator() string {
 
 type evidence struct {
 	CPU             string                          `json:"cpu"`
+	Scenario        string                          `json:"scenario"`
 	DiskSizeBytes   int64                           `json:"diskSizeBytes"`
 	OSImageDigest   string                          `json:"osImageDigest"`
 	KernelPath      string                          `json:"kernelPath"`
@@ -817,6 +1070,7 @@ func writeEvidence(
 	}
 	data, err := json.MarshalIndent(evidence{
 		CPU:             cfg.cpu,
+		Scenario:        cfg.scenario,
 		DiskSizeBytes:   diskSizeBytes,
 		OSImageDigest:   imageDigest,
 		KernelPath:      artifacts.kernelPath,
@@ -828,6 +1082,58 @@ func writeEvidence(
 	}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode evidence: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.workDir, "evidence.json"), append(data, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write evidence.json: %w", err)
+	}
+	return nil
+}
+
+type bootTrialMetadataEvidence struct {
+	CPU                     string                       `json:"cpu"`
+	Scenario                string                       `json:"scenario"`
+	OSImageDigest           string                       `json:"osImageDigest"`
+	MetadataDiskDigest      string                       `json:"metadataDiskDigest"`
+	KernelPath              string                       `json:"kernelPath"`
+	InitrdPath              string                       `json:"initrdPath"`
+	Written                 bootTrialMetadataObservation `json:"written"`
+	ObservedAfterPowerLoss  bootTrialMetadataObservation `json:"observedAfterPowerLoss"`
+	FirstBootSerialLogPath  string                       `json:"firstBootSerialLogPath"`
+	SecondBootSerialLogPath string                       `json:"secondBootSerialLogPath"`
+}
+
+func writeBootTrialMetadataEvidence(
+	cfg config,
+	artifacts artifactPaths,
+	osImagePath string,
+	metadataDiskPath string,
+	firstBootSerialLogPath string,
+	secondBootSerialLogPath string,
+	written bootTrialMetadataObservation,
+	observedAfterPowerLoss bootTrialMetadataObservation,
+) error {
+	imageDigest, err := fileSHA256(osImagePath)
+	if err != nil {
+		return err
+	}
+	metadataDiskDigest, err := fileSHA256(metadataDiskPath)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(bootTrialMetadataEvidence{
+		CPU:                     cfg.cpu,
+		Scenario:                cfg.scenario,
+		OSImageDigest:           imageDigest,
+		MetadataDiskDigest:      metadataDiskDigest,
+		KernelPath:              artifacts.kernelPath,
+		InitrdPath:              artifacts.initrdPath,
+		Written:                 written,
+		ObservedAfterPowerLoss:  observedAfterPowerLoss,
+		FirstBootSerialLogPath:  firstBootSerialLogPath,
+		SecondBootSerialLogPath: secondBootSerialLogPath,
+	}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode boot metadata evidence: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(cfg.workDir, "evidence.json"), append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("write evidence.json: %w", err)
@@ -928,6 +1234,54 @@ func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObse
 	}
 }
 
+func waitForBootTrialMetadataWrite(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
+	deadline := time.Now().Add(10 * time.Second)
+	if value, synced := bootTrialMetadataWriteFromLog(serialLogPath); synced {
+		return value, nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence in the serial log")
+		case <-ticker.C:
+			value, synced := bootTrialMetadataWriteFromLog(serialLogPath)
+			if synced {
+				return value, nil
+			}
+			if time.Now().After(deadline) {
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata sync evidence in the serial log")
+			}
+		}
+	}
+}
+
+func waitForBootTrialMetadataRead(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
+	deadline := time.Now().Add(10 * time.Second)
+	if value, ok := bootTrialMetadataReadFromLog(serialLogPath); ok {
+		return value, nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
+		case <-ticker.C:
+			value, ok := bootTrialMetadataReadFromLog(serialLogPath)
+			if ok {
+				return value, nil
+			}
+			if time.Now().After(deadline) {
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
+			}
+		}
+	}
+}
+
 func rootObservationFromLog(path string) (rootObservation, bool, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -951,6 +1305,48 @@ func rootObservationFromLog(path string) (rootObservation, bool, bool) {
 		}
 	}
 	return observed, hasSource, hasReadOnly
+}
+
+func bootTrialMetadataWriteFromLog(path string) (bootTrialMetadataObservation, bool) {
+	return bootTrialMetadataFromLog(path, serialMarkerBootMetadataWritten, true)
+}
+
+func bootTrialMetadataReadFromLog(path string) (bootTrialMetadataObservation, bool) {
+	return bootTrialMetadataFromLog(path, serialMarkerBootMetadataRead, false)
+}
+
+func bootTrialMetadataFromLog(path, recordMarker string, requireSync bool) (bootTrialMetadataObservation, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return bootTrialMetadataObservation{}, false
+	}
+	lines := strings.Split(string(data), "\n")
+	observation := bootTrialMetadataObservation{}
+	hasRecord := false
+	hasSync := !requireSync
+
+	for _, line := range lines {
+		switch {
+		case strings.HasPrefix(line, recordMarker):
+			record, err := parseBootTrialMetadataRecord(strings.TrimSpace(strings.TrimPrefix(line, recordMarker)))
+			if err != nil {
+				return bootTrialMetadataObservation{}, false
+			}
+			observation.Record = record
+			hasRecord = true
+		case requireSync && strings.HasPrefix(line, serialMarkerBootMetadataSynced):
+			hasSync = strings.TrimSpace(strings.TrimPrefix(line, serialMarkerBootMetadataSynced)) == "true"
+		}
+	}
+	return observation, hasRecord && hasSync
+}
+
+func parseBootTrialMetadataRecord(raw string) (bootTrialMetadataRecord, error) {
+	var record bootTrialMetadataRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		return bootTrialMetadataRecord{}, fmt.Errorf("decode boot metadata record: %w", err)
+	}
+	return record, nil
 }
 
 func serialLogContainsOne(path string, needles ...string) (bool, error) {
@@ -1013,6 +1409,14 @@ func writeAPIError(writer http.ResponseWriter, statusCode int, code, message str
 func canonicalSHA256(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func mustJSON(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
 }
 
 func pkixName(commonName string) pkix.Name {

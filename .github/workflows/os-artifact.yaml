@@ -35,10 +35,10 @@ jobs:
       - name: Setup mkosi
         uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
 
-      - name: Install QEMU boot test dependencies
+      - name: Install OS artifact verification dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs
+          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs python3-pefile
 
       - name: Build OS and Verity payloads
         run: mise run artifact-build-mkosi

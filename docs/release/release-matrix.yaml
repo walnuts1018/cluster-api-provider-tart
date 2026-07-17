@@ -1,0 +1,51 @@
+releaseCandidate:
+  name: "unreleased"
+  publishedAt: "2026-07-17"
+  sourceOfTruth: "docs/release/release-matrix.yaml"
+entries:
+  - name: "Ubuntu 24.04 amd64 UEFI kubeadm 初期Provisioning"
+    category: "initialProvisioning"
+    status: "Supported"
+    evidencePaths:
+      - "docs/redesign/runbooks/07-initial-provisioning-simulated-record.md"
+      - "docs/redesign/runbooks/10-redfish-simulated-record.md"
+    notes:
+      - "Task 07 と Task 10 の公開可能な疑似証跡を満たす現行 release candidate の基準行。"
+      - "Platform Profile は amd64-uefi-ab/v1 を前提にする。"
+      - "GitHub Actions の Provisioning E2E 実行記録は Task 07 runbook を参照する。"
+  - name: "worker OSOnly 更新"
+    category: "update"
+    status: "Experimental"
+    evidencePaths:
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+    notes:
+      - "feature gate 必須。failure injection と E2E の継続実行前のため Supported へ昇格しない。"
+      - "既知制約と復旧判断は release note と Recovery Runbook を参照する。"
+  - name: "worker KubernetesBinary 更新"
+    category: "update"
+    status: "Experimental"
+    evidencePaths:
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+    notes:
+      - "feature gate 必須。実機または E2E の継続成功前の公開状態。"
+      - "controller 再起動相当の再開性は simulated record に限定される。"
+  - name: "3 台以上の control plane KubernetesBinary 更新"
+    category: "update"
+    status: "Experimental"
+    evidencePaths:
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+    notes:
+      - "feature gate 必須。snapshot、apply、recovery の E2E 継続実行前。"
+      - "StateMigration 自動復旧は未提供で、RecoveryRequired 到達時は手動復旧を前提にする。"
+  - name: "単一 control plane KubernetesBinary 更新"
+    category: "update"
+    status: "Experimental"
+    evidencePaths:
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+    notes:
+      - "feature gate なしでは受理しない。"
+      - "management API outage を含む controller 再接続 E2E が未完了のため Supported へ昇格しない。"

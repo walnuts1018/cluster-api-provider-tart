@@ -12,6 +12,8 @@
 - [AI Agent向けWorkflow設計規約](ai-workflow-architecture.md)
 - [Application Workflowパッケージ整理方針](application-workflow-package-map.md)
 - [CI検証方針](ci-verification.md)
+- [Release Matrix](../release/README.md)
+- [Release Note (unreleased)](../release-notes/unreleased.md)
 - [全体の実装計画](implementation-plan.md)
 - [Platform Profile一覧](platform-profiles/README.md)
 - [Runbook一覧](runbooks/README.md)

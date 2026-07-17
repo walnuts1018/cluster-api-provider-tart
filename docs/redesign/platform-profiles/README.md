@@ -2,7 +2,8 @@
 
 Platform Profileはarchitecture、firmware、Boot Transport、Disk Roleの物理配置、bootloader、
 Agent Artifactをversion付きで固定する。Profile IDの`vN`は物理disk契約のschema versionであり、
-同じIDのpartition順、type GUID、固定sizeを破壊的に変更しない。
+同じIDのpartition順、type GUID、固定sizeを破壊的に変更しない。release candidate の公開状態は
+この一覧ではなく [../../release/release-matrix.yaml](../../release/release-matrix.yaml) を正本とする。
 
 | Profile | 状態 | 文書 |
 |---|---|---|

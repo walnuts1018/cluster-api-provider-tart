@@ -57,6 +57,13 @@ Task 09 完了直後の release candidate では、更新系の公開状態を�
 
 Supported へ変更する時は、対象行ごとに `target-state.md` と Release Note を同じ変更で更新する。
 
+### 2026-07-17 時点の docs 実装状況
+
+- `docs/release/release-matrix.yaml` を Supported/Experimental Matrix の正本として追加した。
+- 人間向けの参照文書として `docs/release/README.md` を追加し、既存 runbook への導線を定義した。
+- `docs/release-notes/unreleased.md` を追加し、現行 release candidate の公開状態と既知制約を記録した。
+- この変更は release candidate の公開導線だけを追加する。Supported 昇格判定や追加 platform の完了証跡は未実装であり、各受け入れ条件の消化は今後の作業で継続する。
+
 ## 受け入れ条件
 
 ### 全作業単位共通
@@ -127,6 +134,12 @@ Supported へ変更する時は、対象行ごとに `target-state.md` と Relea
 - backup/restore Runbook実行記録
 - migration tool結果
 - Release Note
+
+### 2026-07-17 時点で repository 内へ追加済みの公開導線
+
+- Matrix 正本: `docs/release/release-matrix.yaml`
+- 人間向け Matrix: `docs/release/README.md`
+- Release Note: `docs/release-notes/unreleased.md`
 
 ## 対象外
 

@@ -68,6 +68,13 @@ run = '''
 MISE_OFFLINE=1 mise exec -- go test ./internal/adapter/driver/redfish -run 'Contract' -v
 '''
 
+[tasks.validate-release-docs]
+description = "release matrix と release note の整合を検証する"
+run = '''
+MISE_OFFLINE=1 mise exec -- go test ./hack/release-doc-validator
+MISE_OFFLINE=1 mise exec -- go run ./hack/release-doc-validator
+'''
+
 [tasks.setup-test-e2e]
 description = "e2e テスト用の Kind クラスタを作成する"
 run = '''

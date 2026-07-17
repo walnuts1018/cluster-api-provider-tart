@@ -561,7 +561,7 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 	if err != nil {
 		return err
 	}
-	secondBootObservation, err := waitForBootTrialMetadataRead(ctx, secondBootSerialLogPath)
+	secondBootObservation, err := waitForBootTrialMetadataAfterPowerLoss(ctx, secondBootSerialLogPath, metadataDiskPath)
 	if stopErr := secondBootQEMU.stop(); stopErr != nil {
 		slog.Warn("Failed to stop QEMU after metadata read", "error", stopErr)
 	}
@@ -1652,9 +1652,17 @@ func waitForBootTrialMetadataWrite(ctx context.Context, metadataDiskPath string)
 	}
 }
 
-func waitForBootTrialMetadataRead(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
+func waitForBootTrialMetadataAfterPowerLoss(
+	ctx context.Context,
+	serialLogPath string,
+	metadataDiskPath string,
+) (bootTrialMetadataObservation, error) {
+	if _, err := waitForRootObservation(ctx, serialLogPath); err != nil {
+		return bootTrialMetadataObservation{}, err
+	}
+
 	deadline := time.Now().Add(10 * time.Second)
-	if value, ok := bootTrialMetadataReadFromLog(serialLogPath); ok {
+	if value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath); ok {
 		return value, nil
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -1663,14 +1671,14 @@ func waitForBootTrialMetadataRead(ctx context.Context, serialLogPath string) (bo
 	for {
 		select {
 		case <-ctx.Done():
-			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
+			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata persistence evidence on the metadata disk after power loss")
 		case <-ticker.C:
-			value, ok := bootTrialMetadataReadFromLog(serialLogPath)
+			value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath)
 			if ok {
 				return value, nil
 			}
 			if time.Now().After(deadline) {
-				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata persistence evidence on the metadata disk after power loss")
 			}
 		}
 	}

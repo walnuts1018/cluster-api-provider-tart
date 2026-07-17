@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -375,6 +376,44 @@ func TestBootTrialMetadataFromLogはWriteとReadのJSONを読む(t *testing.T) {
 	}
 	if written.Record != read.Record {
 		t.Fatalf("metadata mismatch: written=%#v read=%#v", written.Record, read.Record)
+	}
+}
+
+func TestWaitForBootTrialMetadataAfterPowerLossはmetadataDisk中心で永続化証跡を読む(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	workDir := t.TempDir()
+	serialLogPath := filepath.Join(workDir, "serial.log")
+	metadataDiskPath := filepath.Join(workDir, "boot-metadata.raw")
+
+	if err := os.WriteFile(serialLogPath, []byte(strings.Join([]string{
+		serialMarkerRootSource + "/dev/vda",
+		serialMarkerRootOptions + "ro,relatime",
+		serialMarkerRootReadOnly + "true",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	recordJSON := mustJSON(bootTrialMetadataRecord{
+		ActiveSlot:         "B",
+		TargetSlot:         "B",
+		RollbackSlot:       "A",
+		ArtifactGeneration: 2,
+		RemainingAttempts:  2,
+	})
+	data := append([]byte(recordJSON), make([]byte, 256-len(recordJSON))...)
+	if err := os.WriteFile(metadataDiskPath, data, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	got, err := waitForBootTrialMetadataAfterPowerLoss(ctx, serialLogPath, metadataDiskPath)
+	if err != nil {
+		t.Fatalf("waitForBootTrialMetadataAfterPowerLoss() error = %v", err)
+	}
+	if got.Record.ActiveSlot != "B" || got.Record.RemainingAttempts != 2 {
+		t.Fatalf("waitForBootTrialMetadataAfterPowerLoss() = %+v", got.Record)
 	}
 }
 

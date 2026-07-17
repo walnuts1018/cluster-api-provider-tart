@@ -121,6 +121,7 @@ else
   golangci-lint run --fix
 fi
 mise run actionlint
+mise run lint-shell
 '''
 
 [tasks.lint-fix]
@@ -148,6 +149,14 @@ fi
 [tasks.actionlint]
 description = "GitHub Actions workflow を actionlint で検証する"
 run = "actionlint"
+
+[tasks.lint-shell]
+description = "repository内のshell scriptをshellcheckで検証する"
+run = '''
+shellcheck \
+  artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
+  artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot
+'''
 
 [tasks.build]
 description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする"
@@ -515,6 +524,10 @@ lock="${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}"
 snapshot="$(jq -er '.ubuntuSnapshot' "$lock")"
 source_date_epoch="$(jq -er '.sourceDateEpoch' "$lock")"
 snapshot_base="https://snapshot.ubuntu.com/ubuntu/$snapshot/dists"
+extra_dir="artifact/mkosi/mkosi.extra"
+mkdir -p "$extra_dir/usr/bin"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
+trap 'rm -f "$extra_dir/usr/bin/provisioning-agent"' EXIT
 for suite in noble noble-updates noble-security; do
   available=0
   for delay in 0 1 2; do

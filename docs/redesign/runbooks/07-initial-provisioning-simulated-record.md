@@ -7,7 +7,8 @@ repository内testはTask 07の実機boot、controller/Node再起動、GitHub Act
 ## 実行command
 
 ```bash
-go test ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsession ./internal/adapter/k8s/bootreport ./internal/adapter/k8s/operation ./internal/application/initialprovisioning ./internal/controller -v
+go test ./artifact/mkosi ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsession ./internal/adapter/k8s/bootreport ./internal/adapter/k8s/operation ./internal/application/initialprovisioning ./internal/controller -v
+mise run lint-shell
 ```
 
 ## 確認する内容
@@ -17,6 +18,7 @@ go test ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsessi
 3. Session Tokenは単回配信で、controller再起動後も同じKubernetes statusから認証を再開できる。
 4. Boot report受信後もNode ReadyやproviderIDが不足していれば`AwaitingHealth`を維持する。
 5. `WipeAll`、`RetainData`、`RetainState`は定義どおりのHost phaseへ遷移する。
+6. mkosi OS imageに含めるfirst-boot unitは、Bootstrap適用後にBootReportを送る順序を維持する。
 
 ## repository内で確認できる主なtest
 
@@ -34,6 +36,26 @@ go test ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsessi
   `TestTartMachineV1Beta1ReconcilerKeepsAwaitingHealthUntilNodeIsReady`
 - `internal/controller/tarthostoperation_controller_test.go`
   手動`WipeAll`、`RetainData`、`RetainState`のHost phase遷移
+- `artifact/mkosi/firstboot_contract_test.go`
+  first-boot unitの起動順、`--apply-bootstrap-only`から`--report-boot-only`への順序、
+  NoCloud datasource経由のcloud-config適用契約
+
+## OS image first-boot契約
+
+mkosi buildでは`artifact/mkosi/mkosi.extra`をOS imageへコピーし、
+`mise run artifact-build-mkosi`の中でLinux amd64向け`provisioning-agent`を
+一時的に`/usr/bin/provisioning-agent`へ配置する。
+
+OS内の`tart-first-boot.service`は`network-online.target`後、`kubelet.service`前に
+`/usr/libexec/tart/first-boot`を実行する。first-boot scriptは同じAgent API認証経路で
+Bootstrap Bundleを取得してlocal cloud-config adapterを実行し、成功markerを作成した後に
+BootReportを送る。通常CIでは次の範囲を検証する。
+
+1. systemd unitが`kubelet.service`より前に実行される。
+2. first-boot scriptが`--apply-bootstrap-only`の後に`--report-boot-only`を実行する。
+3. BootReportにboot ID、active slot、Artifact generation、State/Data mount状態を渡す。
+4. cloud-config adapterがCABPK payloadをNoCloud datasourceへ配置し、`cloud-init`を実行する。
+5. `mise run lint`から`shellcheck`を実行し、OS imageへ入るfirst-boot scriptの構文を検証する。
 
 ## GitHub Actionsで確認したProvisioning E2E
 
@@ -72,6 +94,7 @@ mise run test-provisioning-e2e
 
 - Cluster/Machine作成からNode ReadyまでのOS image統合後の完走
 - Agent登録後、Bundle配信後、Node boot後の再起動point実機検証
+- first-boot unitを含む実OS slotをQEMUで起動し、Bootstrap markerとBootReportがcontrollerへ到達すること
 - Wipe系Operationの実機ディスク消去確認
 
 ## Runtime Extension無効時の検証

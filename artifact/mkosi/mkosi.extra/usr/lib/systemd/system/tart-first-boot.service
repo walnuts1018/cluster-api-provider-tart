@@ -1,0 +1,16 @@
+[Unit]
+Description=Tart first boot bootstrap and health report
+Wants=network-online.target
+After=network-online.target
+Before=kubelet.service
+ConditionPathExists=/usr/bin/provisioning-agent
+ConditionPathExists=/etc/tart/agent-plan-public.pem
+ConditionPathExists=/etc/tart/agent-tls.crt
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/tart/first-boot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

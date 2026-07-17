@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+payload_path="${1:?cloud-config payload path is required}"
+seed_dir="${TART_CLOUD_INIT_SEED_DIR:-/var/lib/cloud/seed/nocloud-net}"
+machine_id="$(cat /etc/machine-id 2>/dev/null || echo unknown)"
+hostname="$(hostname 2>/dev/null || echo tart-node)"
+
+cloud-init schema --config-file "$payload_path"
+
+install -d -m 0700 "$seed_dir"
+install -m 0600 "$payload_path" "$seed_dir/user-data"
+cat > "$seed_dir/meta-data" <<META
+instance-id: tart-$machine_id
+local-hostname: $hostname
+META
+
+# 標準unitが空のdatasourceで先に動いた場合でも、Tartが取得したCABPK payloadだけを正として再適用する。
+cloud-init clean --logs
+cloud-init init
+cloud-init modules --mode=config
+cloud-init modules --mode=final

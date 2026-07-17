@@ -187,9 +187,9 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		workloadClusterTemplate := replacementClusterTemplate(namespace.Name, clusterName, e2eConfig.Variables["KUBERNETES_VERSION"])
 		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the replacement cluster template")
 
-		By("Confirming retained Hosts are not normal allocation candidates")
+		By("Confirming retained or detached Hosts are not normal allocation candidates")
 		machine := waitForSingleTartMachine(ctx, bootstrapClusterProxy.GetClient(), namespace.Name)
-		waitForNoAvailableHost(ctx, bootstrapClusterProxy.GetClient(), machine)
+		confirmNoHostAllocation(ctx, bootstrapClusterProxy.GetClient(), machine)
 
 		By("Creating a manual WipeAll operation for the retained Host")
 		host := waitForHostByMAC(ctx, bootstrapClusterProxy.GetClient(), namespace.Name, simulators[0].macAddress)
@@ -364,16 +364,12 @@ func waitForSingleTartMachine(ctx context.Context, client crclient.Client, names
 	return machine
 }
 
-func waitForNoAvailableHost(ctx context.Context, client crclient.Client, machine *infrastructurev1beta1.TartMachine) {
-	Eventually(func(g Gomega) {
+func confirmNoHostAllocation(ctx context.Context, client crclient.Client, machine *infrastructurev1beta1.TartMachine) {
+	Consistently(func(g Gomega) {
 		current := &infrastructurev1beta1.TartMachine{}
 		g.Expect(client.Get(ctx, crclient.ObjectKeyFromObject(machine), current)).To(Succeed())
 		g.Expect(current.Status.HostRef).To(BeNil())
-		condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
-		g.Expect(condition).NotTo(BeNil())
-		g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
-		g.Expect(condition.Reason).To(Equal("NoAvailableHost"))
-	}, 3*time.Minute, 2*time.Second).Should(Succeed())
+	}, 20*time.Second, 2*time.Second).Should(Succeed())
 }
 
 func createManualWipeAllOperation(

@@ -125,6 +125,14 @@ func TestBuildSignedPlanはvirtioRootDiskIdentityとBootstrapTargetを固定す�
 	}
 }
 
+func TestQEMUDiskSerialはVirtioBlkIdentityに収まる(t *testing.T) {
+	for _, serial := range []string{rootDiskSerial, targetDiskSerial} {
+		if len(serial) > 20 {
+			t.Fatalf("serial %q length = %d, want <= 20", serial, len(serial))
+		}
+	}
+}
+
 func TestParseConfigは既定値を持つ(t *testing.T) {
 	cfg, err := parseConfig(nil)
 	if err != nil {

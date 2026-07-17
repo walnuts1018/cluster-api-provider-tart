@@ -56,7 +56,7 @@ const (
 	sessionToken     = "qemu-firstboot-session-token"
 	planKeyID        = "e2e-agent-plan"
 	rootDiskSerial   = "qemu-firstboot-root"
-	targetDiskSerial = "qemu-firstboot-target"
+	targetDiskSerial = "qemu-firstboot-tgt"
 	bootMAC          = "52:54:00:12:34:56"
 	activeSlot       = "A"
 )

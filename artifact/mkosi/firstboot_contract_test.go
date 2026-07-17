@@ -92,6 +92,12 @@ func TestRepartVerityHashはDataPartitionの最小化設定と対応する(t *te
 		!strings.Contains(root, "CopyBlocks=") {
 		t.Fatalf("verity hash partition minimization requires root partition Minimize or CopyBlocks\nroot:\n%s\nverity:\n%s", root, verity)
 	}
+	if strings.Contains(root, "Minimize=best") {
+		t.Fatalf("root partition uses ext4, so Minimize=best is not supported\n%s", root)
+	}
+	if !strings.Contains(root, "Minimize=guess") {
+		t.Fatalf("root partition must use Minimize=guess for verity hash generation\n%s", root)
+	}
 }
 
 func readText(t *testing.T, path string) string {

@@ -1,6 +1,8 @@
 # Task 07: Initial Provisioning Simulated Record
 
-この記録はrepository内testによる疑似検証であり、Task 07の実機boot、controller/Node再起動、GitHub Actions上の`mise run test-provisioning-e2e`の代替ではない。
+この記録はrepository内testとGitHub Actions上のProvisioning E2Eによる検証記録である。
+repository内testはTask 07の実機boot、controller/Node再起動、GitHub Actions上の
+`mise run test-provisioning-e2e`の代替ではない。
 
 ## 実行command
 
@@ -33,9 +35,34 @@ go test ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsessi
 - `internal/controller/tarthostoperation_controller_test.go`
   手動`WipeAll`、`RetainData`、`RetainState`のHost phase遷移
 
+## GitHub Actionsで確認したProvisioning E2E
+
+Workflow: `E2E Provisioning Test`
+
+実行command:
+
+```bash
+mise run test-provisioning-e2e
+```
+
+確認した範囲:
+
+1. k3s管理クラスタ上へCAPI、CABPK、KCP、Providerを配置する。
+2. QEMUでUEFI machineを起動し、dnsmasq、iPXE、kernel、initramfsの順にbootする。
+3. initramfs内の実`cmd/provisioning-agent`がDHCP、kernel command line、virtio diskを読み取り、
+   controllerのAgent APIへregisterする。
+4. CAPI/CABPK/KCP webhook準備を待ってからcluster templateを適用する。
+
+成功したrun:
+
+| 日時 | workflow run | commit |
+|---|---:|---|
+| 2026-07-16 18:30 UTC | 29524189625 | `38bf639` |
+| 2026-07-17 00:23 UTC | 29544626964 | `main` push |
+
 ## なお未検証の項目
 
-- Cluster/Machine作成からNode Readyまでの実機完走
+- Cluster/Machine作成からNode ReadyまでのOS image統合後の完走
 - Agent登録後、Bundle配信後、Node boot後の再起動point実機検証
 - Runtime Extension無効時のCAPI Machine置換E2E
 - Wipe系Operationの実機ディスク消去確認

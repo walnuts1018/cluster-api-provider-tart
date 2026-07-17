@@ -20,10 +20,16 @@ on:
       - "artifact/mkosi/**"
       - "cmd/provisioning-agent/**"
       - "docs/redesign/ci-verification.md"
+      - "docs/redesign/tasks/01-foundation-spikes.md"
       - "docs/redesign/tasks/11-compatibility-and-release.md"
+      - "hack/boot-trial-rollback-sim/**"
       - "hack/os-firstboot-qemu/**"
       - "hack/artifact-manifest/**"
       - "hack/artifact-provenance/**"
+      - "internal/adapter/k8s/bootreport/**"
+      - "internal/application/inplaceupdate/**"
+      - "internal/domain/bootreport/**"
+      - "internal/domain/inplaceupdate/**"
       - "internal/provisioningagent/**"
       - "mise.toml"
       - "go.mod"
@@ -38,10 +44,16 @@ on:
       - "artifact/mkosi/**"
       - "cmd/provisioning-agent/**"
       - "docs/redesign/ci-verification.md"
+      - "docs/redesign/tasks/01-foundation-spikes.md"
       - "docs/redesign/tasks/11-compatibility-and-release.md"
+      - "hack/boot-trial-rollback-sim/**"
       - "hack/os-firstboot-qemu/**"
       - "hack/artifact-manifest/**"
       - "hack/artifact-provenance/**"
+      - "internal/adapter/k8s/bootreport/**"
+      - "internal/application/inplaceupdate/**"
+      - "internal/domain/bootreport/**"
+      - "internal/domain/inplaceupdate/**"
       - "internal/provisioningagent/**"
       - "mise.toml"
       - "go.mod"
@@ -86,6 +98,11 @@ jobs:
           ARTIFACT_VERITY_WORK_DIR: dist/os-artifact/dm-verity
         run: mise run artifact-test-dm-verity
 
+      - name: Verify boot trial rollback simulator evidence
+        env:
+          ARTIFACT_BOOT_TRIAL_WORK_DIR: dist/os-artifact/boot-trial-rollback
+        run: mise run artifact-test-boot-trial-rollback
+
       - name: Boot OS artifact and verify first boot report
         env:
           ARTIFACT_QEMU_CPU: qemu64
@@ -101,6 +118,8 @@ jobs:
           path: |
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
+            dist/os-artifact/boot-trial-rollback/evidence.json
+            dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/dm-verity/root-hash.txt
             dist/os-artifact/dm-verity/digests-before.txt
             dist/os-artifact/dm-verity/digests-after.txt
@@ -160,6 +179,8 @@ jobs:
             dist/os-artifact/dm-verity/digests-after.txt
             dist/os-artifact/dm-verity/verify-before.log
             dist/os-artifact/dm-verity/verify-after.log
+            dist/os-artifact/boot-trial-rollback/evidence.json
+            dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
           if-no-files-found: error

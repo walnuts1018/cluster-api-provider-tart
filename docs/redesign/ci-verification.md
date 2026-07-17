@@ -29,14 +29,15 @@
 1. 未検証項目を見つけたら、まずCIで再現するtestまたはworkflowへ落とせるかを判断する。
 2. CIで再現できる場合は、検証用code、workflow、Task文書の完了証跡を同じ変更に含める。
 3. CIで完全再現できない場合は、SimulatorまたはContract Testで近い失敗分類を固定し、実機Labでだけ確認する残差をRunbookへ分離する。
-4. 「workflowが存在する」「scriptが存在する」だけを検証するtestは追加しない。
-5. 重いE2EはGitHub Actionsのpath filter、manual dispatch、scheduled runを使い分ける。ただしSupportedへ昇格する対象はrelease前に必ず成功結果を残す。
-6. OS Artifact workflowは`workflow_dispatch`を維持したまま、`artifact/mkosi`、`hack/os-firstboot-qemu`、artifact manifest/provenance、workflow定義、`mise.toml`、関連Task文書の変更で`push`/`pull_request`でも継続実行する。
+4. Simulator rollback evidenceは、bootloader実装そのものや電源断後の永続化挙動を実証する証跡として扱わない。Task 01 の boot trial rollback では、状態遷移と判定条件の継続監視だけを担わせる。
+5. 「workflowが存在する」「scriptが存在する」だけを検証するtestは追加しない。
+6. 重いE2EはGitHub Actionsのpath filter、manual dispatch、scheduled runを使い分ける。ただしSupportedへ昇格する対象はrelease前に必ず成功結果を残す。
+7. OS Artifact workflowは`workflow_dispatch`を維持したまま、`artifact/mkosi`、`hack/os-firstboot-qemu`、artifact manifest/provenance、workflow定義、`mise.toml`、関連Task文書の変更で`push`/`pull_request`でも継続実行する。
 
 ## 現時点の優先順位
 
 1. Task 07のfirst-boot QEMU smokeをOS Artifact workflowで`pull_request`と`main` pushに対して継続実行し、CPU model、disk size、Artifact digest、BootReport要約をartifactへ保存する。
 2. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
-3. Task 01のA/B、read-only root、dm-verity、boot trial rollbackをCIで継続実行し、QEMU first-boot証跡とdm-verity改変logへCPU modelとArtifact digestを紐付けて保存する。
+3. Task 01のboot trial rollbackについては、CIでsimulator rollback evidenceを継続収集し、rollback判定に使った入力、期待した状態遷移、Artifact/Profile識別子をartifactへ保存する。これはbootloader実機/QEMU実証の代替ではなく、Task 01で別途行うQEMU・実機検証の残差を減らすための継続証跡とする。
 4. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
 5. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。

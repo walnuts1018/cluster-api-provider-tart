@@ -17,6 +17,10 @@
 Task 01を再開した際は、暫定レイアウトで受け入れ条件を検証し、不成立ならProfile IDを
 `amd64-uefi-ab/v2`へ上げる。既存の`v1`レイアウトを黙って変更しない。
 
+2026-07-17時点では、boot trial rollbackについてCI上でsimulator rollback evidenceの
+継続収集を行っている。これはrollback判定の入力と状態遷移を固定するための証跡であり、
+bootloader実装、電源断後の永続化、実際のboot経路を確認するQEMU/実機検証の代替ではない。
+
 ## 入力
 
 次の値を検証環境の固定入力とする。
@@ -68,6 +72,7 @@ Task 01を再開した際は、暫定レイアウトで受け入れ条件を検�
 ## 完了証跡
 
 - `mise run <qemu-task>`の全出力
+- CIで継続収集したsimulator rollback evidence
 - partition table (`sfdisk --json`)
 - `findmnt --json`出力
 - boot trial 4回分のconsole log

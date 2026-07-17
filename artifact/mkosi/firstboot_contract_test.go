@@ -50,6 +50,7 @@ func TestFirstBootScriptはBootstrap適用後にMarkerを使ってBootReportを�
 		"/proc/sys/kernel/random/boot_id",
 		"--state-dir=\"$state_dir\"",
 		"--bootstrap-work-dir=\"$bootstrap_work_dir\"",
+		"--system-uuid=\"$system_uuid\"",
 		"--active-slot=\"$active_slot\"",
 		"--artifact-generation=\"$artifact_generation\"",
 		"--state-mounted",

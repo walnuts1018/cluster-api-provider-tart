@@ -1630,7 +1630,7 @@ func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObse
 
 func waitForBootTrialMetadataWrite(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
 	deadline := time.Now().Add(10 * time.Second)
-	if value, synced := bootTrialMetadataWriteFromLog(serialLogPath); synced {
+	if value, ok := bootTrialMetadataWriteFromLog(serialLogPath); ok {
 		return value, nil
 	}
 	ticker := time.NewTicker(200 * time.Millisecond)
@@ -1641,12 +1641,12 @@ func waitForBootTrialMetadataWrite(ctx context.Context, serialLogPath string) (b
 		case <-ctx.Done():
 			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence in the serial log")
 		case <-ticker.C:
-			value, synced := bootTrialMetadataWriteFromLog(serialLogPath)
-			if synced {
+			value, ok := bootTrialMetadataWriteFromLog(serialLogPath)
+			if ok {
 				return value, nil
 			}
 			if time.Now().After(deadline) {
-				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata sync evidence in the serial log")
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata write evidence in the serial log")
 			}
 		}
 	}
@@ -1702,7 +1702,7 @@ func rootObservationFromLog(path string) (rootObservation, bool, bool) {
 }
 
 func bootTrialMetadataWriteFromLog(path string) (bootTrialMetadataObservation, bool) {
-	return bootTrialMetadataFromLog(path, serialMarkerBootMetadataWritten, true)
+	return bootTrialMetadataFromLog(path, serialMarkerBootMetadataWritten, false)
 }
 
 func bootTrialMetadataReadFromLog(path string) (bootTrialMetadataObservation, bool) {

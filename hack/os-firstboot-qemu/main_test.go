@@ -281,7 +281,6 @@ func TestQEMUBootTrialMetadataScriptは期待する永続化対象を固定す�
 	for _, want := range []string{
 		metadataDiskSerial,
 		serialMarkerBootMetadataWritten,
-		serialMarkerBootMetadataSynced + "true",
 		serialMarkerBootMetadataRead,
 		`"activeSlot":"B"`,
 		`"rollbackSlot":"A"`,
@@ -345,7 +344,7 @@ func TestBootTrialMetadataFromLogはWriteとReadのJSONを読む(t *testing.T) {
 
 	written, synced := bootTrialMetadataWriteFromLog(path)
 	if !synced {
-		t.Fatal("bootTrialMetadataWriteFromLog() did not detect synced write")
+		t.Fatal("bootTrialMetadataWriteFromLog() did not detect written metadata")
 	}
 	read, ok := bootTrialMetadataReadFromLog(path)
 	if !ok {

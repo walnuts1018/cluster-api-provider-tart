@@ -387,15 +387,6 @@ func TestWaitForBootTrialMetadataAfterPowerLossはmetadataDisk中心で永続化
 	serialLogPath := filepath.Join(workDir, "serial.log")
 	metadataDiskPath := filepath.Join(workDir, "boot-metadata.raw")
 
-	if err := os.WriteFile(serialLogPath, []byte(strings.Join([]string{
-		serialMarkerRootSource + "/dev/vda",
-		serialMarkerRootOptions + "ro,relatime",
-		serialMarkerRootReadOnly + "true",
-		"",
-	}, "\n")), 0o644); err != nil {
-		t.Fatalf("os.WriteFile() error = %v", err)
-	}
-
 	recordJSON := mustJSON(bootTrialMetadataRecord{
 		ActiveSlot:         "B",
 		TargetSlot:         "B",
@@ -403,6 +394,13 @@ func TestWaitForBootTrialMetadataAfterPowerLossはmetadataDisk中心で永続化
 		ArtifactGeneration: 2,
 		RemainingAttempts:  2,
 	})
+	if err := os.WriteFile(serialLogPath, []byte(strings.Join([]string{
+		serialMarkerBootMetadataRead + recordJSON,
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
 	data := append([]byte(recordJSON), make([]byte, 256-len(recordJSON))...)
 	if err := os.WriteFile(metadataDiskPath, data, 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)

@@ -1657,7 +1657,7 @@ func waitForBootTrialMetadataAfterPowerLoss(
 	serialLogPath string,
 	metadataDiskPath string,
 ) (bootTrialMetadataObservation, error) {
-	if _, err := waitForRootObservation(ctx, serialLogPath); err != nil {
+	if _, err := waitForBootTrialMetadataRead(ctx, serialLogPath); err != nil {
 		return bootTrialMetadataObservation{}, err
 	}
 
@@ -1679,6 +1679,30 @@ func waitForBootTrialMetadataAfterPowerLoss(
 			}
 			if time.Now().After(deadline) {
 				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata persistence evidence on the metadata disk after power loss")
+			}
+		}
+	}
+}
+
+func waitForBootTrialMetadataRead(ctx context.Context, serialLogPath string) (bootTrialMetadataObservation, error) {
+	deadline := time.Now().Add(10 * time.Second)
+	if value, ok := bootTrialMetadataReadFromLog(serialLogPath); ok {
+		return value, nil
+	}
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
+		case <-ticker.C:
+			value, ok := bootTrialMetadataReadFromLog(serialLogPath)
+			if ok {
+				return value, nil
+			}
+			if time.Now().After(deadline) {
+				return bootTrialMetadataObservation{}, errors.New("timed out waiting for boot metadata read evidence in the serial log")
 			}
 		}
 	}

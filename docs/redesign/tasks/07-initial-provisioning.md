@@ -69,8 +69,8 @@ GitHub Actions上のProvisioning E2Eを実装した。
 
 | 受け入れ条件 | 状況 | 証跡または残作業 |
 |---|---|---|
-| 1 | CI E2E実装済み | Host予約、Provision Operation作成、OS Artifact Manifest解決、署名済みPlan Secret保存、WoL、iPXE、QEMU上のProvisioning Agent起動、Agent登録までをGitHub Actionsの`E2E Provisioning Test`で継続検証する。Node Ready完走はOS image統合前のため未達 |
-| 2 | 一部CI E2E実装済み | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録まではGitHub ActionsのProvisioning E2Eで確認済み。Bundle配信後、Node boot後の再起動pointはOS image統合後に追加検証する |
+| 1 | CI E2E実装済み、一部疑似Node Ready検証済み | Host予約、Provision Operation作成、OS Artifact Manifest解決、署名済みPlan Secret保存、WoL、iPXE、QEMU上のProvisioning Agent起動、Agent登録までをGitHub Actionsの`E2E Provisioning Test`で継続検証する。`scenario=node-ready-only`ではBootReport相当のOperation statusとworkload Node Readyを管理クラスタ上に再現し、controllerが`TartMachine.status.initialization.provisioned=true`、Operation=`Succeeded`、Host=`Provisioned`へ収束することを検証する。実OS slot起動からNode Readyまでの完走は未達 |
+| 2 | 一部CI E2E実装済み | 予約済みHostの再取得、OperationRef保存前の再開、同一Operation deadlineの維持を単体テスト済み。Agent登録まではGitHub ActionsのProvisioning E2Eで確認済み。`scenario=node-ready-only`でNode Ready Gate通過後の収束を検証する。Bundle配信後、Node boot後のcontroller再起動pointは実OS image統合後に追加検証する |
 | 3 | 実装済み、実機未検証 | Agent progressの冪等化はTask 04/06で実装済み。OS上のBootstrap Adapterはpayload digest一致の成功markerがある場合に再適用しない。BootReport/Operation Statusは成功markerのpayload digestを保持する。実機first-boot unit経由の再送確認だけが未検証 |
 | 4 | 実装済み | `EvaluateReadiness`とTartMachine controllerの単体テストでproviderID不一致時にProvisionedへ遷移しないことを確認 |
 | 5 | 実装済み、実機未検証 | Bootstrap Bundle生成時にCABPK Secretの`format=cloud-config`とpayload digestを検証する。OS上のBootstrap Adapter失敗時はpayload原本を保持する単体テストを追加済み。実機挙動だけが未検証 |

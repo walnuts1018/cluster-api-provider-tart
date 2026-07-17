@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - full
+          - node-ready-only
           - replacement-only
           - retained-wipe-only
   pull_request:
@@ -75,6 +76,11 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'replacement-only'
         run: |
           echo 'PROVISIONING_E2E_GINKGO_FOCUS=Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension' >> "$GITHUB_ENV"
+
+      - name: Select Node Ready E2E scenario
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'node-ready-only'
+        run: |
+          echo 'PROVISIONING_E2E_GINKGO_FOCUS=Should complete provisioning after BootReport and workload Node Ready gates' >> "$GITHUB_ENV"
 
       - name: Select retained WipeAll E2E scenario
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'retained-wipe-only'

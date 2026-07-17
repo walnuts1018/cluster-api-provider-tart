@@ -80,6 +80,9 @@ mise run test-provisioning-e2e
    その後、元の`Machine`削除要求まで送る。
 6. 全Hostを`Retained`または`Detached`にした状態では通常のHost割当が`NoAvailableHost`で待機し、
    `machineRef=nil`の手動`WipeAll`完了後だけHostが`Available`へ戻り、同じ`TartMachine`へ再割当されることを確認する。
+7. `scenario=node-ready-only`では、Agent登録後にBootReport相当のOperation statusとworkload Node Readyを
+   管理クラスタ上で再現し、controllerが`TartMachine.status.initialization.provisioned=true`、
+   Operation=`Succeeded`、Host=`Provisioned`へ収束することを確認する。
 
 成功したrun:
 
@@ -96,6 +99,21 @@ mise run test-provisioning-e2e
 - Agent登録後、Bundle配信後、Node boot後の再起動point実機検証
 - first-boot unitを含む実OS slotをQEMUで起動し、Bootstrap markerとBootReportがcontrollerへ到達すること
 - Wipe系Operationの実機ディスク消去確認
+
+## Node Ready Gateの検証
+
+`workflow_dispatch` では `scenario=node-ready-only` を選ぶと、
+`test/e2e/provisioning/provisioning_test.go` の
+`Should complete provisioning after BootReport and workload Node Ready gates`
+だけを実行できる。
+
+このシナリオは実OS slotからのkubelet起動を証明するものではなく、CI上で次を継続監視する。
+
+1. Agent登録後の`TartMachine`がProviderID、HostRef、OperationRefを持つ。
+2. BootReport相当の`lastBootReport`がState/Data mount、Bootstrap marker digestを満たす。
+3. controller Pod内から到達できるworkload kubeconfig Secretを使い、Node health observerがNodeを読む。
+4. workload Nodeの`spec.providerID`、`Ready=True`、Kubernetes versionがMachineと一致するとProvisioningが完了する。
+5. 完了時に`TartMachine`、`TartHostOperation`、`TartHost`がそれぞれProvisioned/Succeededへ収束する。
 
 ## Runtime Extension無効時の検証
 

@@ -20,6 +20,7 @@ package provisioning
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,9 @@ import (
 	. "github.com/onsi/gomega"
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -103,6 +106,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		for _, sim := range simulators {
 			sim.Stop()
 		}
+		cleanupNodeReadySimulation(ctx, bootstrapClusterProxy.GetClient(), clusterName)
 		if namespace != nil && !skipCleanup {
 			framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
 				Deleter: bootstrapClusterProxy.GetClient(),
@@ -146,6 +150,35 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			g.Expect(matched).To(BeTrue())
 			return logText
 		}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("tart e2e provisioning-agent preflight completed"))
+	})
+
+	It("Should complete provisioning after BootReport and workload Node Ready gates", func() {
+		By("Applying a MachineDeployment template with fixed bootstrap data")
+		workloadClusterTemplate := replacementClusterTemplate(namespace.Name, clusterName, e2eConfig.Variables["KUBERNETES_VERSION"])
+		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the node-ready cluster template")
+
+		By("Waiting for the Agent to register and the Provision operation to exist")
+		waitForAgentPreflight(simulators[0])
+		machine := waitForProvisioningTartMachine(ctx, bootstrapClusterProxy.GetClient(), namespace.Name)
+		operation := waitForMachineOperation(ctx, bootstrapClusterProxy.GetClient(), machine)
+
+		By("Preparing a reachable workload kubeconfig for the controller health observer")
+		ensureWorkloadKubeconfigToManagementCluster(ctx, bootstrapClusterProxy, namespace.Name, clusterName)
+
+		By("Publishing the simulated OS BootReport and workload Node Ready state")
+		machineID := clusterName + "-machine-id"
+		markProvisionOperationBootReported(ctx, bootstrapClusterProxy.GetClient(), operation, machineID)
+		owner := waitForOwnerMachine(ctx, bootstrapClusterProxy.GetClient(), machine)
+		nodeName := clusterName + "-node-ready"
+		createReadyWorkloadNode(ctx, bootstrapClusterProxy.GetClient(), nodeName, machine.Spec.ProviderID, machineID, owner.Spec.Version)
+		setOwnerMachineNodeRef(ctx, bootstrapClusterProxy.GetClient(), owner, nodeName)
+
+		By("Waiting for TartMachine, Host, and Operation to converge to Provisioned")
+		requeueTartMachine(ctx, bootstrapClusterProxy.GetClient(), machine)
+		waitForTartMachineProvisioned(ctx, bootstrapClusterProxy.GetClient(), machine, owner.Spec.Version)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
+		host := waitForHostByMAC(ctx, bootstrapClusterProxy.GetClient(), namespace.Name, simulators[0].macAddress)
+		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseProvisioned)
 	})
 
 	It("Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension", func() {
@@ -464,6 +497,263 @@ func waitForTartMachineHost(
 		g.Expect(current.Status.HostRef).NotTo(BeNil())
 		g.Expect(current.Status.HostRef.UID).To(Equal(host.UID))
 	}, 3*time.Minute, 2*time.Second).Should(Succeed())
+}
+
+func waitForProvisioningTartMachine(ctx context.Context, client crclient.Client, namespace string) *infrastructurev1beta1.TartMachine {
+	var machine *infrastructurev1beta1.TartMachine
+	Eventually(func(g Gomega) {
+		machines := &infrastructurev1beta1.TartMachineList{}
+		g.Expect(client.List(ctx, machines, crclient.InNamespace(namespace))).To(Succeed())
+		g.Expect(machines.Items).To(HaveLen(1))
+		current := machines.Items[0].DeepCopy()
+		g.Expect(current.Spec.ProviderID).NotTo(BeEmpty())
+		g.Expect(current.Status.OperationRef).NotTo(BeNil())
+		g.Expect(current.Status.HostRef).NotTo(BeNil())
+		machine = current.DeepCopy()
+	}, 5*time.Minute, 2*time.Second).Should(Succeed())
+	return machine
+}
+
+func waitForMachineOperation(
+	ctx context.Context,
+	client crclient.Client,
+	machine *infrastructurev1beta1.TartMachine,
+) *infrastructurev1beta1.TartHostOperation {
+	var operation *infrastructurev1beta1.TartHostOperation
+	Eventually(func(g Gomega) {
+		currentMachine := &infrastructurev1beta1.TartMachine{}
+		g.Expect(client.Get(ctx, crclient.ObjectKeyFromObject(machine), currentMachine)).To(Succeed())
+		g.Expect(currentMachine.Status.OperationRef).NotTo(BeNil())
+		currentOperation := &infrastructurev1beta1.TartHostOperation{}
+		g.Expect(client.Get(ctx, crclient.ObjectKey{
+			Namespace: currentMachine.Status.OperationRef.Namespace,
+			Name:      currentMachine.Status.OperationRef.Name,
+		}, currentOperation)).To(Succeed())
+		g.Expect(currentOperation.Spec.Type).To(Equal(infrastructurev1beta1.OperationTypeProvision))
+		operation = currentOperation.DeepCopy()
+	}, 3*time.Minute, 2*time.Second).Should(Succeed())
+	return operation
+}
+
+func markProvisionOperationBootReported(
+	ctx context.Context,
+	client crclient.Client,
+	operation *infrastructurev1beta1.TartHostOperation,
+	machineID string,
+) {
+	current := &infrastructurev1beta1.TartHostOperation{}
+	Expect(client.Get(ctx, crclient.ObjectKeyFromObject(operation), current)).To(Succeed())
+	before := current.DeepCopy()
+	current.Status.Phase = infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth
+	current.Status.LastBootReport = &infrastructurev1beta1.BootReportStatus{
+		BootID:                 "e2e-boot-" + string(current.UID),
+		MachineID:              machineID,
+		ActiveSlot:             infrastructurev1beta1.OSSlotA,
+		ArtifactGeneration:     1,
+		StateMounted:           true,
+		DataMounted:            true,
+		BootstrapApplied:       true,
+		BootstrapPayloadDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		ReportedAt:             metav1.Now(),
+	}
+	Expect(client.Status().Patch(ctx, current, crclient.MergeFrom(before))).To(Succeed())
+}
+
+func waitForOwnerMachine(
+	ctx context.Context,
+	client crclient.Client,
+	machine *infrastructurev1beta1.TartMachine,
+) *clusterv1.Machine {
+	var owner *clusterv1.Machine
+	Eventually(func(g Gomega) {
+		current := &infrastructurev1beta1.TartMachine{}
+		g.Expect(client.Get(ctx, crclient.ObjectKeyFromObject(machine), current)).To(Succeed())
+		found, err := util.GetOwnerMachine(ctx, client, current.ObjectMeta)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(found).NotTo(BeNil())
+		owner = found.DeepCopy()
+	}, 3*time.Minute, 2*time.Second).Should(Succeed())
+	return owner
+}
+
+func setOwnerMachineNodeRef(ctx context.Context, client crclient.Client, machine *clusterv1.Machine, nodeName string) {
+	current := &clusterv1.Machine{}
+	Expect(client.Get(ctx, crclient.ObjectKeyFromObject(machine), current)).To(Succeed())
+	before := current.DeepCopy()
+	current.Status.NodeRef = clusterv1.MachineNodeReference{Name: nodeName}
+	Expect(client.Status().Patch(ctx, current, crclient.MergeFrom(before))).To(Succeed())
+}
+
+func createReadyWorkloadNode(
+	ctx context.Context,
+	client crclient.Client,
+	name string,
+	providerID string,
+	machineID string,
+	kubernetesVersion string,
+) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec:       corev1.NodeSpec{ProviderID: providerID},
+	}
+	err := client.Create(ctx, node)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+	current := &corev1.Node{}
+	Expect(client.Get(ctx, crclient.ObjectKey{Name: name}, current)).To(Succeed())
+	before := current.DeepCopy()
+	current.Spec.ProviderID = providerID
+	Expect(client.Patch(ctx, current, crclient.MergeFrom(before))).To(Succeed())
+
+	Expect(client.Get(ctx, crclient.ObjectKey{Name: name}, current)).To(Succeed())
+	before = current.DeepCopy()
+	current.Status.NodeInfo.MachineID = machineID
+	current.Status.NodeInfo.KubeletVersion = kubernetesVersion
+	current.Status.Conditions = []corev1.NodeCondition{{
+		Type:               corev1.NodeReady,
+		Status:             corev1.ConditionTrue,
+		Reason:             "KubeletReady",
+		Message:            "kubelet is posting ready status",
+		LastHeartbeatTime:  metav1.Now(),
+		LastTransitionTime: metav1.Now(),
+	}}
+	Expect(client.Status().Patch(ctx, current, crclient.MergeFrom(before))).To(Succeed())
+}
+
+func ensureWorkloadKubeconfigToManagementCluster(
+	ctx context.Context,
+	proxy framework.ClusterProxy,
+	namespace string,
+	clusterName string,
+) {
+	client := proxy.GetClient()
+	serviceAccountName := clusterName + "-node-health"
+	clusterRoleName := clusterName + "-node-health"
+	bindingName := clusterName + "-node-health"
+
+	serviceAccount := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{
+		Namespace: namespace,
+		Name:      serviceAccountName,
+	}}
+	err := client.Create(ctx, serviceAccount)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	clusterRole := &rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: clusterRoleName}}
+	clusterRole.Rules = []rbacv1.PolicyRule{{
+		APIGroups: []string{""},
+		Resources: []string{"nodes"},
+		Verbs:     []string{"get", "list", "watch"},
+	}}
+	err = client.Create(ctx, clusterRole)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	binding := &rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: bindingName}}
+	binding.RoleRef = rbacv1.RoleRef{
+		APIGroup: rbacv1.GroupName,
+		Kind:     "ClusterRole",
+		Name:     clusterRoleName,
+	}
+	binding.Subjects = []rbacv1.Subject{{
+		Kind:      rbacv1.ServiceAccountKind,
+		Name:      serviceAccountName,
+		Namespace: namespace,
+	}}
+	err = client.Create(ctx, binding)
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	token, err := proxy.GetClientSet().CoreV1().ServiceAccounts(namespace).CreateToken(ctx, serviceAccountName, &authv1.TokenRequest{}, metav1.CreateOptions{})
+	Expect(err).NotTo(HaveOccurred())
+
+	rootCA := &corev1.ConfigMap{}
+	Expect(client.Get(ctx, crclient.ObjectKey{Namespace: namespace, Name: "kube-root-ca.crt"}, rootCA)).To(Succeed())
+	caData := rootCA.Data["ca.crt"]
+	Expect(caData).NotTo(BeEmpty())
+
+	kubeconfig := managementClusterKubeconfig(clusterName, token.Status.Token, []byte(caData))
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      clusterName + "-kubeconfig",
+		},
+		Type: clusterv1.ClusterSecretType,
+		Data: map[string][]byte{"value": []byte(kubeconfig)},
+	}
+	err = client.Create(ctx, secret)
+	if apierrors.IsAlreadyExists(err) {
+		current := &corev1.Secret{}
+		Expect(client.Get(ctx, crclient.ObjectKeyFromObject(secret), current)).To(Succeed())
+		before := current.DeepCopy()
+		current.Type = clusterv1.ClusterSecretType
+		current.Data = secret.Data
+		Expect(client.Patch(ctx, current, crclient.MergeFrom(before))).To(Succeed())
+		return
+	}
+	Expect(err).NotTo(HaveOccurred())
+}
+
+func managementClusterKubeconfig(clusterName, token string, caData []byte) string {
+	ca := base64.StdEncoding.EncodeToString(caData)
+	return fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- name: %[1]s
+  cluster:
+    server: https://kubernetes.default.svc
+    certificate-authority-data: %[2]s
+users:
+- name: %[1]s-node-health
+  user:
+    token: %[3]s
+contexts:
+- name: %[1]s
+  context:
+    cluster: %[1]s
+    user: %[1]s-node-health
+current-context: %[1]s
+`, clusterName, ca, token)
+}
+
+func waitForTartMachineProvisioned(
+	ctx context.Context,
+	client crclient.Client,
+	machine *infrastructurev1beta1.TartMachine,
+	kubernetesVersion string,
+) {
+	Eventually(func(g Gomega) {
+		current := &infrastructurev1beta1.TartMachine{}
+		g.Expect(client.Get(ctx, crclient.ObjectKeyFromObject(machine), current)).To(Succeed())
+		g.Expect(current.Status.Initialization.Provisioned).NotTo(BeNil())
+		g.Expect(*current.Status.Initialization.Provisioned).To(BeTrue())
+		g.Expect(current.Status.InstalledDistributionVersion).To(Equal(kubernetesVersion))
+		condition := apimeta.FindStatusCondition(current.Status.Conditions, "Ready")
+		g.Expect(condition).NotTo(BeNil())
+		g.Expect(condition.Status).To(Equal(metav1.ConditionTrue))
+		g.Expect(condition.Reason).To(Equal("Provisioned"))
+	}, 5*time.Minute, 2*time.Second).Should(Succeed())
+}
+
+func cleanupNodeReadySimulation(ctx context.Context, client crclient.Client, clusterName string) {
+	if clusterName == "" {
+		return
+	}
+	objects := []crclient.Object{
+		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-node-ready"}},
+		&rbacv1.ClusterRoleBinding{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-node-health"}},
+		&rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: clusterName + "-node-health"}},
+	}
+	for _, object := range objects {
+		err := client.Delete(ctx, object)
+		if err != nil && !apierrors.IsNotFound(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+	}
 }
 
 func replacementClusterTemplate(namespace, clusterName, kubernetesVersion string) []byte {

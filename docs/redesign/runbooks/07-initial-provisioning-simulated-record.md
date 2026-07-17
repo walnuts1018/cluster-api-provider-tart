@@ -19,6 +19,8 @@ mise run lint-shell
 4. Boot report受信後もNode ReadyやproviderIDが不足していれば`AwaitingHealth`を維持する。
 5. `WipeAll`、`RetainData`、`RetainState`は定義どおりのHost phaseへ遷移する。
 6. mkosi OS imageに含めるfirst-boot unitは、Bootstrap適用後にBootReportを送る順序を維持する。
+7. OS Artifact workflowでは、mkosi成果物のOS imageをQEMUで起動し、実OS上のfirst-boot unitが
+   fake Agent APIからBootstrap Bundleを取得してBootReportを返すことを確認する。
 
 ## repository内で確認できる主なtest
 
@@ -56,6 +58,23 @@ BootReportを送る。通常CIでは次の範囲を検証する。
 3. BootReportにboot ID、active slot、Artifact generation、State/Data mount状態を渡す。
 4. cloud-config adapterがCABPK payloadをNoCloud datasourceへ配置し、`cloud-init`を実行する。
 5. `mise run lint`から`shellcheck`を実行し、OS imageへ入るfirst-boot scriptの構文を検証する。
+
+## OS Artifact QEMU first-boot検証
+
+OS Artifact workflowでは`mise run artifact-test-firstboot-qemu`を実行する。このtaskは
+`artifact-build-mkosi`で生成した`dist/os-artifact/os.img`、`vmlinuz`、`initrd`を入力にし、
+次を検証する。
+
+1. 入力OS imageを直接変更せず、work directory内のcopyへテスト用CA証明書、Plan公開鍵、
+   active slot、Artifact generationを注入する。
+2. fake HTTPS Agent APIが`register`、署名済みPlan配信、Bootstrap Bundle配信、BootReport受信を担当する。
+3. QEMU direct kernel bootで実OSを起動し、kernel command lineでAgent API URL、Operation UID、
+   Host UID、boot MACを渡す。
+4. first-boot unitが`--apply-bootstrap-only`と`--report-boot-only`を順に実行し、
+   BootReportの`bootstrapApplied=true`、`activeSlot=A`、`artifactGeneration=1`、
+   `bootstrapPayloadDigest`一致を確認する。
+5. 成功時は`dist/os-artifact/qemu-firstboot/evidence.json`と`serial.log`をbuild evidence artifactへ含める。
+   失敗時も同directoryをfailure artifactとしてuploadする。
 
 ## GitHub Actionsで確認したProvisioning E2E
 
@@ -98,7 +117,8 @@ mise run test-provisioning-e2e
 
 - Cluster/Machine作成からNode ReadyまでのOS image統合後の完走
 - Agent登録後、Bundle配信後、Node boot後の再起動point実機検証
-- first-boot unitを含む実OS slotをQEMUで起動し、Bootstrap markerとBootReportがcontrollerへ到達すること
+- first-boot unitを含む実OS slotを実controller、実Plan、State/Data partition構成で起動し、
+  Bootstrap markerとBootReportがcontrollerへ到達すること
 - Wipe系Operationの実機ディスク消去確認
 
 ## Node Ready Gateの検証

@@ -35,8 +35,29 @@ jobs:
       - name: Setup mkosi
         uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
 
+      - name: Install QEMU boot test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 qemu-utils e2fsprogs
+
       - name: Build OS and Verity payloads
         run: mise run artifact-build-mkosi
+
+      - name: Boot OS artifact and verify first boot report
+        env:
+          ARTIFACT_QEMU_CPU: qemu64
+          ARTIFACT_QEMU_TIMEOUT: 10m
+          ARTIFACT_QEMU_WORK_DIR: dist/os-artifact/qemu-firstboot
+        run: mise run artifact-test-firstboot-qemu
+
+      - name: Upload QEMU first boot evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ubuntu-24.04-amd64-firstboot-qemu-failure
+          path: |
+            dist/os-artifact/qemu-firstboot/
+          if-no-files-found: warn
 
       - name: Prepare signing key
         id: signing
@@ -85,6 +106,8 @@ jobs:
             dist/os-artifact/provenance.intoto.json
             dist/os-artifact/packages.json
             dist/os-artifact/verity-root-hash
+            dist/os-artifact/qemu-firstboot/evidence.json
+            dist/os-artifact/qemu-firstboot/serial.log
           if-no-files-found: error
 
       - name: Publish OCI Artifact

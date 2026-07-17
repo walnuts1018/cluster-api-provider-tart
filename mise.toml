@@ -558,6 +558,20 @@ go run ./hack/mkosi-sbom \
   -output "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/sbom.cdx.json"
 '''
 
+[tasks.artifact-test-firstboot-qemu]
+description = "mkosi成果物をQEMUで起動しfirst-bootのBootReport到達を検証する（Linux専用）"
+run = '''
+if [ "$(uname -s)" != Linux ]; then
+  echo "artifact-test-firstboot-qemu requires Linux" >&2
+  exit 1
+fi
+go run ./hack/os-firstboot-qemu \
+  -artifact-dir "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}" \
+  -work-dir "${ARTIFACT_QEMU_WORK_DIR:-dist/os-artifact/qemu-firstboot}" \
+  -timeout "${ARTIFACT_QEMU_TIMEOUT:-10m}" \
+  -cpu "${ARTIFACT_QEMU_CPU:-qemu64}"
+'''
+
 [tasks.agent-artifact-virtual-media]
 description = "Agent kernel/initrdからRedfish VirtualMedia用ISOを生成する"
 run = '''

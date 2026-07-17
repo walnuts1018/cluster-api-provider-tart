@@ -213,9 +213,11 @@ func TestProvisioningE2EDnsmasqChainsIPXEClientsToAgentScript(t *testing.T) {
 		"--dhcp-match=set:ipxe,175",
 		"--dhcp-host=00:00:5e:00:53:00,set:e2ehost0,192.168.100.93",
 		"--dhcp-host=00:00:5e:00:53:01,set:e2ehost1,192.168.100.94",
+		"--dhcp-host=00:00:5e:00:53:02,set:e2ehost2,192.168.100.95",
 		"--dhcp-boot=tag:!ipxe,ipxe-x86_64.efi",
 		"--dhcp-boot=tag:ipxe,tag:e2ehost0,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00",
 		"--dhcp-boot=tag:ipxe,tag:e2ehost1,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01",
+		"--dhcp-boot=tag:ipxe,tag:e2ehost2,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:02",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("provisioning e2e dnsmasq config missing %q", want)

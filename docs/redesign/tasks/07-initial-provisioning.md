@@ -79,7 +79,7 @@ GitHub Actions上のProvisioning E2Eを実装した。
 | 8-10 | 実装済み、実機未検証 | controller/application側でDeletionPolicyごとのCleaning Operation、Host phase遷移、WipeAll deadline算出を追加。署名済みCleaning Plan、Agent側device sanitize優先、fallbackのzero overwrite処理を実装済み。実機確認は未完 |
 | 11 | 実装済み | allocation domainはAvailable以外を通常選択候補から除外 |
 | 12 | 実装済み、E2E未検証 | Retained/Detachedを選択しない。WipeAll完了後の再割当E2Eだけが未検証 |
-| 13 | 未検証 | Runtime Extension無効時のCAPI Machine置換E2Eが必要 |
+| 13 | CI E2E実装済み | GitHub Actionsの`E2E Provisioning Test`で、`workflow_dispatch`の`scenario=replacement-only`を使うと`ExtensionConfig`未登録のまま固定Bootstrap Secretを参照する最小`MachineDeployment`をsurge相当で2 replicasへ拡張し、CAPI標準controllerがreplacement candidate `Machine`を作成して別HostのProvisioning Agent登録まで進むことを検証する。その後、元の`Machine`削除要求まで送る。Node Ready後のrolling replacement完走はOS image統合後に追加検証する |
 | 14-15 | 実装済み、実機未検証 | `machineRef=nil` の手動 WipeAll はwebhook/controller/host state machineまで実装済み。disk容量別deadline算出、署名済みCleaning Plan、Agent側device sanitize優先、fallbackのzero overwrite処理を実装済み。実機確認は未完 |
 
 実装済みの補助機能:

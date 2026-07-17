@@ -52,6 +52,10 @@ mise run test-provisioning-e2e
 3. initramfs内の実`cmd/provisioning-agent`がDHCP、kernel command line、virtio diskを読み取り、
    controllerのAgent APIへregisterする。
 4. CAPI/CABPK/KCP webhook準備を待ってからcluster templateを適用する。
+5. `ExtensionConfig`未登録のProvider installを使い、固定Bootstrap Secretを参照する最小
+   `MachineDeployment`をsurge相当で2 replicasへ拡張したときにCAPI標準controllerが
+   replacement candidate `Machine`を作成し、別HostのProvisioning Agent登録まで進むことを確認する。
+   その後、元の`Machine`削除要求まで送る。
 
 成功したrun:
 
@@ -64,5 +68,12 @@ mise run test-provisioning-e2e
 
 - Cluster/Machine作成からNode ReadyまでのOS image統合後の完走
 - Agent登録後、Bundle配信後、Node boot後の再起動point実機検証
-- Runtime Extension無効時のCAPI Machine置換E2E
 - Wipe系Operationの実機ディスク消去確認
+
+## Runtime Extension無効時の検証
+
+`workflow_dispatch` では `scenario=replacement-only` を選ぶと、
+`test/e2e/provisioning/provisioning_test.go` の
+`Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension`
+だけを実行できる。通常の `push` / `pull_request` ではこのテストを含む全件を実行し、
+`ExtensionConfig` が未登録のまま CAPI 標準の Machine 置換経路が成立することを継続監視する。

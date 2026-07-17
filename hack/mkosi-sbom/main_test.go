@@ -14,7 +14,11 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestConvertIncludesSortedDebPackages(t *testing.T) {
 	t.Parallel()
@@ -66,5 +70,42 @@ func TestConvertRejectsUnsupportedPackageType(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("convert() error = nil, want unsupported package error")
+	}
+}
+
+func TestRunIgnoresUnsupportedMkosiManifestFields(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	inputPath := filepath.Join(directory, "manifest.json")
+	outputPath := filepath.Join(directory, "sbom.json")
+	manifest := `{
+  "manifest_version": 1,
+  "output_format": "disk",
+  "config": {
+    "name": "tart-ubuntu",
+    "distribution": "ubuntu",
+    "architecture": "x86-64",
+    "release": "noble"
+  },
+  "packages": [
+    {
+      "type": "deb",
+      "name": "base-files",
+      "version": "13ubuntu10.3",
+      "architecture": "amd64",
+      "source": "mkosi"
+    }
+  ]
+}`
+	if err := os.WriteFile(inputPath, []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	if err := run(inputPath, outputPath); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if _, err := os.Stat(outputPath); err != nil {
+		t.Fatalf("stat output: %v", err)
 	}
 }

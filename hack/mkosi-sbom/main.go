@@ -15,7 +15,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -96,9 +95,7 @@ func run(inputPath, outputPath string) error {
 		return fmt.Errorf("read mkosi manifest: %w", err)
 	}
 	var input mkosiManifest
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := json.Unmarshal(data, &input); err != nil {
 		return fmt.Errorf("decode mkosi manifest: %w", err)
 	}
 	output, err := convert(input)

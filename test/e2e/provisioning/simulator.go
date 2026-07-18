@@ -37,13 +37,15 @@ import (
 
 // SimulatorManager manages multiple HostSimulators and a single UDP listener.
 type SimulatorManager struct {
-	simulators map[string]*HostSimulator
-	mu         sync.RWMutex
+	simulators       map[string]*HostSimulator
+	wolListenAddress string
+	mu               sync.RWMutex
 }
 
 func NewSimulatorManager() *SimulatorManager {
 	return &SimulatorManager{
-		simulators: make(map[string]*HostSimulator),
+		simulators:       make(map[string]*HostSimulator),
+		wolListenAddress: "0.0.0.0:9",
 	}
 }
 
@@ -56,7 +58,7 @@ func (m *SimulatorManager) Register(s *HostSimulator) {
 func (m *SimulatorManager) Start(ctx context.Context) error {
 	logger := log.FromContext(ctx).WithName("simulator-manager")
 
-	addr, err := net.ResolveUDPAddr("udp", "0.0.0.0:9")
+	addr, err := net.ResolveUDPAddr("udp", m.wolListenAddress)
 	if err != nil {
 		return err
 	}

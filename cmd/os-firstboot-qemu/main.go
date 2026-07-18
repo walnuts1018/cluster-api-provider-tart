@@ -1629,7 +1629,7 @@ func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObse
 }
 
 func waitForBootTrialMetadataWrite(ctx context.Context, metadataDiskPath string) (bootTrialMetadataObservation, error) {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	if value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath); ok {
 		return value, nil
 	}

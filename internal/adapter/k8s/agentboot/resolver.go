@@ -23,6 +23,8 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	agentbootdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -33,6 +35,8 @@ var (
 )
 
 type Target = agentbootdomain.Target
+
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
 
 type Resolver struct {
 	client client.Client
@@ -55,6 +59,13 @@ func (resolver *Resolver) Resolve(ctx context.Context, bootMACAddress string) (T
 	supportedHostFound := false
 	for i := range hosts {
 		host := &hosts[i]
+		active, err := resolver.namespaceActive(ctx, host.Namespace)
+		if err != nil {
+			return Target{}, err
+		}
+		if !active {
+			continue
+		}
 		profile, ok := platformprofile.Lookup(host.Spec.PlatformProfile)
 		if !ok ||
 			host.Spec.Architecture != infrastructurev1beta1.Architecture(profile.Architecture) ||
@@ -112,6 +123,17 @@ func (resolver *Resolver) findHosts(
 		return nil, ErrNotFound
 	}
 	return matches, nil
+}
+
+func (resolver *Resolver) namespaceActive(ctx context.Context, name string) (bool, error) {
+	namespace := &corev1.Namespace{}
+	if err := resolver.client.Get(ctx, client.ObjectKey{Name: name}, namespace); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get TartHost Namespace for Agent boot: %w", err)
+	}
+	return namespace.DeletionTimestamp.IsZero(), nil
 }
 
 func (resolver *Resolver) findOperation(

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,9 +32,12 @@ func TestResolverはMACに対応するActiveOperationを返す(t *testing.T) {
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("corev1.AddToScheme() error = %v", err)
+	}
 	host := testHost()
 	operation := testOperation(host)
-	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(host, operation).Build())
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(testNamespace("default"), host, operation).Build())
 
 	target, err := resolver.Resolve(t.Context(), "00-00-5e-00-53-01")
 	if err != nil {
@@ -51,6 +55,9 @@ func TestResolverは削除中Hostをboot候補から除外する(t *testing.T) {
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("corev1.AddToScheme() error = %v", err)
+	}
 	activeHost := testHost()
 	activeHost.Name = "active-host"
 	activeHost.UID = types.UID("active-host-uid")
@@ -63,7 +70,7 @@ func TestResolverは削除中Hostをboot候補から除外する(t *testing.T) {
 	deletionTime := metav1.Now()
 	deletingHost.DeletionTimestamp = &deletionTime
 
-	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(activeHost, deletingHost, operation).Build())
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(testNamespace("default"), activeHost, deletingHost, operation).Build())
 	target, err := resolver.Resolve(t.Context(), activeHost.Spec.Identifiers.BootMACAddress)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -78,6 +85,9 @@ func TestResolverはActiveOperationのない同一MACHostをboot候補から除�
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("corev1.AddToScheme() error = %v", err)
+	}
 	activeHost := testHost()
 	activeHost.Name = "active-host"
 	activeHost.UID = types.UID("active-host-uid")
@@ -87,8 +97,18 @@ func TestResolverはActiveOperationのない同一MACHostをboot候補から除�
 	staleHost.Name = "stale-host"
 	staleHost.Namespace = "terminating-namespace"
 	staleHost.UID = types.UID("stale-host-uid")
+	terminatingNamespace := testNamespace(staleHost.Namespace)
+	terminatingNamespace.Finalizers = []string{"kubernetes"}
+	deletionTime := metav1.Now()
+	terminatingNamespace.DeletionTimestamp = &deletionTime
 
-	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(activeHost, staleHost, operation).Build())
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		testNamespace("default"),
+		terminatingNamespace,
+		activeHost,
+		staleHost,
+		operation,
+	).Build())
 	target, err := resolver.Resolve(t.Context(), activeHost.Spec.Identifiers.BootMACAddress)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
@@ -102,6 +122,9 @@ func TestResolverは同一MACのActiveOperationが複数ある場合に拒否す
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
 	firstHost := testHost()
 	firstHost.Name = "first-host"
@@ -117,6 +140,8 @@ func TestResolverは同一MACのActiveOperationが複数ある場合に拒否す
 	secondOperation.Name = "second-operation"
 
 	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		testNamespace("default"),
+		testNamespace("second-namespace"),
 		firstHost,
 		firstOperation,
 		secondHost,
@@ -132,6 +157,9 @@ func TestResolverは対象外HostとOperationを拒否する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("corev1.AddToScheme() error = %v", err)
 	}
 	tests := []struct {
 		name      string
@@ -159,13 +187,17 @@ func TestResolverは対象外HostとOperationを拒否する(t *testing.T) {
 			host := testHost()
 			operation := testOperation(host)
 			test.mutate(host, operation)
-			resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(host, operation).Build())
+			resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(testNamespace("default"), host, operation).Build())
 			_, err := resolver.Resolve(t.Context(), "00:00:5e:00:53:01")
 			if !errors.Is(err, test.wantError) {
 				t.Fatalf("Resolve() error = %v, want %v", err, test.wantError)
 			}
 		})
 	}
+}
+
+func testNamespace(name string) *corev1.Namespace {
+	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 }
 
 func testHost() *infrastructurev1beta1.TartHost {

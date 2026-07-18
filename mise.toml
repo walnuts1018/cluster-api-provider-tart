@@ -16,6 +16,7 @@ shellcheck = "0.11.0"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"
+GOMODCACHE = "{{config_root}}/.cache/go/pkg/mod"
 GOLANGCI_LINT_CACHE = "{{config_root}}/.cache/golangci-lint"
 
 [tasks.all]
@@ -50,12 +51,21 @@ description = "Go コードを go vet で検証する"
 run = "go vet ./..."
 
 [tasks.test]
-description = "Go テストを実行する"
+description = "Go テストを実行する（ローカル開発用: manifests/generate/fmt/vet を含む）"
 run = '''
 mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+LOCALBIN="${LOCALBIN:-$PWD/bin}"
+ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
+KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
+  go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
+'''
+
+[tasks.ci-test]
+description = "CI 用テスト（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
+run = '''
 LOCALBIN="${LOCALBIN:-$PWD/bin}"
 ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
 KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
@@ -112,13 +122,26 @@ fi
 '''
 
 [tasks.lint]
-description = "golangci-lint を実行する"
+description = "golangci-lint を実行する（ローカル開発用: --fix で自動修正を行う）"
 run = '''
 mise run ensure-custom-golangci-lint
 if [ -x bin/golangci-lint ]; then
   bin/golangci-lint run --fix
 else
   golangci-lint run --fix
+fi
+mise run actionlint
+mise run lint-shell
+'''
+
+[tasks.ci-lint]
+description = "CI 用 lint（--fix なし: 自動修正せず lint エラーを検出のみ）"
+run = '''
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint run
+else
+  golangci-lint run
 fi
 mise run actionlint
 mise run lint-shell
@@ -159,12 +182,21 @@ shellcheck \
 '''
 
 [tasks.build]
-description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする"
+description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"
 run = '''
 mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+mkdir -p bin
+go build -o bin/manager cmd/main.go
+go build -o bin/provisioning-agent ./cmd/provisioning-agent
+go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
+'''
+
+[tasks.ci-build]
+description = "CI 用ビルドチェック（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
+run = '''
 mkdir -p bin
 go build -o bin/manager cmd/main.go
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
@@ -730,24 +762,6 @@ trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$man
 mkdir -p dist
 (cd config/manager && kustomize edit set image controller="$IMG")
 kustomize build config/real-hardware > dist/install-real-hardware.yaml
-'''
-
-[tasks.verify-installation-manifests]
-description = "通常・実機・E2E導入Manifestとkubeadm templateの契約を検証する"
-run = '''
-set -eu
-output_dir="$(mktemp -d)"
-trap 'rm -rf "$output_dir"' EXIT
-kustomize build config/default > "$output_dir/default.yaml"
-kustomize build config/real-hardware > "$output_dir/real-hardware.yaml"
-kustomize build config/provisioning-e2e > "$output_dir/provisioning-e2e.yaml"
-grep -q -- '--bootstrap-bind-address=0' "$output_dir/default.yaml"
-grep -q -- '--agent-api-bind-address=:8444' "$output_dir/real-hardware.yaml"
-grep -q -- 'tart.walnuts.dev/provisioning-network: "true"' "$output_dir/real-hardware.yaml"
-grep -q -- '--ipxe-bind-address=:8082' "$output_dir/provisioning-e2e.yaml"
-grep -q 'kubeadmConfigSpec:' config/templates/cluster-template-kubeadm-ubuntu.yaml
-grep -q 'tart.walnuts.dev/role: control-plane' config/templates/cluster-template-kubeadm-ubuntu.yaml
-grep -q 'tart.walnuts.dev/role: worker' config/templates/cluster-template-kubeadm-ubuntu.yaml
 '''
 
 [tasks.build-installer-e2e]

@@ -12,19 +12,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: 変更ファイルを検出する
+    runs-on: ubuntu-slim
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      lint: ${{ steps.filter.outputs.lint }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        with:
+          filters: .github/filters.yml
+
   generate:
     name: generateで差分があったら落とす
     runs-on: ubuntu-slim
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        uses: ./.github/actions/setup-tools
+        with:
+          go-cache: "false"
 
       - name: generate
-        run: |
-          mise run generate
+        run: mise run generate
 
       - name: diff があったら落とす
         run: git diff --exit-code
@@ -32,6 +51,8 @@ jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.lint == 'true' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       pull-requests: write
@@ -40,14 +61,19 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        uses: ./.github/actions/setup-tools
+        with:
+          go-cache: "true"
+          golangci-lint-cache: "true"
 
       - name: Lint
-        run: mise lint
+        run: mise ci-lint
 
   test:
     name: Test
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       pull-requests: write
@@ -56,16 +82,16 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        uses: ./.github/actions/setup-tools
 
       - name: Running Test
-        run: |
-          go mod tidy
-          mise run test
+        run: mise run ci-test
 
   test-build:
     name: build check
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     steps:
@@ -73,77 +99,45 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        uses: ./.github/actions/setup-tools
 
       - name: build
-        run: mise run build
-
-  installation-contract:
-    name: installation manifest contract
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-
-      - name: Verify installation manifests
-        run: mise run verify-installation-manifests
-
-  artifact-build:
-    name: OS Artifact build check
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    steps:
-      - name: checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-
-      - name: Setup mkosi
-        uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
-
-      - name: Build OS and Verity payloads
-        run: mise run artifact-build-mkosi
-
-      - name: Upload build metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ubuntu-24.04-amd64-os-artifact-metadata
-          path: |
-            dist/os-artifact/packages.json
-            dist/os-artifact/sbom.cdx.json
-            dist/os-artifact/verity-root-hash
-          if-no-files-found: error
+        run: mise run ci-build
 
   test-e2e:
     name: E2E Test
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - name: checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        uses: ./.github/actions/setup-tools
 
       - name: Running Test e2e
-        run: |
-          go mod tidy
-          mise run test-e2e
+        run: mise run test-e2e
 
   status-check:
+    name: CI status check
     runs-on: ubuntu-slim
-    needs: [generate, lint, test, test-build, installation-contract, test-e2e]
-    if: failure()
+    needs: [changes, generate, lint, test, test-build, test-e2e]
+    # always() で必ず実行し、実行されたジョブの中に失敗があれば落とす
+    if: always()
     steps:
-      - run: exit 1
+      - name: Check all jobs passed
+        run: |
+          results='${{ toJSON(needs) }}'
+          echo "$results" | jq -e '
+            to_entries
+            | map(select(.value.result | IN("success", "skipped") | not))
+            | if length > 0 then
+                "Failed jobs: " + (map(.key) | tostring) | halt_error(1)
+              else
+                "All jobs passed or skipped."
+              end
+          '

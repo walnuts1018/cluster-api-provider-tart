@@ -350,7 +350,8 @@ func testNodeLifecyclePlan() nodelifecycle.Plan {
 	return nodelifecycle.Plan{
 		APIVersion:     nodelifecycle.APIVersion,
 		OperationID:    "operation-uid",
-		CurrentVersion: "v1.34.0",
+		LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+		CurrentVersion:   "v1.35.0",
 		TargetVersion:  "v1.36.0",
 		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
 		NodeRole:       distributiondomain.NodeRoleWorker,

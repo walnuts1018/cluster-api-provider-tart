@@ -142,6 +142,7 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
   未署名・改ざん済みPlanを既存のNode Lifecycle Step runnerへ渡さない検証
 - `cmd/node-lifecycle-service`を追加し、Agent APIから取得した署名済みNode Lifecycle Planを検証して、
   指定されたLifecycle Stepだけをkubeadm Driverへdispatchするprocess境界を作成
+- OS Artifact buildへ`node-lifecycle-service` binaryを組み込み、インストール済みOSから実行できる配布経路を追加
 - Node Lifecycle Service用のkubeadm Runtimeを追加し、`kubeadm upgrade plan/apply/node`、
   `etcdctl snapshot save/status`、`kubectl get node`を任意shell commandではなく型付き操作として実行
 - Domain PlanからNode Lifecycle Service向け署名済みPlanとPlan Digestを生成するapplication境界
@@ -175,6 +176,8 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 
 未実装・未検証:
 
+- OperationごとのSession Tokenと署名検証入力からNode Lifecycle Serviceを起動するone-shot systemd連携
+- kubeadm control planeで使用する`etcdctl`のdigest固定配布または同等のtyped snapshot実行経路
 - 7つの各Step直後のcontrollerまたはNode再起動の実機/E2E検証
 - Recovery Runbookの実機/E2E実行記録
 - kubeadm KubernetesBinary更新前後のKubernetes Resource UIDとPVC payload digestを比較するE2E検証

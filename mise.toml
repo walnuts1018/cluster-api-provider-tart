@@ -576,7 +576,9 @@ snapshot_base="https://snapshot.ubuntu.com/ubuntu/$snapshot/dists"
 extra_dir="artifact/mkosi/mkosi.extra"
 mkdir -p "$extra_dir/usr/bin"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
-trap 'rm -f "$extra_dir/usr/bin/provisioning-agent"' EXIT
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$extra_dir/usr/bin/node-lifecycle-service" ./cmd/node-lifecycle-service
+# build contextへ一時配置したbinaryをsource treeへ残さない。
+trap 'rm -f "$extra_dir/usr/bin/provisioning-agent" "$extra_dir/usr/bin/node-lifecycle-service"' EXIT
 for suite in noble noble-updates noble-security; do
   available=0
   for delay in 0 1 2; do

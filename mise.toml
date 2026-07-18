@@ -601,32 +601,29 @@ tar \
 chmod 0755 "$extra_dir/usr/bin/etcdutl"
 # build contextへ一時配置したbinaryをsource treeへ残さない。
 trap 'rm -f "$extra_dir/usr/bin/provisioning-agent" "$extra_dir/usr/bin/node-lifecycle-service" "$extra_dir/usr/bin/etcdctl" "$extra_dir/usr/bin/etcdutl"' EXIT
-mkosi_args=(
-  --directory artifact/mkosi
-  --distribution "$os_family"
-  --release "$mkosi_release"
-  --architecture "$mkosi_architecture"
-  --output "tart-$os_family-$os_version-$architecture-$distribution"
-  --snapshot "$snapshot"
+set -- \
+  --directory artifact/mkosi \
+  --distribution "$os_family" \
+  --release "$mkosi_release" \
+  --architecture "$mkosi_architecture" \
+  --output "tart-$os_family-$os_version-$architecture-$distribution" \
+  --snapshot "$snapshot" \
   --source-date-epoch "$source_date_epoch"
-)
 if [ "$distribution" = k0s ]; then
-  mkosi_args+=(
-    --remove-package kubeadm
-    --remove-package kubectl
-    --remove-package kubelet
-    --remove-package kubernetes-cni
+  set -- "$@" \
+    --remove-package kubeadm \
+    --remove-package kubectl \
+    --remove-package kubelet \
+    --remove-package kubernetes-cni \
     --remove-package cri-tools
-  )
 fi
 if [ "$os_family" = debian ]; then
-  mkosi_args+=(
-    --remove-package ubuntu-minimal
-    --remove-package linux-generic
+  set -- "$@" \
+    --remove-package ubuntu-minimal \
+    --remove-package linux-generic \
     --package linux-image-amd64
-  )
 fi
-mkosi "${mkosi_args[@]}" build
+mkosi "$@" build
 bash artifact/mkosi/normalize-output.sh \
   artifact/mkosi/mkosi.output \
   "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}"

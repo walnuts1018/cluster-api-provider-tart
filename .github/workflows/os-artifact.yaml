@@ -18,6 +18,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/os-artifact.yaml"
+      - "artifact/config/**"
       - "artifact/locks/**"
       - "artifact/mkosi/**"
       - "cmd/provisioning-agent/**"
@@ -42,6 +43,7 @@ on:
       - main
     paths:
       - ".github/workflows/os-artifact.yaml"
+      - "artifact/config/**"
       - "artifact/locks/**"
       - "artifact/mkosi/**"
       - "cmd/provisioning-agent/**"

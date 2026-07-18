@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "name": "etcd-v3.6.8-linux-amd64.tar.gz",
+      "url": "https://github.com/etcd-io/etcd/releases/download/v3.6.8/etcd-v3.6.8-linux-amd64.tar.gz",
+      "sizeBytes": 24326840,
+      "sha256": "cf9cfe91a4856cb90eed9c99e6aee4b708db2c7888b88a6f116281f04b0ea693"
+    }
+  ]
+}

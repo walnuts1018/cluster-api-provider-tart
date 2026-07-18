@@ -1,3 +1,17 @@
+// Copyright 2026.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //go:generate go tool kessoku $GOFILE
 
 package kessoku
@@ -14,7 +28,7 @@ import (
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/execute_operation"
 	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/reconcile_machine"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/driver"
-	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/k8s_controller"
+	controller "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/k8s_controller"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/allocation"
 	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/drivercapability"
 	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/driverstate"

@@ -116,7 +116,7 @@ jobs:
         env:
           ARTIFACT_QEMU_CPU: qemu64
           ARTIFACT_QEMU_TIMEOUT: 10m
-          ARTIFACT_BOOTLOADER_QEMU_WORK_DIR: dist/os-artifact/bootloader-rollback
+          ARTIFACT_BOOTLOADER_QEMU_WORK_DIR: ${{ runner.temp }}/os-artifact/bootloader-rollback
         run: mise run artifact-test-bootloader-rollback
 
       - name: Boot OS artifact and verify first boot report
@@ -145,11 +145,11 @@ jobs:
             dist/os-artifact/boot-trial-metadata-persistence/evidence.json
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
-            dist/os-artifact/bootloader-rollback/evidence.json
-            dist/os-artifact/bootloader-rollback/serial-boot1.log
-            dist/os-artifact/bootloader-rollback/serial-boot2.log
-            dist/os-artifact/bootloader-rollback/serial-boot3.log
-            dist/os-artifact/bootloader-rollback/serial-boot4.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/evidence.json
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot1.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot2.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot3.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot4.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/evidence-summary.md

@@ -108,7 +108,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 
 	AfterEach(func() {
 		for _, sim := range simulators {
-			sim.Stop()
+			Expect(sim.Stop()).To(Succeed())
 		}
 		cleanupNodeReadySimulation(ctx, bootstrapClusterProxy.GetClient(), clusterName)
 		if namespace != nil {

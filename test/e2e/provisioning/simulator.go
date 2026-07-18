@@ -21,6 +21,7 @@ package provisioning
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -64,13 +65,19 @@ func (m *SimulatorManager) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Error(err, "Failed to close WoL listener")
+		}
+	}()
 
 	logger.Info("Listening for WoL packets on port 9")
 
 	go func() {
 		<-ctx.Done()
-		conn.Close()
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			logger.Error(err, "Failed to close WoL listener after cancellation")
+		}
 	}()
 
 	buf := make([]byte, 1024)
@@ -110,6 +117,8 @@ type HostSimulator struct {
 	diskSerial      string
 	diskPath        string
 	qemuCmd         *exec.Cmd
+	qemuDone        chan struct{}
+	stopping        bool
 	mu              sync.Mutex
 }
 
@@ -155,8 +164,10 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.stopping {
+		return nil
+	}
 	if s.qemuCmd != nil && s.qemuCmd.Process != nil {
-		// Already running
 		return nil
 	}
 
@@ -206,13 +217,19 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	}
 
 	s.qemuCmd = cmd
+	done := make(chan struct{})
+	s.qemuDone = done
 	logger.Info("QEMU started", "pid", cmd.Process.Pid)
 
 	go func() {
 		err := cmd.Wait()
 		s.mu.Lock()
-		s.qemuCmd = nil
+		if s.qemuCmd == cmd {
+			s.qemuCmd = nil
+			s.qemuDone = nil
+		}
 		s.mu.Unlock()
+		close(done)
 		if err != nil {
 			logger.Error(err, "QEMU process exited with error")
 		} else {
@@ -285,31 +302,39 @@ func (s *HostSimulator) findOVMF() string {
 	return ""
 }
 
-func (s *HostSimulator) Stop() {
+func (s *HostSimulator) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stopping = true
+	cmd := s.qemuCmd
+	done := s.qemuDone
+	diskPath := s.diskPath
+	s.mu.Unlock()
 
-	if s.qemuCmd != nil && s.qemuCmd.Process != nil {
-		pid := s.qemuCmd.Process.Pid
-		// Kill the process group (notice the minus sign)
-		// Since we used sudo, we need to sudo kill
-		err := exec.Command("sudo", "kill", "-TERM", fmt.Sprintf("-%d", pid)).Run()
-		if err != nil {
-			fmt.Printf("failed to kill process group %d: %v\n", pid, err)
+	if cmd != nil && cmd.Process != nil && done != nil {
+		pid := cmd.Process.Pid
+		termErr := exec.Command("sudo", "kill", "-TERM", fmt.Sprintf("-%d", pid)).Run()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			if err := exec.Command("sudo", "kill", "-KILL", fmt.Sprintf("-%d", pid)).Run(); err != nil {
+				return fmt.Errorf("force stop QEMU process group %d after TERM error %v: %w", pid, termErr, err)
+			}
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				return fmt.Errorf("QEMU process group %d did not exit after KILL", pid)
+			}
 		}
-
-		// Force kill after a timeout if still running
-		go func(pgid int) {
-			time.Sleep(5 * time.Second)
-			_ = exec.Command("sudo", "kill", "-KILL", fmt.Sprintf("-%d", pgid)).Run()
-		}(pid)
-
-		s.qemuCmd = nil
 	}
-	if s.diskPath != "" {
-		if err := os.Remove(s.diskPath); err != nil && !os.IsNotExist(err) {
-			fmt.Printf("failed to remove root disk %s: %v\n", s.diskPath, err)
+	if diskPath != "" {
+		if err := os.Remove(diskPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove root disk %s: %w", diskPath, err)
 		}
-		s.diskPath = ""
+		s.mu.Lock()
+		if s.diskPath == diskPath {
+			s.diskPath = ""
+		}
+		s.mu.Unlock()
 	}
+	return nil
 }

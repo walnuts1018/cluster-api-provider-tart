@@ -171,11 +171,11 @@ jobs:
           --markdown-out dist/os-artifact/evidence-summary.md
           --json-out dist/os-artifact/evidence-summary.json
 
-      - name: Upload QEMU first boot evidence on failure
-        if: failure()
+      - name: Upload QEMU verification evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ubuntu-24.04-amd64-firstboot-qemu-failure
+          name: ubuntu-24.04-amd64-qemu-evidence
           path: |
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
@@ -253,11 +253,11 @@ jobs:
             dist/os-artifact/boot-trial-metadata-persistence/evidence.json
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot1.log
             dist/os-artifact/boot-trial-metadata-persistence/serial-boot2.log
-            dist/os-artifact/bootloader-rollback/evidence.json
-            dist/os-artifact/bootloader-rollback/serial-boot1.log
-            dist/os-artifact/bootloader-rollback/serial-boot2.log
-            dist/os-artifact/bootloader-rollback/serial-boot3.log
-            dist/os-artifact/bootloader-rollback/serial-boot4.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/evidence.json
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot1.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot2.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot3.log
+            ${{ runner.temp }}/os-artifact/bootloader-rollback/serial-boot4.log
             dist/os-artifact/boot-trial-rollback/evidence.json
             dist/os-artifact/boot-trial-rollback/summary.txt
             dist/os-artifact/qemu-firstboot/evidence.json

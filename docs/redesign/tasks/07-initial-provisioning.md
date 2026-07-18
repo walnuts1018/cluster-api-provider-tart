@@ -96,6 +96,7 @@ GitHub Actions上のProvisioning E2Eを実装した。
 - OS上で動くProvisioning AgentのBootReport送信モード。State上のBootstrap成功markerを読み、payload digestを`bootstrapPayloadDigest`としてAgent APIへ送信する
 - mkosi OS imageのfirst-boot unit。`network-online.target`後かつ`kubelet.service`前に、OS内の`provisioning-agent`を`--apply-bootstrap-only`、続けて`--report-boot-only`で起動する。cloud-config adapterはCABPK payloadをNoCloud datasourceへ置き、`cloud-init`のconfig/final moduleを実行する
 - `docs/redesign/runbooks/07-initial-provisioning-simulated-record.md` に、Bootstrap payload削除、単回Session、`AwaitingHealth`維持、Cleaning phase遷移の疑似証跡と、GitHub Actions上のProvisioning E2E証跡を追加した
+- `config/real-hardware`とUbuntu 24.04 kubeadm実機導入文書を追加した。通常Provisioning AgentはOS/Verityの書込み後にEFI boot entry、State上のcontroller trust、再起動を確定する通常実行をまだ持たないため、実機で`Node Ready`へ到達したことを完了証跡として扱わない
 
 ## 対象外
 

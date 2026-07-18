@@ -18,7 +18,6 @@ jobs:
     outputs:
       go: ${{ steps.filter.outputs.go }}
       lint: ${{ steps.filter.outputs.lint }}
-      release-docs: ${{ steps.filter.outputs.release-docs }}
     steps:
       - name: Check out code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -105,11 +104,12 @@ jobs:
       - name: build
         run: mise run ci-build
 
-  validate-release-docs:
-    name: validate release docs
+  test-e2e:
+    name: E2E Test
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.release-docs == 'true' || github.event_name == 'workflow_dispatch'
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -119,13 +119,13 @@ jobs:
       - name: Setup tools
         uses: ./.github/actions/setup-tools
 
-      - name: Validate release docs
-        run: mise run validate-release-docs
+      - name: Running Test e2e
+        run: mise run test-e2e
 
   status-check:
     name: CI status check
     runs-on: ubuntu-slim
-    needs: [changes, generate, lint, test, test-build, validate-release-docs]
+    needs: [changes, generate, lint, test, test-build, test-e2e]
     # always() で必ず実行し、実行されたジョブの中に失敗があれば落とす
     if: always()
     steps:

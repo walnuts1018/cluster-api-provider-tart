@@ -750,6 +750,20 @@ mkdir -p dist
 kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
 '''
 
+[tasks.build-installer-real-hardware]
+description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml を生成する"
+run = '''
+IMG="${IMG:-controller:latest}"
+mise run manifests
+mise run generate
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+mkdir -p dist
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/real-hardware > dist/install-real-hardware.yaml
+'''
+
 [tasks.build-installer-e2e]
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
 run = '''

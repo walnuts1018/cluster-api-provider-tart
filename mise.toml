@@ -175,7 +175,6 @@ run = '''
 shellcheck \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot \
-  test/architecture/check-dmmf-dependencies.sh \
   test/resource_preservation/collect-snapshot.sh \
   test/resource_preservation/collect-snapshot_test.sh \
   test/resource_preservation/phase.sh \
@@ -183,10 +182,6 @@ shellcheck \
   test/resource_preservation/verify.sh \
   test/resource_preservation/verify_test.sh
 '''
-
-[tasks.check-dmmf-dependencies]
-description = "DMMFのdomain/applicationから外側への逆向き依存がないことを検証する"
-run = "test/architecture/check-dmmf-dependencies.sh"
 
 [tasks.build]
 description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"

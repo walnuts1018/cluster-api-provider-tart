@@ -989,8 +989,15 @@ fi
 description = "現在の kubeconfig のクラスタへ controller を deploy する"
 run = '''
 IMG="${IMG:-controller:latest}"
+IPXE_REF="${IPXE_REF:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe@sha256:a70c0eb2880e43275455882628e5bf594e141b130c8964cd245316107b6b376f}"
 mise run manifests
-(cd config/manager && kustomize edit set image controller="$IMG")
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+# deploy失敗時もrepositoryのKustomizationへ環境固有imageを残さない。
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+(cd config/manager && kustomize edit set image \
+  controller="$IMG" \
+  "ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe=$IPXE_REF")
 kustomize build config/default | kubectl apply -f -
 '''
 

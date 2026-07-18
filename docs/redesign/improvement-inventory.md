@@ -16,7 +16,7 @@
 | 一部完了 | `.github/workflows/*`、`mise.toml` | OS/Kubernetes更新時に実workload clusterのResource UID、PVC UID、payload digestを比較するCIジョブがない。 | UID/digest比較器の不具合を修正し、入力検証と改変検出のCI契約を追加した。次に実workload clusterからの採取とOSOnly/KubernetesBinary更新へ接続する。 | OSOnly更新とKubernetesBinary更新の両方で、Resource/PVCデータ保持の証跡が1 runに残る。 |
 | 一部完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要なビルド・workflow変更を網羅していなかった。 | Dockerfile、Makefile、hack、artifact、workflow、renovateをgo/lint対象へ追加した。フィルター契約テストは残課題。 | 各主要ディレクトリの変更に対するフィルター契約テストまたはactionlint検査が通る。 |
 | 完了 | `mise.toml` の `docker-buildx` | build/pushの失敗を `|| true` で握りつぶしていた。 | build/createの失敗を伝播させ、`trap`で一時ファイルとbuilderを後始末するよう変更した。 | push失敗時にtaskとCIが失敗し、後始末だけは実行される。 |
-| 未着手 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | digestまたは固定バージョンを既定値にし、更新は依存更新PRで行う。 | CI再実行で同じ入力digestが得られ、mutable参照のallowlist違反がない。 |
+| 一部完了 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | E2E helperとiPXE Image Volumeをdigest固定し、Artifact publisherは`latest`を拒否するようにした。Talos/installer入力などの外部URL固定は残課題。 | CI再実行で同じ入力digestが得られ、mutable参照のallowlist違反がない。 |
 
 ## 優先度 P1: 機能欠落・回帰リスク
 

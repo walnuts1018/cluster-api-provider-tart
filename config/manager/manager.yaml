@@ -100,7 +100,7 @@ spec:
       volumes:
       - name: bootloader
         image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe:latest
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe@sha256:a70c0eb2880e43275455882628e5bf594e141b130c8964cd245316107b6b376f
           pullPolicy: IfNotPresent
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

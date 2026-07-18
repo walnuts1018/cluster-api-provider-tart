@@ -203,10 +203,10 @@ func commitEFI(ctx context.Context, cfg config, validatedPlan agentprotocol.Vali
 		return errors.New("--efi-commit-driver is required with --provision")
 	}
 	if validatedPlan.Value().OperationType != agentprotocol.OperationTypeProvision {
-		return errors.New("--provision only supports Provision Plans")
+		return errors.New("--provision only supports provision plans")
 	}
 	if validatedPlan.Value().Artifact == nil {
-		return errors.New("Provision Plan artifact is required")
+		return errors.New("provision plan artifact is required")
 	}
 	artifactPublicKey, err := loadPublicKey(cfg.artifactKeyFile, "artifact")
 	if err != nil {

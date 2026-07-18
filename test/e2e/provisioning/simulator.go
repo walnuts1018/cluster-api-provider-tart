@@ -312,16 +312,17 @@ func (s *HostSimulator) Stop() error {
 
 	if cmd != nil && cmd.Process != nil && done != nil {
 		pid := cmd.Process.Pid
-		termErr := exec.Command("sudo", "kill", "-TERM", fmt.Sprintf("-%d", pid)).Run()
+		_ = exec.Command("sudo", "kill", "-TERM", fmt.Sprintf("-%d", pid)).Run()
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
-			if err := exec.Command("sudo", "kill", "-KILL", fmt.Sprintf("-%d", pid)).Run(); err != nil {
-				return fmt.Errorf("force stop QEMU process group %d after TERM error %v: %w", pid, termErr, err)
-			}
+			killErr := exec.Command("sudo", "kill", "-KILL", fmt.Sprintf("-%d", pid)).Run()
 			select {
 			case <-done:
 			case <-time.After(5 * time.Second):
+				if killErr != nil {
+					return fmt.Errorf("force stop QEMU process group %d: %w", pid, killErr)
+				}
 				return fmt.Errorf("QEMU process group %d did not exit after KILL", pid)
 			}
 		}

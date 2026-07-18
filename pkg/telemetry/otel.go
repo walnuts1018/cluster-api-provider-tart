@@ -17,7 +17,16 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 )
+
+func serviceVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 type Provider struct {
 	TracerProvider TraceProvider
@@ -29,7 +38,7 @@ type Provider struct {
 func NewProvider(ctx context.Context) (*Provider, error) {
 	p := &Provider{
 		ServiceName:    defaultOTELServiceName,
-		ServiceVersion: "latest",
+		ServiceVersion: serviceVersion(),
 	}
 
 	tp, err := NewTracerProvider(ctx, TracerProviderConfig{

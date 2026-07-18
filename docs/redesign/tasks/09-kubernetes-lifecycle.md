@@ -76,6 +76,8 @@ A/B OS slot更新とは別に、既存Node上でKubernetes runtimeのversion更�
 9. StateMigration失敗時にOperation=`RecoveryRequired`、SnapshotRef保持となる。
 10. worker、3台control plane、単一control planeの順にfeature gateを有効化する。
 11. 単一control planeではmanagement API停止中のcontroller再接続を含むE2Eが成功するまでExperimentalとする。
+12. KubernetesBinary更新の前後で、Namespace、Deployment、StatefulSet、Service、ConfigMap、
+    Secret、PV、PVCのUIDと、PVCへ書き込んだ検証payloadのSHA-256 digestが一致する。
 
 ## 完了証跡
 
@@ -84,6 +86,7 @@ A/B OS slot更新とは別に、既存Node上でKubernetes runtimeのversion更�
 - Snapshot作成/restore test
 - 7再起動pointのOperation Status
 - etcd quorum/API health log
+- Kubernetes Resource UIDとPVC payload digestの更新前後比較
 - Recovery Runbook実行記録
 
 ## 対象外
@@ -174,3 +177,4 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 
 - 7つの各Step直後のcontrollerまたはNode再起動の実機/E2E検証
 - Recovery Runbookの実機/E2E実行記録
+- kubeadm KubernetesBinary更新前後のKubernetes Resource UIDとPVC payload digestを比較するE2E検証

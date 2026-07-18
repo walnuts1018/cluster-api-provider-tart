@@ -18,10 +18,7 @@ import (
 	"context"
 	"time"
 
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 )
 
@@ -31,27 +28,7 @@ type Workflow struct {
 	now     func() time.Time
 }
 
-func NewWorkflow(
-	k8sClient client.Client,
-	powerOn PowerOnService,
-	prepareBoot BootPreparationService,
-	hostPhase HostPhaseService,
-	targets DriverTargetBuilder,
-	driverCapabilities DriverCapabilityObserver,
-	driverPowerState DriverPowerStateObserver,
-	driverBootState DriverBootStateObserver,
-) *Workflow {
-	ports := Ports{
-		Resources:          k8soperation.NewReferenceReader(k8sClient),
-		Statuses:           k8soperation.NewStatusWriter(k8sClient),
-		PowerOn:            powerOn,
-		PrepareBoot:        prepareBoot,
-		HostPhase:          hostPhase,
-		Targets:            targets,
-		DriverCapabilities: driverCapabilities,
-		DriverPowerState:   driverPowerState,
-		DriverBootState:    driverBootState,
-	}
+func NewWorkflow(ports Ports) *Workflow {
 	return &Workflow{
 		ports:   ports,
 		effects: &effectRunner{ports: ports},

@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/telemetry"
@@ -135,16 +136,17 @@ func (r *TartHostOperationReconciler) operationWorkflow() *operationexecution.Wo
 	if r.Workflow != nil {
 		return r.Workflow
 	}
-	r.Workflow = operationexecution.NewWorkflow(
-		r.Client,
-		r.PowerOn,
-		r.PrepareBoot,
-		r.HostPhase,
-		r.Targets,
-		r.DriverCapabilities,
-		r.DriverPowerState,
-		r.DriverBootState,
-	)
+	r.Workflow = operationexecution.NewWorkflow(operationexecution.Ports{
+		Resources:          k8soperation.NewReferenceReader(r.Client),
+		Statuses:           k8soperation.NewStatusWriter(r.Client),
+		PowerOn:            r.PowerOn,
+		PrepareBoot:        r.PrepareBoot,
+		HostPhase:          r.HostPhase,
+		Targets:            r.Targets,
+		DriverCapabilities: r.DriverCapabilities,
+		DriverPowerState:   r.DriverPowerState,
+		DriverBootState:    r.DriverBootState,
+	})
 	return r.Workflow
 }
 

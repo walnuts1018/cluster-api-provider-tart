@@ -33,12 +33,13 @@
 | 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |
 | 完了 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | metrics確認用curlをamd64 digestへ固定し、managerのテスト用repositoryを`registry.test.walnuts.dev`へ置換した。 |
+| 完了 | `config/e2e/kustomization.yaml`、`test/utils/debug.go` | E2E overlayが無効化済みbind引数を重複追加し、失敗時診断が不正なdnsmasq起動を試みていた。 | bind引数はbase manifestを正本にし、診断は既存process・lease・network状態の読取りだけに限定する。 |
 
 ## 優先度 P2: 構造・保守性
 
 | 状態 | 対象 | 課題 | 改善案 |
 |---|---|---|---|
-| 未着手 | `internal/application/**` | workflowごとに `model`、`port`、`step`、`handler` などの分割粒度が不均一で、空に近いパッケージもある。 | DMMFの境界（domain/application/adapter）を維持しつつ、公開されない1ファイルパッケージを親packageへ統合する。依存方向を静的検査する。 |
+| 一部完了 | `internal/application/**` | workflowごとに `model`、`port`、`step`、`handler` などの分割粒度が不均一で、`operationexecution`がKubernetes adapterを直接構築していた。 | Operation workflowをPortだけから構築する形へ修正し、compositionをcontrollerへ移した。domain/applicationの逆向き依存はCIで静的検査する。公開されない1ファイルpackageの統合は残課題。 |
 | 未着手 | `cmd/`、`internal/controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | wireで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
 | 未着手 | `hack/` | artifact、QEMU、Redfish、manifest処理が横並びで、CIからの呼出し契約が暗黙的。 | `hack/<capability>` ごとに入力・出力artifact schemaを固定し、共通のevidence writerを抽出する。 |
 | 完了 | `Makefile` と `mise.toml` | 同じ処理の定義が二重化し、失敗時の挙動や環境変数が一致しない可能性がある。 | miseを正本にし、MakefileをKubebuilder互換の薄いtask転送層へ縮小した。 |

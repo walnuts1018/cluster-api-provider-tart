@@ -146,6 +146,7 @@ else
 fi
 mise run actionlint
 mise run lint-shell
+mise run check-dmmf-dependencies
 '''
 
 [tasks.ci-lint]
@@ -159,6 +160,7 @@ else
 fi
 mise run actionlint
 mise run lint-shell
+mise run check-dmmf-dependencies
 '''
 
 [tasks.lint-fix]
@@ -193,6 +195,7 @@ run = '''
 shellcheck \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot \
+  hack/check-dmmf-dependencies.sh \
   hack/collect-resource-preservation-snapshot.sh \
   hack/collect-resource-preservation-snapshot_test.sh \
   hack/resource-preservation-phase.sh \
@@ -200,6 +203,10 @@ shellcheck \
   hack/verify-resource-preservation.sh \
   hack/verify-resource-preservation_test.sh
 '''
+
+[tasks.check-dmmf-dependencies]
+description = "DMMFのdomain/applicationから外側への逆向き依存がないことを検証する"
+run = "hack/check-dmmf-dependencies.sh"
 
 [tasks.build]
 description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"

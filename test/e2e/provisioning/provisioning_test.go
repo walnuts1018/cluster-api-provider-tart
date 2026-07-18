@@ -54,8 +54,9 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		watchCancel context.CancelFunc
 		clusterName string
 
-		manager    *SimulatorManager
-		simulators []*HostSimulator
+		manager     *SimulatorManager
+		managerDone chan error
+		simulators  []*HostSimulator
 	)
 
 	BeforeEach(func() {
@@ -101,13 +102,15 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			simulators = append(simulators, sim)
 			manager.Register(sim)
 		}
+		managerDone = make(chan error, 1)
 		go func() {
-			defer GinkgoRecover()
-			Expect(manager.Start(ctx)).To(Succeed())
+			managerDone <- manager.Start(ctx)
 		}()
 	})
 
 	AfterEach(func() {
+		cancel()
+		Eventually(managerDone, 10*time.Second).Should(Receive(Succeed()), "WoL listener should stop before the next test case")
 		for _, sim := range simulators {
 			Expect(sim.Stop()).To(Succeed())
 		}
@@ -136,7 +139,6 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		if watchCancel != nil {
 			watchCancel()
 		}
-		cancel()
 	})
 
 	It("Should boot the Agent Artifact and register through the Agent API", func() {

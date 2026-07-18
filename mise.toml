@@ -138,7 +138,7 @@ run = "./bin/golangci-lint"
 [tasks.lint]
 description = "lintを実行する"
 run = '''
-mise run golangci-lint --fix
+mise run golangci-lint run --fix
 mise run actionlint
 mise run lint-shell
 mise run check-dmmf-dependencies
@@ -147,7 +147,7 @@ mise run check-dmmf-dependencies
 [tasks.ci-lint]
 description = "CI 用 lint（--fix なし: 自動修正せず lint エラーを検出のみ）"
 run = '''
-mise run golangci-lint
+mise run golangci-lint run
 mise run actionlint
 mise run lint-shell
 mise run check-dmmf-dependencies
@@ -156,7 +156,7 @@ mise run check-dmmf-dependencies
 [tasks.lint-fix]
 description = "golangci-lint の自動修正を実行する"
 run = '''
-mise run golangci-lint --fix
+mise run golangci-lint run --fix
 '''
 
 [tasks.lint-config]

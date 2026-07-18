@@ -1084,6 +1084,12 @@ func qemuBootTrialMetadataScript() string {
 		"set -eu",
 		"metadata_device=/dev/disk/by-id/virtio-" + metadataDiskSerial,
 		"metadata_record='" + recordJSON + "'",
+		"attempt=0",
+		"until [ -b \"$metadata_device\" ] || [ \"$attempt\" -ge 30 ]; do",
+		"  attempt=$((attempt + 1))",
+		"  sleep 1",
+		"done",
+		"[ -b \"$metadata_device\" ]",
 		"current_record=$(dd if=\"$metadata_device\" bs=256 count=1 status=none 2>/dev/null | tr -d '\\000')",
 		"if [ -n \"$current_record\" ]; then",
 		"  echo '" + serialMarkerBootMetadataRead + "'\"$current_record\"",
@@ -1629,7 +1635,7 @@ func waitForRootObservation(ctx context.Context, serialLogPath string) (rootObse
 }
 
 func waitForBootTrialMetadataWrite(ctx context.Context, metadataDiskPath string) (bootTrialMetadataObservation, error) {
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	if value, ok := bootTrialMetadataWriteFromDisk(metadataDiskPath); ok {
 		return value, nil
 	}

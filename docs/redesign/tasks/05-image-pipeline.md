@@ -90,7 +90,7 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 
 実装済み:
 
-- `pkg/artifact`にManifest v1のGo型、検証済み型、RFC 8785 canonical JSON、digest計算を追加した。
+- `artifact`にManifest v1のGo型、検証済み型、RFC 8785 canonical JSON、digest計算を追加した。
 - Ed25519によるManifest署名・検証と、payloadのsize/SHA-256事前検証を追加した。
 - `artifact/schema/os-manifest-v1.schema.json`にProtocol共有用JSON Schemaを追加した。
 - Ubuntu snapshot、mkosi v26 commit、Kubernetes v1.35.0 amd64 debのURL・size・SHA-256をlock fileへ固定した。
@@ -105,7 +105,7 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 - OS Artifact workflowに`mise run artifact-test-firstboot-qemu`を追加し、mkosi成果物のOS imageをQEMUで起動して
   first-boot unitがfake Agent APIへBootReportを送ることを検証する。証跡にはCPU model、disk size、
   OS image digest、serial log、BootReport要約、read-only root mount観測値を保存する。
-- `pkg/agentartifact`、`internal/server/agentboot`、`internal/provisioningagent/artifactfetch`に
+- `dto/agent_artifact`、`infrastructure/http_server/agentboot`、`infrastructure/provisioning_agent/artifactfetch`に
   Agent Artifact/OS Artifactの署名・digest検証を追加し、controllerとAgentの双方が信頼していない署名鍵や
   改変済みpayloadを拒否するようにした。
 - `docs/redesign/runbooks/05-os-artifact-security-simulated-record.md` に、repository内testで確認できる

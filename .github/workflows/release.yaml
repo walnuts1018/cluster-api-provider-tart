@@ -50,7 +50,7 @@ jobs:
         if: ${{ steps.ipxe-cache.outputs.cache-hit != 'true' }}
         run: |
           mkdir -p dist/ipxe
-          go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
+          go run ./cmd/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
           rm -rf /tmp/ipxeboot
           tar xzf /tmp/ipxeboot.tar.gz -C /tmp
           cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
@@ -76,7 +76,7 @@ jobs:
       - name: Push OCI Artifact using ORAS
         id: push
         run: |
-          digest=$(go run hack/artifacter/main.go \
+          digest=$(go run cmd/artifacter/main.go \
             -dir dist/ipxe \
             -repo ${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }} \
             -tag ${{ steps.tag.outputs.ImageTag }})

@@ -31,13 +31,13 @@ ADR 0005とTask 02で確定した型だけに依存するDriver境界、WoL Adap
 - Capability set型
 - Driver Registry
 - `Unsupported`、`AuthenticationFailed`、`Temporary`、`DeadlineExceeded` error型
-- 既存`pkg/wol`を使うWoL Adapter
+- 既存`infrastructure/service/wol`を使うWoL Adapter
 - 全Driver実装が共有するContract Test
 - Fake Driver
 
 ## 実装要件
 
-- application/controller packageから`pkg/wol`を直接importしない。
+- application/controller packageから`infrastructure/service/wol`を直接importしない。
 - WoL Adapterは`PowerOn`だけをRegistryへ登録する。
 - MAC addressはparse済み値としてAdapterへ渡し、Adapter内でCRを参照しない。
 - 同じOperation IDでWoL packetを再送しても成功として扱う。
@@ -81,17 +81,17 @@ ADR 0005とTask 02で確定した型だけに依存するDriver境界、WoL Adap
 実行済みcommand:
 
 ```text
-MISE_OFFLINE=1 mise exec -- go test -race ./internal/domain/driver ./internal/application/driver ./internal/adapter/driver/... ./internal/application/provisioning -count=1
+MISE_OFFLINE=1 mise exec -- go test -race ./domain/shared/driver ./infrastructure/service/driver ./infrastructure/service/driver/... ./domain/provisioning/workflow/provision_machine -count=1
 MISE_OFFLINE=1 mise exec -- go test ./... -v
 MISE_OFFLINE=1 mise run build
 MISE_OFFLINE=1 mise run lint
 MISE_OFFLINE=1 mise run generate
-MISE_OFFLINE=1 mise exec -- go list -deps ./internal/application/provisioning ./internal/controller
+MISE_OFFLINE=1 mise exec -- go list -deps ./domain/provisioning/workflow/provision_machine ./infrastructure/k8s_controller
 ```
 
-最後の依存検査では`internal/application`と`internal/controller`から
-`pkg/wol`への依存がないことを確認した。WoL実装への依存は
-`internal/adapter/driver/wol`だけに存在する。ローカルE2Eは実行していない。
+最後の依存検査では`domain/provisioning/workflow/provision_machine`と`infrastructure/k8s_controller`から
+`infrastructure/service/wol`への依存がないことを確認した。WoL実装への依存は
+`infrastructure/service/driver/wol`だけに存在する。ローカルE2Eは実行していない。
 
 ## 対象外
 

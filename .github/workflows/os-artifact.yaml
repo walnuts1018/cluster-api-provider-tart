@@ -22,20 +22,20 @@ on:
       - "docs/redesign/ci-verification.md"
       - "docs/redesign/tasks/01-foundation-spikes.md"
       - "docs/redesign/tasks/11-compatibility-and-release.md"
-      - "hack/boot-trial-rollback-sim/**"
-      - "hack/os-artifact-evidence-summary/**"
-      - "hack/os-firstboot-qemu/**"
-      - "hack/artifact-manifest/**"
-      - "hack/artifact-provenance/**"
-      - "internal/adapter/k8s/bootreport/**"
-      - "internal/application/inplaceupdate/**"
-      - "internal/domain/bootreport/**"
-      - "internal/domain/inplaceupdate/**"
-      - "internal/provisioningagent/**"
+      - "cmd/boot-trial-rollback-sim/**"
+      - "cmd/os-artifact-evidence-summary/**"
+      - "cmd/os-firstboot-qemu/**"
+      - "cmd/artifact-manifest/**"
+      - "cmd/artifact-provenance/**"
+      - "infrastructure/repository/k8s/bootreport/**"
+      - "domain/provisioning/workflow/**"
+      - "domain/shared/bootreport/**"
+      - "domain/provisioning/entity/inplaceupdate/**"
+      - "infrastructure/provisioning_agent/**"
       - "mise.toml"
       - "go.mod"
       - "go.sum"
-      - "pkg/agentprotocol/**"
+      - "dto/agent/**"
   push:
     branches:
       - main
@@ -47,20 +47,20 @@ on:
       - "docs/redesign/ci-verification.md"
       - "docs/redesign/tasks/01-foundation-spikes.md"
       - "docs/redesign/tasks/11-compatibility-and-release.md"
-      - "hack/boot-trial-rollback-sim/**"
-      - "hack/os-artifact-evidence-summary/**"
-      - "hack/os-firstboot-qemu/**"
-      - "hack/artifact-manifest/**"
-      - "hack/artifact-provenance/**"
-      - "internal/adapter/k8s/bootreport/**"
-      - "internal/application/inplaceupdate/**"
-      - "internal/domain/bootreport/**"
-      - "internal/domain/inplaceupdate/**"
-      - "internal/provisioningagent/**"
+      - "cmd/boot-trial-rollback-sim/**"
+      - "cmd/os-artifact-evidence-summary/**"
+      - "cmd/os-firstboot-qemu/**"
+      - "cmd/artifact-manifest/**"
+      - "cmd/artifact-provenance/**"
+      - "infrastructure/repository/k8s/bootreport/**"
+      - "domain/provisioning/workflow/**"
+      - "domain/shared/bootreport/**"
+      - "domain/provisioning/entity/inplaceupdate/**"
+      - "infrastructure/provisioning_agent/**"
       - "mise.toml"
       - "go.mod"
       - "go.sum"
-      - "pkg/agentprotocol/**"
+      - "dto/agent/**"
 
 permissions:
   contents: read
@@ -105,7 +105,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Verify ${{ matrix.key }} manifest config
-        run: go test ./hack/artifact-manifest ./pkg/artifact ./pkg/platformprofile
+        run: go test ./cmd/artifact-manifest ./artifact ./domain/shared/platformprofile
 
   ubuntu-24-04-amd64:
     name: Ubuntu 24.04 amd64
@@ -166,7 +166,7 @@ jobs:
       - name: Generate OS Artifact evidence summary
         if: always()
         run: >
-          go run ./hack/os-artifact-evidence-summary
+          go run ./cmd/os-artifact-evidence-summary
           --artifact-dir dist/os-artifact
           --markdown-out dist/os-artifact/evidence-summary.md
           --json-out dist/os-artifact/evidence-summary.json

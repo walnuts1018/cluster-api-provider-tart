@@ -107,7 +107,7 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 
 実装済み:
 
-- `internal/domain/nodelifecycleengine`に、KubernetesBinary/StateMigration向けの
+- `domain/node/entity/nodelifecycleengine`に、KubernetesBinary/StateMigration向けの
   Preflight純粋判定を追加
 - minor versionを2つ以上進める更新、downgrade、major version更新、不正なversionを拒否する判定
 - worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
@@ -163,14 +163,14 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
   がKubernetes version差分をin-place update対象として受理し、無効時はpatchなしで通常置換へfallbackする
 - `docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
   `RecoveryRequired` と `SnapshotRef` を前提にした手動復旧 Runbook を追加
-- `internal/adapter/k8s/nodelifecycleengine/status_store_test.go` に、
+- `infrastructure/repository/k8s/nodelifecycleengine/status_store_test.go` に、
   7つの永続化Stepごとにfresh processから同じ完了報告を再送しても`completedSteps`を重複記録しない
   回帰テストを追加
-- `internal/server/agentapi/handler_test.go` に、
+- `infrastructure/http_server/agentapi/handler_test.go` に、
   7つのNode Lifecycle Step成功報告をfresh handlerごとに再送し、
   `completedSteps`、`lifecyclePhase`、`snapshotRef`、`phase`が再起動後も同じStatusへ収束する
   統合テストを追加
-- `internal/server/agentapi/handler_test.go` に、
+- `infrastructure/http_server/agentapi/handler_test.go` に、
   `StateMigration` が `DistributionApplied` で失敗した時に `RecoveryRequired` と `SnapshotRef` 保持へ
   収束する統合テストを追加
 - `docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md` に、

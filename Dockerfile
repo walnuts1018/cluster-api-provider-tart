@@ -13,13 +13,16 @@ RUN --mount=type=cache,target=/go/pkg/mod/ \
 
 COPY cmd/ cmd/
 COPY api/ api/
-COPY internal/ internal/
-COPY pkg/ pkg/
+COPY artifact/ artifact/
+COPY domain/ domain/
+COPY dto/ dto/
+COPY infrastructure/ infrastructure/
+COPY utils/ utils/
 COPY go.mod go.sum ./
 
 RUN --mount=type=cache,target=/go/pkg/mod/ \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager ./cmd
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o manager ./cmd/controller-manager
 
 FROM debian:13.5-slim AS capabilities
 

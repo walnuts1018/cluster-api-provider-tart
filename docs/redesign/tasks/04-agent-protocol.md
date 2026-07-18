@@ -93,14 +93,14 @@ Provisioning AgentとNode Lifecycle Serviceが、同じOperationを重複実行�
 
 実装済みの主な構成:
 
-- `pkg/agentprotocol`: request/response、Plan、Bootstrap Bundle、RFC 8785 canonicalization、Ed25519署名
+- `dto/agent`: request/response、Plan、Bootstrap Bundle、RFC 8785 canonicalization、Ed25519署名
 - `artifact/schema`: PlanとBootstrap BundleのJSON Schema
-- `internal/domain/agentsession`: 256 bit token、binding、TTL、失敗上限、消費状態
-- `internal/domain/agentprogress`: sequenceの適用、重複、gap判定
-- `internal/adapter/k8s/agentapi`: Operation lookup、署名済みPlan Secret、CABPK Bootstrap Secretの読取り
-- `internal/domain/bootreport`: boot完了条件と冪等なPhase遷移の純粋判定
-- `internal/adapter/k8s/bootreport`: 最新boot reportのStatus永続化と`BootTrial`から`AwaitingHealth`への遷移
-- `internal/server/agentapi`: TLS 1.3 listener、rate limiter、`/v1` endpoint
+- `domain/shared/agentsession`: 256 bit token、binding、TTL、失敗上限、消費状態
+- `domain/shared/agentprogress`: sequenceの適用、重複、gap判定
+- `infrastructure/repository/k8s/agentapi`: Operation lookup、署名済みPlan Secret、CABPK Bootstrap Secretの読取り
+- `domain/shared/bootreport`: boot完了条件と冪等なPhase遷移の純粋判定
+- `infrastructure/repository/k8s/bootreport`: 最新boot reportのStatus永続化と`BootTrial`から`AwaitingHealth`への遷移
+- `infrastructure/http_server/agentapi`: TLS 1.3 listener、rate limiter、`/v1` endpoint
 
 boot reportは失敗したmount結果も`status.lastBootReport`へ保存する。Planが対象にするOS slot、
 Artifact Generation、State/Data mount、Bootstrap成功markerが全て一致した場合だけ

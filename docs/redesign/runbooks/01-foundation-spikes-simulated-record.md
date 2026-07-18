@@ -11,8 +11,8 @@ mise run artifact-test-boot-trial-rollback
 mise run artifact-test-boot-trial-metadata-persistence
 mise run artifact-test-bootloader-rollback
 mise run artifact-test-firstboot-qemu
-go test ./hack/os-firstboot-qemu -v
-go test ./hack/boot-trial-rollback-sim -v
+go test ./cmd/os-firstboot-qemu -v
+go test ./cmd/boot-trial-rollback-sim -v
 ```
 
 ## 確認する内容
@@ -68,11 +68,11 @@ acceptance 8 のうち「4 回分の boot 順序」「4 回目で target を再�
 
 ## repository 内で確認できる主な test
 
-- `hack/os-firstboot-qemu/main_test.go`
+- `cmd/os-firstboot-qemu/main_test.go`
   - `TestBootEntrySelectionFromLogは選択されたEntryを読む`
   - `TestQEMUBootloaderRollbackScriptはKernelCmdlineから選択Entryを出力する`
   - `TestBootloaderEntryConfigは指定rootと識別子を埋め込む`
-- `hack/boot-trial-rollback-sim`
+- `cmd/boot-trial-rollback-sim`
   - rollback 判定入力と状態遷移の evidence 生成
 
 ## 2026-07-18 時点で CI に残している完了証跡

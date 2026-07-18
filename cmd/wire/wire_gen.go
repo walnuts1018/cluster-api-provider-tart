@@ -7,24 +7,24 @@
 package wire
 
 import (
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/redfish"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	driver2 "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_cluster"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_cluster_status"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_machine_template"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/delete_machine"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/execute_operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/reconcile_machine"
+	driver2 "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/driver"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/k8s_controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/allocation"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/drivercapability"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/driverstate"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/drivertarget"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/machinehealth"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/v1beta1host"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver/redfish"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver/wol"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/resource_finalizer"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -36,9 +36,9 @@ func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Rec
 	tartMachineTemplateReconciler := provideTartMachineTemplateReconciler(k8sClient, scheme)
 	service := allocation.NewService(k8sClient)
 	observer := machinehealth.NewObserver(k8sClient)
-	provisionStep := provideInitialProvisioningStep()
-	cleaningStep := provideCleaningStep()
-	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, provisionStep, cleaningStep)
+	provisioner := provideInitialProvisioningStep()
+	cleaningWorkflow := provideCleaningStep()
+	tartMachineV1Beta1Reconciler := provideTartMachineV1Beta1Reconciler(k8sClient, service, observer, provisioner, cleaningWorkflow)
 	adapter := wol.Default()
 	redfishAdapter := redfish.New()
 	registry, err := provideDriverRegistry(adapter, redfishAdapter)
@@ -100,7 +100,7 @@ func provideDriverRegistry(
 	return registry, nil
 }
 
-func provideInitialProvisioningStep() machineexecution.ProvisionStep {
+func provideInitialProvisioningStep() machineexecution.Provisioner {
 	return nil
 }
 
@@ -108,7 +108,7 @@ func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Schem
 	return &controller.TartClusterReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
-		Lifecycle: clusterlifecycle.NewWorkflowWithSteps(resourcefinalizer.NewTartClusterWorkflow(k8sClient), clusterstatus.NewWorkflow(k8sClient)),
+		Lifecycle: clusterlifecycle.NewWorkflowWithPorts(resourcefinalizer.NewTartClusterService(k8sClient), clusterstatus.NewWorkflow(k8sClient)),
 	}
 }
 
@@ -116,7 +116,7 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 	return &controller.TartMachineTemplateReconciler{
 		Client:    k8sClient,
 		Scheme:    scheme,
-		Lifecycle: machinetemplatelifecycle.NewWorkflowWithFinalizer(resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient)),
+		Lifecycle: machinetemplatelifecycle.NewWorkflowWithFinalizer(resourcefinalizer.NewTartMachineTemplateService(k8sClient)),
 	}
 }
 
@@ -124,8 +124,8 @@ func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences machineexecution.HostReferenceService,
 	nodeHealth machineexecution.NodeHealthObserver,
-	provisioner machineexecution.ProvisionStep,
-	cleaner machinedeletion.CleaningStep,
+	provisioner machineexecution.Provisioner,
+	cleaner machinedeletion.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -136,7 +136,7 @@ func provideTartMachineV1Beta1Reconciler(
 	}
 }
 
-func provideCleaningStep() machinedeletion.CleaningStep {
+func provideCleaningStep() machinedeletion.CleaningWorkflow {
 	return nil
 }
 

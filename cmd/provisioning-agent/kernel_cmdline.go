@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/agentboot"
 )
 
 const defaultKernelCommandLinePath = "/proc/cmdline"

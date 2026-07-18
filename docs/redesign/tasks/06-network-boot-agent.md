@@ -87,42 +87,42 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 
 実装済みの主な構成:
 
-- `internal/provisioningagent/disk`: 複数identityを全て満たす唯一diskの選択
-- `internal/provisioningagent/plan`: Provision/Update別の書込み可能Disk Role検証
-- `internal/provisioningagent/payload`: 1 MiB単位write、10%進捗、fsync、read-back digest検証
-- `internal/provisioningagent/inventory`: sysfs、`/dev/disk/by-id`、mountinfoからwhole diskと
+- `infrastructure/provisioning_agent/disk`: 複数identityを全て満たす唯一diskの選択
+- `infrastructure/provisioning_agent/plan`: Provision/Update別の書込み可能Disk Role検証
+- `infrastructure/provisioning_agent/payload`: 1 MiB単位write、10%進捗、fsync、read-back digest検証
+- `infrastructure/provisioning_agent/inventory`: sysfs、`/dev/disk/by-id`、mountinfoからwhole diskと
   Agent一時OS保持deviceを収集
-- `internal/provisioningagent/layout`: `amd64-uefi-ab/v1`の1 MiB alignment付きGPT計画、
+- `infrastructure/provisioning_agent/layout`: `amd64-uefi-ab/v1`の1 MiB alignment付きGPT計画、
   label/type GUID/PARTUUIDによるDisk Role解決、Provisionだけに限定した`sfdisk`実行
-- `internal/provisioningagent/artifactfetch`: digest固定OCI参照からManifest/署名を先に取得し、
+- `infrastructure/provisioning_agent/artifactfetch`: digest固定OCI参照からManifest/署名を先に取得し、
   Ed25519署名、PlanのManifest digest/Artifact Generation、Platform Profile、
   OS/Verity layer descriptorを検証してからpayload streamを公開
-- `internal/provisioningagent/writer`: ProvisionではOS-A/Verity-A、UpdateではInactive
+- `infrastructure/provisioning_agent/writer`: ProvisionではOS-A/Verity-A、UpdateではInactive
   OS/Verity Slotだけを選び、partition容量の事前検証後にpayloadを書込み・read-back検証
-- `internal/provisioningagent/boottrial`: Update PlanのBoot roleから解決したboot deviceへ対して、
+- `infrastructure/provisioning_agent/boottrial`: Update PlanのBoot roleから解決したboot deviceへ対して、
   target slot、rollback slot、Artifact Generation、試行回数をtyped requestとして
   外部driverへ渡すcommand adapter
-- `internal/provisioningagent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
+- `infrastructure/provisioning_agent/client`: HTTPS限定、30秒timeout、最大3回再試行のAgent API client。
   Plan digestとEd25519署名をAgent側で検証
-- `internal/provisioningagent/progress`: register responseの保存済みsequenceから再開し、同一requestを
+- `infrastructure/provisioning_agent/progress`: register responseの保存済みsequenceから再開し、同一requestを
   再試行可能なAgent progress reporter
-- `pkg/agentartifact`: Agent Artifactのdigest固定OCI参照、対象architecture/firmware/Profile、
+- `dto/agent_artifact`: Agent Artifactのdigest固定OCI参照、対象architecture/firmware/Profile、
   kernel/initrd descriptor、RFC 8785 canonical JSON、Ed25519署名を検証
-- `internal/adapter/k8s/agentboot`: boot MACから`amd64-uefi-ab/v1` Hostと
+- `infrastructure/repository/k8s/agentboot`: boot MACから`amd64-uefi-ab/v1` Hostと
   `PreparingBoot`から`Verifying`までのactive Operationを解決
-- `internal/domain/agentboot`: credentialを含めず、Agent API URL、Host UID、Operation UID、
+- `domain/shared/agentboot`: credentialを含めず、Agent API URL、Host UID、Operation UID、
   boot MACだけを渡すUEFI amd64向けiPXE scriptを生成
-- `internal/server/agentboot`: 起動時に署名とpayload digest/sizeを検証し、検証時に開いた
+- `infrastructure/http_server/agentboot`: 起動時に署名とpayload digest/sizeを検証し、検証時に開いた
   file descriptorからdigest固定URLでkernel/initrdをHTTPS配信。leaderだけがlistenerを開始
-- `internal/provisioningagent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
-- `internal/adapter/k8s/agentprogress`: 10%刻みのstep/role/percent、完了Step、最大sequenceを
+- `infrastructure/provisioning_agent.Service`: 全安全検証が成功するまで破壊的Writerを呼ばない実行境界
+- `infrastructure/repository/k8s/agentprogress`: 10%刻みのstep/role/percent、完了Step、最大sequenceを
   Operation Statusへ保存し、Writing/Verifying Phaseへ進める
-- `internal/server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
+- `infrastructure/http_server/bootstrapper`: Option 93の対象判定とleaderだけのDHCP/TFTP起動
 - `cmd/provisioning-agent`: register、Plan取得、disk選択までを実行する
   `--preflight-only`診断、GPT作成または既存Role検証だけを行う`--prepare-layout-only`、
   Artifact検証とOS/Verity書込みを行う破壊的な`--write-payloads-only`を提供。
   Registry credentialは任意のDocker互換config fileから読込む
-- `internal/registrycredential`: Docker互換config fileからORAS用credential関数を生成し、
+- `infrastructure/service/registry_credential`: Docker互換config fileからORAS用credential関数を生成し、
   controllerとProvisioning Agentでprivate OCI Registry設定を共有する
 
 2026-07-06時点で、10%刻みの書込み進捗をAgent APIへ接続し、最新step/role/percentと

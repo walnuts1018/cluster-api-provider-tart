@@ -81,7 +81,7 @@ linters:
     rules:
       - linters:
           - dupl
-        path: internal/*
+        path: infrastructure/*
       - linters:
           - errcheck
         path: _test\.go

@@ -23,10 +23,10 @@ Go向けDMMF実装指針では、本Providerで求める型安全性に対して
 
 DMMFは「Web APIの層構造」ではなく、「Reconcileで観測した外部状態を、型付きの判断と明示的な副作用へ分ける設計」として適用する。
 
-- `domain`は副作用を持たない値、Smart Constructor、状態遷移、互換性判定、Plan/Decision生成だけを持つ。
-- `application`はUse Case単位のI/O Sandwichを実装し、Portから必要な情報を読む、domainへ渡す、結果をPortで保存する。
-- `adapter`はKubernetes client、Driver、Artifact、HTTP delivery、Node Lifecycle Engineなどの外部I/Oを実装し、DTO/API型とdomain/application型の変換境界になる。
-- `controller`はKubernetes objectの取得、pause/deletion、owner確認、patch、Condition/Event出力、Requeue判断だけを担当する。
+- `domain/<context>/entity`は副作用を持たない値、Smart Constructor、状態遷移、互換性判定、Plan/Decision生成だけを持つ。
+- `domain/<context>/workflow`はUse Case単位のI/O Sandwichを実装し、`deps`から必要な情報を読む、Entityへ渡す、結果を副作用Stepで保存する。
+- `infrastructure`はKubernetes client、Driver、Artifact、HTTP delivery、Node Lifecycle Engineなどの外部I/Oを実装し、DTO/API型とDomain型の変換境界になる。
+- `infrastructure/k8s_controller`はKubernetes objectの取得、pause/deletion、owner確認、patch、Condition/Event出力、Requeue判断だけを担当する。
 
 新規コードでは、controller関数へHost選択、Operation phase遷移、更新可否、retry方針、token判定を直接書いてはならない。
 
@@ -42,11 +42,11 @@ Go向けDMMF指針のうち、「操作名ごとにCommand/Event/Workflowを置�
 - mockを順番に呼ぶだけのテストを成立させるためにinterfaceが増えている箇所。
 - Kubernetes API型をDomain代わりに使い、invalid stateを型で排除できていない箇所。
 
-移行時は「現行packageを少し整える」ことを目的にしない。まず対象Use Caseのユビキタス言語、入力、状態、失敗、出力Eventを型として定義し、その型に合わせてapplicationとadapterを組み直す。
+移行時は「現行packageを少し整える」ことを目的にしない。まず対象Use Caseのユビキタス言語、入力、状態、失敗、出力Eventを型として定義し、その型に合わせてWorkflow、Step、Infrastructureを組み直す。
 
 ### 3. DomainはKubernetes API型へ依存しない
 
-Domain型は原則として `api/v1beta1`、controller-runtime、client-go、JSON/YAML tag、Kubernetes Condition型をimportしない。Kubernetes ResourceからDomain型を作る処理はapplication stepまたはadapterへ置く。
+Entity型は原則として `api/v1beta1`、controller-runtime、client-go、JSON/YAML tag、Kubernetes Condition型をimportしない。Kubernetes ResourceからEntity型を作る処理はworkflow model、step、またはinfrastructureへ置く。
 
 例外は、移行途中の既存コードを薄く包む場合に限る。この例外は一時的なものとし、純粋判定を追加・変更する時はDomain型へ切り出す。
 
@@ -66,9 +66,9 @@ sealed interfaceを使う場合は、interfaceに未exported methodを置き、�
 
 ### 5. 期待される業務失敗を標準`error`だけで表さない
 
-Domain/Applicationが呼び出し元に分岐を要求する失敗は、標準`error`だけで返してはならない。次のいずれかで表す。
+Entity/Workflowが呼び出し元に分岐を要求する失敗は、標準`error`だけで返してはならない。次のいずれかで表す。
 
-- `Result` sealed interfaceのvariantとして返す。
+- `domain/shared/result.Result[T, F]`として返す。
 - `Failure` sealed interfaceを返す。
 - Commandに失敗理由を含むDecision/Eventを返す。
 
@@ -91,15 +91,15 @@ Process Managerを置く場合も、複数Workflowを保持してよいのはapp
 
 ### 7. PortはUse Caseが必要とする最小Capabilityで分ける
 
-Portは「Repository」や「Service」の大きなinterfaceへまとめない。Use Caseが必要とする操作だけを、Capability別・読み書き別・Step別に小さく定義する。
+Portは「Repository」や「Service」の大きなinterfaceへまとめない。Use Caseが必要とする外部I/Oだけを、Capability別・読み書き別にWorkflow package内で小さく定義する。
 
 既存のDriver方針と同じく、実装できない操作を恒常エラーで返すinterfaceを作らない。Capability不足は、Port呼び出し前のDomain/Application判断で型付き失敗にする。
 
-Portの戻り値では、外部システムから来た未信頼値をそのままDomainへ渡さない。AdapterまたはApplication stepでparseし、Domainへはparse済み型を渡す。
+portの戻り値では、外部システムから来た未信頼値をそのままEntityへ渡さない。InfrastructureまたはWorkflow境界でparseし、Entityへはparse済み型を渡す。
 
 ### 8. I/O SandwichをReconcile単位で徹底する
 
-Application Workflowは次の順序を基本にする。
+Workflowは次の順序を基本にする。
 
 1. Kubernetes Resourceや外部Driverから入力を読む。
 2. DTO/API型をDomain入力へparseする。
@@ -117,14 +117,14 @@ Domain関数はPort、client、clock、logger、recorderを受け取らない。
 - sliceやmapをDomain型に保持する場合は、constructorまたはgetterでcopyし、呼び出し元の変更がDomain不変条件を壊さないようにする。
 - 既存のCRD API型はKubernetes互換性のためにexported fieldを持つが、Domain型まで同じ形にしない。
 
-### 10. 移行はUse Case単位で縦に切る
+### 10. Use Case単位の縦の境界を維持する
 
-DMMF移行は横断的な一括リネームではなく、Use Case単位で行う。たとえばHost allocation、initial provisioning、operation execution、in-place update、secure deliveryのような単位で、次を同じ変更に含める。
+DMMF移行後も、変更はHost allocation、initial provisioning、operation execution、in-place update、secure deliveryのようなUse Case単位で縦に完結させ、次を同じ変更に含める。
 
 1. Domain入力、状態、失敗、Decision/Eventの型定義。
 2. API型または外部I/OからDomain型へのparse。
 3. 純粋WorkflowまたはDecision関数。
-4. ApplicationによるI/O Sandwich。
+4. WorkflowによるI/O Sandwich。
 5. Condition/Event/Requeueへの写像。
 6. 純粋関数と型付き失敗の必要十分なテスト。
 
@@ -132,61 +132,45 @@ DMMF移行は横断的な一括リネームではなく、Use Case単位で行�
 
 ### 11. 標準パッケージ構成
 
-新規Use Caseまたは大きく改修するUse Caseは、次の構成を標準形とする。既存の`handler`、`step`、`model`分割は移行元として扱い、新しい標準形として増やさない。
+新規Use Caseまたは大きく改修するUse Caseは、次の構成を標準形とする。全Contextへ未使用directoryを作らず、必要な境界だけを追加する。
 
 ```text
 api/
   v1beta1/
     ...                         # CRD型。Kubernetes API表現だけを持つ
 
-internal/
-  domain/
-    <usecase>/
-      command.go                # 純粋Workflowへの入力。外部I/O型を含めない
-      event.go                  # Workflowが発生させたDomain Event
-      failure.go                # 呼び出し元が分岐すべき業務失敗のsealed interface
-      result.go                 # 成功/失敗/保留などのWorkflow戻り値
-      workflow.go               # 副作用なしのWorkflow本体
-      <state>.go                # 状態型、値オブジェクト、Smart Constructor
-      <decision>.go             # 長くなる純粋判定。例: select_host.go
-      *_test.go                 # 純粋関数、状態遷移、型付き失敗のテスト
-    shared/
-      <concept>/                # 複数Use Caseで共有する純粋な概念だけを置く
+domain/
+  <context>/
+    entity/                     # 純粋Entity、Value Object、状態、Failure
+    workflow/
+      <verb_noun>/              # 1 Workflow = 1 package
+        workflow.go             # Workflow struct、NewWorkflow、Do
+        ports.go                # Workflowが要求するinterface
+        outcome.go              # 必要ならCommand/Event ADTを分割
+    step/                       # DIせず直接呼ぶ準純粋関数
+    event/                      # 複数Workflowで共有するDomain Event
+  shared/
+    <concept>/                  # 複数Contextで共有するDomain型
+    option/                     # Option[T]
+    result/                     # Result[T, F]
 
-  application/
-    <usecase>/
-      workflow.go               # I/O Sandwichを組み立てるApplication Workflow
-      ports.go                  # このUse Caseが要求する最小Port
-      mapping.go                # API/Adapter入力をDomain入力へparseする
-      effects.go                # Domain DecisionをPort呼び出しへ写像する
-      presentation.go           # Condition/Event/Requeue/Status reasonへの写像
-      process_manager.go        # 複数Use Caseを調停する場合だけ置く
-      *_test.go                 # Port境界とpresentation写像の代表ケース
-
-  adapter/
-    k8s/
-      <capability>/
-        service.go              # application PortのKubernetes実装
-        mapping.go              # Kubernetes API型とapplication/domain型の変換
-        status_patch.go         # Status/Condition patchの実装
-        event.go                # Kubernetes Event出力
-        *_test.go               # API変換、patch、conflict/idempotencyのテスト
-    driver/
-      <driver>/
-        service.go              # Power/Boot/Media等のPort実装
-        mapping.go              # Driver設定とdomain型の変換
-        *_test.go               # Driver contractまたはprotocol境界のテスト
-
-  controller/
-    <resource>_controller.go    # Reconcile入口。Application Workflowを呼ぶだけにする
-    <resource>_conditions.go    # controller固有のpatch補助が必要な場合だけ置く
+dto/                            # JSON protocolなどのAnti-Corruption Layer
+infrastructure/
+  repository/k8s/<capability>/  # Workflow interfaceのKubernetes実装
+  service/driver/<driver>/      # Power/Boot/Media等のinterface実装
+  http_server/                  # Agent API、boot、Runtime Extension
+  k8s_controller/              # Reconcile entrypoint
+  k8s_webhook/                  # Admission boundary
+  provisioning_agent/          # Host側の実行境界
+utils/                          # Domain語彙を持たない汎用処理
+test/                           # architecture、fixture、E2E、横断契約
 ```
 
-`<usecase>`はCluster API Providerの業務単位を表す小文字のpackage名にする。例は`hostallocation`、`initialprovisioning`、`operationexecution`、`inplaceupdate`、`securedelivery`、`machinedeletion`、`nodelifecycleengine`である。Go package名は原則として小文字の1語にし、snake_case package名を増やさない。略語で意味が落ちる場合は、directory名を長くしてよい。
+`<context>`はCluster API Providerの業務境界を表し、少なくとも1つのWorkflowを所有する。型を置くだけのcontextは作らず、複数Contextで使う型は`domain/shared/<concept>`へ置く。Workflow directoryは`provision_machine`、`complete_provisioning`、`register_agent`のような動詞と対象のsnake_caseで意図を表す。
 
-### 12. Domain Use Caseパッケージの規約
+### 12. Entityパッケージの規約
 
-Domain Use Case packageは、外部世界を知らない純粋な型と関数だけで構成する。標準ファイルは次の意味で使う。
+`domain/<context>/entity`は、外部世界を知らない純粋な型と関数だけで構成する。標準ファイルは次の意味で使う。
 
 | ファイル | 必須 | 内容 |
 |---|---|---|
@@ -208,11 +192,11 @@ Domain Use Case packageで禁止するものは次の通りである。
 - JSON/YAML tag付きDTO
 - mock生成用interface
 
-外部入力の不正値は、ApplicationまたはAdapterで`ParseXxx`を呼んでDomain型に変換してから渡す。Domain package内では、parse済み型を受け取る関数を優先し、防御的な再validationを散らさない。
+外部入力の不正値は、Workflow StepまたはInfrastructureで`ParseXxx`を呼んでEntity型に変換してから渡す。Entity package内では、parse済み型を受け取る関数を優先し、防御的な再validationを散らさない。
 
-### 13. Application Use Caseパッケージの規約
+### 13. Workflowパッケージの規約
 
-Application Use Case packageは、1つのUse Caseに必要なI/O Sandwichを表す。Domainの純粋Workflowを呼び、Portを使って外部状態を読み書きし、Controllerが扱える結果へ写像する。
+`domain/<context>/workflow/<verb_noun>`は、1つのUse Caseに必要なI/O Sandwichを表す。1 Workflowを1 packageへ閉じ、Entityの純粋Decisionを呼び、package内で定義したinterfaceを使って外部状態を読み書きし、Controllerが扱える結果へ写像する。`domain/<context>/workflow`直下にはGoファイルを置かない。
 
 標準の公開面は次の形にする。
 
@@ -228,32 +212,39 @@ type Ports struct {
 }
 
 func NewWorkflow(ports Ports) *Workflow
-func (workflow *Workflow) Reconcile(ctx context.Context, input ReconcileInput) (ReconcileResult, error)
+func (workflow *Workflow) Do(
+    ctx context.Context,
+    command Command,
+) result.Result[Event, sharedworkflow.Failure]
 ```
 
-`Ports`はUse Caseごとのstructにまとめてよいが、各fieldの型は小さなinterfaceにする。1つのinterfaceに読み取り、書き込み、Event出力、Driver呼び出しを混ぜない。たとえばHost予約Use Caseでは、`HostSelector`、`HostReservationWriter`、`OperationStarter`を分ける。
+`Ports`はWorkflowごとのstructにまとめてよいが、interfaceは利用側である同じWorkflow packageに定義する。Context共通の`deps`や`port` packageは作らない。1つのinterfaceに読み取り、書き込み、Event出力、Driver呼び出しを混ぜない。
 
-Application packageに置く型は次の通りである。
+Workflow packageに置く型は次の通りである。
 
-- `ReconcileInput`: controllerから渡す最小入力。Kubernetes objectを含めてよいが、Domainへ直接渡さない。
-- `ReconcileResult`: patch済みか、requeueするか、Condition/Eventを出したかを表すApplication結果。
-- Port interface: Adapterが実装する外部I/O境界。
+- `Command`: controllerから渡す最小入力。Kubernetes objectを含めてよいが、Domainへ直接渡さない。
+- `Event`: Workflowが完了した事実を過去形のvariantで表す閉じた出力。
+- Capability interface: Infrastructureが実装する外部I/O境界。
 - APIからDomainへのmapping関数。
 - Domain Result/Failure/EventからCondition reason、Kubernetes Event、Requeueへのpresentation関数。
 
-Application packageで禁止するものは次の通りである。
+Workflow packageで禁止するものは次の通りである。
 
 - Host選択、phase遷移、token認証、更新可否などの業務判断を直接実装すること。
 - EventHandlerをfieldに持ち、Workflow完了後に別Workflowを直接呼ぶこと。
 - mock呼び出し順序をテストするためだけのinterfaceを作ること。
+- `Do`以外の公開methodを`Workflow`へ追加すること。
+- 異なるCommandや結果を持つ複数処理を同じWorkflow packageへ置くこと。
+- Stepをinterfaceや`Executor` structとしてDIし、外部clientをStepへ保持させること。
+- Workflowの処理を汎用Handler objectへ委譲し、`Do`を空洞化させること。
 
-複数Use Caseの連鎖が必要な場合は、`process_manager.go`を置く。Process ManagerはApplication層の調停役であり、Domain packageには置かない。Process ManagerはDomain EventまたはApplication Resultを入力にして、次に呼ぶApplication Workflowを決める。
+複数Use Caseの連鎖が必要な場合は、Workflowの外側にProcess Managerを置く。Process ManagerはDomain EventまたはApplication Resultを入力にして、次に呼ぶWorkflowを決める。
 
-### 14. AdapterとControllerの規約
+### 14. InfrastructureとControllerの規約
 
-AdapterはPortの実装であり、外部I/Oの詳細を閉じ込める。Kubernetes API型、Status patch、SSA、conflict retry、Driver protocol、OCI client、HTTP request/response、Secret参照はAdapterに置く。
+Infrastructureはdepsの実装であり、外部I/Oの詳細を閉じ込める。Kubernetes API型、Status patch、SSA、conflict retry、Driver protocol、OCI client、HTTP request/response、Secret参照はInfrastructureに置く。
 
-AdapterはDomainの業務判断を再実装してはならない。Adapterが行う分岐は、外部APIの表現差、not found/conflictの扱い、retry可能なI/O失敗の分類に限定する。外部I/Oから得た値は、ApplicationまたはDomainのParse関数を通してから返す。
+InfrastructureはDomainの業務判断を再実装してはならない。Infrastructureが行う分岐は、外部APIの表現差、not found/conflictの扱い、retry可能なI/O失敗の分類に限定する。外部I/Oから得た値は、Workflow StepまたはEntityのParse関数を通してから返す。
 
 ControllerはApplication Workflowの呼び出しに徹する。標準形は次の責務だけを持つ。
 
@@ -271,7 +262,7 @@ ControllerにUse Case固有の状態遷移やCondition reason選択を書き始�
 Domain packageは、入力、成功、失敗、Eventを型として表す。
 
 ```go
-// internal/domain/hostallocation/command.go
+// domain/provisioning/entity/hostallocation/command.go
 package hostallocation
 
 type Command struct {
@@ -287,28 +278,22 @@ type MachineRef struct {
 ```
 
 ```go
-// internal/domain/hostallocation/result.go
+// domain/provisioning/entity/hostallocation/result.go
 package hostallocation
 
-type Result interface {
-    isResult()
-}
+import sharedresult "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/result"
+
+type Result = sharedresult.Result[Allocated, Failure]
 
 type Allocated struct {
     Host HostRef
     Events []Event
 }
 
-type NotAllocated struct {
-    Failure Failure
-}
-
-func (Allocated) isResult() {}
-func (NotAllocated) isResult() {}
 ```
 
 ```go
-// internal/domain/hostallocation/failure.go
+// domain/provisioning/entity/hostallocation/failure.go
 package hostallocation
 
 type Failure interface {
@@ -333,38 +318,42 @@ func (UnsupportedCapability) isFailure() {}
 ```
 
 ```go
-// internal/domain/hostallocation/workflow.go
+// domain/provisioning/entity/hostallocation/decision.go
 package hostallocation
+
+import sharedresult "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/result"
 
 func Decide(command Command) Result {
     for _, candidate := range command.Candidates {
         match := Match(command.Requirements, candidate)
         switch m := match.(type) {
         case MatchAccepted:
-            return Allocated{
+            return sharedresult.Success[Allocated, Failure](Allocated{
                 Host: m.Host,
                 Events: []Event{
                     HostSelected{Host: m.Host, Machine: command.Machine},
                 },
-            }
+            })
         case MatchRejected:
             continue
         }
     }
-    return NotAllocated{Failure: NoMatchingHost{Requirements: command.Requirements}}
+    return sharedresult.Failure[Allocated, Failure](
+        NoMatchingHost{Requirements: command.Requirements},
+    )
 }
 ```
 
-Application packageは、外部状態を読み、Domain入力を作り、Domain結果を副作用へ写像する。
+Workflow packageは、外部状態を読み、Domain入力を作り、Domain結果を副作用へ写像する。
 
 ```go
-// internal/application/hostallocation/ports.go
+// domain/provisioning/workflow/allocate_host/ports.go
 package hostallocation
 
 import (
     "context"
 
-    domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
+    domain "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/entity/hostallocation"
 )
 
 type HostCandidateReader interface {
@@ -388,65 +377,80 @@ type Ports struct {
 ```
 
 ```go
-// internal/application/hostallocation/workflow.go
+// domain/provisioning/workflow/allocate_host/workflow.go
 package hostallocation
 
 import (
     "context"
     "fmt"
 
-    domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
+    domain "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/entity/hostallocation"
 )
 
 type Workflow struct {
     ports Ports
 }
 
+type ReconcileResult interface {
+    isReconcileResult()
+}
+
+type HostAllocated struct {
+    Host domain.HostRef
+}
+
+type AllocationPending struct {
+    Failure AllocationFailurePresentation
+}
+
+func (HostAllocated) isReconcileResult() {}
+func (AllocationPending) isReconcileResult() {}
+
 func NewWorkflow(ports Ports) *Workflow {
     return &Workflow{ports: ports}
 }
 
-func (workflow *Workflow) Reconcile(
+func (workflow *Workflow) Do(
     ctx context.Context,
     input ReconcileInput,
 ) (ReconcileResult, error) {
     command, err := CommandFromAPI(input.Machine)
     if err != nil {
-        return ReconcileResult{}, fmt.Errorf("parse host allocation input: %w", err)
+        return nil, fmt.Errorf("parse host allocation input: %w", err)
     }
 
     candidates, err := workflow.ports.Hosts.ListCandidates(ctx, command.Requirements)
     if err != nil {
-        return ReconcileResult{}, fmt.Errorf("list host candidates: %w", err)
+        return nil, fmt.Errorf("list host candidates: %w", err)
     }
     command.Candidates = candidates
 
     switch result := domain.Decide(command).(type) {
     case domain.Allocated:
         if err := workflow.ports.Reservations.Reserve(ctx, result.Host, command.Machine); err != nil {
-            return ReconcileResult{}, fmt.Errorf("reserve host: %w", err)
+            return nil, fmt.Errorf("reserve host: %w", err)
         }
         if err := workflow.ports.Machines.MarkAllocated(ctx, command.Machine, result.Host); err != nil {
-            return ReconcileResult{}, fmt.Errorf("mark machine allocated: %w", err)
+            return nil, fmt.Errorf("mark machine allocated: %w", err)
         }
-        return ReconcileResult{Requeue: false}, nil
+        return HostAllocated{Host: result.Host}, nil
 
     case domain.NotAllocated:
         presentation := PresentFailure(result.Failure)
         if err := workflow.ports.Machines.MarkAllocationFailed(ctx, command.Machine, presentation); err != nil {
-            return ReconcileResult{}, fmt.Errorf("mark machine allocation failed: %w", err)
+            return nil, fmt.Errorf("mark machine allocation failed: %w", err)
         }
-        return ReconcileResult{RequeueAfter: presentation.RequeueAfter}, nil
+        return AllocationPending{Failure: presentation}, nil
     }
 
     panic("unreachable hostallocation.Result")
 }
 ```
 
-ControllerはApplication Workflowを呼ぶだけにする。
+ControllerはWorkflowを呼ぶだけにする。
 
 ```go
-// internal/controller/tartmachine_controller.go
+// infrastructure/k8s_controller/tartmachine_controller.go
 package controller
 
 func (r *TartMachineReconciler) reconcileNormal(

@@ -5,7 +5,7 @@
 ## 実行command
 
 ```bash
-go test ./internal/server/agentboot ./internal/provisioningagent/artifactfetch ./internal/provisioningagent/writer ./internal/provisioningagent/client -v
+go test ./infrastructure/http_server/agentboot ./infrastructure/provisioning_agent/artifactfetch ./infrastructure/provisioning_agent/writer ./infrastructure/provisioning_agent/client -v
 ```
 
 ## 確認する内容
@@ -16,14 +16,14 @@ go test ./internal/server/agentboot ./internal/provisioningagent/artifactfetch .
 
 ## repository内で確認できる主なtest
 
-- `internal/server/agentboot/handler_test.go`
+- `infrastructure/http_server/agentboot/handler_test.go`
   `TestLoadArtifactは署名とPayload検証後だけArtifactを返す`
-- `internal/provisioningagent/artifactfetch/oci_test.go`
+- `infrastructure/provisioning_agent/artifactfetch/oci_test.go`
   `TestOCIFetchVerifiesMetadataBeforeReturningPayloads`
   `TestOCIFetchRejectsPlanIdentityMismatchBeforePayloadFetch`
-- `internal/provisioningagent/writer/writer_test.go`
+- `infrastructure/provisioning_agent/writer/writer_test.go`
   `WriteTargets() accepted an untrusted Artifact` を拒否するcase
-- `internal/provisioningagent/client/client_test.go`
+- `infrastructure/provisioning_agent/client/client_test.go`
   `FetchPlan() accepted an untrusted signature key`
 
 ## なお未検証の項目

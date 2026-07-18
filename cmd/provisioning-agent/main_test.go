@@ -25,9 +25,9 @@ import (
 	"strings"
 	"testing"
 
-	agentboot "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/disk"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+	agentboot "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/agentboot"
+	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/provisioning_agent/disk"
 )
 
 func TestParseConfigRequiresExplicitPreflightInputs(t *testing.T) {

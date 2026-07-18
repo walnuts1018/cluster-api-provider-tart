@@ -32,7 +32,7 @@ description = "CRD と RBAC マニフェストを生成する"
 run = '''
 # repository内のGo module cacheを生成対象に含めると、依存moduleの開発用go.workまで誤読する。
 controller-gen rbac:roleName=manager-role crd webhook \
-  paths="./api/...;./cmd/...;./internal/..." \
+  paths="./api/...;./cmd/...;./domain/...;./infrastructure/..." \
   output:crd:artifacts:config=config/crd/bases
 '''
 
@@ -82,14 +82,14 @@ KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCAL
 [tasks.test-resource-preservation]
 description = "クラスタ更新前後のResource UIDとPVC digest比較契約を検証する"
 run = '''
-hack/verify-resource-preservation_test.sh
-hack/collect-resource-preservation-snapshot_test.sh
+test/resource_preservation/verify_test.sh
+test/resource_preservation/collect-snapshot_test.sh
 '''
 
 [tasks.test-redfish-contract]
 description = "Redfish simulator contract test を実行する"
 run = '''
-MISE_OFFLINE=1 mise exec -- go test ./internal/adapter/driver/redfish -run 'Contract' -v
+MISE_OFFLINE=1 mise exec -- go test ./infrastructure/service/driver/redfish -run 'Contract' -v
 '''
 
 [tasks.setup-test-e2e]
@@ -124,26 +124,21 @@ KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
 kind delete cluster --name "$KIND_CLUSTER"
 '''
 
-[tasks.ensure-custom-golangci-lint]
+[tasks."build-golangci-lint"]
 description = "カスタム golangci-lint バイナリを用意する"
-run = '''
-mkdir -p bin
-if [ -f .custom-gcl.yml ] && [ ! -x bin/golangci-lint ]; then
-  echo "Building custom golangci-lint with plugins..."
-  golangci-lint custom --destination bin --name golangci-lint-custom
-  mv -f bin/golangci-lint-custom bin/golangci-lint
-fi
-'''
+sources = [".custom-gcl.yml"]
+outputs = ["bin/golangci-lint"]
+run = "golangci-lint custom"
+
+[tasks."golangci-lint"]
+description = "golangci-lint を実行する（ローカル開発用: --fix で自動修正を行う）"
+depends = ["build-golangci-lint"]
+run = "./bin/golangci-lint"
 
 [tasks.lint]
-description = "golangci-lint を実行する（ローカル開発用: --fix で自動修正を行う）"
+description = "lintを実行する"
 run = '''
-mise run ensure-custom-golangci-lint
-if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint run --fix
-else
-  golangci-lint run --fix
-fi
+mise run golangci-lint --fix
 mise run actionlint
 mise run lint-shell
 mise run check-dmmf-dependencies
@@ -152,12 +147,7 @@ mise run check-dmmf-dependencies
 [tasks.ci-lint]
 description = "CI 用 lint（--fix なし: 自動修正せず lint エラーを検出のみ）"
 run = '''
-mise run ensure-custom-golangci-lint
-if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint run
-else
-  golangci-lint run
-fi
+mise run golangci-lint
 mise run actionlint
 mise run lint-shell
 mise run check-dmmf-dependencies
@@ -166,23 +156,14 @@ mise run check-dmmf-dependencies
 [tasks.lint-fix]
 description = "golangci-lint の自動修正を実行する"
 run = '''
-mise run ensure-custom-golangci-lint
-if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint run --fix
-else
-  golangci-lint run --fix
-fi
+mise run golangci-lint --fix
 '''
 
 [tasks.lint-config]
 description = "golangci-lint 設定を検証する"
+depends = ["build-golangci-lint"]
 run = '''
-mise run ensure-custom-golangci-lint
-if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint config verify
-else
-  golangci-lint config verify
-fi
+./bin/golangci-lint config verify
 '''
 
 [tasks.actionlint]
@@ -195,18 +176,18 @@ run = '''
 shellcheck \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot \
-  hack/check-dmmf-dependencies.sh \
-  hack/collect-resource-preservation-snapshot.sh \
-  hack/collect-resource-preservation-snapshot_test.sh \
-  hack/resource-preservation-phase.sh \
-  hack/testdata/fake-kubectl \
-  hack/verify-resource-preservation.sh \
-  hack/verify-resource-preservation_test.sh
+  test/architecture/check-dmmf-dependencies.sh \
+  test/resource_preservation/collect-snapshot.sh \
+  test/resource_preservation/collect-snapshot_test.sh \
+  test/resource_preservation/phase.sh \
+  test/fixtures/fake-kubectl \
+  test/resource_preservation/verify.sh \
+  test/resource_preservation/verify_test.sh
 '''
 
 [tasks.check-dmmf-dependencies]
 description = "DMMFのdomain/applicationから外側への逆向き依存がないことを検証する"
-run = "hack/check-dmmf-dependencies.sh"
+run = "test/architecture/check-dmmf-dependencies.sh"
 
 [tasks.build]
 description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"
@@ -216,7 +197,7 @@ mise run generate
 mise run fmt
 mise run vet
 mkdir -p bin
-go build -o bin/manager cmd/main.go
+go build -o bin/manager ./cmd/controller-manager
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
 go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 '''
@@ -225,7 +206,7 @@ go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 description = "CI 用ビルドチェック（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
 run = '''
 mkdir -p bin
-go build -o bin/manager cmd/main.go
+go build -o bin/manager ./cmd/controller-manager
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
 go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 '''
@@ -237,7 +218,7 @@ mise run manifests
 mise run generate
 mise run fmt
 mise run vet
-go run ./cmd/main.go
+go run ./cmd/controller-manager
 '''
 
 [tasks.docker-build]
@@ -277,7 +258,7 @@ trap cleanup EXIT
 description = "iPXE binaries をダウンロードして local に取り出す"
 run = '''
 mkdir -p dist/ipxe
-go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
+go run ./cmd/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
 rm -rf /tmp/ipxeboot
 tar xzf /tmp/ipxeboot.tar.gz -C /tmp
 cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
@@ -291,7 +272,7 @@ description = "iPXE artifact を ORAS を使って push する"
 run = '''
 IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
 : "${IPXE_TAG:?IPXE_TAG is required}"
-go run hack/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
+go run cmd/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
 '''
 
 [tasks.artifact-manifest]
@@ -304,7 +285,7 @@ run = '''
 : "${ARTIFACT_INITRD:?ARTIFACT_INITRD is required}"
 : "${ARTIFACT_SIGNING_KEY:?ARTIFACT_SIGNING_KEY is required}"
 : "${ARTIFACT_SIGNING_KEY_ID:?ARTIFACT_SIGNING_KEY_ID is required}"
-go run ./hack/artifact-manifest \
+go run ./cmd/artifact-manifest \
   -config "${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64.json}" \
   -image "$ARTIFACT_IMAGE" \
   -verity "$ARTIFACT_VERITY" \
@@ -328,7 +309,7 @@ run = '''
 : "${ARTIFACT_SBOM:?ARTIFACT_SBOM is required}"
 : "${ARTIFACT_PROVENANCE:?ARTIFACT_PROVENANCE is required}"
 artifact_output="${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
-go run ./hack/artifact-oci \
+go run ./cmd/artifact-oci \
   -repository "$ARTIFACT_REPOSITORY" \
   -tag "$ARTIFACT_TAG" \
   -manifest "$artifact_output/manifest.json" \
@@ -557,7 +538,7 @@ run = '''
 : "${ARTIFACT_SOURCE_REVISION:?ARTIFACT_SOURCE_REVISION is required}"
 : "${ARTIFACT_BUILDER_ID:?ARTIFACT_BUILDER_ID is required}"
 artifact_output="${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
-go run ./hack/artifact-provenance \
+go run ./cmd/artifact-provenance \
   -manifest "$artifact_output/manifest.json" \
   -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
   -source-uri "$ARTIFACT_SOURCE_URI" \
@@ -569,7 +550,7 @@ go run ./hack/artifact-provenance \
 [tasks.artifact-download-inputs]
 description = "lock fileで固定したArtifact build入力を取得して検証する"
 run = '''
-go run ./hack/locked-download \
+go run ./cmd/locked-download \
   -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
   -output-dir artifact/mkosi/mkosi.packages
 '''
@@ -577,7 +558,7 @@ go run ./hack/locked-download \
 [tasks.artifact-download-runtime-inputs]
 description = "lock fileで固定したNode Lifecycle runtime入力を取得して検証する"
 run = '''
-go run ./hack/locked-download \
+go run ./cmd/locked-download \
   -lock "${ETCDCTL_LOCK:-artifact/locks/etcdctl-3.6.8-linux-amd64.json}" \
   -output-dir "${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
 '''
@@ -642,7 +623,7 @@ mkosi \
 bash artifact/mkosi/normalize-output.sh \
   artifact/mkosi/mkosi.output \
   "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}"
-go run ./hack/mkosi-sbom \
+go run ./cmd/mkosi-sbom \
   -input "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/packages.json" \
   -output "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/sbom.cdx.json"
 '''
@@ -654,7 +635,7 @@ if [ "$(uname -s)" != Linux ]; then
   echo "artifact-test-firstboot-qemu requires Linux" >&2
   exit 1
 fi
-go run ./hack/os-firstboot-qemu \
+go run ./cmd/os-firstboot-qemu \
   -artifact-dir "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}" \
   -work-dir "${ARTIFACT_QEMU_WORK_DIR:-dist/os-artifact/qemu-firstboot}" \
   -timeout "${ARTIFACT_QEMU_TIMEOUT:-10m}" \
@@ -668,7 +649,7 @@ if [ "$(uname -s)" != Linux ]; then
   echo "artifact-test-boot-trial-metadata-persistence requires Linux" >&2
   exit 1
 fi
-go run ./hack/os-firstboot-qemu \
+go run ./cmd/os-firstboot-qemu \
   -scenario boot-trial-metadata-persistence \
   -artifact-dir "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}" \
   -work-dir "${ARTIFACT_BOOTMETA_QEMU_WORK_DIR:-dist/os-artifact/boot-trial-metadata-persistence}" \
@@ -683,7 +664,7 @@ if [ "$(uname -s)" != Linux ]; then
   echo "artifact-test-bootloader-rollback requires Linux" >&2
   exit 1
 fi
-go run ./hack/os-firstboot-qemu \
+go run ./cmd/os-firstboot-qemu \
   -scenario bootloader-rollback \
   -artifact-dir "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}" \
   -work-dir "${ARTIFACT_BOOTLOADER_QEMU_WORK_DIR:-dist/os-artifact/bootloader-rollback}" \
@@ -694,7 +675,7 @@ go run ./hack/os-firstboot-qemu \
 [tasks.artifact-test-boot-trial-rollback]
 description = "boot trial rollback状態機械のCI simulator証跡を生成する"
 run = '''
-go run ./hack/boot-trial-rollback-sim \
+go run ./cmd/boot-trial-rollback-sim \
   -output-dir "${ARTIFACT_BOOT_TRIAL_WORK_DIR:-dist/os-artifact/boot-trial-rollback}"
 '''
 
@@ -737,7 +718,7 @@ run = '''
 : "${AGENT_ARTIFACT_BOOT_MAC:?AGENT_ARTIFACT_BOOT_MAC is required}"
 agent_output="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
 mkdir -p "$agent_output"
-go run ./hack/agent-artifact-iso \
+go run ./cmd/agent-artifact-iso \
   -kernel "$AGENT_ARTIFACT_KERNEL" \
   -initrd "$AGENT_ARTIFACT_INITRD" \
   -output "$agent_output/virtual-media.iso" \
@@ -762,7 +743,7 @@ if [ -f "$agent_output/virtual-media.iso" ]; then
 else
   set --
 fi
-go run ./hack/agent-artifact-manifest \
+go run ./cmd/agent-artifact-manifest \
   -reference "$AGENT_ARTIFACT_REFERENCE" \
   -kernel "$AGENT_ARTIFACT_KERNEL" \
   -initrd "$AGENT_ARTIFACT_INITRD" \
@@ -912,7 +893,7 @@ if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
     cp "$packaged_ipxe" /tmp/tftpboot/ipxe-x86_64.efi
   else
     echo "Downloading iPXE binaries..."
-    go run ./hack/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
+    go run ./cmd/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
     rm -rf /tmp/ipxeboot
     tar xzf /tmp/ipxeboot.tar.gz -C /tmp
     mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
@@ -1053,14 +1034,3 @@ setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path
 [tasks.envtest]
 description = "setup-envtest が mise 経由で利用できることを確認する"
 run = "setup-envtest --help"
-
-[tasks.golangci-lint]
-description = "golangci-lint が mise 経由で利用できることを確認する"
-run = '''
-mise run ensure-custom-golangci-lint
-if [ -x bin/golangci-lint ]; then
-  bin/golangci-lint version
-else
-  golangci-lint version
-fi
-'''

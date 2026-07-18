@@ -72,7 +72,7 @@ jobs:
 
       - name: Build and Push OCI Artifact using ORAS
         run: |
-          go run hack/artifacter/main.go \
+          go run cmd/artifacter/main.go \
             -dir dist/iso \
             -repo ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.key }} \
             -tag ${{ steps.tag.outputs.ImageTag }}

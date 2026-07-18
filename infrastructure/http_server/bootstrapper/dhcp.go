@@ -1,0 +1,408 @@
+// Copyright 2026.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package bootstrapper
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"sync"
+
+	"github.com/go-logr/logr"
+	"github.com/insomniacslk/dhcp/dhcpv4"
+	"github.com/insomniacslk/dhcp/dhcpv4/server4"
+	"github.com/walnuts1018/cluster-api-provider-tart/utils/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	// iPXEBootFileNameAMD64 は amd64 用の iPXE ローダのファイル名です。
+	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
+	// iPXEBootFileNameARM64 は arm64 用の iPXE ローダのファイル名です。
+	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
+	// iPXEBootFileNameDefault はデフォルトの iPXE ローダのファイル名です。
+	iPXEBootFileNameDefault = "ipxe.efi"
+)
+
+var (
+	// dhcpPort は DHCP サーバーのポートです。
+	dhcpPort = 67
+	// pxePort は ProxyDHCP (PXE) サーバーのポートです。
+	pxePort = 4011
+)
+
+// Arch 型はクライアントのアーキテクチャを表します。
+type Arch uint16
+
+const (
+	ArchIntelx86PC Arch = 0
+	ArchEFIx8664   Arch = 7
+	ArchEFIBC      Arch = 9
+	ArchEFIARM64   Arch = 11
+)
+
+// DHCPBootstrapper は組み込み DHCP サーバーを用いた DHCP/TFTP ブートストラップサーバーの実装です。
+// ProxyDHCP モードで動作し、既存のネットワークに影響を与えずに iPXE ローダを配信します。
+type DHCPBootstrapper struct {
+	tftpRoot    string
+	bindIP      string
+	baseURL     string
+	advertiseIP net.IP
+	servers     []*server4.Server
+	logger      logr.Logger
+	mu          sync.Mutex
+	done        chan struct{}
+}
+
+// NewDHCPBootstrapper は新しい DHCPBootstrapper を作成します。
+// tftpRoot は TFTP サーバーのルートディレクトリ、addr は ProxyDHCP のバインドアドレスです。
+// advertiseAddr はクライアントに広告する到達可能なサーバー IP です。
+// baseURL は iPXE スクリプト配信用の HTTP サーバーのベース URL です。
+func NewDHCPBootstrapper(tftpRoot, addr, advertiseAddr, baseURL string) (*DHCPBootstrapper, error) {
+	if tftpRoot == "" {
+		return nil, fmt.Errorf("tftpRoot is required")
+	}
+	if addr == "" {
+		return nil, fmt.Errorf("addr is required")
+	}
+	if baseURL == "" {
+		return nil, fmt.Errorf("baseURL is required")
+	}
+
+	bindIP, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		bindIP = addr
+	}
+
+	advertiseIP := net.ParseIP(advertiseAddr)
+	if advertiseIP == nil {
+		return nil, fmt.Errorf("invalid advertise address: %s", advertiseAddr)
+	}
+
+	// TFTP ルートディレクトリが存在することを確認
+	if err := os.MkdirAll(tftpRoot, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create tftp root directory: %w", err)
+	}
+
+	return &DHCPBootstrapper{
+		tftpRoot:    tftpRoot,
+		bindIP:      bindIP,
+		baseURL:     baseURL,
+		advertiseIP: advertiseIP,
+		done:        make(chan struct{}),
+		logger:      logr.Discard(),
+	}, nil
+}
+
+// StartWithContext は DHCP サーバーを ProxyDHCP モードで起動します。
+func (b *DHCPBootstrapper) StartWithContext(ctx context.Context) error {
+	b.mu.Lock()
+	lg := log.FromContext(ctx).WithName("bootstrapper")
+	b.logger = lg
+	b.mu.Unlock()
+
+	// iPXE ローダの存在確認（オプション）
+	for _, f := range []string{iPXEBootFileNameAMD64, iPXEBootFileNameARM64} {
+		path := filepath.Join(b.tftpRoot, f)
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				lg.Info("iPXE bootloader is not found yet", "path", path)
+			}
+		}
+	}
+
+	// ProxyDHCP は既存の DHCP サーバーより低い優先度で動作するため、
+	// IPアドレスは割り当てず、ブートファイル名のみを提供します。
+	handler := b.createDHCPHandler(ctx)
+
+	// DHCPPort (67) と PXEPort (4011) の両方でサーバーを作成
+	ports := []int{dhcpPort, pxePort}
+	var servers []*server4.Server
+	for _, port := range ports {
+		addr := net.JoinHostPort(b.bindIP, strconv.Itoa(port))
+		udpAddr, err := net.ResolveUDPAddr("udp4", addr)
+		if err != nil {
+			return fmt.Errorf("invalid bind address %s: %w", addr, err)
+		}
+
+		server, err := server4.NewServer("", udpAddr, handler)
+		if err != nil {
+			return fmt.Errorf("failed to create DHCP server on port %d: %w", port, err)
+		}
+		servers = append(servers, server)
+	}
+
+	b.mu.Lock()
+	b.servers = servers
+	b.mu.Unlock()
+
+	lg.Info("Starting DHCP servers", "bindIP", b.bindIP, "ports", ports)
+
+	// サーバーの起動完了を待機するためのチャネル
+	serveStarted := make(chan struct{})
+	// サーバーを別ゴルーチンで起動
+	go func() {
+		close(serveStarted) // Serve()の呼び出し前にチャネルを閉じて開始をシグナル
+		var wg sync.WaitGroup
+		for i, s := range b.servers {
+			wg.Add(1)
+			go func(srv *server4.Server, port int) {
+				defer wg.Done()
+				if err := srv.Serve(); err != nil {
+					if !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+						lg.Error(err, "DHCP server exited with error", "port", port)
+					}
+				}
+			}(s, ports[i])
+		}
+		wg.Wait()
+		close(b.done)
+	}()
+
+	// サーバーの起動完了を待機（Serveが開始されたことを確認）
+	select {
+	case <-serveStarted:
+		// Serve()が正常に開始された
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	// コンテキストがキャンセルされた場合はサーバーも停止する
+	go func() {
+		<-ctx.Done()
+		if err := b.Stop(); err != nil {
+			lg.Error(err, "Failed to stop DHCP server after context cancellation")
+		}
+	}()
+
+	lg.Info("DHCP servers started")
+	return nil
+}
+
+// createDHCPHandler は DHCP パケットハンドラーを作成します。
+func (b *DHCPBootstrapper) createDHCPHandler(ctx context.Context) server4.Handler {
+	return func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
+		lg := b.logger.WithName("dhcp-handler")
+
+		localAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+		if !ok {
+			return
+		}
+		port := localAddr.Port
+
+		lg.Info("Received DHCP packet", "port", port, "peer", peer, "opCode", m.OpCode, "messageType", m.MessageType(), "client_mac", m.ClientHWAddr.String())
+
+		// BootRequestのみを処理
+		if m.OpCode != dhcpv4.OpcodeBootRequest {
+			lg.Info("Ignoring non-BootRequest packet", "opCode", m.OpCode)
+			return
+		}
+
+		_, span := telemetry.Tracer.Start(ctx, "DHCP.BootRequest")
+		defer span.End()
+
+		span.SetAttributes(
+			attribute.Int("dhcp.port", port),
+			attribute.String("dhcp.client_mac", m.ClientHWAddr.String()),
+			attribute.String("dhcp.message_type", m.MessageType().String()),
+			attribute.String("dhcp.transaction_id", fmt.Sprintf("%#x", m.TransactionID)),
+		)
+
+		// Port 67 (DHCP) の場合、既存のDHCPサーバーが既に応答したパケット（Server Identifierが設定されているもの）は無視する
+		if port == dhcpPort {
+			serverID := m.GetOneOption(dhcpv4.OptionServerIdentifier)
+			if serverID != nil {
+				lg.Info("Skipping ProxyDHCP response, existing DHCP server already responded")
+				span.SetAttributes(attribute.Bool("dhcp.proxy_skip", true))
+				return
+			}
+		}
+
+		// Option 93がないrequestをamd64と推測すると、対象外HostへAgentを配信してしまう。
+		arch, hasArchitecture := clientArchitecture(m)
+
+		// User-Class (Option 77) を確認して iPXE かどうかを判定
+		isIPXE := slices.Contains(m.UserClass(), "iPXE")
+		bootFile, supported := agentBootFile(arch, hasArchitecture, isIPXE, b.baseURL, m.ClientHWAddr)
+		if !supported {
+			lg.Info("Ignoring unsupported PXE architecture", "arch", arch, "option93Present", hasArchitecture)
+			span.SetAttributes(
+				attribute.Int("dhcp.arch", int(arch)),
+				attribute.Bool("dhcp.supported", false),
+			)
+			return
+		}
+
+		// 新しいDHCPv4レスポンスを作成
+		var resp *dhcpv4.DHCPv4
+		var err error
+
+		if port == dhcpPort {
+			// Port 67: ProxyDHCP Offer
+			// 自分自身がProxyDHCPであることを名乗る (Option 60: PXEClient)
+			resp, err = dhcpv4.NewReplyFromRequest(m,
+				dhcpv4.WithMessageType(dhcpv4.MessageTypeOffer),
+				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
+				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			)
+		} else {
+			// Port 4011: PXE Request response
+			// 実際のブートファイル名とTFTPサーバーのIPアドレスを教える
+			options := []dhcpv4.Modifier{
+				dhcpv4.WithOption(dhcpv4.OptServerIdentifier(b.advertiseIP)),
+				dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
+			}
+			if m.MessageType() == dhcpv4.MessageTypeRequest {
+				options = append(options, dhcpv4.WithMessageType(dhcpv4.MessageTypeAck))
+			}
+			resp, err = dhcpv4.NewReplyFromRequest(m, options...)
+			if err == nil {
+				resp.BootFileName = bootFile
+				resp.ServerIPAddr = b.advertiseIP
+			}
+		}
+
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			lg.Error(err, "Failed to create DHCP response")
+			return
+		}
+
+		// ProxyDHCP では yiaddr (Your IP Address) は常に 0.0.0.0 であるべき
+		resp.YourIPAddr = net.IPv4zero
+
+		if _, err := conn.WriteTo(resp.ToBytes(), peer); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			lg.Error(err, "Failed to send DHCP response")
+			return
+		}
+
+		span.SetStatus(codes.Ok, "")
+		span.SetAttributes(
+			attribute.String("dhcp.boot_file", bootFile),
+			attribute.Int("dhcp.arch", int(arch)),
+		)
+		lg.Info("Sent DHCP response", "port", port, "client_mac", m.ClientHWAddr.String(), "boot_file", bootFile, "arch", arch)
+	}
+}
+
+func clientArchitecture(request *dhcpv4.DHCPv4) (Arch, bool) {
+	option := request.GetOneOption(dhcpv4.OptionClientSystemArchitectureType)
+	if len(option) < 2 {
+		return 0, false
+	}
+	return Arch(uint16(option[0])<<8 | uint16(option[1])), true
+}
+
+func agentBootFile(arch Arch, optionPresent, isIPXE bool, baseURL string, mac net.HardwareAddr) (string, bool) {
+	if !optionPresent || arch != ArchEFIx8664 {
+		return "", false
+	}
+	if !isIPXE {
+		return iPXEBootFileNameAMD64, true
+	}
+	macParam := url.QueryEscape(mac.String())
+	return fmt.Sprintf("%s/ipxe?mac=%s", baseURL, macParam), true
+}
+
+// Addr はサーバーのアドレスを返します。
+func (b *DHCPBootstrapper) Addr() string {
+	return b.bindIP
+}
+
+// NeedLeaderElectionはstandby replicaがDHCP listenerを開始しないようにします。
+func (b *DHCPBootstrapper) NeedLeaderElection() bool {
+	return true
+}
+
+// Stop はDHCPサーバーを停止します。
+func (b *DHCPBootstrapper) Stop() error {
+	b.mu.Lock()
+	servers := b.servers
+	b.mu.Unlock()
+
+	if len(servers) == 0 {
+		return nil
+	}
+
+	lg := b.logger.WithName("bootstrapper")
+	lg.Info("Stopping DHCP servers")
+
+	for _, server := range servers {
+		if err := server.Close(); err != nil {
+			lg.Error(err, "Error occurred while stopping DHCP server")
+		}
+	}
+
+	lg.Info("DHCP servers stopped")
+	return nil
+}
+
+func ResolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
+	if ip := net.ParseIP(advertiseAddr); ip != nil && !ip.IsUnspecified() {
+		return ip, nil
+	}
+
+	for _, addr := range []string{bindAddr, httpAddr} {
+		if ip := ParseHostIP(addr); ip != nil && !ip.IsUnspecified() {
+			return ip, nil
+		}
+	}
+
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to detect advertise address: %w", err)
+	}
+	var loopback net.IP
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok || ipNet.IP == nil {
+			continue
+		}
+		ip := ipNet.IP.To4()
+		if ip == nil || ip.IsUnspecified() {
+			continue
+		}
+		if ip.IsLoopback() {
+			if loopback == nil {
+				loopback = ip
+			}
+			continue
+		}
+		return ip, nil
+	}
+	if loopback != nil {
+		return loopback, nil
+	}
+	return nil, fmt.Errorf("failed to detect advertise address")
+}
+
+func ParseHostIP(addr string) net.IP {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	return net.ParseIP(host)
+}

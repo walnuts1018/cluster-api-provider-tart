@@ -32,12 +32,15 @@ import (
 	"strings"
 	"time"
 
-	kubeadmadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/kubeadm"
-	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
-	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/domain/node/entity/nodelifecycleengine"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/domain/node/workflow/run_signed_step"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/domain/node/workflow/run_step"
+	sharedresult "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/result"
+	sharedworkflow "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/workflow"
+	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
+	agentclient "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/provisioning_agent/client"
+	kubeadmadapter "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/kubeadm"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/workflowresult"
 )
 
 const (
@@ -130,7 +133,7 @@ type lifecycleProgressReporter interface {
 }
 
 type lifecycleStepRunner interface {
-	RunStep(context.Context, domain.Plan, domain.Step) (distribution.StepResult, error)
+	Do(context.Context, distribution.Command) sharedresult.Result[distribution.Event, sharedworkflow.Failure]
 }
 
 type lifecyclePlanFetcher interface {
@@ -181,7 +184,12 @@ func executeNodeLifecycleStep(
 	}
 	planCtx, cancel := context.WithDeadline(ctx, plan.Value().Deadline)
 	defer cancel()
-	result, stepErr := runner.RunStep(planCtx, domainPlan, cfg.step)
+	outcome := runner.Do(planCtx, distribution.Command{Plan: domainPlan, Step: cfg.step})
+	event, stepErr := workflowresult.Unwrap(outcome)
+	result := distribution.StepResult{}
+	if stepErr == nil {
+		result = event.(distribution.StepRun).Result
+	}
 	if err := reportStepOutcome(planCtx, reporter, sessionToken, cfg, result, stepErr); err != nil {
 		return err
 	}

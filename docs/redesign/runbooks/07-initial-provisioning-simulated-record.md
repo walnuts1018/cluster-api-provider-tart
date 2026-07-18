@@ -7,7 +7,7 @@ repository内testはTask 07の実機boot、controller/Node再起動、GitHub Act
 ## 実行command
 
 ```bash
-go test ./artifact/mkosi ./internal/provisioningagent/bootstrap ./internal/adapter/k8s/agentsession ./internal/adapter/k8s/bootreport ./internal/adapter/k8s/operation ./internal/application/initialprovisioning ./internal/controller -v
+go test ./artifact/mkosi ./infrastructure/provisioning_agent/bootstrap ./infrastructure/repository/k8s/agentsession ./infrastructure/repository/k8s/bootreport ./infrastructure/repository/k8s/operation ./domain/provisioning/workflow/provision_machine ./infrastructure/k8s_controller -v
 mise run lint-shell
 ```
 
@@ -24,19 +24,19 @@ mise run lint-shell
 
 ## repository内で確認できる主なtest
 
-- `internal/provisioningagent/bootstrap/service_test.go`
+- `infrastructure/provisioning_agent/bootstrap/service_test.go`
   `TestServiceはBootstrap適用成功後にPayload原本を削除しMarkerだけ残す`
   `TestServiceはAdapter失敗時にPayload原本を残す`
   `TestServiceは同じDigestの成功MarkerがあればBootstrapを再適用しない`
-- `internal/adapter/k8s/agentsession/service_test.go`
+- `infrastructure/repository/k8s/agentsession/service_test.go`
   controller再起動後の`Authenticate`継続
-- `internal/adapter/k8s/bootreport/service_test.go`
+- `infrastructure/repository/k8s/bootreport/service_test.go`
   完了boot report受信後の`AwaitingHealth`維持
-- `internal/application/initialprovisioning/readiness_test.go`
+- `domain/provisioning/workflow/provision_machine/readiness_test.go`
   bootstrap payload digest不足、providerID不一致の拒否
-- `internal/controller/tartmachine_v1beta1_controller_test.go`
+- `infrastructure/k8s_controller/tartmachine_v1beta1_controller_test.go`
   `TestTartMachineV1Beta1ReconcilerKeepsAwaitingHealthUntilNodeIsReady`
-- `internal/controller/tarthostoperation_controller_test.go`
+- `infrastructure/k8s_controller/tarthostoperation_controller_test.go`
   手動`WipeAll`、`RetainData`、`RetainState`のHost phase遷移
 - `artifact/mkosi/firstboot_contract_test.go`
   first-boot unitの起動順、`--apply-bootstrap-only`から`--report-boot-only`への順序、

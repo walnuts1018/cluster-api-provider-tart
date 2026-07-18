@@ -21,7 +21,7 @@ Task 01を再開した際は、暫定レイアウトで受け入れ条件を検�
 収集を行っている。これは rollback 判定の入力と状態遷移を固定するための証跡であり、
 「3回失敗で旧slotへ戻る」という判定ロジックの継続監視だけを担う。
 
-2026-07-18 時点で、`hack/os-firstboot-qemu` の direct-kernel QEMU による boot metadata
+2026-07-18 時点で、`cmd/os-firstboot-qemu` の direct-kernel QEMU による boot metadata
 永続化証跡と、OVMF + systemd-boot を通した `--scenario bootloader-rollback` の 4 回連続
 boot 証跡が GitHub Actions で成功した。これにより acceptance 8 の CI 証跡は次の 3 系統で
 そろった。

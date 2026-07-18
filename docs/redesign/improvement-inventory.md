@@ -27,13 +27,13 @@
 |---|---|---|---|
 | 一部完了 | `.github/workflows/e2e-provisioning.yaml`、`test/e2e/provisioning` | Provisioning E2Eは失敗時のログ中心で、spec後にNamespaceを削除するため最終採取時にはOperation/Hostが残らなかった。 | 成功時も実行証跡をuploadし、各specのcleanup前にCAPI/provider resourceを採取するよう変更した。Resource/PVC保持比較は残課題。 |
 | 完了 | `.github/workflows/os-artifact.yaml` | 失敗時のみ証跡をuploadするため、成功runから受入証跡を追跡しにくい。 | QEMU summary/logを成功・失敗の両方でuploadし、bootloader rollbackの実際のwork directoryを参照するよう修正した。manifest/provenance/SBOMは成功時build evidenceへ保持する。 |
-| 完了 | `.github/workflows/release.yaml`、`hack/artifacter` | release manifestが公開ジョブと独立して可変tagを埋め込み、手動tag入力もshellへ直接展開していた。 | manager multi-arch indexとiPXE OCI indexの公開digestをjob outputで渡し、両方をdigest固定したmanifestだけをrelease assetにする。tagは環境変数経由で渡し、OCI tag形式を検証する。 |
-| 完了 | `config/templates/*kubeadm*.yaml`、`internal/adapter/k8s/agentboot` | CAPI v1beta2で廃止された`clusterConfiguration.networking`がtemplate適用を拒否され、終了Namespaceに残る同一MACの古いHostが有効HostをAgent boot不能にしていた。 | network CIDRはClusterの`spec.clusterNetwork`だけを正本にし、boot-active Operationと一意に対応するHostだけを候補にする。複数のactive組は引き続き拒否する。 |
-| 完了 | `internal/domain/operation`、`internal/application/operationexecution` | `PowerOn`後までboot-active phaseが保存されず、高速起動したHostへ終了スクリプトを返す競合があった。また`WaitingForAgent`へ遷移する実装がなく、Agent progressが`Writing`へ進めなかった。 | boot準備と電源投入を別のdomain resultに分け、`PreparingBoot`を永続化して配信対象を公開した後に電源投入し、`WaitingForAgent`へ遷移する。 |
-| 完了 | `pkg/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
-| 完了 | `internal/adapter/driver/redfish` | JSON decode失敗時だけHTTP response bodyのclose errorを捨てていた。 | decode errorへclose errorを結合し、I/O失敗の原因を失わず一時障害として返す。 |
+| 完了 | `.github/workflows/release.yaml`、`cmd/artifacter` | release manifestが公開ジョブと独立して可変tagを埋め込み、手動tag入力もshellへ直接展開していた。 | manager multi-arch indexとiPXE OCI indexの公開digestをjob outputで渡し、両方をdigest固定したmanifestだけをrelease assetにする。tagは環境変数経由で渡し、OCI tag形式を検証する。 |
+| 完了 | `config/templates/*kubeadm*.yaml`、`infrastructure/repository/k8s/agentboot` | CAPI v1beta2で廃止された`clusterConfiguration.networking`がtemplate適用を拒否され、終了Namespaceに残る同一MACの古いHostが有効HostをAgent boot不能にしていた。 | network CIDRはClusterの`spec.clusterNetwork`だけを正本にし、boot-active Operationと一意に対応するHostだけを候補にする。複数のactive組は引き続き拒否する。 |
+| 完了 | `domain/shared/operation`、`domain/provisioning/workflow/execute_operation` | `PowerOn`後までboot-active phaseが保存されず、高速起動したHostへ終了スクリプトを返す競合があった。また`WaitingForAgent`へ遷移する実装がなく、Agent progressが`Writing`へ進めなかった。 | boot準備と電源投入を別のdomain resultに分け、`PreparingBoot`を永続化して配信対象を公開した後に電源投入し、`WaitingForAgent`へ遷移する。 |
+| 完了 | `utils/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
+| 完了 | `infrastructure/service/driver/redfish` | JSON decode失敗時だけHTTP response bodyのclose errorを捨てていた。 | decode errorへclose errorを結合し、I/O失敗の原因を失わず一時障害として返す。 |
 | 完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | 単一バイナリ方針へ移行済みなのに、未参照のdnsmasq DeploymentとConfigMapが残り、別のbootstrap方式が利用可能に見えていた。 | 未参照の旧bootstrap一式を削除し、manager内蔵ProxyDHCP/TFTPとreal-hardware overlayを唯一の導入経路にした。managerのresource値とbootloader Image Volumeはrender検証で維持する。 |
-| 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
+| 完了 | `test/e2e/e2e_suite_test.go`、`cmd/controller-manager/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |
 | 完了 | `pkg/gomega` | `HaveFields` matcherは自身のテスト以外から一度も利用されず、汎用化されないまま専用の直接依存を増やしていた。 | 未使用パッケージを削除し、推移的に必要なmoduleはindirect依存として明示した。 |
 | 完了 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | metrics確認用curlをamd64 digestへ固定し、managerのテスト用repositoryを`registry.test.walnuts.dev`へ置換した。 |
@@ -43,9 +43,9 @@
 
 | 状態 | 対象 | 課題 | 改善案 |
 |---|---|---|---|
-| 一部完了 | `internal/application/**` | workflowごとに `model`、`port`、`step`、`handler` などの分割粒度が不均一で、`operationexecution`がKubernetes adapterを直接構築していた。 | Operation workflowをPortだけから構築する形へ修正し、compositionをcontrollerへ移した。domain/applicationの逆向き依存はCIで静的検査する。公開されない1ファイルpackageの統合は残課題。 |
-| 未着手 | `cmd/`、`internal/controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | wireで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
-| 未着手 | `hack/` | artifact、QEMU、Redfish、manifest処理が横並びで、CIからの呼出し契約が暗黙的。 | `hack/<capability>` ごとに入力・出力artifact schemaを固定し、共通のevidence writerを抽出する。 |
+| 完了 | `domain/*/workflow` | workflowごとに `model`、`deps`、`steps`、`event_manager` などの分割粒度が不均一で、`operationexecution`がKubernetes実装を直接構築していた。 | bounded context単位の配置へ統合し、compositionをcontrollerへ移した。Entity/Workflow/Infrastructureの逆向き依存はCIで静的検査する。 |
+| 未着手 | `cmd/`、`infrastructure/k8s_controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | wireで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
+| 完了 | `cmd/`、`test/` | artifact、QEMU、Redfish、manifest処理が`hack/`へ横並びで、CIからの呼出し契約が暗黙的だった。 | 実行可能toolを`cmd/<tool>`、検証scriptとfixtureを`test/`へ移し、`hack/`はcontroller-gen用boilerplateだけに限定した。 |
 | 完了 | `Makefile` と `mise.toml` | 同じ処理の定義が二重化し、失敗時の挙動や環境変数が一致しない可能性がある。 | miseを正本にし、MakefileをKubebuilder互換の薄いtask転送層へ縮小した。 |
 | 完了 | 生成物（CRD、DeepCopy、wire） | 生成元変更と生成物差分の検証がジョブごとに分散している。 | CIの生成差分ジョブで`manifests`と`generate`を順に実行し、CRD/RBAC/Webhook、DeepCopy、wireを一括検査する。 |
 
@@ -63,6 +63,6 @@
 2. Cluster lifecycle E2E（OSOnly/KubernetesBinary更新とResource/PVC保持）を実装する。
 3. OS Artifact/Provisioning E2Eの成功証跡を保存する。
 4. telemetry version、TODOコメント、マニフェストのプレースホルダーを整理する。
-5. DMMF境界を壊さない範囲でapplication/hack/package構造を統合し、生成・lint・テスト契約を強化する。
+5. DMMF境界を壊さない範囲でWorkflow/Infrastructure構造を統合し、生成・lint・テスト契約を強化する。
 
 各段階は機能単位で日本語のsignoff付きコミットに分け、CIで再現できる完了証跡を残す。ドキュメント全面改訂時は、この台帳を新しいタスク/ADRへ移管し、完了項目を削除せず履歴として参照可能にする。

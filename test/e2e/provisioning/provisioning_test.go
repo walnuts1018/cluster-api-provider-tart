@@ -29,7 +29,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
+	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/operation"
 	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"

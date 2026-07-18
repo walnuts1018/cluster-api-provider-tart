@@ -14,14 +14,14 @@
 
 **対象:**
 
-- `internal/application/initialprovisioning/orchestrator.go`
-- `internal/application/initialprovisioning/orchestrator_test.go`
-- `internal/application/initialprovisioning/readiness.go`
-- `internal/application/initialprovisioning/readiness_test.go`
-- `internal/controller/tartmachine_v1beta1_controller.go`
-- `internal/controller/tartmachine_v1beta1_controller_test.go`
-- `internal/adapter/k8s/allocation/service.go`
-- `internal/adapter/k8s/allocation/service_test.go`
+- `domain/provisioning/workflow/provision_machine/orchestrator.go`
+- `domain/provisioning/workflow/provision_machine/orchestrator_test.go`
+- `domain/provisioning/workflow/provision_machine/readiness.go`
+- `domain/provisioning/workflow/provision_machine/readiness_test.go`
+- `infrastructure/k8s_controller/tartmachine_v1beta1_controller.go`
+- `infrastructure/k8s_controller/tartmachine_v1beta1_controller_test.go`
+- `infrastructure/repository/k8s/allocation/service.go`
+- `infrastructure/repository/k8s/allocation/service_test.go`
 
 - [x] 予約済みHostを同じMachineが再取得できる失敗テストを追加する。
 - [x] OperationRefのStatus Patch前にcontrollerが停止しても既存予約からOperation作成を再開するテストを追加する。
@@ -33,11 +33,11 @@
 
 **対象:**
 
-- `internal/application/initialprovisioning/plan.go`
-- `internal/application/initialprovisioning/plan_test.go`
-- `internal/adapter/k8s/agentapi/plan_writer.go`
-- `internal/adapter/k8s/agentapi/plan_writer_test.go`
-- `cmd/main.go`
+- `domain/provisioning/workflow/provision_machine/plan.go`
+- `domain/provisioning/workflow/provision_machine/plan_test.go`
+- `infrastructure/repository/k8s/agentapi/plan_writer.go`
+- `infrastructure/repository/k8s/agentapi/plan_writer_test.go`
+- `cmd/controller-manager/main.go`
 - `cmd/wire/wire.go`
 - `cmd/wire/wire_gen.go`
 
@@ -52,11 +52,11 @@
 
 **対象:**
 
-- `internal/adapter/k8s/agentapi/provider.go`
-- `internal/adapter/k8s/agentapi/provider_test.go`
-- `internal/adapter/k8s/bootreport/service.go`
-- `internal/adapter/k8s/bootreport/service_test.go`
-- `internal/application/initialprovisioning/readiness.go`
+- `infrastructure/repository/k8s/agentapi/provider.go`
+- `infrastructure/repository/k8s/agentapi/provider_test.go`
+- `infrastructure/repository/k8s/bootreport/service.go`
+- `infrastructure/repository/k8s/bootreport/service_test.go`
+- `domain/provisioning/workflow/provision_machine/readiness.go`
 
 - [x] CABPK Secretの`format=cloud-config`とpayload digestを検証する。
 - [x] Bundle送信成功時にSession Token Secretを即時削除する既存処理をOperation作成フローと結合する。
@@ -69,10 +69,10 @@
 
 **対象:**
 
-- `internal/application/cleaning/`
-- `internal/controller/tartmachine_v1beta1_controller.go`
-- `internal/controller/tarthostoperation_controller.go`
-- `internal/adapter/k8s/v1beta1host/service.go`
+- `domain/provisioning/workflow/do_cleaning/`
+- `infrastructure/k8s_controller/tartmachine_v1beta1_controller.go`
+- `infrastructure/k8s_controller/tarthostoperation_controller.go`
+- `infrastructure/repository/k8s/v1beta1host/service.go`
 - `cmd/wire/wire.go`
 - `cmd/wire/wire_gen.go`
 

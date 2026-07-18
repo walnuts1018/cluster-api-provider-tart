@@ -13,9 +13,9 @@
 ### Task 1: OSOnly差分を純粋関数で分類する
 
 **Files:**
-- Create: `internal/domain/inplaceupdate/change.go`
-- Test: `internal/domain/inplaceupdate/change_test.go`
-- Delete: `internal/server/extension/patch_test.go`
+- Create: `domain/provisioning/entity/inplaceupdate/change.go`
+- Test: `domain/provisioning/entity/inplaceupdate/change_test.go`
+- Delete: `infrastructure/http_server/extension/patch_test.go`
 
 - [x] **Step 1: 許可・拒否差分の失敗テストを書く**
 
@@ -41,9 +41,9 @@ tests := []struct {
 
 - [x] **Step 2: テストが未実装で失敗することを確認する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -run TestClassify -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/entity/inplaceupdate -run TestClassify -v`
 
-Expected: `package .../internal/domain/inplaceupdate is not in std`または未定義symbolでFAIL。
+Expected: `package .../domain/provisioning/entity/inplaceupdate is not in std`または未定義symbolでFAIL。
 
 - [x] **Step 3: 閉じたFieldPathと分類結果を実装する**
 
@@ -65,25 +65,25 @@ func Classify(current, desired ChangeSet) Classification
 
 - [x] **Step 4: domain testを通す**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/entity/inplaceupdate -v`
 
 Expected: PASS。
 
 - [x] **Step 5: 旧v1alpha1差分テストを削除してコミットする**
 
 ```bash
-git add internal/domain/inplaceupdate internal/server/extension/patch_test.go
+git add domain/provisioning/entity/inplaceupdate infrastructure/http_server/extension/patch_test.go
 git commit --signoff -m "feat: OSOnly更新差分を分類する"
 ```
 
 ### Task 2: CanUpdate hooksをv1beta1のallowlistへ置き換える
 
 **Files:**
-- Modify: `internal/server/extension/patch.go`
-- Modify: `internal/server/extension/canupdatemachine.go`
-- Modify: `internal/server/extension/canupdatemachineset.go`
-- Create: `internal/server/extension/canupdatemachine_test.go`
-- Create: `internal/server/extension/canupdatemachineset_test.go`
+- Modify: `infrastructure/http_server/extension/patch.go`
+- Modify: `infrastructure/http_server/extension/canupdatemachine.go`
+- Modify: `infrastructure/http_server/extension/canupdatemachineset.go`
+- Create: `infrastructure/http_server/extension/canupdatemachine_test.go`
+- Create: `infrastructure/http_server/extension/canupdatemachineset_test.go`
 
 - [x] **Step 1: 6 patch allow/deny tableのHook失敗テストを書く**
 
@@ -101,7 +101,7 @@ if wantPatch {
 
 - [x] **Step 2: 旧実装に対して失敗することを確認する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/server/extension -run 'TestHandleCanUpdate' -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./infrastructure/http_server/extension -run 'TestHandleCanUpdate' -v`
 
 Expected: v1beta1 decodeまたはpatch期待値不一致でFAIL。
 
@@ -124,23 +124,23 @@ resp.InfrastructureMachinePatch = buildInfraMachinePatch(desired)
 
 - [x] **Step 4: extension testを通してコミットする**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/server/extension -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./infrastructure/http_server/extension -v`
 
 ```bash
-git add internal/server/extension
+git add infrastructure/http_server/extension
 git commit --signoff -m "feat: OSOnly更新をRuntime Hookで受理する"
 ```
 
 ### Task 3: UpdateMachineから冪等なUpdate Operationを開始する
 
 **Files:**
-- Create: `internal/application/inplaceupdate/orchestrator.go`
-- Create: `internal/application/inplaceupdate/orchestrator_test.go`
-- Create: `internal/adapter/k8s/inplaceupdate/service.go`
-- Create: `internal/adapter/k8s/inplaceupdate/service_test.go`
-- Modify: `internal/server/extension/updatemachine.go`
-- Modify: `internal/server/extension/server.go`
-- Modify: `cmd/main.go`
+- Create: `domain/provisioning/workflow/update_machine/orchestrator.go`
+- Create: `domain/provisioning/workflow/update_machine/orchestrator_test.go`
+- Create: `infrastructure/repository/k8s/inplaceupdate/service.go`
+- Create: `infrastructure/repository/k8s/inplaceupdate/service_test.go`
+- Modify: `infrastructure/http_server/extension/updatemachine.go`
+- Modify: `infrastructure/http_server/extension/server.go`
+- Modify: `cmd/controller-manager/main.go`
 
 - [x] **Step 1: 同じrequestを100回処理してOperationが1つになる失敗テストを書く**
 
@@ -158,7 +158,7 @@ require.Len(t, list.Items, 1)
 
 - [x] **Step 2: 未実装でFAILすることを確認する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/workflow/update_machine ./infrastructure/repository/k8s/inplaceupdate -v`
 
 Expected: 未定義symbolでFAIL。
 
@@ -189,19 +189,19 @@ Machine version、Bootstrap spec、Platform Profile等を含むdesired objects d
 
 - [x] **Step 6: targeted testを通してコミットする**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate ./internal/server/extension ./cmd -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/workflow/update_machine ./infrastructure/repository/k8s/inplaceupdate ./infrastructure/http_server/extension ./cmd -v`
 
 ```bash
-git add internal/application/inplaceupdate internal/adapter/k8s/inplaceupdate internal/server/extension cmd/main.go
+git add domain/provisioning/workflow/update_machine infrastructure/repository/k8s/inplaceupdate infrastructure/http_server/extension cmd/controller-manager/main.go
 git commit --signoff -m "feat: Update Operationを冪等に開始する"
 ```
 
 ### Task 4: Inactive Slot限定の署名済みUpdate Planを生成する
 
 **Files:**
-- Create: `internal/application/inplaceupdate/plan.go`
-- Create: `internal/application/inplaceupdate/plan_test.go`
-- Modify: `internal/adapter/k8s/agentapi/plan_writer.go`
+- Create: `domain/provisioning/workflow/update_machine/plan.go`
+- Create: `domain/provisioning/workflow/update_machine/plan_test.go`
+- Modify: `infrastructure/repository/k8s/agentapi/plan_writer.go`
 - Modify: `cmd/wire/wire.go`
 - Modify: `cmd/wire/wire_gen.go`
 
@@ -211,7 +211,7 @@ Active Aなら`OS-B`,`Verity-B`だけ、Active Bなら`OS-A`,`Verity-A`だけを
 
 - [x] **Step 2: 未実装でFAILすることを確認する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate -run 'TestBuildUpdatePlan' -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/workflow/update_machine -run 'TestBuildUpdatePlan' -v`
 
 Expected: `BuildUpdatePlan`未定義でFAIL。
 
@@ -225,24 +225,24 @@ Planは`OperationTypeUpdate`、現在の`ActiveSlot`、inactive OS/Verity roles�
 
 - [x] **Step 4: targeted testを通してコミットする**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/application/inplaceupdate ./internal/adapter/k8s/agentapi -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/workflow/update_machine ./infrastructure/repository/k8s/agentapi -v`
 
 ```bash
-git add internal/application/inplaceupdate internal/adapter/k8s/agentapi cmd/wire
+git add domain/provisioning/workflow/update_machine infrastructure/repository/k8s/agentapi cmd/wire
 git commit --signoff -m "feat: Inactive Slot向け更新Planを生成する"
 ```
 
 ### Task 5: Boot trial、Health Gate、Rollbackを状態機械へ接続する
 
 **Files:**
-- Create: `internal/domain/inplaceupdate/state.go`
-- Create: `internal/domain/inplaceupdate/state_test.go`
-- Modify: `internal/controller/tarthostoperation_controller.go`
-- Modify: `internal/controller/tarthostoperation_controller_test.go`
-- Modify: `internal/adapter/k8s/bootreport/service.go`
-- Modify: `internal/adapter/k8s/bootreport/service_test.go`
-- Modify: `internal/adapter/k8s/v1beta1host/service.go`
-- Modify: `internal/controller/tartmachine_v1beta1_controller.go`
+- Create: `domain/provisioning/entity/inplaceupdate/state.go`
+- Create: `domain/provisioning/entity/inplaceupdate/state_test.go`
+- Modify: `infrastructure/k8s_controller/tarthostoperation_controller.go`
+- Modify: `infrastructure/k8s_controller/tarthostoperation_controller_test.go`
+- Modify: `infrastructure/repository/k8s/bootreport/service.go`
+- Modify: `infrastructure/repository/k8s/bootreport/service_test.go`
+- Modify: `infrastructure/repository/k8s/v1beta1host/service.go`
+- Modify: `infrastructure/k8s_controller/tartmachine_v1beta1_controller.go`
 
 - [x] **Step 1: 5種類の失敗とboot試行上限の状態遷移テストを書く**
 
@@ -250,7 +250,7 @@ write、verify、boot、mount、Node health失敗は`RollingBack`へ進む。tar
 
 - [x] **Step 2: state reducer未実装でFAILすることを確認する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate -run 'TestTransition' -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/entity/inplaceupdate -run 'TestTransition' -v`
 
 Expected: 未定義symbolでFAIL。
 
@@ -277,10 +277,10 @@ type Decision struct {
 
 - [x] **Step 5: targeted testを通してコミットする**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate ./internal/controller ./internal/adapter/k8s/bootreport ./internal/adapter/k8s/v1beta1host -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/entity/inplaceupdate ./infrastructure/k8s_controller ./infrastructure/repository/k8s/bootreport ./infrastructure/repository/k8s/v1beta1host -v`
 
 ```bash
-git add internal/domain/inplaceupdate internal/controller internal/adapter/k8s
+git add domain/provisioning/entity/inplaceupdate infrastructure/k8s_controller infrastructure/repository/k8s
 git commit --signoff -m "feat: A/B更新のRollback状態遷移を実装する"
 ```
 
@@ -302,7 +302,7 @@ Task 01未完了のため、dm-verity、bootloader trial、電源断、Node iden
 
 - [x] **Step 3: targeted verificationを実行する**
 
-Run: `MISE_OFFLINE=1 mise exec -- go test ./internal/domain/inplaceupdate ./internal/application/inplaceupdate ./internal/adapter/k8s/inplaceupdate ./internal/server/extension ./internal/controller/... -v`
+Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/entity/inplaceupdate ./domain/provisioning/workflow/update_machine ./infrastructure/repository/k8s/inplaceupdate ./infrastructure/http_server/extension ./infrastructure/k8s_controller/... -v`
 
 Expected: PASS。
 

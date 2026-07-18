@@ -32,11 +32,13 @@ import (
 	"testing"
 	"time"
 
-	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
-	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/domain/node/entity/nodelifecycleengine"
+	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/domain/node/workflow/run_signed_step"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/domain/node/workflow/run_step"
+	sharedresult "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/result"
+	sharedworkflow "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/workflow"
+	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
+	agentclient "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/provisioning_agent/client"
 )
 
 func TestParseConfigRequiresNodeLifecycleInputs(t *testing.T) {
@@ -740,16 +742,15 @@ type recordingLifecycleStepRunner struct {
 	called   bool
 }
 
-func (runner *recordingLifecycleStepRunner) RunStep(
+func (runner *recordingLifecycleStepRunner) Do(
 	ctx context.Context,
-	_ domain.Plan,
-	_ domain.Step,
-) (distribution.StepResult, error) {
+	_ distribution.Command,
+) sharedresult.Result[distribution.Event, sharedworkflow.Failure] {
 	runner.called = true
 	if deadline, ok := ctx.Deadline(); ok {
 		runner.deadline = deadline
 	}
-	return distribution.StepResult{}, nil
+	return sharedworkflow.Succeeded[distribution.Event](distribution.StepRun{})
 }
 
 func newLocalTLSServer(t *testing.T, handler http.Handler) (server *httptest.Server) {

@@ -7,24 +7,24 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	redfishadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/redfish"
-	woladapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/wol"
-	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
-	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivercapability"
-	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/driverstate"
-	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/drivertarget"
-	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/machinehealth"
-	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
-	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterlifecycle"
-	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/internal/application/clusterstatus"
-	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/internal/application/driver"
-	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinedeletion"
-	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machineexecution"
-	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/machinetemplatelifecycle"
-	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/operationexecution"
-	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/internal/application/resourcefinalizer"
-	"github.com/walnuts1018/cluster-api-provider-tart/internal/controller"
-	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/driver"
+	clusterlifecycle "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_cluster"
+	clusterstatus "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_cluster_status"
+	machinetemplatelifecycle "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster/workflow/reconcile_machine_template"
+	machinedeletion "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/delete_machine"
+	operationexecution "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/execute_operation"
+	machineexecution "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/reconcile_machine"
+	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/driver"
+	"github.com/walnuts1018/cluster-api-provider-tart/infrastructure/k8s_controller"
+	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/allocation"
+	k8sdrivercapability "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/drivercapability"
+	k8sdriverstate "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/driverstate"
+	k8sdrivertarget "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/drivertarget"
+	k8smachinehealth "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/machinehealth"
+	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/repository/k8s/v1beta1host"
+	applicationdriver "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver"
+	redfishadapter "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver/redfish"
+	woladapter "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/driver/wol"
+	resourcefinalizer "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/resource_finalizer"
 )
 
 type Reconcilers struct {
@@ -67,7 +67,7 @@ func provideDriverRegistry(
 	return registry, nil
 }
 
-func provideInitialProvisioningStep() machineexecution.ProvisionStep {
+func provideInitialProvisioningStep() machineexecution.Provisioner {
 	return nil
 }
 
@@ -75,8 +75,8 @@ func provideTartClusterReconciler(k8sClient client.Client, scheme *runtime.Schem
 	return &controller.TartClusterReconciler{
 		Client: k8sClient,
 		Scheme: scheme,
-		Lifecycle: clusterlifecycle.NewWorkflowWithSteps(
-			resourcefinalizer.NewTartClusterWorkflow(k8sClient),
+		Lifecycle: clusterlifecycle.NewWorkflowWithPorts(
+			resourcefinalizer.NewTartClusterService(k8sClient),
 			clusterstatus.NewWorkflow(k8sClient),
 		),
 	}
@@ -87,7 +87,7 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 		Client: k8sClient,
 		Scheme: scheme,
 		Lifecycle: machinetemplatelifecycle.NewWorkflowWithFinalizer(
-			resourcefinalizer.NewTartMachineTemplateWorkflow(k8sClient),
+			resourcefinalizer.NewTartMachineTemplateService(k8sClient),
 		),
 	}
 }
@@ -96,8 +96,8 @@ func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences machineexecution.HostReferenceService,
 	nodeHealth machineexecution.NodeHealthObserver,
-	provisioner machineexecution.ProvisionStep,
-	cleaner machinedeletion.CleaningStep,
+	provisioner machineexecution.Provisioner,
+	cleaner machinedeletion.CleaningWorkflow,
 ) *controller.TartMachineV1Beta1Reconciler {
 	return &controller.TartMachineV1Beta1Reconciler{
 		Client:         k8sClient,
@@ -108,7 +108,7 @@ func provideTartMachineV1Beta1Reconciler(
 	}
 }
 
-func provideCleaningStep() machinedeletion.CleaningStep {
+func provideCleaningStep() machinedeletion.CleaningWorkflow {
 	return nil
 }
 

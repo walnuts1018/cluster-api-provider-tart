@@ -3,13 +3,13 @@
 ## 目的
 
 Task 09 の再起動耐性と `RecoveryRequired` 収束について、repository 内で再現可能な統合テスト証跡を残す。
-この記録は実機/E2E の代替ではない。`internal/server/agentapi/handler_test.go` で fake Kubernetes client を使い、
+この記録は実機/E2E の代替ではない。`infrastructure/http_server/agentapi/handler_test.go` で fake Kubernetes client を使い、
 各 request ごとに fresh `Handler` を作り直すことで controller 再起動相当を確認した結果である。
 
 ## 実行コマンド
 
 ```bash
-go test ./internal/server/agentapi -v
+go test ./infrastructure/http_server/agentapi -v
 go test ./cmd/node-lifecycle-service -v
 ```
 

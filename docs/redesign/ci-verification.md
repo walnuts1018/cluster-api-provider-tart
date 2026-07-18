@@ -49,7 +49,7 @@ version、Artifact digest、Platform Profileを同じartifactへ保存する。
 4. Simulator rollback evidenceは、bootloader実装そのものや電源断後の永続化挙動を実証する証跡として扱わない。Task 01 の boot trial rollback では、状態遷移と判定条件の継続監視だけを担わせる。
 5. 「workflowが存在する」「scriptが存在する」だけを検証するtestは追加しない。
 6. 重いE2EはGitHub Actionsのpath filter、manual dispatch、scheduled runを使い分ける。ただしSupportedへ昇格する対象はrelease前に必ず成功結果を残す。
-7. OS Artifact workflowは`workflow_dispatch`を維持したまま、`artifact/mkosi`、`hack/os-firstboot-qemu`、artifact manifest/provenance、workflow定義、`mise.toml`、関連Task文書の変更で`push`/`pull_request`でも継続実行する。
+7. OS Artifact workflowは`workflow_dispatch`を維持したまま、`artifact/mkosi`、`cmd/os-firstboot-qemu`、artifact manifest/provenance、workflow定義、`mise.toml`、関連Task文書の変更で`push`/`pull_request`でも継続実行する。
 
 ## 現時点の優先順位
 
@@ -59,8 +59,8 @@ version、Artifact digest、Platform Profileを同じartifactへ保存する。
    比較するCluster lifecycle E2Eを追加する。
 3. Task 09の単一control plane `management API outage` を、QEMUまたはk3s管理クラスタ上のGitHub Actions E2Eとして再現する。
 4. Task 01のboot trial rollbackについては、CIでsimulator rollback evidence、boot metadata 永続化証跡、boot選択実証証跡を継続収集し、rollback判定に使った入力、期待した状態遷移、Artifact/Profile識別子をartifactへ保存する。これは bootloader 実機/QEMU 実証の代替ではなく、役割分担を分けて残差を減らすための継続証跡とする。
-5. `hack/os-firstboot-qemu` の direct-kernel QEMU では、boot metadata を永続ディスクへ書いた直後に強制停止し、次回 boot で読み戻す CI 証跡を別系統で残す。これは storage write-through と再読込の確認であり、simulator rollback evidence の代替でも、bootloader 実装そのものの代替でもない。
-6. `hack/os-firstboot-qemu --scenario bootloader-rollback` では、OVMF + systemd-boot の実 bootloader 経路で `tart-target+3.conf` の tries 消費と、4th boot の rollback entry 選択を検証する。artifact には少なくとも `evidence.json` と `serial-boot1.log` から `serial-boot4.log` を保存する。
+5. `cmd/os-firstboot-qemu` の direct-kernel QEMU では、boot metadata を永続ディスクへ書いた直後に強制停止し、次回 boot で読み戻す CI 証跡を別系統で残す。これは storage write-through と再読込の確認であり、simulator rollback evidence の代替でも、bootloader 実装そのものの代替でもない。
+6. `cmd/os-firstboot-qemu --scenario bootloader-rollback` では、OVMF + systemd-boot の実 bootloader 経路で `tart-target+3.conf` の tries 消費と、4th boot の rollback entry 選択を検証する。artifact には少なくとも `evidence.json` と `serial-boot1.log` から `serial-boot4.log` を保存する。
 7. acceptance 8 の CI 証跡要件は、次の3系統で管理する。
    - rollback判定系: simulator rollback evidence として、失敗回数、旧slot復帰判定、期待状態遷移、Artifact/Profile識別子を保存する。
    - metadata永続化系: direct-kernel QEMU として、boot metadata 更新直後の強制停止後も trial counter または同等情報が次回 boot で再読込されることを保存する。

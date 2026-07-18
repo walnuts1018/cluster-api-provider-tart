@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 

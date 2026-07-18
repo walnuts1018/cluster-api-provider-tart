@@ -18,8 +18,8 @@ import (
 	"context"
 	"testing"
 
-	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func TestDriverはControlPlaneとWorkerのApplyを型付きRuntimeへDispatchする(t *testing.T) {
@@ -59,12 +59,12 @@ func TestDriverはSnapshot作成後にRestoreTestを実行する(t *testing.T) {
 
 func plan(role domain.NodeRole) domain.Plan {
 	return domain.Plan{
-		Distribution:   domain.DistributionK0s,
-		OperationID:    "operation-1",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       role,
-		CurrentVersion: "v1.35.0",
+		LifecycleRuntime: domain.LifecycleRuntimeK0s,
+		OperationID:      "operation-1",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         role,
+		CurrentVersion:   "v1.35.0",
 	}
 }
 

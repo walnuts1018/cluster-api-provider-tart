@@ -27,10 +27,11 @@ import (
 
 func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing.T) {
 	tests := []struct {
-		name              string
-		mutate            func(*runtimehooksv1.CanUpdateMachineSetRequest)
-		distributionGates DistributionLifecycleFeatureGates
-		wantPatch         bool
+		name               string
+		mutate             func(*runtimehooksv1.CanUpdateMachineSetRequest)
+		nodeLifecycleGates NodeLifecycleFeatureGates
+		wantPatch          bool
+		wantBootstrapPatch bool
 	}{
 		{
 			name: "image ref",
@@ -57,18 +58,27 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 			},
 		},
 		{
-			name: "Kubernetes version with distribution lifecycle gate",
+			name: "Kubernetes version with node lifecycle gate",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
 				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.36.0"
 			},
-			distributionGates: DistributionLifecycleFeatureGates{Worker: true},
-			wantPatch:         true,
+			nodeLifecycleGates: NodeLifecycleFeatureGates{Worker: true},
+			wantPatch:          true,
 		},
 		{
 			name: "bootstrap template",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
 				request.Desired.BootstrapConfigTemplate = bootstrapConfigTemplate(`{"payload":"changed"}`)
 			},
+		},
+		{
+			name: "bootstrap template with node lifecycle gate",
+			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
+				request.Desired.BootstrapConfigTemplate = bootstrapConfigTemplate(`{"payload":"changed"}`)
+			},
+			nodeLifecycleGates: NodeLifecycleFeatureGates{Worker: true},
+			wantPatch:          true,
+			wantBootstrapPatch: true,
 		},
 		{
 			name: "platform profile",
@@ -89,7 +99,7 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 				NewTargetSupportChecker(
 					nil,
 					UpdateTargetFeatureGates{Worker: true},
-					tt.distributionGates,
+					tt.nodeLifecycleGates,
 				),
 			)
 
@@ -106,8 +116,9 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 			if response.MachineSetPatch.IsDefined() {
 				t.Error("MachineSetPatch must not be defined")
 			}
-			if response.BootstrapConfigTemplatePatch.IsDefined() {
-				t.Error("BootstrapConfigTemplatePatch must not be defined")
+			if response.BootstrapConfigTemplatePatch.IsDefined() != tt.wantBootstrapPatch {
+				t.Fatalf("BootstrapConfigTemplatePatch.IsDefined() = %t, want %t; message=%q",
+					response.BootstrapConfigTemplatePatch.IsDefined(), tt.wantBootstrapPatch, response.Message)
 			}
 			if tt.wantPatch {
 				assertTemplateOSOnlyPatch(t, response.InfrastructureMachineTemplatePatch)
@@ -123,7 +134,7 @@ func TestHandleCanUpdateMachineSetはworkerGate無効ならPatchを返さない(
 	request.Desired.InfrastructureMachineTemplate = rawExtension(t, template)
 	response := &runtimehooksv1.CanUpdateMachineSetResponse{}
 	handler := NewCanUpdateMachineSetHandler(
-		NewTargetSupportChecker(nil, UpdateTargetFeatureGates{}, DistributionLifecycleFeatureGates{}),
+		NewTargetSupportChecker(nil, UpdateTargetFeatureGates{}, NodeLifecycleFeatureGates{}),
 	)
 
 	handler.Handle(t.Context(), request, response)

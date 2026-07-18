@@ -13,9 +13,9 @@
 
 1. `OSOnly`: Kubernetes version、Bootstrap Data、stateSchemaを変更しない。自動Rollbackを必須とする。また、配信されるOS Artifactは既存のState領域のファイル構造を変更せず、旧OSスロットへの自動Rollback時に不整合を起こさない互換性を持つことを必須とする。
 2. `KubernetesBinary`: Kubernetes versionを変更するが不可逆なState/Data format変更を行わない。検証済みversion pairだけRollbackを許可する。
-3. `StateMigration`: etcd、kubeadm、k3s等がState/Data formatを変更する。自動Rollbackを禁止し、SnapshotRefを必須とする。
+3. `StateMigration`: etcd、kubeadm、k0s等がState/Data formatを変更する。自動Rollbackを禁止し、SnapshotRefを必須とする。
 
-controllerがPlan作成時に更新クラスを決定し、AgentまたはNode Lifecycle Serviceが推測してはならない。CAPI rollout ownerはversionとnode順、Bootstrap Providerは初期Bootstrap Dataを所有する。既存Node上の`kubeadm upgrade plan/apply/node`、Snapshot、Health GateはversionedなDistribution Lifecycle Adapterが実行する。
+controllerがPlan作成時に更新クラスを決定し、AgentまたはNode Lifecycle Serviceが推測してはならない。Runtime Hook contractを満たすCAPI rollout ownerはversionとnode順、Bootstrap Providerは初期Bootstrap Dataを所有する。既存Node上の`kubeadm upgrade plan/apply/node`、Snapshot、Health GateはversionedなNode Lifecycle Engineが実行する。
 
 ## Consequences
 

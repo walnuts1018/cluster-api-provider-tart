@@ -33,9 +33,9 @@ import (
 	"time"
 
 	kubeadmadapter "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/kubeadm"
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )

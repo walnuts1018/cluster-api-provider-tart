@@ -177,7 +177,7 @@ func updateManifestWithKubernetesVersion(t *testing.T, version string) artifact.
 		Image:           artifact.Payload{Digest: testDigest("b"), SizeBytes: 8 << 30},
 		Verity:          artifact.Verity{Digest: testDigest("c"), SizeBytes: 1 << 30, RootHash: strings.Repeat("d", 64)},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: version},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", LifecycleRuntime: "kubeadm.cluster.x-k8s.io/v1", Version: version},
 		Boot:            artifact.Boot{KernelDigest: testDigest("e"), InitrdDigest: testDigest("f")},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      2,

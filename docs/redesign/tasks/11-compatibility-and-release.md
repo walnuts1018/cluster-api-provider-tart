@@ -24,8 +24,8 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 |---|---|---|
 | 1 | Debian 13 | Ubuntu 24.04 |
 | 2 | Ubuntu 26.04 | Ubuntu 24.04 |
-| 3 | k3s Bootstrap/Control Plane Provider | kubeadm |
-| 4 | k0s Bootstrap/Control Plane Provider | kubeadm |
+| 3 | k3s初期Provisioning用Provider APIとState/Data契約 | kubeadm |
+| 4 | k0s初期Provisioning用Provider API、State/Data契約、Node Lifecycle Engine capability | kubeadm |
 | 5 | amd64 Legacy BIOS | amd64 UEFI |
 | 6 | arm64 UEFI | amd64 UEFI |
 | 7 | Raspberry Pi 4 EEPROM | arm64 UEFI |
@@ -68,16 +68,16 @@ Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistribution�
 | Ubuntu 24.04 LTS | kubeadm | `v1.36.x` | Planned | v1.36 OS Artifact、kubeadm Lifecycle E2E、Release Matrix証跡 |
 | Ubuntu 26.04 LTS | kubeadm | `v1.36.x` | Planned | x86-64-v1 build、Sandy Bridge boot証跡、systemd mount差分記録 |
 | Debian 13 | kubeadm | `v1.36.x` | Planned | Debian repository lock、State/Data path検証、kubeadm Lifecycle E2E |
-| Ubuntu 24.04 LTS | k3s | `v1.36.x` | Planned | Bootstrap/Control Plane Provider選定、k3s State/Data契約、k3s Lifecycle Adapter |
+| Ubuntu 24.04 LTS | k3s | `v1.36.x` | Planned | 初期Provisioning用Provider API選定、k3s State/Data契約。k3s Node Lifecycle Engine未実装の間はKubernetesBinary/StateMigration対象外 |
 | Ubuntu 26.04 LTS | k3s | `v1.36.x` | Planned | Ubuntu 26.04成果物に加え、k3s token/node identity保持証跡 |
 | Debian 13 | k3s | `v1.36.x` | Planned | Debian 13成果物に加え、k3s State/Data path検証 |
-| Ubuntu 24.04 LTS | k0s | `v1.36.x` | Planned | Bootstrap/Control Plane Provider選定、k0s State/Data契約、k0s Lifecycle Adapter |
+| Ubuntu 24.04 LTS | k0s | `v1.36.x` | Planned | 初期Provisioning用Provider API選定、k0s State/Data契約、k0s Node Lifecycle Engine capability |
 | Ubuntu 26.04 LTS | k0s | `v1.36.x` | Planned | Ubuntu 26.04成果物に加え、k0s token/node identity保持証跡 |
 | Debian 13 | k0s | `v1.36.x` | Planned | Debian 13成果物に加え、k0s State/Data path検証 |
 
 `config/templates/cluster-template-kubeadm*.yaml` は kubeadm 用の汎用テンプレートであり、OS差分は
 `OS_ARTIFACT_REF`、`OS_ARTIFACT_REGISTRY`、`PLATFORM_PROFILE` で指定する。k3s/k0s 用テンプレートは、
-対応Bootstrap/Control Plane ProviderとAPI kindが決定し、初期ProvisioningのE2E証跡を追加するまで作成しない。
+初期Provisioning用Provider API kindが決定し、初期ProvisioningのE2E証跡を追加するまで作成しない。
 実在しないProvider APIを含むテンプレートを先に公開してはならない。
 
 ### 2026-07-17 時点の docs 実装状況
@@ -118,13 +118,15 @@ Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistribution�
 
 ### k3s
 
-- 対応Bootstrap/Control Plane Providerを明記する。
+- 初期Provisioningに必要なProvider API kindを明記する。
+- Node Lifecycle Engine未実装の間は、KubernetesBinary/StateMigrationを非対応として明記する。
 - `/etc/rancher/k3s`と`/var/lib/rancher/k3s`のState/Data分割を固定する。
 - k3s token/node identityをOSOnly更新後も保持する。
 
 ### k0s
 
-- 対応Bootstrap/Control Plane Providerを明記する。
+- 初期Provisioningに必要なProvider API kindを明記する。
+- Node Lifecycle Engine capabilityを明記する。
 - `/etc/k0s`と`/var/lib/k0s`のState/Data分割を固定する。
 - k0s token/node identityをOSOnly更新後も保持する。
 

@@ -32,9 +32,9 @@ import (
 	"testing"
 	"time"
 
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	agentclient "github.com/walnuts1018/cluster-api-provider-tart/internal/provisioningagent/client"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
@@ -137,13 +137,13 @@ func TestReportStepOutcomeReportsSuccessAndFailure(t *testing.T) {
 func TestExecuteNodeLifecycleStepUsesPlanDeadlineForStepAndProgress(t *testing.T) {
 	deadline := time.Now().Add(24 * time.Hour).UTC()
 	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-uid",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted},
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-uid",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Steps:            []domain.Step{domain.StepPreflightCompleted},
 	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)
@@ -170,13 +170,13 @@ func TestExecuteNodeLifecycleStepUsesPlanDeadlineForStepAndProgress(t *testing.T
 func TestExecuteNodeLifecycleStepRejectsExpiredPlanDeadline(t *testing.T) {
 	deadline := time.Now().Add(-time.Hour).UTC()
 	plan, err := nodelifecycle.FromDomainPlan(domain.Plan{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-uid",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted},
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-uid",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Steps:            []domain.Step{domain.StepPreflightCompleted},
 	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)
@@ -277,13 +277,13 @@ func TestReportStepOutcomeFailsImmediatelyOnNonRetryableAPIError(t *testing.T) {
 func TestFetchNodeLifecyclePlanWithRetryRecoversAfterInnerRetriesExhausted(t *testing.T) {
 	deadline := time.Now().Add(24 * time.Hour).UTC()
 	expectedPlan, err := nodelifecycle.FromDomainPlan(domain.Plan{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-uid",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted},
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-uid",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Steps:            []domain.Step{domain.StepPreflightCompleted},
 	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)
@@ -409,13 +409,13 @@ func TestFetchNodeLifecyclePlanWithRetryFailsImmediatelyOnNonRetryableAPIError(t
 func TestNodeLifecycleServiceRecoversTemporaryOutageAcrossPlanFetchAndProgressReport(t *testing.T) {
 	deadline := time.Date(2030, 7, 16, 12, 0, 0, 0, time.UTC)
 	expectedPlan, err := nodelifecycle.FromDomainPlan(domain.Plan{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-uid",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted},
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-uid",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Steps:            []domain.Step{domain.StepPreflightCompleted},
 	}, deadline)
 	if err != nil {
 		t.Fatalf("FromDomainPlan() error = %v", err)

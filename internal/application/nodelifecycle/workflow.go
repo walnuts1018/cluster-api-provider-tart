@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 

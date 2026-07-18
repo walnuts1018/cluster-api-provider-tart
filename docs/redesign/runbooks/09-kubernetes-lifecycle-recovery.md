@@ -1,8 +1,8 @@
-# Task 09: Kubernetes Distribution Lifecycle Recovery Runbook
+# Task 09: Kubernetes Node Lifecycle Engine Recovery Runbook
 
 ## 目的
 
-`TartHostOperation.status.phase=RecoveryRequired` で停止した Kubernetes Distribution Lifecycle を、
+`TartHostOperation.status.phase=RecoveryRequired` で停止した Kubernetes Node Lifecycle Engine を、
 `status.snapshotRef` に保存された復元対象を根拠に安全に切り分け、復旧可否を判断する。
 
 この Runbook は Task 09 の範囲で実装済みの観測点に基づく。自動復旧や Recovery Operation の

@@ -27,7 +27,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/operation"
 	slotdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/slot"
 )

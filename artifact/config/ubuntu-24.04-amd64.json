@@ -11,6 +11,7 @@
   },
   "kubernetes": {
     "distribution": "kubeadm",
+    "lifecycleRuntime": "kubeadm.cluster.x-k8s.io/v1",
     "version": "v1.36.0"
   },
   "requirements": {

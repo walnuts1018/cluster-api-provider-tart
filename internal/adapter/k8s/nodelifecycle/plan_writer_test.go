@@ -30,7 +30,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -118,13 +118,13 @@ func planWriterFixture(
 	}
 	built, err := application.BuildSignedPlan(
 		domain.Plan{
-			Distribution:   domain.DistributionKubeadm,
-			OperationID:    "0197d640-8d00-7a65-b67f-3f7c42a6935f",
-			CurrentVersion: "v1.36.0",
-			TargetVersion:  "v1.36.0",
-			UpdateClass:    domain.UpdateClassKubernetesBinary,
-			NodeRole:       domain.NodeRoleWorker,
-			Steps:          []domain.Step{domain.StepPreflightCompleted, domain.StepDistributionApplied},
+			LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+			OperationID:      "0197d640-8d00-7a65-b67f-3f7c42a6935f",
+			CurrentVersion:   "v1.36.0",
+			TargetVersion:    "v1.36.0",
+			UpdateClass:      domain.UpdateClassKubernetesBinary,
+			NodeRole:         domain.NodeRoleWorker,
+			Steps:            []domain.Step{domain.StepPreflightCompleted, domain.StepDistributionApplied},
 		},
 		time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC),
 		"plan-key",

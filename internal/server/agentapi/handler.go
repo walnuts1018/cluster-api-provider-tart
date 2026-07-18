@@ -34,7 +34,7 @@ import (
 	securedeliveryapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/securedelivery"
 	agentprogressdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentprogress"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
-	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 

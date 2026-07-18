@@ -18,8 +18,8 @@ import (
 	"context"
 	"fmt"
 
-	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 // RuntimeはNode Lifecycle Service内でk0sの更新とhealth観測を型付き操作として実行する境界である。
@@ -32,7 +32,7 @@ type Runtime interface {
 	ObserveHealth(context.Context, domain.Plan) (domain.HealthInput, error)
 }
 
-// DriverはDistributionLifecycleDriver Portのk0s実装である。
+// DriverはNodeLifecycleEngine Portのk0s実装である。
 type Driver struct {
 	runtime Runtime
 }

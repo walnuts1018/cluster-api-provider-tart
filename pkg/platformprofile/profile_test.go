@@ -53,6 +53,7 @@ func TestValidateArtifactIdentityはProfile外の組み合わせを拒否する(
 		OSVersion:         "26.04",
 		Architecture:      ArchitectureAMD64,
 		Distribution:      DistributionK3s,
+		LifecycleRuntime:  LifecycleRuntimeUnsupported,
 		KubernetesVersion: "v1.36.2",
 		CPULevel:          "x86-64-v1",
 		StateSchemaMin:    1,
@@ -70,6 +71,9 @@ func TestValidateArtifactIdentityはProfile外の組み合わせを拒否する(
 		{name: "OS family", mutate: func(identity *ArtifactIdentity) { identity.OSFamily = "debian" }, wantErr: "os.family"},
 		{name: "OS version", mutate: func(identity *ArtifactIdentity) { identity.OSVersion = "24.04" }, wantErr: "os.version"},
 		{name: "distribution", mutate: func(identity *ArtifactIdentity) { identity.Distribution = DistributionKubeadm }, wantErr: "distribution"},
+		{name: "lifecycle runtime", mutate: func(identity *ArtifactIdentity) {
+			identity.LifecycleRuntime = LifecycleRuntimeKubeadm
+		}, wantErr: "lifecycleRuntime"},
 		{name: "kubernetes version", mutate: func(identity *ArtifactIdentity) {
 			identity.KubernetesVersion = "v1.35.0"
 		}, wantErr: "kubernetes.version"},

@@ -29,8 +29,8 @@ type UpdateTargetFeatureGates struct {
 	SingleControlPlane bool
 }
 
-// DistributionLifecycleFeatureGatesはDistribution Lifecycle更新で対象Machineを受理できる範囲を表す。
-type DistributionLifecycleFeatureGates struct {
+// NodeLifecycleFeatureGatesはNode Lifecycle Engine更新で対象Machineを受理できる範囲を表す。
+type NodeLifecycleFeatureGates struct {
 	Worker             bool
 	MultiControlPlane  bool
 	SingleControlPlane bool
@@ -44,21 +44,21 @@ type targetDisabledReasons struct {
 
 // TargetSupportCheckerは対象Machine種別とfeature gateの組み合わせを判定する。
 type TargetSupportChecker struct {
-	reader            client.Reader
-	updateGates       UpdateTargetFeatureGates
-	distributionGates DistributionLifecycleFeatureGates
+	reader             client.Reader
+	updateGates        UpdateTargetFeatureGates
+	nodeLifecycleGates NodeLifecycleFeatureGates
 }
 
 // NewTargetSupportCheckerは対象判定器を生成する。
 func NewTargetSupportChecker(
 	reader client.Reader,
 	updateGates UpdateTargetFeatureGates,
-	distributionGates DistributionLifecycleFeatureGates,
+	nodeLifecycleGates NodeLifecycleFeatureGates,
 ) *TargetSupportChecker {
 	return &TargetSupportChecker{
-		reader:            reader,
-		updateGates:       updateGates,
-		distributionGates: distributionGates,
+		reader:             reader,
+		updateGates:        updateGates,
+		nodeLifecycleGates: nodeLifecycleGates,
 	}
 }
 
@@ -88,33 +88,33 @@ func (checker *TargetSupportChecker) SupportsMachineSet(
 	return supportsWorkerMachineSet(machineSet, checker.updateGates.Worker, updateTargetDisabledReasons().worker)
 }
 
-// SupportsDistributionLifecycleMachineは対象MachineがDistribution Lifecycle更新で許可されているかを返す。
-func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachine(
+// SupportsNodeLifecycleMachineは対象MachineがNode Lifecycle Engine更新で許可されているかを返す。
+func (checker *TargetSupportChecker) SupportsNodeLifecycleMachine(
 	ctx context.Context,
 	machine *clusterv1.Machine,
 ) (bool, string, error) {
-	reasons := distributionLifecycleDisabledReasons()
+	reasons := nodeLifecycleDisabledReasons()
 	return checker.supportsMachine(
 		ctx,
 		machine,
-		checker.distributionGates.Worker,
-		checker.distributionGates.MultiControlPlane,
-		checker.distributionGates.SingleControlPlane,
+		checker.nodeLifecycleGates.Worker,
+		checker.nodeLifecycleGates.MultiControlPlane,
+		checker.nodeLifecycleGates.SingleControlPlane,
 		reasons.worker,
 		reasons.multiControlPlane,
 		reasons.singleControlPlane,
 	)
 }
 
-// SupportsDistributionLifecycleMachineSetは対象MachineSetがDistribution Lifecycle更新で許可されているかを返す。
-func (checker *TargetSupportChecker) SupportsDistributionLifecycleMachineSet(
+// SupportsNodeLifecycleMachineSetは対象MachineSetがNode Lifecycle Engine更新で許可されているかを返す。
+func (checker *TargetSupportChecker) SupportsNodeLifecycleMachineSet(
 	_ context.Context,
 	machineSet *clusterv1.MachineSet,
 ) (bool, string, error) {
 	return supportsWorkerMachineSet(
 		machineSet,
-		checker.distributionGates.Worker,
-		distributionLifecycleDisabledReasons().worker,
+		checker.nodeLifecycleGates.Worker,
+		nodeLifecycleDisabledReasons().worker,
 	)
 }
 
@@ -126,11 +126,11 @@ func updateTargetDisabledReasons() targetDisabledReasons {
 	}
 }
 
-func distributionLifecycleDisabledReasons() targetDisabledReasons {
+func nodeLifecycleDisabledReasons() targetDisabledReasons {
 	return targetDisabledReasons{
-		worker:            "worker distribution lifecycle updates are disabled by feature gate",
-		multiControlPlane: "multi control plane distribution lifecycle updates are disabled by feature gate",
-		singleControlPlane: "single control plane distribution lifecycle updates are disabled by feature gate: " +
+		worker:            "worker node lifecycle updates are disabled by feature gate",
+		multiControlPlane: "multi control plane node lifecycle updates are disabled by feature gate",
+		singleControlPlane: "single control plane node lifecycle updates are disabled by feature gate: " +
 			"Experimental while management API outage E2E pending",
 	}
 }

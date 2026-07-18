@@ -11,6 +11,7 @@
   },
   "kubernetes": {
     "distribution": "k3s",
+    "lifecycleRuntime": "unsupported",
     "version": "v1.36.0"
   },
   "requirements": {

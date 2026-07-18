@@ -87,6 +87,7 @@ func TestBuildProvisionPlanRejectsManifestForDifferentProfile(t *testing.T) {
 	manifestValue := validatedProvisionManifest(t).Value()
 	manifestValue.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-k3s/v1"
 	manifestValue.Kubernetes.Distribution = "k3s"
+	manifestValue.Kubernetes.LifecycleRuntime = "unsupported"
 	manifest, err := artifact.Validate(manifestValue)
 	if err != nil {
 		t.Fatalf("artifact.Validate() error = %v", err)
@@ -145,8 +146,9 @@ func validatedProvisionManifest(t *testing.T) artifact.ValidatedManifest {
 		},
 		StateSchema: artifact.StateSchema{Min: 1, Max: 1},
 		Kubernetes: artifact.Kubernetes{
-			Distribution: "kubeadm",
-			Version:      "v1.36.0",
+			Distribution:     "kubeadm",
+			LifecycleRuntime: "kubeadm.cluster.x-k8s.io/v1",
+			Version:          "v1.36.0",
 		},
 		Boot: artifact.Boot{
 			KernelDigest: digest.FromString("kernel").String(),

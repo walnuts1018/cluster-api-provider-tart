@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distribution "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -132,13 +132,13 @@ func TestBuildSignedPlanはDomainPlanから署名とDigestを生成する(t *tes
 	}
 	deadline := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	domainPlan := domain.Plan{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.36.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted, domain.StepDistributionApplied},
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.36.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Steps:            []domain.Step{domain.StepPreflightCompleted, domain.StepDistributionApplied},
 	}
 
 	built, err := BuildSignedPlan(domainPlan, deadline, "lifecycle-key", privateKey)
@@ -197,14 +197,14 @@ func TestValidatePlanは署名対象Planの危険な入力を拒否する(t *tes
 
 func validLifecyclePlan() Plan {
 	return Plan{
-		APIVersion:     APIVersion,
-		OperationID:    "operation-1",
-		Distribution:   domain.DistributionKubeadm,
-		CurrentVersion: "v1.36.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
-		Deadline:       time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC),
+		APIVersion:       APIVersion,
+		OperationID:      "operation-1",
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		CurrentVersion:   "v1.36.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
+		Deadline:         time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC),
 		Steps: []domain.Step{
 			domain.StepPreflightCompleted,
 			domain.StepTargetSlotWritten,

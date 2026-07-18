@@ -18,8 +18,8 @@ import (
 	"context"
 	"testing"
 
-	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func TestDriverはControlPlaneApplyでkubeadmUpgradeApplyを呼ぶ(t *testing.T) {
@@ -93,13 +93,13 @@ func TestDriverはHealthGate失敗時にVerifyを失敗させる(t *testing.T) {
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleControlPlane,
-		SnapshotRef:    "etcd-snapshot-1",
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleControlPlane,
+		SnapshotRef:      "etcd-snapshot-1",
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -110,12 +110,12 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)

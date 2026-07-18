@@ -61,15 +61,15 @@ func (handler *CanUpdateMachineSetHandler) Handle(
 		response.SetMessage("failed to classify in-place update: " + err.Error())
 		return
 	}
-	classification, versionSupported, err := allowMachineSetVersionIfEligible(ctx, handler.support, request.Desired.MachineSet, classification)
+	classification, lifecycleSupported, err := allowMachineSetLifecycleFieldsIfEligible(ctx, handler.support, request.Desired.MachineSet, classification)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate distribution lifecycle target")
+		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate node lifecycle target")
 		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
-		response.SetMessage("failed to evaluate distribution lifecycle target: " + err.Error())
+		response.SetMessage("failed to evaluate node lifecycle target: " + err.Error())
 		return
 	}
-	if versionSupported {
-		classification = classificationWithMachineVersionAllowed(classification)
+	if lifecycleSupported {
+		classification = classificationWithLifecycleFieldsAllowed(classification)
 	}
 	if !classification.CanUpdateInPlace() {
 		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
@@ -87,20 +87,28 @@ func (handler *CanUpdateMachineSetHandler) Handle(
 		return
 	}
 	response.InfrastructureMachineTemplatePatch = patch
+	bootstrapPatch, err := machineSetBootstrapTemplatePatch(classification, request.Desired.BootstrapConfigTemplate)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to build bootstrap config template patch")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to build bootstrap config template patch: " + err.Error())
+		return
+	}
+	response.BootstrapConfigTemplatePatch = bootstrapPatch
 	response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
 	response.SetMessage("in-place update is supported")
 }
 
-func allowMachineSetVersionIfEligible(
+func allowMachineSetLifecycleFieldsIfEligible(
 	ctx context.Context,
 	support *TargetSupportChecker,
 	machineSet clusterv1.MachineSet,
 	classification domain.Classification,
 ) (domain.Classification, bool, error) {
-	if !classificationContainsOnlyMachineVersionReject(classification) {
+	if !classificationContainsOnlyLifecycleRejects(classification) {
 		return classification, false, nil
 	}
-	supported, _, err := support.SupportsDistributionLifecycleMachineSet(ctx, &machineSet)
+	supported, _, err := support.SupportsNodeLifecycleMachineSet(ctx, &machineSet)
 	if err != nil {
 		return domain.Classification{}, false, err
 	}

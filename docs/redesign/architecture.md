@@ -5,7 +5,7 @@
 ## 1. 境界と責務
 
 ```text
-CAPI controllers / Bootstrap Provider
+CAPI rollout owner / Bootstrap Provider
                  |
                  v
         TartMachine Reconciler <---- Runtime Extension
@@ -26,6 +26,12 @@ CAPI controllers / Bootstrap Provider
          ephemeral provisioning agent
                       |
        disk layout / slot / boot control
+                      |
+                      v
+          Node Lifecycle Engine boundary
+                      |
+                      v
+          Node Lifecycle Service
 ```
 
 Infrastructure Providerは「物理ホスト、OS配置、起動可能性」を担当する。クラスタ初期化内容はBootstrap Providerが所有し、本Providerは不透明なbundleとして配送・配置・実行する。
@@ -34,14 +40,15 @@ Infrastructure Providerは「物理ホスト、OS配置、起動可能性」を�
 
 | 主体 | 入力 | 実行する処理 | 永続化先 | 実行してはならない処理 |
 |---|---|---|---|---|
-| CAPI rollout owner | Machine/Templateの望ましいversion | Machineの作成・削除・更新順制御 | Machine、KCP、MachineDeployment | disk書き込み、BMC操作 |
+| CAPI rollout owner | Machine/Templateの望ましいversion | Runtime Hook contractに基づくMachineの作成・削除・更新順制御 | Machine、Runtime Hook応答、owner providerのStatus | disk書き込み、BMC操作、node内runtime command実行 |
 | Bootstrap Provider | Machine、Cluster情報 | Bootstrap Data生成 | Kubernetes Secret | Host選択、OS image書き込み |
 | TartMachine controller | TartMachine、CAPI Machine | Host割当要求、Operation作成、CAPI Condition更新 | TartMachine/TartHostOperation Status | distribution固有commandの直接実行 |
 | TartHost controller | TartHost、Operation | Host phase、Driver capability、cleaningの調整 | TartHost Status | CAPI Machineのversion決定 |
 | Runtime Extension | current/desired Machine群 | In-place可否判定、Operation進捗応答 | TartHostOperation | CAPIに通知せず更新開始 |
 | Power/Boot Driver | Host target、Operation ID | 電源・次回boot・Virtual Media操作 | 外部BMC、結果はOperation Status | disk partition操作 |
 | Provisioning Agent | 署名済みPlan | disk検出、partition、slot書き込み、検証 | 対象disk、progress API | CAPI objectの直接更新 |
-| Node Lifecycle Service | 署名済みUpdate Plan | kubeadm/k0sのtyped Step実行 | State/Data、progress API | 任意shell command受付 |
+| Node Lifecycle Engine | Operation、署名済みUpdate Plan、runtime profile | kubeadm/k0s等のtyped Step選択、preflight、snapshot、apply、verify | State/Data、progress API、Operation Status | Bootstrap Data生成、CAPI rollout順序決定、任意shell command受付 |
+| Node Lifecycle Service | 署名済みUpdate Plan | Node Lifecycle Engineが定義したtyped Step実行 | State/Data、progress API | Bootstrap Provider/Control Plane Provider APIの解釈、任意shell command受付 |
 | controller HTTPS server | Agent request | 認証、Plan/Bundle配信、progress受付 | Secret、Operation Status | Token/Bootstrap Dataのlog出力 |
 
 Bootstrap Bundleはpayloadの意味をInfrastructure Providerが変更しないという意味で不透明である。ただし、`format`の識別、digest検証、対応Adapterの選択はInfrastructure Providerが行う。
@@ -93,7 +100,7 @@ Kubernetesオブジェクトの取得、pause/deletionの処理、owner確認、
 
 ### Port / Adapter
 
-Power、Boot、Media、Artifact、Kubernetes persistence、HTTP delivery、Distribution LifecycleをPortとして分離する。具体AdapterはWoL、Redfish、Kubernetes client、kubeadmとする。
+Power、Boot、Media、Artifact、Kubernetes persistence、HTTP delivery、Node Lifecycle EngineをPortとして分離する。具体AdapterはWoL、Redfish、Kubernetes client、kubeadm/k0s runtime engineとする。
 
 ## 4. リソースモデル
 
@@ -318,18 +325,18 @@ State/DataはPlanに記録したGPT PARTUUIDで識別し、OS image内の明示�
 
 ## 8. OSとKubernetes Distributionの分離
 
-OS profileはdisk layout、mount、kernel、initramfs、base userspaceを所有する。Kubernetes distribution profileは必要なbinary、service unit、永続path、health check、対応Bootstrap/Control Plane Providerを所有する。成果物pipelineで両者を組み合わせるが、APIとapplication serviceでは別の互換軸として扱う。
+OS profileはdisk layout、mount、kernel、initramfs、base userspaceを所有する。Kubernetes runtime profileは必要なbinary、service unit、永続path、health check、Node Lifecycle Engine capabilityを所有する。成果物pipelineで両者を組み合わせるが、APIとapplication serviceでは別の互換軸として扱う。
 
 - kubeadm: CABPKがBootstrap Dataを生成し、KCPまたはMachineDeploymentがversionと更新順を所有する。
-- k0s: k0smotron等のBootstrap/Control Plane ProviderがBootstrap Data、version、更新順を所有する。
-- k3s: 対応するBootstrap/Control Plane ProviderとCluster API InPlaceUpdate ownerが不足するため、KubernetesBinary更新は対象外とする。
+- k0s: k0smotron等のProviderがBootstrap Data、version、更新順を所有する。k0s Node Lifecycle Engineが実装済みのcapabilityだけをKubernetesBinary/StateMigration対象にする。
+- k3s: 初期ProvisioningとOSOnly更新のprofileは定義できる。k3s Node Lifecycle Engineが未実装の間は、KubernetesBinary/StateMigration更新を対象外とする。
 
 Infrastructure ProviderはBootstrap Dataを不透明なpayloadとして運び、`kubeadm init/join`、k0s config、k3s tokenの内容をcontroller内で組み立てない。
 
-KCP/CABPKは既存node上で`kubeadm upgrade`を実行しないため、Kubernetes更新には別の`DistributionLifecycleDriver`が必要である。これは任意shellを実行するremote APIではなく、versionedなtyped operationだけを受け付ける。
+Bootstrap ProviderやControl Plane Providerは既存node上のruntime変更を直接実行しないため、Kubernetes更新には別の`NodeLifecycleEngine`が必要である。これは任意shellを実行するremote APIではなく、versionedなtyped operationだけを受け付ける。
 
 ```go
-type DistributionLifecycleDriver interface {
+type NodeLifecycleEngine interface {
     Preflight(context.Context, UpdatePlan) (PreflightResult, error)
     PrepareSnapshot(context.Context, UpdatePlan) (SnapshotRef, error)
     Apply(context.Context, UpdatePlan) error
@@ -337,11 +344,11 @@ type DistributionLifecycleDriver interface {
 }
 ```
 
-kubeadm adapterは新OS slot内の署名済みNode Lifecycle Serviceから、対応versionに限定して`kubeadm upgrade plan/apply/node`を実行する。k0s adapterも同じ境界で、任意shellではなくtyped runtime operationだけを実行する。CAPI rollout owner（control planeはKCPまたはk0s Control Plane Provider、workerはMachineDeployment）がversionとnode順序を所有し、adapterがlocal state変更、snapshot、health確認を所有する。k3sはOSOnly更新と初期Provisioningのprofileだけを提供し、KubernetesBinary更新のDistribution Lifecycle PlanはPreflightで拒否する。
+kubeadm engineは新OS slot内の署名済みNode Lifecycle Serviceから、対応versionに限定して`kubeadm upgrade plan/apply/node`を実行する。k0s engineも同じ境界で、任意shellではなくtyped runtime operationだけを実行する。CAPI rollout ownerはProvider GVKに依存せず、Runtime Hook contractを満たす任意Providerとしてversionとnode順序を所有する。Node Lifecycle Engineはlocal state変更、snapshot、health確認を所有する。k3sはengine未実装の間、OSOnly更新と初期Provisioningのprofileだけを提供し、KubernetesBinary/StateMigrationのPlanはPreflightで拒否する。
 
 workerはcontrol planeがtarget versionを受理した後、inactive slotをstageする。新slotではkubeletを開始する前にState/Dataをmountし、distributionごとのtyped Applyを実行する。control planeは旧slot稼働中にpreflightとsnapshotを完了し、新OS slot（Inactive Slot）のパーティションを一時的に読み取り専用でマウントしてそこから target distribution binary を実行することでApplyし、その後に新slotを試行起動する。各stepの前後でplan digest、target version、snapshotRef、完了markerを`TartHostOperation`へ保存する。
 
-初期リリースのA/B更新はOS-onlyに限定する。Distribution Lifecycleが完成するまで、Kubernetes version差分を`CanUpdate*`で覆ってはならない。
+初期リリースのA/B更新はOS-onlyに限定する。Node Lifecycle Engineが完成するまで、Kubernetes version差分を`CanUpdate*`で覆ってはならない。
 
 ## 9. Artifact
 
@@ -468,7 +475,7 @@ Step 2より後で失敗した場合は同じOperationをStatusから再開す�
 
 ### 12.3 KubernetesBinary/StateMigration
 
-1. CAPI rollout ownerが対象Nodeを更新可能とした後だけOperationを開始する。
+1. Runtime Hook contractを満たすCAPI rollout ownerが対象Nodeを更新可能とした後だけOperationを開始する。
 2. Node Lifecycle Serviceが`Preflight`を実行し、version skew、disk空き容量、State schemaを検査する。
 3. control planeまたはStateMigrationでは`PrepareSnapshot`を実行し、SnapshotRefをStatusへ保存する。
 4. control planeでは旧slot稼働中にtarget kubeadmの`upgrade apply`を実行する。

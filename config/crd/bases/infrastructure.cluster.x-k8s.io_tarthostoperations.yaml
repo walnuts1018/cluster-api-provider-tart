@@ -348,8 +348,8 @@ spec:
                 - stateMounted
                 type: object
               lifecyclePhase:
-                description: lifecyclePhase identifies the current typed distribution
-                  lifecycle step.
+                description: lifecyclePhase identifies the current typed node lifecycle
+                  engine step.
                 enum:
                 - Preflight
                 - Snapshot

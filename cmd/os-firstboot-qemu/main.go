@@ -50,6 +50,7 @@ const (
 	defaultTimeout     = 10 * time.Minute
 	defaultCPU         = "qemu64"
 	defaultScenario    = scenarioFirstBoot
+	persistentDiskSize = 128 << 20
 
 	operationUID       = "qemu-firstboot-operation"
 	hostUID            = "qemu-firstboot-host"
@@ -480,11 +481,11 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 		return err
 	}
 	stateDiskPath := filepath.Join(cfg.workDir, "state.raw")
-	if err := createLabeledExt4Disk(ctx, stateDiskPath, 128<<20, "tart-state"); err != nil {
+	if err := createLabeledExt4Disk(ctx, stateDiskPath, "tart-state"); err != nil {
 		return err
 	}
 	dataDiskPath := filepath.Join(cfg.workDir, "data.raw")
-	if err := createLabeledExt4Disk(ctx, dataDiskPath, 128<<20, "tart-data"); err != nil {
+	if err := createLabeledExt4Disk(ctx, dataDiskPath, "tart-data"); err != nil {
 		return err
 	}
 	metadataScriptPath, err := writeTextFile(
@@ -660,6 +661,14 @@ func verifyBootloaderRollback(ctx context.Context, cfg config) error {
 	); err != nil {
 		return err
 	}
+	stateDiskPath := filepath.Join(cfg.workDir, "state.raw")
+	if err := createLabeledExt4Disk(ctx, stateDiskPath, "tart-state"); err != nil {
+		return err
+	}
+	dataDiskPath := filepath.Join(cfg.workDir, "data.raw")
+	if err := createLabeledExt4Disk(ctx, dataDiskPath, "tart-data"); err != nil {
+		return err
+	}
 
 	espDiskPath := filepath.Join(cfg.workDir, "esp.raw")
 	if err := createBootloaderESPDisk(ctx, cfg.workDir, espDiskPath, paths, "/dev/vdb"); err != nil {
@@ -685,6 +694,8 @@ func verifyBootloaderRollback(ctx context.Context, cfg config) error {
 			[]qemuDrive{
 				{path: espDiskPath, id: "espdisk", serial: "qemu-esp"},
 				{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
+				{path: stateDiskPath, id: "statedisk", serial: "qemu-state"},
+				{path: dataDiskPath, id: "datadisk", serial: "qemu-data"},
 			},
 		)
 		if err != nil {
@@ -840,8 +851,8 @@ func createTargetDisk(path string, sizeBytes int64) error {
 	return nil
 }
 
-func createLabeledExt4Disk(ctx context.Context, path string, sizeBytes int64, label string) error {
-	if err := createTargetDisk(path, sizeBytes); err != nil {
+func createLabeledExt4Disk(ctx context.Context, path, label string) error {
+	if err := createTargetDisk(path, persistentDiskSize); err != nil {
 		return err
 	}
 	command := exec.CommandContext(ctx, "mkfs.ext4", "-F", "-L", label, path)

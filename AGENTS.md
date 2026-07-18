@@ -13,7 +13,6 @@
 - 定期的に実行するコマンドはmiseのtaskとして定義してください。
 - Kubernetesコントローラの実装、Custom ResourceやWebHookの追加には必ずcontroller-genやkubebuilderを用いてください。
 - テスト用のドメインが必要な場合は、`hoge.test.walnuts.dev`や`hoge.sample.walnuts.dev`を利用して下さい。
-- `mise run test-e2e`や`mise run test-provisioning-e2e`は手元では実行せずに、GitHub Action上でのみ実行してください。
 - 再設計タスクの検証は、可能な限りCIで再現できる形へ寄せてください。詳細は `docs/redesign/ci-verification.md` を正本とし、ローカル手順だけを完了証跡にしないでください。
 - 現状まだ開発中で未リリースなので、破壊的変更はどのようなものでも自由に行ってください。変更を最小にすることよりも、実装の美しさや使いやすさなどを優先してください。v1alpha1は廃止済みなので、互換性を保ったり考慮したりする必要はありません。
 - Antigravity CLI経由で`Gemini 3.1 Pro (High)`を利用することができます。メインで用いるコーディングエージェントの利用量を節約するために活用してください。`agy -p  <指示>`で起動することができます。

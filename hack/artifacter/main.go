@@ -69,12 +69,17 @@ func main() {
 		Password: password,
 	}
 
-	if err := pushOCIArtifact(ctx, dir, tag, repository, cred); err != nil {
+	artifactDigest, err := pushOCIArtifact(ctx, dir, tag, repository, cred)
+	if err != nil {
 		slog.Error("failed to push OCI artifact", "error", err)
 		os.Exit(1)
 	}
 
-	slog.Info("successfully pushed OCI artifact", "repository", repository, "tag", tag)
+	if _, err := fmt.Fprintln(os.Stdout, artifactDigest); err != nil {
+		slog.Error("failed to write artifact digest", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("successfully pushed OCI artifact", "repository", repository, "tag", tag, "digest", artifactDigest)
 }
 
 type RepositoryCredential struct {
@@ -83,18 +88,18 @@ type RepositoryCredential struct {
 	Password string
 }
 
-func pushOCIArtifact(ctx context.Context, dir string, tag string, repository string, cred ...RepositoryCredential) error {
+func pushOCIArtifact(ctx context.Context, dir string, tag string, repository string, cred ...RepositoryCredential) (digest.Digest, error) {
 	if tag == "" {
-		return fmt.Errorf("artifact tag is required")
+		return "", fmt.Errorf("artifact tag is required")
 	}
 	if tag == "latest" {
-		return fmt.Errorf("mutable latest artifact tag is not allowed")
+		return "", fmt.Errorf("mutable latest artifact tag is not allowed")
 	}
 	store := memory.New()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return fmt.Errorf("failed to read dir: %w", err)
+		return "", fmt.Errorf("failed to read dir: %w", err)
 	}
 
 	layerDescs := make([]ocispecv1.Descriptor, 0, len(entries))
@@ -103,12 +108,12 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 	for _, entry := range entries {
 		tarGzBytes, diffID, err := buildTarGzForEntry(dir, entry.Name())
 		if err != nil {
-			return fmt.Errorf("failed to build tar.gz for %s: %w", entry.Name(), err)
+			return "", fmt.Errorf("failed to build tar.gz for %s: %w", entry.Name(), err)
 		}
 
 		desc := content.NewDescriptorFromBytes(ocispecv1.MediaTypeImageLayerGzip, tarGzBytes)
 		if err := store.Push(ctx, desc, bytes.NewReader(tarGzBytes)); err != nil {
-			return fmt.Errorf("failed to push layer for %s: %w", entry.Name(), err)
+			return "", fmt.Errorf("failed to push layer for %s: %w", entry.Name(), err)
 		}
 		layerDescs = append(layerDescs, desc)
 		diffIDs = append(diffIDs, diffID)
@@ -131,12 +136,12 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 
 		configData, err := json.Marshal(configObj)
 		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
+			return "", fmt.Errorf("failed to marshal config: %w", err)
 		}
 
 		configDesc := content.NewDescriptorFromBytes(ocispecv1.MediaTypeImageConfig, configData)
 		if err := store.Push(ctx, configDesc, bytes.NewReader(configData)); err != nil {
-			return fmt.Errorf("failed to push config for %s: %w", arch, err)
+			return "", fmt.Errorf("failed to push config for %s: %w", arch, err)
 		}
 
 		packOpts := oras.PackManifestOptions{
@@ -145,7 +150,7 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 		}
 		manifestDesc, err := oras.PackManifest(ctx, store, oras.PackManifestVersion1_1, ocispecv1.MediaTypeImageManifest, packOpts)
 		if err != nil {
-			return fmt.Errorf("failed to pack manifest for %s: %w", arch, err)
+			return "", fmt.Errorf("failed to pack manifest for %s: %w", arch, err)
 		}
 
 		manifestDesc.Platform = &ocispecv1.Platform{
@@ -162,20 +167,20 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 	}
 	indexBytes, err := json.Marshal(index)
 	if err != nil {
-		return fmt.Errorf("failed to marshal index: %w", err)
+		return "", fmt.Errorf("failed to marshal index: %w", err)
 	}
 	indexDesc := content.NewDescriptorFromBytes(ocispecv1.MediaTypeImageIndex, indexBytes)
 	if err := store.Push(ctx, indexDesc, bytes.NewReader(indexBytes)); err != nil {
-		return fmt.Errorf("failed to push index: %w", err)
+		return "", fmt.Errorf("failed to push index: %w", err)
 	}
 
 	if err := store.Tag(ctx, indexDesc, tag); err != nil {
-		return fmt.Errorf("failed to tag index: %w", err)
+		return "", fmt.Errorf("failed to tag index: %w", err)
 	}
 
 	repo, err := remote.NewRepository(repository)
 	if err != nil {
-		return fmt.Errorf("failed to create remote repository: %w", err)
+		return "", fmt.Errorf("failed to create remote repository: %w", err)
 	}
 
 	var credential auth.CredentialFunc
@@ -193,10 +198,10 @@ func pushOCIArtifact(ctx context.Context, dir string, tag string, repository str
 	}
 
 	if _, err = oras.Copy(ctx, store, tag, repo, tag, oras.DefaultCopyOptions); err != nil {
-		return fmt.Errorf("failed to push OCI artifact: %w", err)
+		return "", fmt.Errorf("failed to push OCI artifact: %w", err)
 	}
 
-	return nil
+	return indexDesc.Digest, nil
 }
 
 func buildTarGzForEntry(baseDir, entryName string) ([]byte, digest.Digest, error) {

@@ -19,7 +19,7 @@ import "testing"
 func TestPushOCIArtifactは可変または空のTagを拒否する(t *testing.T) {
 	for _, tag := range []string{"", "latest"} {
 		t.Run(tag, func(t *testing.T) {
-			if err := pushOCIArtifact(t.Context(), t.TempDir(), tag, "registry.test.walnuts.dev/tart/ipxe"); err == nil {
+			if _, err := pushOCIArtifact(t.Context(), t.TempDir(), tag, "registry.test.walnuts.dev/tart/ipxe"); err == nil {
 				t.Fatalf("pushOCIArtifact(tag=%q) error = nil", tag)
 			}
 		})

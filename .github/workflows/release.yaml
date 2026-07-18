@@ -22,6 +22,8 @@ jobs:
   ipxe:
     name: Build and Push iPXE OCI Artifact
     runs-on: ubuntu-slim
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -58,20 +60,27 @@ jobs:
 
       - name: Resolve image tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
-            image_tag="${{ github.ref_name }}"
+            image_tag="$RELEASE_TAG"
           else
-            image_tag="${{ inputs.image_tag }}"
+            image_tag="$MANUAL_IMAGE_TAG"
           fi
+          [[ "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]
+          [ "$image_tag" != latest ]
           echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Push OCI Artifact using ORAS
+        id: push
         run: |
-          go run hack/artifacter/main.go \
+          digest=$(go run hack/artifacter/main.go \
             -dir dist/ipxe \
             -repo ${{ env.REGISTRY }}/${{ env.IPXE_IMAGE_NAME }} \
-            -tag ${{ steps.tag.outputs.ImageTag }}
+            -tag ${{ steps.tag.outputs.ImageTag }})
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -134,6 +143,8 @@ jobs:
     name: Merge multi-arch image
     runs-on: ubuntu-latest
     needs: build
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
     permissions:
       contents: read
       packages: write
@@ -159,15 +170,21 @@ jobs:
 
       - name: Resolve image tag
         id: tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          MANUAL_IMAGE_TAG: ${{ inputs.image_tag }}
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
-            image_tag="${{ github.ref_name }}"
+            image_tag="$RELEASE_TAG"
           else
-            image_tag="${{ inputs.image_tag }}"
+            image_tag="$MANUAL_IMAGE_TAG"
           fi
+          [[ "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]
+          [ "$image_tag" != latest ]
           echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
 
       - name: Create manifest list and push
+        id: manifest
         working-directory: /tmp/digests
         run: |
           # shellcheck disable=SC2046
@@ -175,10 +192,16 @@ jobs:
             -t "${REGISTRY}/${IMAGE_NAME}:latest" \
             -t "${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" \
             $(printf "${REGISTRY}/${IMAGE_NAME}@sha256:%s " *)
+          digest=$(docker buildx imagetools inspect \
+            "${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
   manifest:
     name: Release manifest
     runs-on: ubuntu-slim
+    needs: [merge, ipxe]
     permissions:
       contents: read
     steps:
@@ -188,19 +211,11 @@ jobs:
       - name: Setup tools
         uses: ./.github/actions/setup-tools
 
-      - name: Resolve image tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            image_tag="${{ github.ref_name }}"
-          else
-            image_tag="${{ inputs.image_tag }}"
-          fi
-          echo "ImageTag=${image_tag}" >> "$GITHUB_OUTPUT"
-
       - name: Build release manifest
         run: |
-          IMG="${REGISTRY}/${IMAGE_NAME}:${{ steps.tag.outputs.ImageTag }}" mise run build-installer
+          IMG="${REGISTRY}/${IMAGE_NAME}@${{ needs.merge.outputs.digest }}" \
+          IPXE_REF="${REGISTRY}/${IPXE_IMAGE_NAME}@${{ needs.ipxe.outputs.digest }}" \
+            mise run build-installer
           cp dist/install.yaml dist/infrastructure-components.yaml
           cp metadata.yaml dist/metadata.yaml
 

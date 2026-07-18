@@ -88,6 +88,6 @@ spec:
           secretName: tart-provisioning-credentials
           defaultMode: 0440
       - name: agent-artifact
-        hostPath:
-          path: /srv/tart/agent-artifact
-          type: Directory
+        image:
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest
+          pullPolicy: IfNotPresent

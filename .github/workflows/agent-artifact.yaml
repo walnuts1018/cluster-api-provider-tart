@@ -99,6 +99,7 @@ jobs:
           AGENT_ARTIFACT_OUTPUT_DIR=dist/agent-artifact \
             mise run agent-artifact-manifest
           cp dist/agent-artifact/manifest.json dist/agent-artifact/manifest.signature.json "$RUNNER_TEMP/"
+          go run ./cmd/artifacter -dir dist/agent-artifact -repo "$AGENT_REPOSITORY" -tag "$AGENT_TAG"
           printf 'AGENT_ARTIFACT_REFERENCE=%s\n' "$reference" > dist/agent-artifact/references.env
           echo "reference=$reference" >> "$GITHUB_OUTPUT"
 

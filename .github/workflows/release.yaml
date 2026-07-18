@@ -215,8 +215,9 @@ jobs:
         run: |
           IMG="${REGISTRY}/${IMAGE_NAME}@${{ needs.merge.outputs.digest }}" \
           IPXE_REF="${REGISTRY}/${IPXE_IMAGE_NAME}@${{ needs.ipxe.outputs.digest }}" \
-            mise run build-installer
-          cp dist/install.yaml dist/infrastructure-components.yaml
+          AGENT_ARTIFACT_REF="${REGISTRY}/${{ github.repository }}-provisioning-agent:${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}" \
+            mise run build-installer-real-hardware
+          cp dist/install-real-hardware.yaml dist/infrastructure-components.yaml
           cp metadata.yaml dist/metadata.yaml
 
       - name: Upload release manifests

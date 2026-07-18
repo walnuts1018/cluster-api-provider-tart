@@ -19,7 +19,7 @@ GitHubのReleaseから、同じRelease tagの次のファイルを取得しま�
 - `infrastructure-components.yaml`: Provider imageとiPXEをdigest固定で参照するCAPI install manifest
 - `metadata.yaml`: `clusterctl`用Provider metadata
 - `reference.txt`: Ubuntu 24.04 amd64 OS Artifactのdigest固定OCI参照
-- Agent Artifactの`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`、`agent-artifact-public.pem`、`references.env`
+- Agent Artifactの署名公開鍵と参照情報
 
 OS ArtifactとAgent Artifactのworkflowは、Release作成または`workflow_dispatch`で実行されます。Release以外で手動実行する場合は、指定したtagのGHCR参照を使用してください。
 
@@ -54,7 +54,7 @@ kubectl apply -f infrastructure-components.yaml
 kubectl -n "$TART_NAMESPACE" rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=5m
 ```
 
-管理nodeへProvisioning network labelを付けます。Deploymentが別nodeへ移動する場合、そのnodeにも同じAgent Artifactを先に配置してください。
+管理nodeへProvisioning network labelを付けます。Deploymentが別nodeへ移動してもAgent ArtifactはOCI image volumeから取得されます。
 
 ```bash
 kubectl label node MANAGEMENT_NODE tart.walnuts.dev/provisioning-network=true
@@ -67,14 +67,9 @@ kubectl -n "$TART_NAMESPACE" logs deployment/cluster-api-provider-tart-controlle
 kubectl get crd tartclusters.infrastructure.cluster.x-k8s.io
 ```
 
-Agent Artifactの公開鍵とOS Artifactの公開鍵はRelease assetから取得し、Agent API証明書・秘密鍵とAgent Plan秘密鍵は管理クラスタのSecretへ登録します。Artifact payloadは、Provider Podが動くnodeの`/srv/tart/agent-artifact`へ配置します。これはビルドではなく、Release assetの展開です。
+Agent Artifactの公開鍵とOS Artifactの公開鍵はRelease assetから取得し、Agent API証明書・秘密鍵とAgent Plan秘密鍵は管理クラスタのSecretへ登録します。Agent Artifact payloadはProviderのOCI image volumeから自動的にマウントされるため、node上へのファイル配置は不要です。
 
 Releaseの署名を継続利用する場合は、GitHub Actionsの`OS_ARTIFACT_SIGNING_KEY`をRepository Secretとして固定してください。未設定時はworkflow実行ごとに一時鍵が生成されるため、対応する公開鍵を毎回Secretへ更新する必要があります。
-
-```bash
-mkdir -p /srv/tart/agent-artifact
-cp manifest.json manifest.signature.json vmlinuz initrd /srv/tart/agent-artifact/
-```
 
 ## 3. Host inventoryを登録する
 

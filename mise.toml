@@ -849,13 +849,14 @@ kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
 description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml を生成する"
 run = '''
 IMG="${IMG:-controller:latest}"
+AGENT_ARTIFACT_REF="${AGENT_ARTIFACT_REF:-ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest}"
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
 cp config/manager/kustomization.yaml "$manager_kustomization"
 trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
 mkdir -p dist
-(cd config/manager && kustomize edit set image controller="$IMG")
+(cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent=$AGENT_ARTIFACT_REF")
 kustomize build config/real-hardware > dist/install-real-hardware.yaml
 '''
 

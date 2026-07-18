@@ -139,7 +139,7 @@ func DumpControllerLogs(artifactDir string) error {
 	return nil
 }
 
-// DumpDnsmasqState collects dnsmasq-related debug information.
+// DumpDnsmasqStateはdnsmasqと周辺networkの診断情報を保存する。
 func DumpDnsmasqState(artifactDir string) error {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create artifact directory: %w", err)
@@ -152,7 +152,6 @@ func DumpDnsmasqState(artifactDir string) error {
 	}{
 		{"dnsmasq-process.txt", "pgrep", []string{"-af", "dnsmasq"}},
 		{"dnsmasq-leases.txt", "cat", []string{"/tmp/dnsmasq.leases"}},
-		{"dnsmasq-dhcp.txt", "dnsmasq", []string{"--query=.", "--log-dhcp", "--log-queries"}},
 		{"bridge-info.txt", "ip", []string{"link", "show", "br0"}},
 		{"bridge-addresses.txt", "ip", []string{"addr", "show", "br0"}},
 		{"route-table.txt", "ip", []string{"route"}},

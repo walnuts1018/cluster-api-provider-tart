@@ -19,6 +19,8 @@ normalize_snapshot() {
   jq -eS '
     def required_string($name):
       if type == "string" and length > 0 then . else error($name + " must be a non-empty string") end;
+    def string_value($name):
+      if type == "string" then . else error($name + " must be a string") end;
     def insert_unique($key; $value):
       if has($key) then error("duplicate snapshot key: " + $key) else .[$key] = $value end;
 
@@ -27,7 +29,7 @@ normalize_snapshot() {
     | if (.pvcs | type) != "array" then error("pvcs must be an array") else . end
     | {
         resources: reduce .resources[] as $resource ({};
-          ($resource.namespace | required_string("resource namespace")) as $namespace
+          ($resource.namespace | string_value("resource namespace")) as $namespace
           | ($resource.kind | required_string("resource kind")) as $kind
           | ($resource.name | required_string("resource name")) as $name
           | ($resource.uid | required_string("resource uid")) as $uid

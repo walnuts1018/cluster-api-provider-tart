@@ -75,7 +75,10 @@ KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCAL
 
 [tasks.test-resource-preservation]
 description = "クラスタ更新前後のResource UIDとPVC digest比較契約を検証する"
-run = "hack/verify-resource-preservation_test.sh"
+run = '''
+hack/verify-resource-preservation_test.sh
+hack/collect-resource-preservation-snapshot_test.sh
+'''
 
 [tasks.test-redfish-contract]
 description = "Redfish simulator contract test を実行する"
@@ -184,6 +187,10 @@ run = '''
 shellcheck \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot \
+  hack/collect-resource-preservation-snapshot.sh \
+  hack/collect-resource-preservation-snapshot_test.sh \
+  hack/resource-preservation-phase.sh \
+  hack/testdata/fake-kubectl \
   hack/verify-resource-preservation.sh \
   hack/verify-resource-preservation_test.sh
 '''

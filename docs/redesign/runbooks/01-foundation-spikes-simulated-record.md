@@ -75,7 +75,7 @@ acceptance 8 のうち「4 回分の boot 順序」「4 回目で target を再�
 - `hack/boot-trial-rollback-sim`
   - rollback 判定入力と状態遷移の evidence 生成
 
-## 2026-07-17 時点で CI に残している完了証跡
+## 2026-07-18 時点で CI に残している完了証跡
 
 - `OS Artifact` workflow の build evidence artifact
 - `dist/os-artifact/dm-verity/*`
@@ -83,6 +83,14 @@ acceptance 8 のうち「4 回分の boot 順序」「4 回目で target を再�
 - `dist/os-artifact/boot-trial-metadata-persistence/*`
 - `dist/os-artifact/bootloader-rollback/*`
 - `dist/os-artifact/qemu-firstboot/*`
+- `OS Artifact` workflow run `29630838351`
+- `CI` workflow run `29630838422`
+
+## 2026-07-18 時点の補足
+
+`OS Artifact` workflow run `29630838351` で、`Verify bootloader rollback after three failed target boots`
+まで含めて成功した。これで acceptance 8 の CI 証跡は、rollback 判定系、metadata 永続化系、
+boot 選択実証系の 3 系統がそろった。
 
 ## なお CI で未代替の残差
 

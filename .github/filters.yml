@@ -22,11 +22,9 @@
   - ".github/filters.yml"
   - "renovate.json5"
 
-go:
-  - *go-paths
+go: *go-paths
 
-# lint は go-paths に加えて golangci-lint 設定ファイルも対象
-lint:
-  - *go-paths
+# lint設定だけが変わった場合にもlintを実行する。
+lint_config:
   - ".golangci.yml"
   - ".custom-gcl.yml"

@@ -853,7 +853,16 @@ set -e
 # 1. Install k3s if not present
 if ! command -v k3s &> /dev/null; then
   echo "Installing k3s..."
-  curl -fsSL https://get.k3s.io | sh -
+  k3s_lock=artifact/locks/k3s-e2e.json
+  k3s_version=$(jq -er '.version' "$k3s_lock")
+  k3s_installer_url=$(jq -er '.installer.url' "$k3s_lock")
+  k3s_installer_sha256=$(jq -er '.installer.sha256' "$k3s_lock")
+  k3s_installer=$(mktemp)
+  trap 'rm -f "$k3s_installer"' EXIT
+  curl --fail --silent --show-error --location \
+    "$k3s_installer_url" --output "$k3s_installer"
+  echo "$k3s_installer_sha256  $k3s_installer" | sha256sum --check --strict
+  sudo env INSTALL_K3S_VERSION="$k3s_version" sh "$k3s_installer"
   sleep 10
 else
   echo "k3s is already installed."

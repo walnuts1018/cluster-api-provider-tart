@@ -1,0 +1,7 @@
+{
+  "version": "v1.35.4+k3s1",
+  "installer": {
+    "url": "https://raw.githubusercontent.com/k3s-io/k3s/v1.35.4%2Bk3s1/install.sh",
+    "sha256": "8598e002e61d658fed7b7542fc6d2c66d8da6eae69e088830105d2ee1ffb6d91"
+  }
+}

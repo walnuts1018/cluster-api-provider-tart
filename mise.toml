@@ -129,13 +129,26 @@ fi
 '''
 
 [tasks.lint]
-description = "golangci-lint を実行する"
+description = "golangci-lint を実行する（ローカル開発用: --fix で自動修正を行う）"
 run = '''
 mise run ensure-custom-golangci-lint
 if [ -x bin/golangci-lint ]; then
   bin/golangci-lint run --fix
 else
   golangci-lint run --fix
+fi
+mise run actionlint
+mise run lint-shell
+'''
+
+[tasks.ci-lint]
+description = "CI 用 lint（--fix なし: 自動修正せず lint エラーを検出のみ）"
+run = '''
+mise run ensure-custom-golangci-lint
+if [ -x bin/golangci-lint ]; then
+  bin/golangci-lint run
+else
+  golangci-lint run
 fi
 mise run actionlint
 mise run lint-shell

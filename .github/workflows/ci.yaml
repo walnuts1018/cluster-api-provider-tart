@@ -84,7 +84,7 @@ jobs:
             go-mod-${{ runner.os }}-
 
       - name: Lint
-        run: mise lint
+        run: mise ci-lint
 
   test:
     name: Test

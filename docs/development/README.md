@@ -5,4 +5,5 @@
 
 - [開発ガイド](development.md): セットアップ、生成、テスト、変更時の確認
 - [アーキテクチャ](architecture.md): コンポーネントの責務と依存方向
+- [リソースと Provisioning の流れ](resources-and-provisioning.md): CR、Operation、Agent 通信、セキュリティ境界
 - [検証方針](verification.md): CI と実機検証の役割分担

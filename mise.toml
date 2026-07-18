@@ -50,12 +50,21 @@ description = "Go コードを go vet で検証する"
 run = "go vet ./..."
 
 [tasks.test]
-description = "Go テストを実行する"
+description = "Go テストを実行する（ローカル開発用: manifests/generate/fmt/vet を含む）"
 run = '''
 mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+LOCALBIN="${LOCALBIN:-$PWD/bin}"
+ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
+KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
+  go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
+'''
+
+[tasks.ci-test]
+description = "CI 用テスト（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
+run = '''
 LOCALBIN="${LOCALBIN:-$PWD/bin}"
 ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
 KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
@@ -166,12 +175,21 @@ shellcheck \
 '''
 
 [tasks.build]
-description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする"
+description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"
 run = '''
 mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+mkdir -p bin
+go build -o bin/manager cmd/main.go
+go build -o bin/provisioning-agent ./cmd/provisioning-agent
+go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
+'''
+
+[tasks.ci-build]
+description = "CI 用ビルドチェック（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
+run = '''
 mkdir -p bin
 go build -o bin/manager cmd/main.go
 go build -o bin/provisioning-agent ./cmd/provisioning-agent

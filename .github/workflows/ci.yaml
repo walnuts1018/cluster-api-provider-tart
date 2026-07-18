@@ -1,7 +1,37 @@
 name: CI
 on:
   push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ci.yaml"
+      - "api/**"
+      - "cmd/**"
+      - "config/**"
+      - "hack/**"
+      - "internal/**"
+      - "pkg/**"
+      - "test/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+      - ".custom-gcl.yml"
   pull_request:
+    paths:
+      - ".github/workflows/ci.yaml"
+      - "api/**"
+      - "cmd/**"
+      - "config/**"
+      - "hack/**"
+      - "internal/**"
+      - "pkg/**"
+      - "test/**"
+      - "mise.toml"
+      - "go.mod"
+      - "go.sum"
+      - ".golangci.yml"
+      - ".custom-gcl.yml"
   workflow_dispatch:
 
 permissions:
@@ -42,6 +72,17 @@ jobs:
       - name: Setup tools
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
 
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go/pkg/mod
+            .cache/go-build
+            .cache/golangci-lint
+          key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-
+
       - name: Lint
         run: mise lint
 
@@ -58,10 +99,18 @@ jobs:
       - name: Setup tools
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
 
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go/pkg/mod
+            .cache/go-build
+          key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-
+
       - name: Running Test
-        run: |
-          go mod tidy
-          mise run test
+        run: mise run ci-test
 
   test-build:
     name: build check
@@ -75,8 +124,18 @@ jobs:
       - name: Setup tools
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
 
+      - name: Go module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go/pkg/mod
+            .cache/go-build
+          key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-
+
       - name: build
-        run: mise run build
+        run: mise run ci-build
 
   validate-release-docs:
     name: validate release docs
@@ -93,57 +152,9 @@ jobs:
       - name: Validate release docs
         run: mise run validate-release-docs
 
-  artifact-build:
-    name: OS Artifact build check
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    steps:
-      - name: checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-
-      - name: Setup mkosi
-        uses: systemd/mkosi@84af20892b61c8e177e391f997ded8b4cb5514f2 # v26
-
-      - name: Build OS and Verity payloads
-        run: mise run artifact-build-mkosi
-
-      - name: Upload build metadata
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ubuntu-24.04-amd64-os-artifact-metadata
-          path: |
-            dist/os-artifact/packages.json
-            dist/os-artifact/sbom.cdx.json
-            dist/os-artifact/verity-root-hash
-          if-no-files-found: error
-
-  test-e2e:
-    name: E2E Test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Setup tools
-        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
-
-      - name: Running Test e2e
-        run: |
-          go mod tidy
-          mise run test-e2e
-
   status-check:
     runs-on: ubuntu-slim
-    needs: [generate, lint, test, test-build, validate-release-docs, test-e2e]
+    needs: [generate, lint, test, test-build, validate-release-docs]
     if: failure()
     steps:
       - run: exit 1

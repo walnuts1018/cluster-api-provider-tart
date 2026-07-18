@@ -581,6 +581,7 @@ case "$distribution" in
 esac
 extra_dir="artifact/mkosi/mkosi.extra"
 runtime_input_dir="${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
+workspace_dir="${ARTIFACT_MKOSI_WORKSPACE_DIR:-}"
 mkdir -p "$extra_dir/usr/bin"
 CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/node-lifecycle-service" ./cmd/node-lifecycle-service
@@ -610,6 +611,9 @@ set -- \
   --output "tart-$os_family-$os_version-$architecture-$distribution" \
   --snapshot "$snapshot" \
   --source-date-epoch "$source_date_epoch"
+if [ -n "$workspace_dir" ]; then
+  set -- "$@" --workspace-directory "$workspace_dir"
+fi
 if [ "$distribution" = k0s ]; then
   set -- "$@" \
     --remove-package kubeadm \

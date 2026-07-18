@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type config struct {
@@ -80,7 +81,9 @@ func run(ctx context.Context, args []string) error {
 	bootMounted := true
 	defer func() {
 		if bootMounted {
-			if unmountErr := command(context.Background(), "umount", bootMount); unmountErr != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cleanupCancel()
+			if unmountErr := command(cleanupCtx, "umount", bootMount); unmountErr != nil {
 				slog.Error("Failed to unmount Boot partition", "error", unmountErr)
 			}
 		}
@@ -91,7 +94,9 @@ func run(ctx context.Context, args []string) error {
 	stateMounted := true
 	defer func() {
 		if stateMounted {
-			if unmountErr := command(context.Background(), "umount", stateMount); unmountErr != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+			defer cleanupCancel()
+			if unmountErr := command(cleanupCtx, "umount", stateMount); unmountErr != nil {
 				slog.Error("Failed to unmount State partition", "error", unmountErr)
 			}
 		}

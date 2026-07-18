@@ -46,6 +46,33 @@ func TestResolverはMACに対応するActiveOperationを返す(t *testing.T) {
 	}
 }
 
+func TestResolverは削除中Hostをboot候補から除外する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	activeHost := testHost()
+	activeHost.Name = "active-host"
+	activeHost.UID = types.UID("active-host-uid")
+	operation := testOperation(activeHost)
+
+	deletingHost := testHost()
+	deletingHost.Name = "deleting-host"
+	deletingHost.UID = types.UID("deleting-host-uid")
+	deletingHost.Finalizers = []string{"test.infrastructure.cluster.x-k8s.io/hold"}
+	deletionTime := metav1.Now()
+	deletingHost.DeletionTimestamp = &deletionTime
+
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(activeHost, deletingHost, operation).Build())
+	target, err := resolver.Resolve(t.Context(), activeHost.Spec.Identifiers.BootMACAddress)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if target.HostUID != string(activeHost.UID) {
+		t.Fatalf("Resolve().HostUID = %q, want %q", target.HostUID, activeHost.UID)
+	}
+}
+
 func TestResolverは対象外HostとOperationを拒否する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {

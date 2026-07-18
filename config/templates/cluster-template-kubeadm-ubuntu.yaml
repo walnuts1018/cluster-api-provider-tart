@@ -47,9 +47,6 @@ spec:
       apiServer:
         certSANs:
         - ${CONTROL_PLANE_ENDPOINT_HOST}
-      networking:
-        podSubnet: ${POD_CIDR:=192.168.0.0/16}
-        serviceSubnet: ${SERVICE_CIDR:=10.128.0.0/12}
     initConfiguration:
       nodeRegistration:
         criSocket: unix:///var/run/containerd/containerd.sock

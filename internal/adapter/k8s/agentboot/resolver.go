@@ -79,6 +79,9 @@ func (resolver *Resolver) findHost(
 	}
 	var found *infrastructurev1beta1.TartHost
 	for i := range hosts.Items {
+		if !hosts.Items[i].DeletionTimestamp.IsZero() {
+			continue
+		}
 		candidateMAC, err := normalizeMAC(hosts.Items[i].Spec.Identifiers.BootMACAddress)
 		if err != nil || candidateMAC != normalizedMAC {
 			continue

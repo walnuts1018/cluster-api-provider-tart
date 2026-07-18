@@ -59,8 +59,9 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 	)
 
 	BeforeEach(func() {
-		ctx, cancel = context.WithCancel(context.TODO())
+		ctx, cancel = context.WithCancel(context.Background())
 		clusterName = fmt.Sprintf("tart-e2e-%s", util.RandomString(6))
+		simulators = nil
 
 		Expect(bootstrapClusterProxy).NotTo(BeNil(), "BootstrapClusterProxy can't be nil")
 		namespace, watchCancel = framework.CreateNamespaceAndWatchEvents(ctx, framework.CreateNamespaceAndWatchEventsInput{
@@ -110,7 +111,6 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		for _, sim := range simulators {
 			Expect(sim.Stop()).To(Succeed())
 		}
-		cleanupNodeReadySimulation(ctx, bootstrapClusterProxy.GetClient(), clusterName)
 		if namespace != nil {
 			By("Collecting test namespace resources before cleanup")
 			framework.DumpAllResources(ctx, framework.DumpAllResourcesInput{
@@ -126,6 +126,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 				),
 			})
 		}
+		cleanupNodeReadySimulation(ctx, bootstrapClusterProxy.GetClient(), clusterName)
 		if namespace != nil && !skipCleanup {
 			framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
 				Deleter: bootstrapClusterProxy.GetClient(),

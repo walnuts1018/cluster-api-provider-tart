@@ -66,11 +66,16 @@ KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCAL
 [tasks.ci-test]
 description = "CI 用テスト（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
 run = '''
+mise run test-resource-preservation
 LOCALBIN="${LOCALBIN:-$PWD/bin}"
 ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
 KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
   go test $(go list ./... | grep -v /e2e) -coverprofile cover.out
 '''
+
+[tasks.test-resource-preservation]
+description = "クラスタ更新前後のResource UIDとPVC digest比較契約を検証する"
+run = "hack/verify-resource-preservation_test.sh"
 
 [tasks.test-redfish-contract]
 description = "Redfish simulator contract test を実行する"
@@ -178,7 +183,9 @@ description = "repository内のshell scriptをshellcheckで検証する"
 run = '''
 shellcheck \
   artifact/mkosi/mkosi.extra/usr/libexec/tart/apply-cloud-config \
-  artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot
+  artifact/mkosi/mkosi.extra/usr/libexec/tart/first-boot \
+  hack/verify-resource-preservation.sh \
+  hack/verify-resource-preservation_test.sh
 '''
 
 [tasks.build]

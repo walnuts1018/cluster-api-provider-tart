@@ -13,7 +13,7 @@
 | 状態 | 対象 | 課題 | 改善案 | 完了条件 |
 |---|---|---|---|---|
 | 完了 | `config/prometheus/monitor.yaml` | `insecureSkipVerify: true` が標準マニフェストで有効だった。 | cert-manager管理SecretのCA参照へ変更し、TLS検証を既定で有効化した。 | render後のServiceMonitorが検証を無効化しない。 |
-| 未着手 | `.github/workflows/*`、`mise.toml` | OS/Kubernetes更新時に実workload clusterのResource UID、PVC UID、payload digestを比較するCIジョブがない。 | Kind/QEMUまたはCI用workload clusterを構築し、Deployment/StatefulSet/Service/ConfigMap/Secret/PV/PVCを作成、更新前後のUIDとPVC payload SHA-256をartifactへ保存する。 | OSOnly更新とKubernetesBinary更新の両方で、Resource/PVCデータ保持の証跡が1 runに残る。 |
+| 一部完了 | `.github/workflows/*`、`mise.toml` | OS/Kubernetes更新時に実workload clusterのResource UID、PVC UID、payload digestを比較するCIジョブがない。 | UID/digest比較器の不具合を修正し、入力検証と改変検出のCI契約を追加した。次に実workload clusterからの採取とOSOnly/KubernetesBinary更新へ接続する。 | OSOnly更新とKubernetesBinary更新の両方で、Resource/PVCデータ保持の証跡が1 runに残る。 |
 | 一部完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要なビルド・workflow変更を網羅していなかった。 | Dockerfile、Makefile、hack、artifact、workflow、renovateをgo/lint対象へ追加した。フィルター契約テストは残課題。 | 各主要ディレクトリの変更に対するフィルター契約テストまたはactionlint検査が通る。 |
 | 完了 | `mise.toml` の `docker-buildx` | build/pushの失敗を `|| true` で握りつぶしていた。 | build/createの失敗を伝播させ、`trap`で一時ファイルとbuilderを後始末するよう変更した。 | push失敗時にtaskとCIが失敗し、後始末だけは実行される。 |
 | 未着手 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | digestまたは固定バージョンを既定値にし、更新は依存更新PRで行う。 | CI再実行で同じ入力digestが得られ、mutable参照のallowlist違反がない。 |
@@ -26,7 +26,7 @@
 | 未着手 | `.github/workflows/os-artifact.yaml` | 失敗時のみ証跡をuploadするため、成功runから受入証跡を追跡しにくい。 | `if: always()` のsummary uploadを追加し、manifest/provenance/digestを保持する。 |
 | 完了 | `pkg/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
 | 未着手 | `config/manager/manager.yaml`、`config/bootstrap/*` | `TODO(user)` や生成元のプレースホルダーが残り、resources・volume・hostNetworkの意図がマニフェストだけでは判別しにくい。 | コメントを客観的なWhyへ置換し、resource値・hostNetwork・bootloader供給の契約を検証する。 |
-| 未着手 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | 不要なコメントを削除し、残す場合は理由と置換条件を `TODO:` で記載する。 |
+| 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 未着手 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 意図がなければ削除し、必要ならテストが固定するWhatを明記する。 |
 | 未着手 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | CI用の固定digestイメージとテスト専用ドメインへ置換する。 |
 

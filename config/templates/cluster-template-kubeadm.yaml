@@ -42,6 +42,25 @@ metadata:
 spec:
   replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
   version: ${KUBERNETES_VERSION:=v1.36.2}
+  kubeadmConfigSpec:
+    clusterConfiguration:
+      apiServer:
+        certSANs:
+        - ${CONTROL_PLANE_ENDPOINT_HOST}
+      networking:
+        podSubnet: ${POD_CIDR:=192.168.0.0/16}
+        serviceSubnet: ${SERVICE_CIDR:=10.128.0.0/12}
+    initConfiguration:
+      nodeRegistration:
+        criSocket: unix:///var/run/containerd/containerd.sock
+    joinConfiguration:
+      nodeRegistration:
+        criSocket: unix:///var/run/containerd/containerd.sock
+    preKubeadmCommands:
+    - systemctl enable --now containerd
+    - sysctl --system
+    postKubeadmCommands:
+    - kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side -f ${CNI_URL:=https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml}
   machineTemplate:
     spec:
       infrastructureRef:
@@ -59,6 +78,9 @@ spec:
       image:
         ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
       platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1}
+      hostSelector:
+        matchLabels:
+          tart.walnuts.dev/role: control-plane
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll
@@ -90,6 +112,17 @@ apiVersion: bootstrap.cluster.x-k8s.io/v1beta2
 kind: KubeadmConfigTemplate
 metadata:
   name: ${CLUSTER_NAME}-md-0
+  labels:
+    cluster.x-k8s.io/cluster-name: ${CLUSTER_NAME}
+spec:
+  template:
+    spec:
+      joinConfiguration:
+        nodeRegistration:
+          criSocket: unix:///var/run/containerd/containerd.sock
+      preKubeadmCommands:
+      - systemctl enable --now containerd
+      - sysctl --system
 ---
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartMachineTemplate
@@ -101,6 +134,9 @@ spec:
       image:
         ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
       platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1}
+      hostSelector:
+        matchLabels:
+          tart.walnuts.dev/role: worker
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll

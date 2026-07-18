@@ -718,6 +718,38 @@ mkdir -p dist
 kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
 '''
 
+[tasks.build-installer-real-hardware]
+description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml を生成する"
+run = '''
+IMG="${IMG:-controller:latest}"
+mise run manifests
+mise run generate
+manager_kustomization="$(mktemp)"
+cp config/manager/kustomization.yaml "$manager_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+mkdir -p dist
+(cd config/manager && kustomize edit set image controller="$IMG")
+kustomize build config/real-hardware > dist/install-real-hardware.yaml
+'''
+
+[tasks.verify-installation-manifests]
+description = "通常・実機・E2E導入Manifestとkubeadm templateの契約を検証する"
+run = '''
+set -eu
+output_dir="$(mktemp -d)"
+trap 'rm -rf "$output_dir"' EXIT
+kustomize build config/default > "$output_dir/default.yaml"
+kustomize build config/real-hardware > "$output_dir/real-hardware.yaml"
+kustomize build config/provisioning-e2e > "$output_dir/provisioning-e2e.yaml"
+grep -q -- '--bootstrap-bind-address=0' "$output_dir/default.yaml"
+grep -q -- '--agent-api-bind-address=:8444' "$output_dir/real-hardware.yaml"
+grep -q -- 'tart.walnuts.dev/provisioning-network: "true"' "$output_dir/real-hardware.yaml"
+grep -q -- '--ipxe-bind-address=:8082' "$output_dir/provisioning-e2e.yaml"
+grep -q 'kubeadmConfigSpec:' config/templates/cluster-template-kubeadm-ubuntu.yaml
+grep -q 'tart.walnuts.dev/role: control-plane' config/templates/cluster-template-kubeadm-ubuntu.yaml
+grep -q 'tart.walnuts.dev/role: worker' config/templates/cluster-template-kubeadm-ubuntu.yaml
+'''
+
 [tasks.build-installer-e2e]
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
 run = '''

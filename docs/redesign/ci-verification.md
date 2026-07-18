@@ -48,6 +48,10 @@
 7. 上記6のうち boot選択実証系を GitHub Actions にまだ載せられない場合は、Task 文書と Runbook に「CI で未代替の理由」「残っている失敗分類」「利用する QEMU/実機環境」「合格条件」を明記する。
 8. Task 07のProvisioning E2EをPRまたは`main` pushで継続実行できる状態に保つ。
 9. Task 10のRedfishは実機前にSimulator ContractをCIで維持し、実機差分だけをLab記録へ残す。
+10. 実機導入用のKustomize overlayとkubeadm cluster templateは、通常導入、実機導入、Provisioning E2E
+    の各Manifestを同じCIでrenderし、templateにKCP設定とcontrol plane/workerのHost selectorが
+    含まれることを検証する。これは実機起動の代替ではなく、
+    install時にmanagerが初期設定不足で終了する回帰とtemplateの破損を早期に検出するための契約である。
 
 Task 01 の boot trial rollback は、上記 6 の 3 系統を
 [Task 01: Foundation Spikes Simulated Record](runbooks/01-foundation-spikes-simulated-record.md)

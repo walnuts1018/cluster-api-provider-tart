@@ -78,8 +78,8 @@ patches:
     - op: add
       path: /spec/template/spec/containers/0/args/-
       value: --agent-boot-allow-http
-    - op: replace
-      path: /spec/template/spec/containers/0/args/7
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
       value: --ipxe-bind-address=:8082
     - op: add
       path: /spec/template/spec/containers/0/volumeMounts/-

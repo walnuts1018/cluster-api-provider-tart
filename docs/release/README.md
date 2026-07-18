@@ -31,4 +31,5 @@
 - `Experimental` は、feature gate または既知制約付きで公開する対象を示す。
 - `Planned` は、Task と公開判定条件は定義済みだが、利用者向け機能として公開しない対象を示す。
 - 各行の詳細な根拠、GitHub Actions の実行記録、手動復旧手順は `evidencePaths` の参照先に置く。
+- k3s は初期ProvisioningのPlanned対象として扱う。k3s Node Lifecycle Engine未実装の間、KubernetesBinary/StateMigration更新は公開対象に含めない。
 - 昇格や降格を行うときは、`release-matrix.yaml` と release note を同じ変更で更新する。

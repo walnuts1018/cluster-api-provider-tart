@@ -11,6 +11,7 @@
   },
   "kubernetes": {
     "distribution": "k0s",
+    "lifecycleRuntime": "k0sproject.io/k0s/v1",
     "version": "v1.36.0"
   },
   "requirements": {

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"fmt"
 	"slices"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 // RecordCompletedStepはOperation StatusのcompletedSteps文字列をdomainの順序制約で更新する。

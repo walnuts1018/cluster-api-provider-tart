@@ -44,7 +44,7 @@
 |---|---|
 | 管理クラスタ | CAPI、Provider、`TartHost`等のCRを実行・保存するKubernetesクラスタ |
 | ワークロードクラスタ | 本Providerが物理ホスト上へ構築するKubernetesクラスタ |
-| CAPI rollout owner | Machineの作成、削除、更新順を決めるcontroller。control planeではKubeadmControlPlane、workerではMachineDeployment |
+| CAPI rollout owner | Runtime Hook contractを満たし、Machineの作成、削除、更新順を決める任意のcontroller。Provider GVKではなくIn-place Update Hookの呼び出し順と対象Node選択を所有する主体として扱う |
 | Infrastructure Provider | このリポジトリで実装するProvider。物理ホスト割当、電源・boot操作、OS配置、InfraMachine状態を担当 |
 | Bootstrap Provider | Machineをクラスタへ参加させるBootstrap Dataを生成するProvider。kubeadmではCABPK |
 | Control Plane Provider | control planeのversion、replica、更新順を管理するProvider。kubeadmではKCP |
@@ -55,7 +55,7 @@
 | `TartHostOperation` | 1回のProvision、Update、Rollback、Cleanを表すCR。長時間処理の再開位置を保存 |
 | controller | 管理クラスタ上のcontroller-manager process。Reconcileと組み込みnetwork serverを実行 |
 | Provisioning Agent | 一時OS上で動作し、diskの検出、partition作成、image書き込み、検証を行う実行ファイル |
-| Node Lifecycle Service | インストール済みOS上でone-shot起動し、`kubeadm upgrade`や`k0s`更新等のdistribution固有処理を行う実行ファイル。任意command実行APIは持たない |
+| Node Lifecycle Service | インストール済みOS上でone-shot起動し、Node Lifecycle Engineから受け取った署名済みPlanのtyped Stepだけを実行する実行ファイル。任意command実行APIは持たない |
 
 ## 5. 境界を表す用語
 
@@ -66,7 +66,7 @@
 | Driver | 物理機器の操作を実装するAdapterの総称。Power、BootOverride、VirtualMediaの各Portを必要な分だけ実装 |
 | Capability | Driverが実行できる操作を表す列挙値。`PowerOn`、`PowerOff`、`ObservePowerState`、`SetNextBoot`、`VirtualMedia`のいずれか |
 | Platform Profile | architecture、firmware、boot transport、partition role、bootloader、Agent artifactの組を識別するversion付き設定 |
-| Distribution Lifecycle Driver | kubeadmまたはk0sの更新前検査、snapshot、適用、検証を実行するPort/Adapter |
+| Node Lifecycle Engine | Kubernetes runtime lifecycleの更新前検査、snapshot、適用、検証を実行するPort/Adapter。Bootstrap ProviderまたはControl Plane Providerへ依存せず、kubeadm/k0s等のruntime固有処理をこの境界へ閉じ込める |
 | Boot Transport | Provisioning Agentを起動する経路。`IPXE`、`RedfishPXE`、`RedfishHTTPBoot`、`RedfishVirtualMedia`、`RaspberryPiEEPROM`のいずれか |
 
 「plugin」は外部processで動くgRPC実装にだけ使用する。controllerに組み込むGo実装は「Adapter」または「Driver」と呼ぶ。

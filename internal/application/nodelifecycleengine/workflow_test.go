@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"context"
 	"testing"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func TestWorkflowはLifecycleStepをDriverの型付き操作へDispatchする(t *testing.T) {
@@ -79,13 +79,13 @@ func TestWorkflowはSnapshotRefなしにKubeadmApplyを実行しない(t *testin
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleControlPlane,
-		SnapshotRef:    "etcd-snapshot-1",
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleControlPlane,
+		SnapshotRef:      "etcd-snapshot-1",
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -96,12 +96,12 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func controlPlanePlanWithoutSnapshot(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleControlPlane,
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)

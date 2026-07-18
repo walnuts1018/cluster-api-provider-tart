@@ -71,17 +71,17 @@ func TestResolveUpdateFeatureGates(t *testing.T) {
 			},
 		},
 		{
-			name: "DistributionLifecycleはworkerから順に有効化する",
+			name: "NodeLifecycleはworkerから順に有効化する",
 			input: map[string]bool{
-				"InPlaceUpdates":                          true,
-				"DistributionLifecycle":                   true,
-				"DistributionLifecycleWorker":             true,
-				"DistributionLifecycleMultiControlPlane":  true,
-				"DistributionLifecycleSingleControlPlane": true,
+				"InPlaceUpdates":                  true,
+				"NodeLifecycle":                   true,
+				"NodeLifecycleWorker":             true,
+				"NodeLifecycleMultiControlPlane":  true,
+				"NodeLifecycleSingleControlPlane": true,
 			},
 			want: updateFeatureGates{
 				InPlaceUpdates: true,
-				DistributionLifecycle: updateDistributionLifecycleFeatureGates{
+				NodeLifecycle: updateNodeLifecycleFeatureGates{
 					Enabled:            true,
 					Worker:             true,
 					MultiControlPlane:  true,
@@ -90,16 +90,16 @@ func TestResolveUpdateFeatureGates(t *testing.T) {
 			},
 		},
 		{
-			name: "DistributionLifecycleは前段階なしに後段階を有効化しない",
+			name: "NodeLifecycleは前段階なしに後段階を有効化しない",
 			input: map[string]bool{
-				"InPlaceUpdates":                          true,
-				"DistributionLifecycle":                   true,
-				"DistributionLifecycleMultiControlPlane":  true,
-				"DistributionLifecycleSingleControlPlane": true,
+				"InPlaceUpdates":                  true,
+				"NodeLifecycle":                   true,
+				"NodeLifecycleMultiControlPlane":  true,
+				"NodeLifecycleSingleControlPlane": true,
 			},
 			want: updateFeatureGates{
 				InPlaceUpdates: true,
-				DistributionLifecycle: updateDistributionLifecycleFeatureGates{
+				NodeLifecycle: updateNodeLifecycleFeatureGates{
 					Enabled: true,
 				},
 			},

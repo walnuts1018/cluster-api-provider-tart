@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 func DecidePlan(input PlanInput) PlanResult {
 	if failure := preflightFailure(input.preflightInput()); failure != nil {
@@ -32,14 +32,14 @@ func DecidePlan(input PlanInput) PlanResult {
 	)
 
 	return PlanReady{Plan: Plan{
-		OperationID:    input.OperationID,
-		Distribution:   input.Distribution,
-		CurrentVersion: input.CurrentVersion,
-		TargetVersion:  input.TargetVersion,
-		UpdateClass:    input.UpdateClass,
-		NodeRole:       input.NodeRole,
-		SnapshotRef:    input.SnapshotRef,
-		Steps:          steps,
+		OperationID:      input.OperationID,
+		LifecycleRuntime: input.LifecycleRuntime,
+		CurrentVersion:   input.CurrentVersion,
+		TargetVersion:    input.TargetVersion,
+		UpdateClass:      input.UpdateClass,
+		NodeRole:         input.NodeRole,
+		SnapshotRef:      input.SnapshotRef,
+		Steps:            steps,
 	}}
 }
 

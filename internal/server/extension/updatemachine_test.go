@@ -107,7 +107,7 @@ func TestUpdateMachineHandlerは無効な対象で開始しない(t *testing.T) 
 			}
 			handler := NewUpdateMachineHandlerWithSupport(
 				starter,
-				newTestTargetSupportChecker(t, test.gates, DistributionLifecycleFeatureGates{}),
+				newTestTargetSupportChecker(t, test.gates, NodeLifecycleFeatureGates{}),
 			)
 			request := updateMachineRequest()
 			if test.mutate != nil {
@@ -127,21 +127,21 @@ func TestUpdateMachineHandlerは無効な対象で開始しない(t *testing.T) 
 	}
 }
 
-func TestTargetSupportCheckerはsingleControlPlaneDistributionLifecycleをExperimental理由で拒否する(t *testing.T) {
+func TestTargetSupportCheckerはsingleControlPlaneNodeLifecycleをExperimental理由で拒否する(t *testing.T) {
 	machine := controlPlaneMachine("cp-1")
 	checker := newTestTargetSupportChecker(
 		t,
 		UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
-		DistributionLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
+		NodeLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
 		machine,
 	)
 
-	supported, reason, err := checker.SupportsDistributionLifecycleMachine(t.Context(), machine)
+	supported, reason, err := checker.SupportsNodeLifecycleMachine(t.Context(), machine)
 	if err != nil {
-		t.Fatalf("SupportsDistributionLifecycleMachine() error = %v", err)
+		t.Fatalf("SupportsNodeLifecycleMachine() error = %v", err)
 	}
 	if supported {
-		t.Fatalf("SupportsDistributionLifecycleMachine() = true, want false; reason=%q", reason)
+		t.Fatalf("SupportsNodeLifecycleMachine() = true, want false; reason=%q", reason)
 	}
 	assertContainsAll(t, reason,
 		"single control plane",

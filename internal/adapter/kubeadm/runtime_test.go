@@ -18,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func TestRuntimeは型付きkubeadm操作だけを実行する(t *testing.T) {

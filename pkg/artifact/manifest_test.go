@@ -85,6 +85,13 @@ func TestValidateManifest(t *testing.T) {
 			wantErr: "distribution",
 		},
 		{
+			name: "profile lifecycle runtime mismatch",
+			mutate: func(manifest *Manifest) {
+				manifest.Kubernetes.LifecycleRuntime = "unsupported"
+			},
+			wantErr: "lifecycleRuntime",
+		},
+		{
 			name: "unsupported Kubernetes version",
 			mutate: func(manifest *Manifest) {
 				manifest.Kubernetes.Version = "v1.35.0"
@@ -194,8 +201,9 @@ func validManifest() Manifest {
 		},
 		StateSchema: StateSchema{Min: 1, Max: 1},
 		Kubernetes: Kubernetes{
-			Distribution: "kubeadm",
-			Version:      "v1.36.0",
+			Distribution:     "kubeadm",
+			LifecycleRuntime: "kubeadm.cluster.x-k8s.io/v1",
+			Version:          "v1.36.0",
 		},
 		Boot: Boot{
 			KernelDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",

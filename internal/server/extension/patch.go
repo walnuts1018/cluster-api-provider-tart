@@ -17,6 +17,7 @@ package extension
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -139,11 +140,44 @@ func templateSpec(raw runtime.RawExtension) (runtime.RawExtension, error) {
 	return runtime.RawExtension{Raw: wrapped}, nil
 }
 
+func bootstrapSpecSnapshot(extension runtime.RawExtension) (any, error) {
+	if len(extension.Raw) == 0 && extension.Object == nil {
+		return map[string]any{}, nil
+	}
+	raw := extension.Raw
+	if len(raw) == 0 {
+		var err error
+		raw, err = json.Marshal(extension.Object)
+		if err != nil {
+			return nil, fmt.Errorf("marshal object: %w", err)
+		}
+	}
+	var object map[string]any
+	if err := json.Unmarshal(raw, &object); err != nil {
+		return nil, fmt.Errorf("unmarshal JSON: %w", err)
+	}
+	return object["spec"], nil
+}
+
 func machinePatch(
 	classification domain.Classification,
 	desired infrastructurev1beta1.TartMachineSpec,
 ) (runtimehooksv1.Patch, error) {
 	spec := osOnlySpecPatch(classification, desired.Image, desired.UpdatePolicy)
+	return jsonMergePatch(map[string]any{"spec": spec})
+}
+
+func machineBootstrapPatch(
+	classification domain.Classification,
+	desired runtime.RawExtension,
+) (runtimehooksv1.Patch, error) {
+	if !classificationAllows(classification, domain.FieldBootstrapConfig) {
+		return runtimehooksv1.Patch{}, nil
+	}
+	spec, err := bootstrapSpecSnapshot(desired)
+	if err != nil {
+		return runtimehooksv1.Patch{}, fmt.Errorf("decode desired BootstrapConfig: %w", err)
+	}
 	return jsonMergePatch(map[string]any{"spec": spec})
 }
 
@@ -156,6 +190,30 @@ func machineTemplatePatch(
 		"spec": map[string]any{
 			"template": map[string]any{
 				"spec": spec,
+			},
+		},
+	})
+}
+
+func machineSetBootstrapTemplatePatch(
+	classification domain.Classification,
+	desired runtime.RawExtension,
+) (runtimehooksv1.Patch, error) {
+	if !classificationAllows(classification, domain.FieldBootstrapConfig) {
+		return runtimehooksv1.Patch{}, nil
+	}
+	spec, err := templateSpec(desired)
+	if err != nil {
+		return runtimehooksv1.Patch{}, err
+	}
+	bootstrapSpec, err := bootstrapSpecSnapshot(spec)
+	if err != nil {
+		return runtimehooksv1.Patch{}, fmt.Errorf("decode desired BootstrapConfigTemplate spec: %w", err)
+	}
+	return jsonMergePatch(map[string]any{
+		"spec": map[string]any{
+			"template": map[string]any{
+				"spec": bootstrapSpec,
 			},
 		},
 	})
@@ -177,6 +235,10 @@ func osOnlySpecPatch(
 		}
 	}
 	return spec
+}
+
+func classificationAllows(classification domain.Classification, path domain.FieldPath) bool {
+	return slices.Contains(classification.Allowed, path)
 }
 
 func classificationFromDecision(decision domain.EligibilityDecision) domain.Classification {

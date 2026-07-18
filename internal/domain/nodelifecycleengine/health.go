@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import "slices"
 
-// HealthInputはDistribution Lifecycle Commit前の観測値である。
+// HealthInputはNode Lifecycle Engine Commit前の観測値である。
 type HealthInput struct {
 	NodeReady     bool
 	NodeVersion   string
@@ -49,7 +49,7 @@ func (result HealthResult) HasFailure(failure HealthFailure) bool {
 	return slices.Contains(result.Failures, failure)
 }
 
-// EvaluateHealthはNode観測値からDistribution LifecycleをCommit可能か判定する。
+// EvaluateHealthはNode観測値からNode Lifecycle EngineをCommit可能か判定する。
 func EvaluateHealth(input HealthInput) HealthResult {
 	decision := DecideHealth(input)
 	switch result := decision.(type) {

@@ -52,7 +52,8 @@ entries:
     platformProfile: "amd64-uefi-ab-ubuntu-24.04-k3s/v1"
     evidencePaths: []
     notes:
-      - "対応Bootstrap/Control Plane Provider、k3s State/Data契約、k3s Lifecycle Adapterが未確定。"
+      - "初期Provisioning用Provider API、k3s State/Data契約が未確定。"
+      - "k3s Node Lifecycle Engine未実装の間、KubernetesBinary/StateMigration更新は提供しない。"
       - "Provider API が確定するまで k3s 用 cluster template は公開しない。"
   - name: "Ubuntu 26.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning"
     category: "initialProvisioning"
@@ -89,7 +90,7 @@ entries:
     platformProfile: "amd64-uefi-ab-ubuntu-24.04-k0s/v1"
     evidencePaths: []
     notes:
-      - "対応Bootstrap/Control Plane Provider、k0s State/Data契約、k0s Lifecycle Adapterが未確定。"
+      - "初期Provisioning用Provider API、k0s State/Data契約、k0s Node Lifecycle Engine capabilityが未確定。"
       - "Provider API が確定するまで k0s 用 cluster template は公開しない。"
   - name: "Ubuntu 26.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning"
     category: "initialProvisioning"

@@ -58,7 +58,7 @@ OS boot完了またはNode health完了がPlanのdeadlineまでに成立しな�
 
 OSOnly更新の条件に加え、次を必須とする。
 
-1. CAPI rollout ownerが指定したnode順を変更していない。
+1. Runtime Hook contractを満たすCAPI rollout ownerが指定したnode順を変更していない。
 2. Target Kubernetes versionがversion skew policy内である。
 3. Node Lifecycle Serviceの`Preflight`、`Apply`、`Verify` Stepが各1回成功している。
 4. workerではcontrol planeがTarget versionを受理した後に更新している。
@@ -109,7 +109,7 @@ Snapshotが作成されていないStateMigration Planは開始しない。
 | Firmware | Legacy BIOS、Raspberry Pi 4/5 EEPROM boot |
 | Boot Transport | RedfishPXE、RedfishHTTPBoot、RedfishVirtualMedia |
 | Power Driver | Redfish |
-| 更新 | control plane、単一ノード、kubeadm/k0sのKubernetesBinary、StateMigration Recovery |
+| 更新 | control plane、単一ノード、kubeadm/k0s Node Lifecycle EngineによるKubernetesBinary、StateMigration Recovery |
 | 外部Driver | versioned gRPC plugin |
 
 Ubuntu 26.04成果物はx86-64-v1でビルドし、Intel Sandy Bridge実機またはQEMUの`-cpu SandyBridge`でboot testを行う。Ubuntu cloud imageの既定CPU levelを本Providerの対応根拠として使用しない。
@@ -230,6 +230,7 @@ KubernetesBinaryまたはStateMigrationをSupportedにする場合は、さら�
 - ping/ARPだけからPowerStateを`On`または`Off`と断定する方式
 - Infrastructure ProviderがBootstrap Dataを独自生成する方式
 - Infrastructure ProviderがCAPI rollout ownerを迂回して複数nodeを同時更新する方式
+- Node Lifecycle Engine未実装runtimeのKubernetesBinary/StateMigration更新
 - 初期リリースでのWASM plugin
 
 ## 14. 参照資料

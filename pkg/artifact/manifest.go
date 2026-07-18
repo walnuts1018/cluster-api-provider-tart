@@ -75,8 +75,9 @@ type StateSchema struct {
 }
 
 type Kubernetes struct {
-	Distribution string `json:"distribution"`
-	Version      string `json:"version"`
+	Distribution     string `json:"distribution"`
+	LifecycleRuntime string `json:"lifecycleRuntime"`
+	Version          string `json:"version"`
 }
 
 type Boot struct {
@@ -134,6 +135,8 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		return ValidatedManifest{}, errors.New("stateSchema.max must be greater than or equal to stateSchema.min")
 	case manifest.Kubernetes.Distribution == "":
 		return ValidatedManifest{}, errors.New("kubernetes.distribution is required")
+	case manifest.Kubernetes.LifecycleRuntime == "":
+		return ValidatedManifest{}, errors.New("kubernetes.lifecycleRuntime is required")
 	case manifest.Kubernetes.Version == "":
 		return ValidatedManifest{}, errors.New("kubernetes.version is required")
 	case manifest.Requirements.CPULevel == "":
@@ -167,6 +170,7 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		OSVersion:         manifest.OS.Version,
 		Architecture:      manifest.Architecture,
 		Distribution:      manifest.Kubernetes.Distribution,
+		LifecycleRuntime:  manifest.Kubernetes.LifecycleRuntime,
 		KubernetesVersion: manifest.Kubernetes.Version,
 		CPULevel:          manifest.Requirements.CPULevel,
 		StateSchemaMin:    manifest.StateSchema.Min,

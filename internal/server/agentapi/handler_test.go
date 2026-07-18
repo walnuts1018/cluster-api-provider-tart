@@ -37,10 +37,10 @@ import (
 	k8sagentprogress "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentprogress"
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
-	k8sdistributionlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/distributionlifecycle"
+	k8snodelifecycleengine "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycleengine"
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
 	agentsessiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentsession"
-	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -302,15 +302,15 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 	handler, sessionToken, _ := newAuthenticatedHandler(t, nil)
 	signed := nodelifecycle.SignedPlan{
 		Plan: nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-			NodeRole:       distributiondomain.NodeRoleWorker,
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
-			Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:         distributiondomain.NodeRoleWorker,
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps:            []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
 		},
 		Signature: agentprotocol.Signature{
 			Algorithm: agentprotocol.SignatureAlgorithm,
@@ -422,14 +422,14 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 		t,
 		nil,
 		nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-			NodeRole:       distributiondomain.NodeRoleControlPlane,
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:         distributiondomain.NodeRoleControlPlane,
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepSnapshotCreated,
@@ -554,14 +554,14 @@ func TestHandlerは一時停止復帰後もfreshHandler経由で完了Stepを一
 		t,
 		nil,
 		nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-			NodeRole:       distributiondomain.NodeRoleControlPlane,
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:         distributiondomain.NodeRoleControlPlane,
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepHealthVerified,
@@ -662,15 +662,15 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 		t,
 		nil,
 		nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassStateMigration,
-			NodeRole:       distributiondomain.NodeRoleControlPlane,
-			SnapshotRef:    "etcd-snapshot-1",
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassStateMigration,
+			NodeRole:         distributiondomain.NodeRoleControlPlane,
+			SnapshotRef:      "etcd-snapshot-1",
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepSnapshotCreated,
@@ -747,14 +747,14 @@ func TestHandlerはKubernetesBinary失敗時にRollingBackへ遷移する(t *tes
 		t,
 		nil,
 		nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-			NodeRole:       distributiondomain.NodeRoleWorker,
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:         distributiondomain.NodeRoleWorker,
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepTargetSlotWritten,
@@ -1167,15 +1167,15 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		t,
 		bootstrap,
 		nodelifecycle.Plan{
-			APIVersion:     nodelifecycle.APIVersion,
-			Distribution:   distributiondomain.DistributionKubeadm,
-			OperationID:    testOperationUID,
-			CurrentVersion: testCurrentVersion,
-			TargetVersion:  testTargetVersion,
-			UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-			NodeRole:       distributiondomain.NodeRoleWorker,
-			Deadline:       time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
-			Steps:          []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
+			APIVersion:       nodelifecycle.APIVersion,
+			LifecycleRuntime: distributiondomain.LifecycleRuntimeKubeadm,
+			OperationID:      testOperationUID,
+			CurrentVersion:   testCurrentVersion,
+			TargetVersion:    testTargetVersion,
+			UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+			NodeRole:         distributiondomain.NodeRoleWorker,
+			Deadline:         time.Date(2026, 7, 5, 13, 0, 0, 0, time.UTC),
+			Steps:            []distributiondomain.Step{distributiondomain.StepPreflightCompleted},
 		},
 		nil,
 	)
@@ -1265,7 +1265,7 @@ func (state authenticatedHandlerState) newHandler() *Handler {
 		Progress:             k8sagentprogress.NewService(state.k8sClient),
 		Plans:                staticPlan{},
 		NodeLifecyclePlans:   staticNodeLifecyclePlan{plan: nodelifecycle.SignedPlan{Plan: state.nodePlan}},
-		NodeLifecycleStatus:  k8sdistributionlifecycle.NewStatusStore(state.k8sClient),
+		NodeLifecycleStatus:  k8snodelifecycleengine.NewStatusStore(state.k8sClient),
 		Bootstrap:            state.bootstrap,
 		Now:                  func() time.Time { return state.now },
 	})

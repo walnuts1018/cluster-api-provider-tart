@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"slices"
@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func TestStatusStoreは完了StepとSnapshotRefをStatusへ保存する(t *testing.T) {
@@ -309,12 +309,12 @@ func testOperation() *infrastructurev1beta1.TartHostOperation {
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "0197d640-8d00-7a65-b67f-3f7c42a6935f",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleControlPlane,
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "0197d640-8d00-7a65-b67f-3f7c42a6935f",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -325,12 +325,12 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
-		Distribution:   domain.DistributionKubeadm,
-		OperationID:    "0197d640-8d00-7a65-b67f-3f7c42a6935f",
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    domain.UpdateClassKubernetesBinary,
-		NodeRole:       domain.NodeRoleWorker,
+		LifecycleRuntime: domain.LifecycleRuntimeKubeadm,
+		OperationID:      "0197d640-8d00-7a65-b67f-3f7c42a6935f",
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      domain.UpdateClassKubernetesBinary,
+		NodeRole:         domain.NodeRoleWorker,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)

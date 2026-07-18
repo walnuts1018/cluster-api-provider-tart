@@ -156,24 +156,26 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 - Rollback後に失敗Artifactを自動再試行しない。
 - RuntimeSDK/InPlaceUpdatesを無効にすると通常置換だけが実行される。
 
-## 8. Phase 5: Kubernetes Distribution Lifecycle
+## 8. Phase 5: Kubernetes Node Lifecycle Engine
 
 対象: [Task 09](tasks/09-kubernetes-lifecycle.md)
 
 ### 作成する成果物
 
-- `DistributionLifecycleDriver`
-- kubeadm Adapter
+- `NodeLifecycleEngine`
+- kubeadm Engine
+- k0s Engine
 - Node Lifecycle Service
 - SnapshotRefとLifecycle Stepを持つOperation Status
 - worker/control plane別update Plan
 
 ### Exit gate
 
-- workerはcontrol plane更新後に`kubeadm upgrade node`を実行する。
-- control planeはsnapshot後に`kubeadm upgrade apply`を実行する。
+- workerはcontrol plane更新後にkubeadm/k0s Engineのtyped Stepでnode runtime更新を実行する。
+- control planeはsnapshot後にkubeadm/k0s Engineのtyped Applyを実行する。
 - 各Lifecycle Step直後の再起動でStepを重複実行しない。
 - StateMigration失敗を`Succeeded`または自動Rollbackとして報告しない。
+- k3sはNode Lifecycle Engine未実装の間、KubernetesBinary/StateMigrationをPreflightで拒否する。
 - 単一control planeはmanagement API停止中の復帰を含むE2E成功までExperimentalのままとする。
 
 ## 9. Phase 6: Redfish
@@ -203,7 +205,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 
 1. Debian 13 + amd64 UEFI + kubeadm
 2. Ubuntu 26.04 + amd64 UEFI + kubeadm
-3. k3s Bootstrap/Control Plane Provider統合
+3. k3s初期Provisioning用Provider APIとState/Data契約
 4. amd64 Legacy BIOS
 5. arm64 UEFI
 6. Raspberry Pi 4
@@ -245,7 +247,7 @@ Exit gate通過後、新規Clusterの既定をAgent flowへ変更できる。旧
 | M1 | 02-05 | CRD、Driver、Protocol、ArtifactのContract Test |
 | M2 | 06-07 | Ubuntu 24.04実機でNode Ready |
 | M3 | 08 | worker OSOnly更新とRollback |
-| M4 | 09 | kubeadm worker/control plane更新 |
+| M4 | 09 | kubeadm/k0s Node Lifecycle Engineによるworker/control plane更新 |
 | M5 | 10 | 2種類のBMCでAgent起動 |
 | M6 | 11 | Supported Matrix全組合せのE2E証跡 |
 

@@ -149,7 +149,7 @@ func createInput(t *testing.T) Input {
 			RootHash:  strings.Repeat("a", 64),
 		},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.36.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", LifecycleRuntime: "kubeadm.cluster.x-k8s.io/v1", Version: "v1.36.0"},
 		Boot:            artifact.Boot{KernelDigest: kernelDescription.Digest, InitrdDigest: initrdDescription.Digest},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      1,

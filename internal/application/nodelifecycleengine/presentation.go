@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"fmt"
 	"strings"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 type SnapshotResult struct {
@@ -35,9 +35,9 @@ func presentStepDecision(decision domain.RunnableDecision) error {
 	case domain.StepRunnable:
 		return nil
 	case domain.StepBlocked:
-		return fmt.Errorf("distribution lifecycle step blocked: %s", failureMessage(decided.Failure))
+		return fmt.Errorf("node lifecycle engine step blocked: %s", failureMessage(decided.Failure))
 	default:
-		return fmt.Errorf("unsupported distribution lifecycle step decision %T", decision)
+		return fmt.Errorf("unsupported node lifecycle engine step decision %T", decision)
 	}
 }
 
@@ -62,7 +62,7 @@ func presentHealth(decision domain.HealthDecision) (StepResult, error) {
 		}
 		return StepResult{}, fmt.Errorf("distribution health gate failed: %s", strings.Join(reasons, ", "))
 	default:
-		return StepResult{}, fmt.Errorf("unsupported distribution lifecycle health decision %T", decision)
+		return StepResult{}, fmt.Errorf("unsupported node lifecycle engine health decision %T", decision)
 	}
 }
 

@@ -1,8 +1,8 @@
-# Task 09: Kubernetes Distribution Lifecycle
+# Task 09: Kubernetes Node Lifecycle Engine
 
 ## 目的
 
-A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Snapshot、検証、Recoveryを実行する。
+A/B OS slot更新とは別に、既存Node上でKubernetes runtimeのversion更新、Snapshot、検証、Recoveryを実行する。Bootstrap Provider/Control Plane Providerへruntime変更の責務を漏らさず、provider非依存のNode Lifecycle Engine境界へ閉じ込める。
 
 ## 依存
 
@@ -11,7 +11,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 
 ## 入力
 
-- CAPI rollout ownerが指定したcurrent/target Kubernetes version
+- Runtime Hook contractを満たすCAPI rollout ownerが指定したcurrent/target Kubernetes version
 - Update class
 - Plan Digest
 - desired Machine/BootstrapConfig digest
@@ -20,9 +20,9 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 
 ## 成果物
 
-- `DistributionLifecycleDriver` Port
-- kubeadm Adapter
-- k0s Adapter
+- `NodeLifecycleEngine` Port
+- kubeadm Engine
+- k0s Engine
 - 署名済みPlanだけを実行するNode Lifecycle Service
 - worker/control plane別Plan
 - SnapshotRef
@@ -42,7 +42,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 
 ## control plane更新順
 
-1. CAPI rollout ownerが当該Nodeの更新を許可したことを検証する。
+1. Runtime Hook contractを満たすCAPI rollout ownerが当該Nodeの更新を許可したことを検証する。
 2. version skew、etcd quorum、disk空き容量をPreflightする。
 3. etcd Snapshotを作成し、SnapshotRefと復元検証結果を保存する。
 4. target OS Slotを書き込んでverifyする。
@@ -65,7 +65,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 
 ## 受け入れ条件
 
-1. Distribution Lifecycle未実装時にKubernetes version差分をin-place patchで覆わない。
+1. Node Lifecycle Engine未実装時にKubernetes version差分をin-place patchで覆わない。
 2. minor versionを1つ以上skipするPlanをPreflightで拒否する。
 3. workerをcontrol planeより先にtarget versionへ更新しない。
 4. control planeでSnapshotRefなしに`kubeadm upgrade apply`を実行しない。
@@ -91,7 +91,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 - 任意command実行API
 - package managerによる任意version更新
 - application/PVの整合性Snapshot
-- k3s KubernetesBinary更新。Cluster APIのInPlaceUpdate ownerとProvider API契約が揃うまで、k3sのDistribution Lifecycle PlanはPreflightで拒否する。
+- k3s KubernetesBinary/StateMigration更新。k3s Node Lifecycle Engineが実装されるまで、k3sのNode Lifecycle PlanはPreflightで拒否する。
 
 ## 関連
 
@@ -99,12 +99,12 @@ A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Sn
 
 ## 実装状況（2026-07-08）
 
-Task08の実機/E2E未検証前提を維持したまま、Distribution LifecycleのI/Oへ依存しない
+Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle EngineのI/Oへ依存しない
 判定ロジックから先行実装を開始した。
 
 実装済み:
 
-- `internal/domain/distributionlifecycle`に、KubernetesBinary/StateMigration向けの
+- `internal/domain/nodelifecycleengine`に、KubernetesBinary/StateMigration向けの
   Preflight純粋判定を追加
 - minor versionを2つ以上進める更新、downgrade、major version更新、不正なversionを拒否する判定
 - worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
@@ -113,8 +113,8 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
 - Status上の`completedSteps`がPlan順序と異なる場合に拒否するapplication層の検証
 - workerではSnapshotなし、control planeではSnapshotを`DistributionApplied`前に含める
-  Distribution Lifecycle Plan順序の純粋生成
-- `DistributionLifecycleDriver` Portと、Preflight/Snapshot/Apply/Verifyを任意commandではなく
+  Node Lifecycle Plan順序の純粋生成
+- `NodeLifecycleEngine` Portと、Preflight/Snapshot/Apply/Verifyを任意commandではなく
   型付きStepとしてdispatchするapplication service
 - Snapshot作成結果でrestore test成功を必須にし、失敗したSnapshotRefを使用しない判定
 - `TartHostOperation.status.completedSteps`、`lifecyclePhase`、`snapshotRef`へLifecycle Step結果を保存する
@@ -127,16 +127,16 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
   temporaryなmanagement API停止では即終了しないようにした
 - Node Ready、期待version、static Pod、etcd quorum、API healthをCommit前に評価するHealth Gate純粋判定
 - `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
-  `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver
+  `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Engine
 - k0sの`Preflight`、`SaveSnapshot`、`VerifySnapshot`、`UpgradeController`、`UpgradeWorker`、
-  `ObserveHealth`の型付きRuntimeへdispatchするk0s Lifecycle Driver境界
-- k3sはCluster APIのInPlaceUpdate ownerが不足するため、Distribution Lifecycle Preflightで拒否する判定
+  `ObserveHealth`の型付きRuntimeへdispatchするk0s Engine境界
+- k3sはNode Lifecycle Engine未実装のため、KubernetesBinary/StateMigration Preflightで拒否する判定
 - control planeの`ObserveHealth`で、Node Ready/versionに加えて
   static Pod readiness、`etcdctl endpoint health --cluster`、`kubectl get --raw=/readyz`
   を個別観測するkubeadm Runtime
-- Distribution Lifecycle用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
+- Node Lifecycle Engine用feature gateをworker、複数control plane、単一control planeの順で有効化する純粋判定
 - Node Lifecycle Service境界で受け取るPlanをEd25519署名対象のCanonical JSONとし、
-  未署名・改ざん済みPlanを既存のDistribution Lifecycle Step runnerへ渡さない検証
+  未署名・改ざん済みPlanを既存のNode Lifecycle Step runnerへ渡さない検証
 - `cmd/node-lifecycle-service`を追加し、Agent APIから取得した署名済みNode Lifecycle Planを検証して、
   指定されたLifecycle Stepだけをkubeadm Driverへdispatchするprocess境界を作成
 - Node Lifecycle Service用のkubeadm Runtimeを追加し、`kubeadm upgrade plan/apply/node`、
@@ -153,11 +153,11 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - KubernetesBinary Update Operation作成時にworker/control plane別Node Lifecycle Planを生成し、
   `TartHostOperation.spec.nodeLifecyclePlanDigest`とOperation所有のimmutable Secretへ保存する接続
 - `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
-- Distribution Lifecycle feature gateが有効な対象に限り、`CanUpdateMachine`/`CanUpdateMachineSet`
+- Node Lifecycle Engine feature gateが有効な対象に限り、`CanUpdateMachine`/`CanUpdateMachineSet`
   がKubernetes version差分をin-place update対象として受理し、無効時はpatchなしで通常置換へfallbackする
 - `docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
   `RecoveryRequired` と `SnapshotRef` を前提にした手動復旧 Runbook を追加
-- `internal/adapter/k8s/distributionlifecycle/status_store_test.go` に、
+- `internal/adapter/k8s/nodelifecycleengine/status_store_test.go` に、
   7つの永続化Stepごとにfresh processから同じ完了報告を再送しても`completedSteps`を重複記録しない
   回帰テストを追加
 - `internal/server/agentapi/handler_test.go` に、

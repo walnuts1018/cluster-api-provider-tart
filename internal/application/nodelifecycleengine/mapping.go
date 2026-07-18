@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
-type StepCommand struct {
-	Plan Plan
-	Step Step
+import domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
+
+func ensureRunnable(plan domain.Plan, step domain.Step) error {
+	return presentStepDecision(domain.DecideStep(domain.StepCommand{
+		Plan: plan,
+		Step: step,
+	}))
 }

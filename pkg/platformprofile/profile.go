@@ -31,6 +31,10 @@ const (
 	DistributionK3s     = "k3s"
 	DistributionK0s     = "k0s"
 
+	LifecycleRuntimeKubeadm     = "kubeadm.cluster.x-k8s.io/v1"
+	LifecycleRuntimeK0s         = "k0sproject.io/k0s/v1"
+	LifecycleRuntimeUnsupported = "unsupported"
+
 	KubernetesV136 = "v1.36.x"
 
 	ProfileUbuntu2404Kubeadm = "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
@@ -56,6 +60,7 @@ type Profile struct {
 	OSFamily           string
 	OSVersion          string
 	Distribution       string
+	LifecycleRuntime   string
 	KubernetesVersions []string
 	CPULevel           string
 	StateSchema        uint64
@@ -68,6 +73,7 @@ type ArtifactIdentity struct {
 	OSVersion         string
 	Architecture      string
 	Distribution      string
+	LifecycleRuntime  string
 	KubernetesVersion string
 	CPULevel          string
 	StateSchemaMin    uint64
@@ -115,6 +121,7 @@ func newAMD64UEFIABProfile(id, osFamily, osVersion, distribution string) Profile
 		OSFamily:           osFamily,
 		OSVersion:          osVersion,
 		Distribution:       distribution,
+		LifecycleRuntime:   lifecycleRuntimeFor(distribution),
 		KubernetesVersions: []string{KubernetesV136},
 		CPULevel:           "x86-64-v1",
 		StateSchema:        1,
@@ -139,6 +146,19 @@ func newAMD64UEFIABProfile(id, osFamily, osVersion, distribution string) Profile
 		profile.DataPaths = append(profile.DataPaths, "/var/lib/k0s")
 	}
 	return profile
+}
+
+func lifecycleRuntimeFor(distribution string) string {
+	switch distribution {
+	case DistributionKubeadm:
+		return LifecycleRuntimeKubeadm
+	case DistributionK0s:
+		return LifecycleRuntimeK0s
+	case DistributionK3s:
+		return LifecycleRuntimeUnsupported
+	default:
+		return LifecycleRuntimeUnsupported
+	}
 }
 
 func All() []Profile {
@@ -172,6 +192,8 @@ func ValidateArtifactIdentity(profile Profile, identity ArtifactIdentity) error 
 		return fmt.Errorf("artifact architecture %q does not match platform profile %q", identity.Architecture, profile.ID)
 	case identity.Distribution != profile.Distribution:
 		return fmt.Errorf("artifact kubernetes.distribution %q does not match platform profile %q", identity.Distribution, profile.ID)
+	case identity.LifecycleRuntime != profile.LifecycleRuntime:
+		return fmt.Errorf("artifact kubernetes.lifecycleRuntime %q does not match platform profile %q", identity.LifecycleRuntime, profile.ID)
 	case !supportsKubernetesVersion(profile.KubernetesVersions, identity.KubernetesVersion):
 		return fmt.Errorf("artifact kubernetes.version %q is not supported by platform profile %q", identity.KubernetesVersion, profile.ID)
 	case identity.CPULevel != profile.CPULevel:

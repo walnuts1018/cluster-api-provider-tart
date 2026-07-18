@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-// UpdateClassはDistribution Lifecycleが扱う更新分類である。
+// UpdateClassはNode Lifecycle Engineが扱う更新分類である。
 type UpdateClass string
 
 const (
@@ -28,13 +28,13 @@ const (
 	UpdateClassStateMigration   UpdateClass = "StateMigration"
 )
 
-// DistributionはNode Lifecycle Serviceが扱うKubernetes distributionである。
-type Distribution string
+// LifecycleRuntimeはNode Lifecycle Serviceが実行するruntime更新engineを識別する。
+type LifecycleRuntime string
 
 const (
-	DistributionKubeadm Distribution = "kubeadm"
-	DistributionK3s     Distribution = "k3s"
-	DistributionK0s     Distribution = "k0s"
+	LifecycleRuntimeKubeadm     LifecycleRuntime = "kubeadm.cluster.x-k8s.io/v1"
+	LifecycleRuntimeK0s         LifecycleRuntime = "k0sproject.io/k0s/v1"
+	LifecycleRuntimeUnsupported LifecycleRuntime = "unsupported"
 )
 
 // NodeRoleはLifecycle Planの対象Node種別である。
@@ -45,13 +45,13 @@ const (
 	NodeRoleControlPlane NodeRole = "ControlPlane"
 )
 
-// PreflightInputはDistribution Lifecycle Plan開始前の純粋判定入力である。
+// PreflightInputはNode Lifecycle Engine Plan開始前の純粋判定入力である。
 type PreflightInput struct {
-	Distribution   Distribution
-	CurrentVersion string
-	TargetVersion  string
-	UpdateClass    UpdateClass
-	NodeRole       NodeRole
+	LifecycleRuntime LifecycleRuntime
+	CurrentVersion   string
+	TargetVersion    string
+	UpdateClass      UpdateClass
+	NodeRole         NodeRole
 
 	ControlPlaneAcceptedVersion     string
 	RequireControlPlaneTargetAccept bool
@@ -61,7 +61,7 @@ type PreflightInput struct {
 // PreflightはdiskやKubernetes APIへ触れる前に、Lifecycle Planを開始可能か判定する。
 func Preflight(input PreflightInput) error {
 	if failure := preflightFailure(input); failure != nil {
-		return fmt.Errorf("distribution lifecycle preflight rejected: %T", failure)
+		return fmt.Errorf("node lifecycle engine preflight rejected: %T", failure)
 	}
 	return nil
 }
@@ -94,12 +94,12 @@ func parseKubernetesVersion(value string) (kubernetesVersion, error) {
 }
 
 func preflightFailure(input PreflightInput) Failure {
-	if input.Distribution != DistributionKubeadm &&
-		input.Distribution != DistributionK3s &&
-		input.Distribution != DistributionK0s {
-		return UnsupportedDistribution{Value: string(input.Distribution)}
+	if input.LifecycleRuntime != LifecycleRuntimeKubeadm &&
+		input.LifecycleRuntime != LifecycleRuntimeK0s &&
+		input.LifecycleRuntime != LifecycleRuntimeUnsupported {
+		return UnsupportedLifecycleRuntime{Value: string(input.LifecycleRuntime)}
 	}
-	if failure := validateDistributionLifecycleSupport(input); failure != nil {
+	if failure := validateNodeLifecycleSupport(input); failure != nil {
 		return failure
 	}
 	current, err := parseKubernetesVersion(input.CurrentVersion)
@@ -122,11 +122,11 @@ func preflightFailure(input PreflightInput) Failure {
 	return nil
 }
 
-func validateDistributionLifecycleSupport(input PreflightInput) Failure {
-	if input.Distribution == DistributionK3s {
-		return DistributionLifecycleUnsupported{
-			Distribution: input.Distribution,
-			UpdateClass:  input.UpdateClass,
+func validateNodeLifecycleSupport(input PreflightInput) Failure {
+	if input.LifecycleRuntime == LifecycleRuntimeUnsupported {
+		return LifecycleRuntimeUnsupportedFailure{
+			LifecycleRuntime: input.LifecycleRuntime,
+			UpdateClass:      input.UpdateClass,
 		}
 	}
 	return nil

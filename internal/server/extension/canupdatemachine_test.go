@@ -35,10 +35,11 @@ const (
 
 func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T) {
 	tests := []struct {
-		name              string
-		mutate            func(*runtimehooksv1.CanUpdateMachineRequest)
-		distributionGates DistributionLifecycleFeatureGates
-		wantPatch         bool
+		name               string
+		mutate             func(*runtimehooksv1.CanUpdateMachineRequest)
+		nodeLifecycleGates NodeLifecycleFeatureGates
+		wantPatch          bool
+		wantBootstrapPatch bool
 	}{
 		{
 			name: "image ref",
@@ -65,18 +66,27 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 			},
 		},
 		{
-			name: "Kubernetes version with distribution lifecycle gate",
+			name: "Kubernetes version with node lifecycle gate",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
 				request.Desired.Machine.Spec.Version = extensionTargetVersion
 			},
-			distributionGates: DistributionLifecycleFeatureGates{Worker: true},
-			wantPatch:         true,
+			nodeLifecycleGates: NodeLifecycleFeatureGates{Worker: true},
+			wantPatch:          true,
 		},
 		{
 			name: "bootstrap payload",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
 				request.Desired.BootstrapConfig = bootstrapConfig(`{"payload":"changed"}`)
 			},
+		},
+		{
+			name: "bootstrap payload with node lifecycle gate",
+			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
+				request.Desired.BootstrapConfig = bootstrapConfig(`{"payload":"changed"}`)
+			},
+			nodeLifecycleGates: NodeLifecycleFeatureGates{Worker: true},
+			wantPatch:          true,
+			wantBootstrapPatch: true,
 		},
 		{
 			name: "platform profile",
@@ -130,7 +140,7 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 				newTestTargetSupportChecker(
 					t,
 					UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
-					tt.distributionGates,
+					tt.nodeLifecycleGates,
 					request.Current.Machine.DeepCopy(),
 				),
 			)
@@ -148,8 +158,9 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 			if response.MachinePatch.IsDefined() {
 				t.Error("MachinePatch must not be defined")
 			}
-			if response.BootstrapConfigPatch.IsDefined() {
-				t.Error("BootstrapConfigPatch must not be defined")
+			if response.BootstrapConfigPatch.IsDefined() != tt.wantBootstrapPatch {
+				t.Fatalf("BootstrapConfigPatch.IsDefined() = %t, want %t; message=%q",
+					response.BootstrapConfigPatch.IsDefined(), tt.wantBootstrapPatch, response.Message)
 			}
 			if tt.wantPatch {
 				assertOSOnlyPatch(t, response.InfrastructureMachinePatch)
@@ -160,18 +171,18 @@ func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T)
 
 func TestHandleCanUpdateMachineは無効な対象ではPatchを返さず通常置換へfallbackする(t *testing.T) {
 	tests := []struct {
-		name              string
-		mutate            func(*runtimehooksv1.CanUpdateMachineRequest)
-		gates             UpdateTargetFeatureGates
-		distributionGates DistributionLifecycleFeatureGates
-		objects           []runtime.Object
+		name               string
+		mutate             func(*runtimehooksv1.CanUpdateMachineRequest)
+		gates              UpdateTargetFeatureGates
+		nodeLifecycleGates NodeLifecycleFeatureGates
+		objects            []runtime.Object
 	}{
 		{
 			name:  "worker gate無効",
 			gates: UpdateTargetFeatureGates{},
 		},
 		{
-			name: "worker distribution lifecycle gate無効",
+			name: "worker node lifecycle gate無効",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineRequest) {
 				request.Desired.Machine.Spec.Version = extensionTargetVersion
 			},
@@ -209,7 +220,7 @@ func TestHandleCanUpdateMachineは無効な対象ではPatchを返さず通常�
 			}
 			response := &runtimehooksv1.CanUpdateMachineResponse{}
 			handler := NewCanUpdateMachineHandler(
-				newTestTargetSupportChecker(t, tt.gates, tt.distributionGates, append([]runtime.Object{
+				newTestTargetSupportChecker(t, tt.gates, tt.nodeLifecycleGates, append([]runtime.Object{
 					request.Current.Machine.DeepCopy(),
 				}, tt.objects...)...),
 			)
@@ -227,7 +238,7 @@ func TestHandleCanUpdateMachineは無効な対象ではPatchを返さず通常�
 	}
 }
 
-func TestHandleCanUpdateMachineはsingleControlPlaneDistributionLifecycleのExperimental理由を返す(t *testing.T) {
+func TestHandleCanUpdateMachineはsingleControlPlaneNodeLifecycleのExperimental理由を返す(t *testing.T) {
 	request := machineUpdateRequest(t)
 	markControlPlaneMachine(&request.Current.Machine)
 	markControlPlaneMachine(&request.Desired.Machine)
@@ -237,7 +248,7 @@ func TestHandleCanUpdateMachineはsingleControlPlaneDistributionLifecycleのExpe
 		newTestTargetSupportChecker(
 			t,
 			UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
-			DistributionLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
+			NodeLifecycleFeatureGates{Worker: true, MultiControlPlane: true},
 			request.Current.Machine.DeepCopy(),
 		),
 	)
@@ -266,7 +277,7 @@ func TestHandleCanUpdateMachineは不正なInfraMachineをFailureにする(t *te
 		newTestTargetSupportChecker(
 			t,
 			UpdateTargetFeatureGates{Worker: true, MultiControlPlane: true, SingleControlPlane: true},
-			DistributionLifecycleFeatureGates{},
+			NodeLifecycleFeatureGates{},
 			request.Current.Machine.DeepCopy(),
 		),
 	)
@@ -380,7 +391,7 @@ func extensionArtifactRef(fill string) string {
 func newTestTargetSupportChecker(
 	t *testing.T,
 	gates UpdateTargetFeatureGates,
-	distributionGates DistributionLifecycleFeatureGates,
+	nodeLifecycleGates NodeLifecycleFeatureGates,
 	objects ...runtime.Object,
 ) *TargetSupportChecker {
 	t.Helper()
@@ -393,7 +404,7 @@ func newTestTargetSupportChecker(
 	if len(objects) > 0 {
 		builder = builder.WithRuntimeObjects(objects...)
 	}
-	return NewTargetSupportChecker(builder.Build(), gates, distributionGates)
+	return NewTargetSupportChecker(builder.Build(), gates, nodeLifecycleGates)
 }
 
 func markControlPlaneMachine(machine *clusterv1.Machine) {

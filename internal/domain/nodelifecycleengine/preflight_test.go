@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import "testing"
 
@@ -34,11 +34,11 @@ func TestPreflightはminorVersionSkipを拒否する(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := Preflight(PreflightInput{
-				Distribution:   DistributionKubeadm,
-				CurrentVersion: tt.current,
-				TargetVersion:  tt.target,
-				UpdateClass:    UpdateClassKubernetesBinary,
-				NodeRole:       NodeRoleWorker,
+				LifecycleRuntime: LifecycleRuntimeKubeadm,
+				CurrentVersion:   tt.current,
+				TargetVersion:    tt.target,
+				UpdateClass:      UpdateClassKubernetesBinary,
+				NodeRole:         NodeRoleWorker,
 			})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Preflight() error = %v, wantErr %t", err, tt.wantErr)
@@ -49,7 +49,7 @@ func TestPreflightはminorVersionSkipを拒否する(t *testing.T) {
 
 func TestPreflightはWorkerがControlPlaneより先に進むことを拒否する(t *testing.T) {
 	err := Preflight(PreflightInput{
-		Distribution:                    DistributionKubeadm,
+		LifecycleRuntime:                LifecycleRuntimeKubeadm,
 		CurrentVersion:                  "v1.34.0",
 		TargetVersion:                   "v1.35.0",
 		ControlPlaneAcceptedVersion:     "v1.34.0",
@@ -64,23 +64,23 @@ func TestPreflightはWorkerがControlPlaneより先に進むことを拒否す�
 
 func TestPreflightはStateMigrationでSnapshotRefを必須にする(t *testing.T) {
 	err := Preflight(PreflightInput{
-		Distribution:   DistributionKubeadm,
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassStateMigration,
-		NodeRole:       NodeRoleControlPlane,
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassStateMigration,
+		NodeRole:         NodeRoleControlPlane,
 	})
 	if err == nil {
 		t.Fatal("Preflight() error = nil, want snapshot requirement error")
 	}
 
 	err = Preflight(PreflightInput{
-		Distribution:   DistributionKubeadm,
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassStateMigration,
-		NodeRole:       NodeRoleControlPlane,
-		SnapshotRef:    "etcd-snapshot-1",
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassStateMigration,
+		NodeRole:         NodeRoleControlPlane,
+		SnapshotRef:      "etcd-snapshot-1",
 	})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v, want nil", err)
@@ -89,24 +89,24 @@ func TestPreflightはStateMigrationでSnapshotRefを必須にする(t *testing.T
 
 func TestPreflightはK0sのKubernetesBinary更新を許可する(t *testing.T) {
 	err := Preflight(PreflightInput{
-		Distribution:   DistributionK0s,
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleControlPlane,
+		LifecycleRuntime: LifecycleRuntimeK0s,
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("Preflight() error = %v, want nil", err)
 	}
 }
 
-func TestPreflightはK3sのDistributionLifecycle更新を拒否する(t *testing.T) {
+func TestPreflightはK3sのNodeLifecycle更新を拒否する(t *testing.T) {
 	err := Preflight(PreflightInput{
-		Distribution:   DistributionK3s,
-		CurrentVersion: "v1.35.0",
-		TargetVersion:  "v1.36.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleWorker,
+		LifecycleRuntime: LifecycleRuntimeUnsupported,
+		CurrentVersion:   "v1.35.0",
+		TargetVersion:    "v1.36.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleWorker,
 	})
 	if err == nil {
 		t.Fatal("Preflight() error = nil, want k3s lifecycle unsupported")

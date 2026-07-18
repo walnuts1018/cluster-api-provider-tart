@@ -52,10 +52,10 @@ import (
 	k8sagentsession "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/agentsession"
 	k8sallocation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/allocation"
 	k8sbootreport "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/bootreport"
-	k8sdistributionlifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/distributionlifecycle"
 	k8sinitialprovisioning "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/initialprovisioning"
 	k8sinplaceupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/inplaceupdate"
 	k8snodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycle"
+	k8snodelifecycleengine "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/nodelifecycleengine"
 	k8soperation "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/operation"
 	k8sv1beta1host "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/k8s/v1beta1host"
 	applicationcleaning "github.com/walnuts1018/cluster-api-provider-tart/internal/application/cleaning"
@@ -548,7 +548,7 @@ func main() {
 			NodeLifecyclePlans: k8snodelifecycle.NewProvider(
 				mgr.GetClient(),
 			),
-			NodeLifecycleStatus: k8sdistributionlifecycle.NewStatusStore(
+			NodeLifecycleStatus: k8snodelifecycleengine.NewStatusStore(
 				mgr.GetClient(),
 			),
 			Bootstrap: provider,
@@ -649,10 +649,10 @@ func main() {
 				MultiControlPlane:  updateFeatureGates.MultiControlPlane,
 				SingleControlPlane: updateFeatureGates.SingleControlPlane,
 			},
-			extension.DistributionLifecycleFeatureGates{
-				Worker:             updateFeatureGates.DistributionLifecycle.Worker,
-				MultiControlPlane:  updateFeatureGates.DistributionLifecycle.MultiControlPlane,
-				SingleControlPlane: updateFeatureGates.DistributionLifecycle.SingleControlPlane,
+			extension.NodeLifecycleFeatureGates{
+				Worker:             updateFeatureGates.NodeLifecycle.Worker,
+				MultiControlPlane:  updateFeatureGates.NodeLifecycle.MultiControlPlane,
+				SingleControlPlane: updateFeatureGates.NodeLifecycle.SingleControlPlane,
 			},
 		)
 		if err != nil {
@@ -752,14 +752,14 @@ func configureRedfishVirtualMedia(
 }
 
 type updateFeatureGates struct {
-	InPlaceUpdates        bool
-	Worker                bool
-	MultiControlPlane     bool
-	SingleControlPlane    bool
-	DistributionLifecycle updateDistributionLifecycleFeatureGates
+	InPlaceUpdates     bool
+	Worker             bool
+	MultiControlPlane  bool
+	SingleControlPlane bool
+	NodeLifecycle      updateNodeLifecycleFeatureGates
 }
 
-type updateDistributionLifecycleFeatureGates struct {
+type updateNodeLifecycleFeatureGates struct {
 	Enabled            bool
 	Worker             bool
 	MultiControlPlane  bool
@@ -774,22 +774,22 @@ func resolveUpdateFeatureGates(gates map[string]bool) updateFeatureGates {
 	multiControlPlane := worker && gates["InPlaceUpdatesMultiControlPlane"]
 	singleControlPlane := multiControlPlane && gates["InPlaceUpdatesSingleControlPlane"]
 	return updateFeatureGates{
-		InPlaceUpdates:        true,
-		Worker:                worker,
-		MultiControlPlane:     multiControlPlane,
-		SingleControlPlane:    singleControlPlane,
-		DistributionLifecycle: resolveDistributionLifecycleFeatureGates(gates),
+		InPlaceUpdates:     true,
+		Worker:             worker,
+		MultiControlPlane:  multiControlPlane,
+		SingleControlPlane: singleControlPlane,
+		NodeLifecycle:      resolveNodeLifecycleFeatureGates(gates),
 	}
 }
 
-func resolveDistributionLifecycleFeatureGates(gates map[string]bool) updateDistributionLifecycleFeatureGates {
-	if !gates["DistributionLifecycle"] {
-		return updateDistributionLifecycleFeatureGates{}
+func resolveNodeLifecycleFeatureGates(gates map[string]bool) updateNodeLifecycleFeatureGates {
+	if !gates["NodeLifecycle"] {
+		return updateNodeLifecycleFeatureGates{}
 	}
-	worker := gates["DistributionLifecycleWorker"]
-	multiControlPlane := worker && gates["DistributionLifecycleMultiControlPlane"]
-	singleControlPlane := multiControlPlane && gates["DistributionLifecycleSingleControlPlane"]
-	return updateDistributionLifecycleFeatureGates{
+	worker := gates["NodeLifecycleWorker"]
+	multiControlPlane := worker && gates["NodeLifecycleMultiControlPlane"]
+	singleControlPlane := multiControlPlane && gates["NodeLifecycleSingleControlPlane"]
+	return updateNodeLifecycleFeatureGates{
 		Enabled:            true,
 		Worker:             worker,
 		MultiControlPlane:  multiControlPlane,

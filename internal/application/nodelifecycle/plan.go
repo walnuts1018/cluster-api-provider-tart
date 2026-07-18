@@ -26,7 +26,7 @@ import (
 
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
@@ -36,16 +36,16 @@ var identifierPattern = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`
 
 // PlanはNode Lifecycle Serviceが受け取る署名対象のJSON payloadである。
 type Plan struct {
-	APIVersion     string              `json:"apiVersion"`
-	OperationID    string              `json:"operationID"`
-	Distribution   domain.Distribution `json:"distribution"`
-	CurrentVersion string              `json:"currentVersion"`
-	TargetVersion  string              `json:"targetVersion"`
-	UpdateClass    domain.UpdateClass  `json:"updateClass"`
-	NodeRole       domain.NodeRole     `json:"nodeRole"`
-	SnapshotRef    string              `json:"snapshotRef,omitempty"`
-	Deadline       time.Time           `json:"deadline"`
-	Steps          []domain.Step       `json:"steps"`
+	APIVersion       string                  `json:"apiVersion"`
+	OperationID      string                  `json:"operationID"`
+	LifecycleRuntime domain.LifecycleRuntime `json:"lifecycleRuntime"`
+	CurrentVersion   string                  `json:"currentVersion"`
+	TargetVersion    string                  `json:"targetVersion"`
+	UpdateClass      domain.UpdateClass      `json:"updateClass"`
+	NodeRole         domain.NodeRole         `json:"nodeRole"`
+	SnapshotRef      string                  `json:"snapshotRef,omitempty"`
+	Deadline         time.Time               `json:"deadline"`
+	Steps            []domain.Step           `json:"steps"`
 }
 
 type SignedPlan struct {
@@ -93,29 +93,29 @@ func ValidatePlan(plan Plan) (ValidatedPlan, error) {
 
 func FromDomainPlan(plan domain.Plan, deadline time.Time) (ValidatedPlan, error) {
 	return ValidatePlan(Plan{
-		APIVersion:     APIVersion,
-		OperationID:    plan.OperationID,
-		Distribution:   plan.Distribution,
-		CurrentVersion: plan.CurrentVersion,
-		TargetVersion:  plan.TargetVersion,
-		UpdateClass:    plan.UpdateClass,
-		NodeRole:       plan.NodeRole,
-		SnapshotRef:    plan.SnapshotRef,
-		Deadline:       deadline.UTC(),
-		Steps:          append([]domain.Step(nil), plan.Steps...),
+		APIVersion:       APIVersion,
+		OperationID:      plan.OperationID,
+		LifecycleRuntime: plan.LifecycleRuntime,
+		CurrentVersion:   plan.CurrentVersion,
+		TargetVersion:    plan.TargetVersion,
+		UpdateClass:      plan.UpdateClass,
+		NodeRole:         plan.NodeRole,
+		SnapshotRef:      plan.SnapshotRef,
+		Deadline:         deadline.UTC(),
+		Steps:            append([]domain.Step(nil), plan.Steps...),
 	})
 }
 
 func ToDomainPlan(plan Plan) (domain.Plan, error) {
 	domainPlan := domain.Plan{
-		OperationID:    plan.OperationID,
-		Distribution:   plan.Distribution,
-		CurrentVersion: plan.CurrentVersion,
-		TargetVersion:  plan.TargetVersion,
-		UpdateClass:    plan.UpdateClass,
-		NodeRole:       plan.NodeRole,
-		SnapshotRef:    plan.SnapshotRef,
-		Steps:          append([]domain.Step(nil), plan.Steps...),
+		OperationID:      plan.OperationID,
+		LifecycleRuntime: plan.LifecycleRuntime,
+		CurrentVersion:   plan.CurrentVersion,
+		TargetVersion:    plan.TargetVersion,
+		UpdateClass:      plan.UpdateClass,
+		NodeRole:         plan.NodeRole,
+		SnapshotRef:      plan.SnapshotRef,
+		Steps:            append([]domain.Step(nil), plan.Steps...),
 	}
 	switch plan.UpdateClass {
 	case domain.UpdateClassKubernetesBinary, domain.UpdateClassStateMigration:
@@ -128,12 +128,12 @@ func ToDomainPlan(plan Plan) (domain.Plan, error) {
 		return domain.Plan{}, fmt.Errorf("unsupported nodeRole: %q", plan.NodeRole)
 	}
 	preflight := domain.PreflightInput{
-		Distribution:   plan.Distribution,
-		CurrentVersion: plan.CurrentVersion,
-		TargetVersion:  plan.TargetVersion,
-		UpdateClass:    plan.UpdateClass,
-		NodeRole:       plan.NodeRole,
-		SnapshotRef:    plan.SnapshotRef,
+		LifecycleRuntime: plan.LifecycleRuntime,
+		CurrentVersion:   plan.CurrentVersion,
+		TargetVersion:    plan.TargetVersion,
+		UpdateClass:      plan.UpdateClass,
+		NodeRole:         plan.NodeRole,
+		SnapshotRef:      plan.SnapshotRef,
 	}
 	if err := domain.Preflight(preflight); err != nil {
 		return domain.Plan{}, err

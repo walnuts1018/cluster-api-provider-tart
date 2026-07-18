@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import "fmt"
 
-// StepはDistribution Lifecycle Operationで永続化する冪等stepである。
+// StepはNode Lifecycle Engine Operationで永続化する冪等stepである。
 type Step string
 
 const (

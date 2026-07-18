@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"fmt"
 	"slices"
 )
 
-// PlanInputはDistribution Lifecycle Plan生成に必要な不変入力である。
+// PlanInputはNode Lifecycle Plan生成に必要な不変入力である。
 type PlanInput struct {
 	OperationID string
 
-	Distribution   Distribution
-	CurrentVersion string
-	TargetVersion  string
-	UpdateClass    UpdateClass
-	NodeRole       NodeRole
-	SnapshotRef    string
+	LifecycleRuntime LifecycleRuntime
+	CurrentVersion   string
+	TargetVersion    string
+	UpdateClass      UpdateClass
+	NodeRole         NodeRole
+	SnapshotRef      string
 
 	ControlPlaneAcceptedVersion     string
 	RequireControlPlaneTargetAccept bool
@@ -36,17 +36,17 @@ type PlanInput struct {
 
 // PlanはNode Lifecycle Serviceが型付きStepとして実行する順序を表す。
 type Plan struct {
-	OperationID    string
-	Distribution   Distribution
-	CurrentVersion string
-	TargetVersion  string
-	UpdateClass    UpdateClass
-	NodeRole       NodeRole
-	SnapshotRef    string
-	Steps          []Step
+	OperationID      string
+	LifecycleRuntime LifecycleRuntime
+	CurrentVersion   string
+	TargetVersion    string
+	UpdateClass      UpdateClass
+	NodeRole         NodeRole
+	SnapshotRef      string
+	Steps            []Step
 }
 
-// BuildPlanは対象Node種別に応じたDistribution Lifecycle Step順序を作る。
+// BuildPlanは対象Node種別に応じたNode Lifecycle Engine Step順序を作る。
 func BuildPlan(input PlanInput) (Plan, error) {
 	if input.OperationID == "" {
 		return Plan{}, fmt.Errorf("operation ID is required")
@@ -56,9 +56,9 @@ func BuildPlan(input PlanInput) (Plan, error) {
 	case PlanReady:
 		return decision.Plan, nil
 	case PlanRejected:
-		return Plan{}, fmt.Errorf("distribution lifecycle plan rejected: %T", decision.Failure)
+		return Plan{}, fmt.Errorf("node lifecycle engine plan rejected: %T", decision.Failure)
 	default:
-		return Plan{}, fmt.Errorf("unsupported distribution lifecycle plan result %T", result)
+		return Plan{}, fmt.Errorf("unsupported node lifecycle engine plan result %T", result)
 	}
 }
 
@@ -68,9 +68,9 @@ func ReadyForStep(plan Plan, step Step) error {
 	case StepRunnable:
 		return nil
 	case StepBlocked:
-		return fmt.Errorf("distribution lifecycle step blocked: %T", decision.Failure)
+		return fmt.Errorf("node lifecycle engine step blocked: %T", decision.Failure)
 	default:
-		return fmt.Errorf("unsupported distribution lifecycle step decision %T", decision)
+		return fmt.Errorf("unsupported node lifecycle engine step decision %T", decision)
 	}
 }
 
@@ -102,7 +102,7 @@ func indexOfStep(steps []Step, step Step) int {
 
 func (input PlanInput) preflightInput() PreflightInput {
 	return PreflightInput{
-		Distribution:                    input.Distribution,
+		LifecycleRuntime:                input.LifecycleRuntime,
 		CurrentVersion:                  input.CurrentVersion,
 		TargetVersion:                   input.TargetVersion,
 		UpdateClass:                     input.UpdateClass,

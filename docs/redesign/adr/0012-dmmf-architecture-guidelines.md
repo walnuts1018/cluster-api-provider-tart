@@ -25,7 +25,7 @@ DMMFは「Web APIの層構造」ではなく、「Reconcileで観測した外部
 
 - `domain`は副作用を持たない値、Smart Constructor、状態遷移、互換性判定、Plan/Decision生成だけを持つ。
 - `application`はUse Case単位のI/O Sandwichを実装し、Portから必要な情報を読む、domainへ渡す、結果をPortで保存する。
-- `adapter`はKubernetes client、Driver、Artifact、HTTP delivery、Distribution Lifecycleなどの外部I/Oを実装し、DTO/API型とdomain/application型の変換境界になる。
+- `adapter`はKubernetes client、Driver、Artifact、HTTP delivery、Node Lifecycle Engineなどの外部I/Oを実装し、DTO/API型とdomain/application型の変換境界になる。
 - `controller`はKubernetes objectの取得、pause/deletion、owner確認、patch、Condition/Event出力、Requeue判断だけを担当する。
 
 新規コードでは、controller関数へHost選択、Operation phase遷移、更新可否、retry方針、token判定を直接書いてはならない。
@@ -56,7 +56,7 @@ Domain型は原則として `api/v1beta1`、controller-runtime、client-go、JSO
 
 - OperationのCommand、Event、DeadlineOutcome
 - Host/Machine/Operationの状態遷移結果
-- Distribution LifecycleのStep、Health Gate、Preflight結果
+- Node Lifecycle EngineのStep、Health Gate、Preflight結果
 - Driver CapabilityとCapability不足の理由
 - 期待される業務失敗
 
@@ -182,7 +182,7 @@ internal/
     <resource>_conditions.go    # controller固有のpatch補助が必要な場合だけ置く
 ```
 
-`<usecase>`はCluster API Providerの業務単位を表す小文字のpackage名にする。例は`hostallocation`、`initialprovisioning`、`operationexecution`、`inplaceupdate`、`securedelivery`、`machinedeletion`、`distributionlifecycle`である。Go package名は原則として小文字の1語にし、snake_case package名を増やさない。略語で意味が落ちる場合は、directory名を長くしてよい。
+`<usecase>`はCluster API Providerの業務単位を表す小文字のpackage名にする。例は`hostallocation`、`initialprovisioning`、`operationexecution`、`inplaceupdate`、`securedelivery`、`machinedeletion`、`nodelifecycleengine`である。Go package名は原則として小文字の1語にし、snake_case package名を増やさない。略語で意味が落ちる場合は、directory名を長くしてよい。
 
 ### 12. Domain Use Caseパッケージの規約
 

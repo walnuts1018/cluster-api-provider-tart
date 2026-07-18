@@ -12,26 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
-import (
-	"context"
-
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
-)
-
-type PreflightRunner interface {
-	Preflight(context.Context, domain.Plan) error
-}
-
-type SnapshotCreator interface {
-	CreateSnapshot(context.Context, domain.Plan) (SnapshotResult, error)
-}
-
-type LifecycleApplier interface {
-	Apply(context.Context, domain.Plan) error
-}
-
-type HealthObserver interface {
-	ObserveHealth(context.Context, domain.Plan) (domain.HealthInput, error)
+type StepCommand struct {
+	Plan Plan
+	Step Step
 }

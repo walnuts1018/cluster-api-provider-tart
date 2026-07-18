@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"context"
@@ -22,12 +22,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
-	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/distributionlifecycle"
 	appupdate "github.com/walnuts1018/cluster-api-provider-tart/internal/application/inplaceupdate"
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	application "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycleengine"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
-// LifecyclePhaseはDistribution Lifecycleの大まかな実行区間をStatusへ保存する値である。
+// LifecyclePhaseはNode Lifecycle Engineの大まかな実行区間をStatusへ保存する値である。
 type LifecyclePhase string
 
 const (
@@ -37,7 +37,7 @@ const (
 	LifecyclePhaseVerify    LifecyclePhase = "Verify"
 )
 
-// StatusStoreはDistribution Lifecycleの冪等Step結果をTartHostOperation Statusへ保存する。
+// StatusStoreはNode Lifecycle Engineの冪等Step結果をTartHostOperation Statusへ保存する。
 type StatusStore struct {
 	client client.Client
 }

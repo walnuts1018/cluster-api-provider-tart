@@ -12,28 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"context"
 	"fmt"
 	"maps"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 type DriverSet struct {
-	drivers map[domain.Distribution]Driver
+	drivers map[domain.LifecycleRuntime]Driver
 }
 
-func NewDriverSet(drivers map[domain.Distribution]Driver) *DriverSet {
-	copied := make(map[domain.Distribution]Driver, len(drivers))
+func NewDriverSet(drivers map[domain.LifecycleRuntime]Driver) *DriverSet {
+	copied := make(map[domain.LifecycleRuntime]Driver, len(drivers))
 	maps.Copy(copied, drivers)
 	return &DriverSet{drivers: copied}
 }
 
 func (set *DriverSet) Preflight(ctx context.Context, plan domain.Plan) error {
-	driver, err := set.driver(plan.Distribution)
+	driver, err := set.driver(plan.LifecycleRuntime)
 	if err != nil {
 		return err
 	}
@@ -41,7 +41,7 @@ func (set *DriverSet) Preflight(ctx context.Context, plan domain.Plan) error {
 }
 
 func (set *DriverSet) CreateSnapshot(ctx context.Context, plan domain.Plan) (SnapshotResult, error) {
-	driver, err := set.driver(plan.Distribution)
+	driver, err := set.driver(plan.LifecycleRuntime)
 	if err != nil {
 		return SnapshotResult{}, err
 	}
@@ -49,7 +49,7 @@ func (set *DriverSet) CreateSnapshot(ctx context.Context, plan domain.Plan) (Sna
 }
 
 func (set *DriverSet) Apply(ctx context.Context, plan domain.Plan) error {
-	driver, err := set.driver(plan.Distribution)
+	driver, err := set.driver(plan.LifecycleRuntime)
 	if err != nil {
 		return err
 	}
@@ -57,20 +57,20 @@ func (set *DriverSet) Apply(ctx context.Context, plan domain.Plan) error {
 }
 
 func (set *DriverSet) ObserveHealth(ctx context.Context, plan domain.Plan) (domain.HealthInput, error) {
-	driver, err := set.driver(plan.Distribution)
+	driver, err := set.driver(plan.LifecycleRuntime)
 	if err != nil {
 		return domain.HealthInput{}, err
 	}
 	return driver.ObserveHealth(ctx, plan)
 }
 
-func (set *DriverSet) driver(distribution domain.Distribution) (Driver, error) {
+func (set *DriverSet) driver(runtime domain.LifecycleRuntime) (Driver, error) {
 	if set == nil || set.drivers == nil {
-		return nil, fmt.Errorf("distribution lifecycle driver set is required")
+		return nil, fmt.Errorf("node lifecycle engine set is required")
 	}
-	driver, ok := set.drivers[distribution]
+	driver, ok := set.drivers[runtime]
 	if !ok || driver == nil {
-		return nil, fmt.Errorf("distribution lifecycle driver is not registered for %q", distribution)
+		return nil, fmt.Errorf("node lifecycle engine is not registered for %q", runtime)
 	}
 	return driver, nil
 }

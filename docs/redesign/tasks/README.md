@@ -29,7 +29,7 @@
 | 06 | [AgentとNetwork Boot統合](06-network-boot-agent.md) | 一時OS起動、disk inventory/write/verify | 03、04、05 |
 | 07 | [初期Provisioning](07-initial-provisioning.md) | Ubuntu 24.04 kubeadm Node Ready | 02、06 |
 | 08 | [OSOnly A/B更新](08-ab-update.md) | Runtime Hook、boot trial、Rollback | 07 |
-| 09 | [Kubernetes Distribution Lifecycle](09-kubernetes-lifecycle.md) | kubeadm update、Snapshot、Recovery | 08 |
+| 09 | [Kubernetes Node Lifecycle Engine](09-kubernetes-lifecycle.md) | kubeadm/k0s runtime update、Snapshot、Recovery | 08 |
 | 10 | [Redfish](10-redfish.md) | Power、Boot Transport、Virtual Media | 03、06 |
 | 11 | [対応Matrix拡大とRelease](11-compatibility-and-release.md) | OS/architecture/firmware追加、Runbook | 09、10 |
 

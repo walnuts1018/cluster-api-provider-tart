@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"slices"
@@ -21,12 +21,12 @@ import (
 
 func TestBuildPlanはWorkerではSnapshotなしのLifecycleStepを作る(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
-		Distribution:   DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleWorker,
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleWorker,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -49,12 +49,12 @@ func TestBuildPlanはWorkerではSnapshotなしのLifecycleStepを作る(t *test
 
 func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
-		Distribution:   DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleControlPlane,
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -75,12 +75,12 @@ func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *tes
 
 func TestPlanReadyForStepはKubeadmApply前にSnapshotRefを要求する(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
-		Distribution:   DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleControlPlane,
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleControlPlane,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)
@@ -97,12 +97,12 @@ func TestPlanReadyForStepはKubeadmApply前にSnapshotRefを要求する(t *test
 
 func TestRecordPlanStepはPlanごとのStep順序を使う(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
-		Distribution:   DistributionKubeadm,
-		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
-		UpdateClass:    UpdateClassKubernetesBinary,
-		NodeRole:       NodeRoleWorker,
+		LifecycleRuntime: LifecycleRuntimeKubeadm,
+		OperationID:      "operation-1",
+		CurrentVersion:   "v1.34.0",
+		TargetVersion:    "v1.35.0",
+		UpdateClass:      UpdateClassKubernetesBinary,
+		NodeRole:         NodeRoleWorker,
 	})
 	if err != nil {
 		t.Fatalf("BuildPlan() error = %v", err)

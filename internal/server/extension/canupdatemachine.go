@@ -61,23 +61,23 @@ func (handler *CanUpdateMachineHandler) Handle(
 		response.SetMessage("failed to classify in-place update: " + err.Error())
 		return
 	}
-	classification, versionSupported, distributionReason, err := allowMachineVersionIfEligible(
+	classification, lifecycleSupported, lifecycleReason, err := allowLifecycleFieldsIfEligible(
 		ctx,
 		handler.support,
 		request.Desired.Machine,
 		classification,
 	)
 	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate distribution lifecycle target")
+		ctrllog.FromContext(ctx).Error(err, "Failed to evaluate node lifecycle target")
 		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
-		response.SetMessage("failed to evaluate distribution lifecycle target: " + err.Error())
+		response.SetMessage("failed to evaluate node lifecycle target: " + err.Error())
 		return
 	}
-	if versionSupported {
-		classification = classificationWithMachineVersionAllowed(classification)
-	} else if distributionReason != "" {
+	if lifecycleSupported {
+		classification = classificationWithLifecycleFieldsAllowed(classification)
+	} else if lifecycleReason != "" {
 		response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
-		response.SetMessage("in-place update not selected; " + distributionReason)
+		response.SetMessage("in-place update not selected; " + lifecycleReason)
 		return
 	}
 	if !classification.CanUpdateInPlace() {
@@ -96,20 +96,28 @@ func (handler *CanUpdateMachineHandler) Handle(
 		return
 	}
 	response.InfrastructureMachinePatch = patch
+	bootstrapPatch, err := machineBootstrapPatch(classification, request.Desired.BootstrapConfig)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "Failed to build bootstrap config patch")
+		response.SetStatus(runtimehooksv1.ResponseStatusFailure)
+		response.SetMessage("failed to build bootstrap config patch: " + err.Error())
+		return
+	}
+	response.BootstrapConfigPatch = bootstrapPatch
 	response.SetStatus(runtimehooksv1.ResponseStatusSuccess)
 	response.SetMessage("in-place update is supported")
 }
 
-func allowMachineVersionIfEligible(
+func allowLifecycleFieldsIfEligible(
 	ctx context.Context,
 	support *TargetSupportChecker,
 	machine clusterv1.Machine,
 	classification domain.Classification,
 ) (domain.Classification, bool, string, error) {
-	if !classificationContainsOnlyMachineVersionReject(classification) {
+	if !classificationContainsOnlyLifecycleRejects(classification) {
 		return classification, false, "", nil
 	}
-	supported, reason, err := support.SupportsDistributionLifecycleMachine(ctx, &machine)
+	supported, reason, err := support.SupportsNodeLifecycleMachine(ctx, &machine)
 	if err != nil {
 		return domain.Classification{}, false, "", err
 	}
@@ -119,18 +127,23 @@ func allowMachineVersionIfEligible(
 	return classification, true, "", nil
 }
 
-func classificationContainsOnlyMachineVersionReject(classification domain.Classification) bool {
-	if len(classification.Rejected) != 1 {
+func classificationContainsOnlyLifecycleRejects(classification domain.Classification) bool {
+	if len(classification.Rejected) == 0 {
 		return false
 	}
-	return classification.Rejected[0] == domain.FieldMachineVersion
+	for _, rejected := range classification.Rejected {
+		if rejected != domain.FieldMachineVersion && rejected != domain.FieldBootstrapConfig {
+			return false
+		}
+	}
+	return true
 }
 
-func classificationWithMachineVersionAllowed(classification domain.Classification) domain.Classification {
-	if !classificationContainsOnlyMachineVersionReject(classification) {
+func classificationWithLifecycleFieldsAllowed(classification domain.Classification) domain.Classification {
+	if !classificationContainsOnlyLifecycleRejects(classification) {
 		return classification
 	}
+	classification.Allowed = append(classification.Allowed, classification.Rejected...)
 	classification.Rejected = classification.Rejected[:0]
-	classification.Allowed = append(classification.Allowed, domain.FieldMachineVersion)
 	return classification
 }

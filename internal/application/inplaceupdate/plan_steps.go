@@ -19,7 +19,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	nodelifecycleapp "github.com/walnuts1018/cluster-api-provider-tart/internal/application/nodelifecycle"
-	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	distributiondomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
 func buildSignedAgentPlanStep(
@@ -52,19 +52,19 @@ func buildSignedNodeLifecyclePlanStep(
 		return nodelifecycleapp.BuiltPlan{}, false, nil
 	}
 	if operation.Spec.UpdateClass != infrastructurev1beta1.UpdateClassKubernetesBinary {
-		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("unsupported distribution lifecycle update class %q", operation.Spec.UpdateClass)
+		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("unsupported node lifecycle engine update class %q", operation.Spec.UpdateClass)
 	}
 	nodeRole := input.NodeRole
 	if nodeRole == "" {
 		nodeRole = distributiondomain.NodeRoleWorker
 	}
 	plan, err := distributiondomain.BuildPlan(distributiondomain.PlanInput{
-		OperationID:    operation.Spec.OperationID,
-		Distribution:   distributiondomain.Distribution(input.Manifest.Value().Kubernetes.Distribution),
-		CurrentVersion: currentDistributionVersion(input.StartInput),
-		TargetVersion:  targetDistributionVersion(input.StartInput),
-		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,
-		NodeRole:       nodeRole,
+		OperationID:      operation.Spec.OperationID,
+		LifecycleRuntime: distributiondomain.LifecycleRuntime(input.Manifest.Value().Kubernetes.LifecycleRuntime),
+		CurrentVersion:   currentDistributionVersion(input.StartInput),
+		TargetVersion:    targetDistributionVersion(input.StartInput),
+		UpdateClass:      distributiondomain.UpdateClassKubernetesBinary,
+		NodeRole:         nodeRole,
 	})
 	if err != nil {
 		return nodelifecycleapp.BuiltPlan{}, false, fmt.Errorf("build Node Lifecycle domain Plan: %w", err)

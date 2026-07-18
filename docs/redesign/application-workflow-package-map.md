@@ -13,7 +13,7 @@ Application層のパッケージは、次のいずれかに分類する。
 | Composition Workflow | 複数Stepを順序付ける上位のApplication entrypoint | domain decisionを得て、Handlerまたは注入されたStep interfaceへ渡す | `clusterlifecycle`, `machinelifecycle`, `machinetemplatelifecycle` |
 | Process Manager Workflow | 長時間Operationの状態とcommandを進める | Process ManagerのdecisionをHandlerへ渡す | `operationexecution`, `machinedeletion`, `machineexecution` |
 | Operation Start Workflow | Operation作成とPlan永続化のI/O sandwichを組む | draft生成、署名、開始、Plan保存をStepとして順序付ける | `initialprovisioning`, `inplaceupdate`, `cleaning` |
-| Reusable Step Context | 複数Workflowから使う副作用Stepまたは純粋Stepを提供する | Workflowに見える小さいStep interfaceを提供する | `resourcefinalizer`, `clusterstatus`, `distributionlifecycle` |
+| Reusable Step Context | 複数Workflowから使う副作用Stepまたは純粋Stepを提供する | Workflowに見える小さいStep interfaceを提供する | `resourcefinalizer`, `clusterstatus`, `nodelifecycleengine` |
 | Agent-side Workflow | Agent内で署名検証済みcommandを実行する | 外部入力の検証後にStep runnerへ渡す | `nodelifecycle` |
 | Status/Model Helper | API StatusやConditionの純粋な組み立てを提供する | Workflowを持たない | `machineallocation`, `machinehealth` |
 
@@ -68,8 +68,8 @@ internal/application/<context>/
 | `initialprovisioning` | Operation開始とHost予約をWorkflowに直書き | `model`/`handler`/`step.Executor`を追加し、Host予約、Operation開始、CompletionをStep interface化する |
 | `inplaceupdate` | Operation開始とPlan永続化をWorkflowに直書き | `model`/`handler`/`step.Executor`を追加し、Agent PlanとNode Lifecycle Plan保存をStep化する |
 | `cleaning` | Operation開始とPlan永続化をWorkflowに直書き | `initialprovisioning`/`inplaceupdate`と同じOperation Start Workflow形へ揃える |
-| `distributionlifecycle` | Step Handlerでdriver dispatch済み | 現状維持。`nodelifecycle`からはStepRunner interface越しに使う |
-| `nodelifecycle` | 署名検証後にStepRunnerへ渡すAgent-side Workflow | 現状維持。`distributionlifecycle.Workflow`具象へ依存しない |
+| `nodelifecycleengine` | Node Lifecycle EngineのStep Handlerでruntime engine dispatch済み | 現状維持。`nodelifecycle`からはStepRunner interface越しに使う |
+| `nodelifecycle` | 署名検証後にStepRunnerへ渡すAgent-side Workflow | 現状維持。`nodelifecycleengine.Workflow`具象へ依存しない |
 | `machineallocation` | Status helper | Workflow化しない |
 | `machinehealth` | Status helper | Workflow化しない |
 

@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 import (
 	"context"
 
-	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/distributionlifecycle"
+	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/nodelifecycleengine"
 )
 
-// WorkflowはDistribution Lifecycle PlanのStepをDriverへdispatchする。
+// WorkflowはNode Lifecycle Engine PlanのStepをDriverへdispatchする。
 type Workflow struct {
 	effects effectRunner
 }
@@ -32,7 +32,7 @@ type Driver interface {
 	HealthObserver
 }
 
-// NewWorkflowはDistribution Lifecycle Workflowを作る。
+// NewWorkflowはNode Lifecycle Engine Workflowを作る。
 func NewWorkflow(driver Driver) *Workflow {
 	return &Workflow{
 		effects: effectRunner{

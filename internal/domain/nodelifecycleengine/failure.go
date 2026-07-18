@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package distributionlifecycle
+package nodelifecycleengine
 
 type Failure interface {
-	isDistributionLifecycleFailure()
+	isNodeLifecycleFailure()
 }
 
 type InvalidCurrentVersion struct {
@@ -26,13 +26,13 @@ type InvalidTargetVersion struct {
 	Value string
 }
 
-type UnsupportedDistribution struct {
+type UnsupportedLifecycleRuntime struct {
 	Value string
 }
 
-type DistributionLifecycleUnsupported struct {
-	Distribution Distribution
-	UpdateClass  UpdateClass
+type LifecycleRuntimeUnsupportedFailure struct {
+	LifecycleRuntime LifecycleRuntime
+	UpdateClass      UpdateClass
 }
 
 type MajorVersionChangeUnsupported struct{}
@@ -68,21 +68,21 @@ type StaticPodsNotReady struct{}
 type EtcdQuorumLost struct{}
 type APIUnhealthy struct{}
 
-func (InvalidCurrentVersion) isDistributionLifecycleFailure()              {}
-func (InvalidTargetVersion) isDistributionLifecycleFailure()               {}
-func (UnsupportedDistribution) isDistributionLifecycleFailure()            {}
-func (DistributionLifecycleUnsupported) isDistributionLifecycleFailure()   {}
-func (MajorVersionChangeUnsupported) isDistributionLifecycleFailure()      {}
-func (VersionDowngradeUnsupported) isDistributionLifecycleFailure()        {}
-func (MinorVersionSkipUnsupported) isDistributionLifecycleFailure()        {}
-func (WorkerControlPlaneOrderUnsatisfied) isDistributionLifecycleFailure() {}
-func (SnapshotRequired) isDistributionLifecycleFailure()                   {}
-func (StepNotInPlan) isDistributionLifecycleFailure()                      {}
-func (NodeNotReady) isDistributionLifecycleFailure()                       {}
-func (VersionMismatch) isDistributionLifecycleFailure()                    {}
-func (StaticPodsNotReady) isDistributionLifecycleFailure()                 {}
-func (EtcdQuorumLost) isDistributionLifecycleFailure()                     {}
-func (APIUnhealthy) isDistributionLifecycleFailure()                       {}
+func (InvalidCurrentVersion) isNodeLifecycleFailure()              {}
+func (InvalidTargetVersion) isNodeLifecycleFailure()               {}
+func (UnsupportedLifecycleRuntime) isNodeLifecycleFailure()        {}
+func (LifecycleRuntimeUnsupportedFailure) isNodeLifecycleFailure() {}
+func (MajorVersionChangeUnsupported) isNodeLifecycleFailure()      {}
+func (VersionDowngradeUnsupported) isNodeLifecycleFailure()        {}
+func (MinorVersionSkipUnsupported) isNodeLifecycleFailure()        {}
+func (WorkerControlPlaneOrderUnsatisfied) isNodeLifecycleFailure() {}
+func (SnapshotRequired) isNodeLifecycleFailure()                   {}
+func (StepNotInPlan) isNodeLifecycleFailure()                      {}
+func (NodeNotReady) isNodeLifecycleFailure()                       {}
+func (VersionMismatch) isNodeLifecycleFailure()                    {}
+func (StaticPodsNotReady) isNodeLifecycleFailure()                 {}
+func (EtcdQuorumLost) isNodeLifecycleFailure()                     {}
+func (APIUnhealthy) isNodeLifecycleFailure()                       {}
 
 func (NodeNotReady) isHealthGateFailure()       {}
 func (VersionMismatch) isHealthGateFailure()    {}

@@ -108,7 +108,7 @@ type TartHostOperationStatus struct {
 	// +kubebuilder:validation:Enum=Pending;PreparingBoot;WaitingForAgent;Writing;Verifying;BootTrial;AwaitingHealth;DistributionUpdating;RollingBack;Succeeded;Failed;RecoveryRequired
 	Phase TartHostOperationPhase `json:"phase,omitempty"`
 
-	// lifecyclePhase identifies the current typed distribution lifecycle step.
+	// lifecyclePhase identifies the current typed node lifecycle engine step.
 	// +optional
 	// +kubebuilder:validation:Enum=Preflight;Snapshot;Apply;Verify
 	LifecyclePhase string `json:"lifecyclePhase,omitempty"`

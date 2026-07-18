@@ -75,6 +75,56 @@ func TestTartHostOperationReconcilerはUpdate開始時にHostをUpdatingへ移�
 	}
 }
 
+func TestTartHostOperationReconcilerは起動対象を公開してからPowerOnする(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := operationTestHost()
+	operation := operationTestUpdate(host)
+	k8sClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
+		WithObjects(host, operation).
+		Build()
+	powerOn := &phaseRecordingOperationPowerOn{
+		client: k8sClient,
+		key:    client.ObjectKeyFromObject(operation),
+	}
+	reconciler := &TartHostOperationReconciler{
+		Client:             k8sClient,
+		Scheme:             scheme,
+		PowerOn:            powerOn,
+		PrepareBoot:        &recordingOperationBootPreparation{},
+		HostPhase:          &recordingOperationHostPhase{},
+		DriverCapabilities: &recordingOperationDriverCapabilities{},
+	}
+
+	request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(operation)}
+	if _, err := reconciler.Reconcile(t.Context(), request); err != nil {
+		t.Fatalf("first Reconcile() error = %v", err)
+	}
+	if powerOn.calls != 0 {
+		t.Fatalf("PowerOn() calls after boot preparation = %d, want 0", powerOn.calls)
+	}
+	if _, err := reconciler.Reconcile(t.Context(), request); err != nil {
+		t.Fatalf("second Reconcile() error = %v", err)
+	}
+	if powerOn.calls != 1 {
+		t.Fatalf("PowerOn() calls = %d, want 1", powerOn.calls)
+	}
+	if powerOn.observedPhase != infrastructurev1beta1.TartHostOperationPhasePreparingBoot {
+		t.Fatalf("phase observed by PowerOn() = %q, want PreparingBoot", powerOn.observedPhase)
+	}
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent {
+		t.Fatalf("phase = %q, want WaitingForAgent", current.Status.Phase)
+	}
+}
+
 func TestTartHostOperationReconcilerはPowerOn前にDriverCapabilitiesを観測する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
@@ -191,7 +241,7 @@ func TestTartHostOperationReconcilerはPowerOn前にBootStateを観測する(t *
 	}
 }
 
-func TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再観測する(t *testing.T) {
+func TestTartHostOperationReconcilerはPreparingBootでPowerOnしてWaitingForAgentへ進める(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -224,11 +274,18 @@ func TestTartHostOperationReconcilerはPreparingBoot再開時にBootStateを再�
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if result.RequeueAfter != operationDeadlineRequeueInterval {
-		t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, operationDeadlineRequeueInterval)
+	if result.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter = %s, want 0", result.RequeueAfter)
 	}
 	if observer.calls != 1 {
 		t.Fatalf("ObserveBootAndPersist() calls = %d, want 1", observer.calls)
+	}
+	current := &infrastructurev1beta1.TartHostOperation{}
+	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
+		t.Fatalf("get TartHostOperation: %v", err)
+	}
+	if current.Status.Phase != infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent {
+		t.Fatalf("phase = %q, want WaitingForAgent", current.Status.Phase)
 	}
 }
 
@@ -289,8 +346,8 @@ func TestTartHostOperationReconcilerはRedfish再起動後の再観測でStatus�
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if result.RequeueAfter != operationDeadlineRequeueInterval {
-		t.Fatalf("RequeueAfter = %s, want %s", result.RequeueAfter, operationDeadlineRequeueInterval)
+	if result.RequeueAfter != 0 {
+		t.Fatalf("RequeueAfter = %s, want 0", result.RequeueAfter)
 	}
 
 	current := &infrastructurev1beta1.TartHost{}
@@ -794,6 +851,29 @@ func (successfulOperationPowerOn) PowerOn(
 	operationdomain.ID,
 	applicationdriver.Invocation,
 ) error {
+	return nil
+}
+
+type phaseRecordingOperationPowerOn struct {
+	client        client.Client
+	key           client.ObjectKey
+	calls         int
+	observedPhase infrastructurev1beta1.TartHostOperationPhase
+}
+
+func (powerOn *phaseRecordingOperationPowerOn) PowerOn(
+	ctx context.Context,
+	_ driverdomain.Name,
+	_ driverdomain.HostTarget,
+	_ operationdomain.ID,
+	_ applicationdriver.Invocation,
+) error {
+	powerOn.calls++
+	operation := &infrastructurev1beta1.TartHostOperation{}
+	if err := powerOn.client.Get(ctx, powerOn.key, operation); err != nil {
+		return err
+	}
+	powerOn.observedPhase = operation.Status.Phase
 	return nil
 }
 

@@ -42,6 +42,8 @@ func (runner *effectRunner) apply(
 		return runner.ports.Statuses.TransitionPhase(ctx, operation, apiOperationPhase(selected.Target))
 	case operationdomain.PrepareBoot:
 		return runner.prepareBoot(ctx, operation, selected.Host)
+	case operationdomain.ActivateBoot:
+		return runner.activateBoot(ctx, operation)
 	case operationdomain.ObserveActive:
 		return runner.observeActive(ctx, operation)
 	case operationdomain.AwaitMachineHealth:
@@ -126,6 +128,41 @@ func (runner *effectRunner) prepareBoot(
 		)
 		return fmt.Errorf("prepare TartHost boot transport: %w", err)
 	}
+	if err := runner.applyHostCommandToHost(ctx, host, hostCommand); err != nil {
+		log.Error(err, "Failed to mark TartHost for Operation",
+			"host", host.Namespace+"/"+host.Name,
+		)
+		return err
+	}
+	return runner.ports.Statuses.TransitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+}
+
+func (runner *effectRunner) activateBoot(
+	ctx context.Context,
+	operation *infrastructurev1beta1.TartHostOperation,
+) error {
+	log := logf.FromContext(ctx)
+	host, err := runner.ports.Resources.GetHost(ctx, operation.Spec.HostRef)
+	if err != nil {
+		return err
+	}
+	operationID, err := operationdomain.ParseID(operation.Spec.OperationID)
+	if err != nil {
+		return fmt.Errorf("parse operation ID: %w", err)
+	}
+	target, err := runner.driverTarget(ctx, host)
+	if err != nil {
+		return err
+	}
+	powerDriverName, err := driverdomain.ParseName(host.Spec.Management.PowerDriver)
+	if err != nil {
+		return fmt.Errorf("parse power driver name: %w", err)
+	}
+	invocation := applicationdriver.Invocation{
+		OperationType: string(operation.Spec.Type),
+		Phase:         "PreparingBoot",
+		Rollback:      false,
+	}
 	if err := runner.ports.PowerOn.PowerOn(ctx, powerDriverName, target, operationID, invocation); err != nil {
 		log.Error(err, "Failed to power on TartHost for Operation",
 			"operation", operation.Namespace+"/"+operation.Name,
@@ -134,13 +171,10 @@ func (runner *effectRunner) prepareBoot(
 		)
 		return fmt.Errorf("power on TartHost: %w", err)
 	}
-	if err := runner.applyHostCommandToHost(ctx, host, hostCommand); err != nil {
-		log.Error(err, "Failed to mark TartHost for Operation",
-			"host", host.Namespace+"/"+host.Name,
-		)
+	if err := runner.observeActive(ctx, operation); err != nil {
 		return err
 	}
-	return runner.ports.Statuses.TransitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+	return runner.ports.Statuses.TransitionPhase(ctx, operation, infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent)
 }
 
 func (runner *effectRunner) observeActive(

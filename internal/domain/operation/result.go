@@ -28,6 +28,10 @@ type PrepareBoot struct {
 	Events []Event
 }
 
+type ActivateBoot struct {
+	Events []Event
+}
+
 type ObserveActive struct {
 	Events []Event
 }
@@ -79,6 +83,7 @@ type DeadlineTransitionFailure struct {
 
 func (InitializePending) isResult()                  {}
 func (PrepareBoot) isResult()                        {}
+func (ActivateBoot) isResult()                       {}
 func (ObserveActive) isResult()                      {}
 func (AwaitMachineHealth) isResult()                 {}
 func (CompleteOperation) isResult()                  {}

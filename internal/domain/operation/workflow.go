@@ -39,8 +39,9 @@ func Decide(command Command) Result {
 		return InitializePending{Target: PhasePending, Events: observed}
 	case PhasePending:
 		return PrepareBoot{Host: pendingHostCommand(command), Events: observed}
-	case PhasePreparingBoot,
-		PhaseWaitingForAgent,
+	case PhasePreparingBoot:
+		return ActivateBoot{Events: observed}
+	case PhaseWaitingForAgent,
 		PhaseWriting,
 		PhaseVerifying,
 		PhaseBootTrial:

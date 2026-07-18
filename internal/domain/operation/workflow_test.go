@@ -59,6 +59,20 @@ func TestDecideはPhaseとOperationKindから次Resultを選ぶ(t *testing.T) {
 			},
 		},
 		{
+			name: "PreparingBootは電源投入",
+			input: Command{
+				Kind:  KindProvision,
+				Phase: PhasePreparingBoot,
+				Now:   now,
+			},
+			want: ActivateBoot{
+				Events: []Event{EventOperationObserved{
+					Kind:  KindProvision,
+					Phase: PhasePreparingBoot,
+				}},
+			},
+		},
+		{
 			name: "active phaseはdriver再観測",
 			input: Command{
 				Kind:  KindUpdate,

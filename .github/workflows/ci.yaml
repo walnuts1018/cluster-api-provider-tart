@@ -1,8 +1,6 @@
 name: CI
 on:
   push:
-    branches:
-      - main
   pull_request:
   workflow_dispatch:
 
@@ -29,40 +27,7 @@ jobs:
         id: filter
         uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         with:
-          filters: |
-            go:
-              - ".github/workflows/ci.yaml"
-              - ".github/actions/**"
-              - "api/**"
-              - "cmd/**"
-              - "config/**"
-              - "internal/**"
-              - "pkg/**"
-              - "test/**"
-              - "mise.toml"
-              - "go.mod"
-              - "go.sum"
-            lint:
-              - ".github/workflows/ci.yaml"
-              - ".github/actions/**"
-              - "api/**"
-              - "cmd/**"
-              - "config/**"
-              - "internal/**"
-              - "pkg/**"
-              - "test/**"
-              - "mise.toml"
-              - "go.mod"
-              - "go.sum"
-              - ".golangci.yml"
-              - ".custom-gcl.yml"
-            release-docs:
-              - ".github/workflows/ci.yaml"
-              - ".github/actions/**"
-              - "hack/**"
-              - "mise.toml"
-              - "go.mod"
-              - "go.sum"
+          filters: .github/filters.yml
 
   generate:
     name: generateで差分があったら落とす
@@ -167,15 +132,12 @@ jobs:
       - name: Check all jobs passed
         run: |
           results='${{ toJSON(needs) }}'
-          echo "$results" | python3 -c "
-          import sys, json
-          needs = json.load(sys.stdin)
-          failed = [
-            name for name, job in needs.items()
-            if job['result'] not in ('success', 'skipped')
-          ]
-          if failed:
-            print('Failed jobs:', failed)
-            sys.exit(1)
-          print('All jobs passed or skipped.')
-          "
+          echo "$results" | jq -e '
+            to_entries
+            | map(select(.value.result | IN("success", "skipped") | not))
+            | if length > 0 then
+                "Failed jobs: " + (map(.key) | tostring) | halt_error(1)
+              else
+                "All jobs passed or skipped."
+              end
+          '

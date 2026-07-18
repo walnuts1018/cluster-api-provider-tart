@@ -26,7 +26,16 @@ runs:
         path: |
           .cache/go/pkg/mod
           .cache/go-build
-          ${{ inputs.golangci-lint-cache == 'true' && '.cache/golangci-lint' || '' }}
         key: go-mod-${{ runner.os }}-${{ hashFiles('go.sum') }}
         restore-keys: |
           go-mod-${{ runner.os }}-
+
+    # golangci-lint キャッシュは golangci-lint-cache が true の場合のみキャッシュする
+    - name: golangci-lint cache
+      if: inputs.golangci-lint-cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .cache/golangci-lint
+        key: golangci-lint-${{ runner.os }}-${{ hashFiles('go.sum', '.golangci.yml', '.custom-gcl.yml') }}
+        restore-keys: |
+          golangci-lint-${{ runner.os }}-

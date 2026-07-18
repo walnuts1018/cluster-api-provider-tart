@@ -25,9 +25,9 @@
 | 一部完了 | `.github/workflows/e2e-provisioning.yaml` | Provisioning E2Eは失敗時のログ中心だった。 | 成功時も実行証跡をuploadするよう変更した。Resource/PVC保持比較は残課題。 |
 | 未着手 | `.github/workflows/os-artifact.yaml` | 失敗時のみ証跡をuploadするため、成功runから受入証跡を追跡しにくい。 | `if: always()` のsummary uploadを追加し、manifest/provenance/digestを保持する。 |
 | 完了 | `pkg/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
-| 未着手 | `config/manager/manager.yaml`、`config/bootstrap/*` | `TODO(user)` や生成元のプレースホルダーが残り、resources・volume・hostNetworkの意図がマニフェストだけでは判別しにくい。 | コメントを客観的なWhyへ置換し、resource値・hostNetwork・bootloader供給の契約を検証する。 |
+| 一部完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | `TODO(user)` や生成元のプレースホルダーが残り、resources・volume・hostNetworkの意図がマニフェストだけでは判別しにくい。 | Kubebuilder由来のresourcesコメントを削除した。resource値・hostNetwork・bootloader供給の契約検証は残課題。 |
 | 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
-| 未着手 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 意図がなければ削除し、必要ならテストが固定するWhatを明記する。 |
+| 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |
 | 未着手 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | CI用の固定digestイメージとテスト専用ドメインへ置換する。 |
 
 ## 優先度 P2: 構造・保守性

@@ -106,26 +106,6 @@ var _ = Describe("SourceClient", Ordered, func() {
 			},
 			wantEqual: true,
 		},
-		// TODO
-		// {
-		// 	name: "nested slice",
-		// 	expected: Test{
-		// 		NestedSlice: []Test{
-		// 			{
-		// 				A: "a",
-		// 			},
-		// 		},
-		// 	},
-		// 	actual: Test{
-		// 		NestedSlice: []Test{
-		// 			{
-		// 				A: "a",
-		// 				B: 1,
-		// 			},
-		// 		},
-		// 	},
-		// 	wantEqual: true,
-		// },
 	}
 	for _, tt := range tests {
 		It(tt.name, func() {

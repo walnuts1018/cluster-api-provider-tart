@@ -57,8 +57,8 @@ jobs:
           kernel_path="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -print | sort | tail -n 1)"
           initrd_path="$(find /boot -maxdepth 1 -type f -name 'initrd.img-*' -print | sort | tail -n 1)"
           test -n "$kernel_path" -a -n "$initrd_path"
-          sudo cp "$kernel_path" /tmp/tart-agent-vmlinuz
-          sudo cp "$initrd_path" /tmp/tart-agent-initrd
+          sudo install -m 0644 "$kernel_path" /tmp/tart-agent-vmlinuz
+          sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
           mise run agent-artifact-build-real
 
       - name: Create Agent Artifact manifest and publish OCI payload

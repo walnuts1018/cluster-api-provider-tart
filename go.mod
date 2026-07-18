@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	dario.cat/mergo v1.0.2
 	github.com/avast/retry-go/v4 v4.7.0
+	github.com/avast/retry-go/v5 v5.0.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467
 	github.com/go-logr/logr v1.4.3

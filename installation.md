@@ -12,6 +12,45 @@
 
 ProviderはDHCPでIPを配布しません。既存DHCPが対象PCへIPを配布し、ProviderはProxyDHCP/iPXE、TFTP、Agent APIを担当します。
 
+## GitHub ActionsのSecretを準備する
+
+Release workflowを実行する前に、次のRepository Secretを登録します。値はPEMファイルの内容を改行を含めてそのまま登録してください。
+
+```bash
+mkdir -p ./tart-signing-keys
+chmod 700 ./tart-signing-keys
+
+# Agent Planの署名検証用鍵。公開鍵はActions、秘密鍵は管理クラスタのSecretで使います。
+openssl genpkey -algorithm Ed25519 -out ./tart-signing-keys/agent-plan-private.pem
+openssl pkey -in ./tart-signing-keys/agent-plan-private.pem -pubout \
+  -out ./tart-signing-keys/agent-plan-public.pem
+
+# OS Artifactの署名用鍵。秘密鍵はActions、公開鍵はActionsと管理クラスタで使います。
+openssl genpkey -algorithm Ed25519 -out ./tart-signing-keys/os-artifact-private.pem
+openssl pkey -in ./tart-signing-keys/os-artifact-private.pem -pubout \
+  -out ./tart-signing-keys/os-artifact-public.pem
+```
+
+GitHub CLIで登録する場合は、リポジトリのルートで次を実行します。
+
+```bash
+gh secret set AGENT_PLAN_PUBLIC_KEY_PEM < ./tart-signing-keys/agent-plan-public.pem
+gh secret set OS_ARTIFACT_SIGNING_KEY < ./tart-signing-keys/os-artifact-private.pem
+gh secret set OS_ARTIFACT_PUBLIC_KEY_PEM < ./tart-signing-keys/os-artifact-public.pem
+```
+
+登録値と用途は次のとおりです。
+
+| Secret名 | 登録する値 | 用途 |
+| --- | --- | --- |
+| `AGENT_PLAN_PUBLIC_KEY_PEM` | `agent-plan-public.pem` の内容 | Agent initramfsがAgent Planを検証する公開鍵 |
+| `OS_ARTIFACT_SIGNING_KEY` | `os-artifact-private.pem` の内容 | OS Artifactの署名に使う秘密鍵 |
+| `OS_ARTIFACT_PUBLIC_KEY_PEM` | `os-artifact-public.pem` の内容 | Agent initramfsがOS Artifactを検証する公開鍵 |
+
+`GITHUB_TOKEN` はActionsが自動提供するため、登録不要です。Agent Artifactの署名鍵はworkflow実行時に生成され、Release assetの `agent-artifact-public.pem` として公開されます。Releaseごとに公開鍵を取得し、後述の管理クラスタSecretへ登録してください。
+
+`AGENT_PLAN_PUBLIC_KEY_PEM` を設定しない場合、Agent Plan鍵もworkflowごとに一時生成されます。その場合はworkflow実行ログや成果物から対応する公開鍵を取得できないため、実機運用では上記の固定鍵を登録してください。
+
 ## 1. Release成果物を選ぶ
 
 GitHubのReleaseから、同じRelease tagの次のファイルを取得します。

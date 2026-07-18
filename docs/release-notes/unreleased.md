@@ -25,6 +25,9 @@
 - Ubuntu 24.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning
 - Ubuntu 26.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning
 - Debian 13 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning
+- Ubuntu 24.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning
+- Ubuntu 26.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning
+- Debian 13 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning
 
 ## 根拠となる runbook と証跡
 
@@ -45,6 +48,7 @@ Task 07 の runbook には、GitHub Actions `E2E Provisioning Test` の成功 ru
 - `StateMigration` の自動復旧は未提供であり、`RecoveryRequired` 到達時は Runbook ベースの手動復旧が必要。
 - 更新系の公開状態は simulated record と recovery runbook に基づくものであり、継続 E2E の成功蓄積をまだ要求する。
 - k3s 用 cluster template は、対応Bootstrap/Control Plane Provider とAPI kindが確定するまで公開しない。
+- k0s 用 cluster template は、対応Bootstrap/Control Plane Provider とAPI kindが確定するまで公開しない。
 - Kubernetes v1.36 の Planned 行は、OS Artifact、Platform Profile、E2E証跡が揃うまで利用者向け機能として公開しない。
 
 ## 更新時のルール

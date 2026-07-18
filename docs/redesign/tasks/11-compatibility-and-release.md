@@ -25,10 +25,11 @@ Ubuntu 24.04 amd64 UEFI kubeadmで完成した縦方向スライスを、1軸ず
 | 1 | Debian 13 | Ubuntu 24.04 |
 | 2 | Ubuntu 26.04 | Ubuntu 24.04 |
 | 3 | k3s Bootstrap/Control Plane Provider | kubeadm |
-| 4 | amd64 Legacy BIOS | amd64 UEFI |
-| 5 | arm64 UEFI | amd64 UEFI |
-| 6 | Raspberry Pi 4 EEPROM | arm64 UEFI |
-| 7 | Raspberry Pi 5 EEPROM | Raspberry Pi 4 |
+| 4 | k0s Bootstrap/Control Plane Provider | kubeadm |
+| 5 | amd64 Legacy BIOS | amd64 UEFI |
+| 6 | arm64 UEFI | amd64 UEFI |
+| 7 | Raspberry Pi 4 EEPROM | arm64 UEFI |
+| 8 | Raspberry Pi 5 EEPROM | Raspberry Pi 4 |
 
 ## 成果物
 
@@ -59,7 +60,7 @@ Supported へ変更する時は、対象行ごとに `target-state.md` と Relea
 
 ## k8s v1.36 対応Matrixの追跡範囲
 
-Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistributionの組み合わせを次の6行で追跡する。
+Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistributionの組み合わせを次の9行で追跡する。
 `Supported` へ昇格するまでは `docs/release/release-matrix.yaml` の状態を `Planned` とする。
 
 | OS | Distribution | Kubernetes | 現在の状態 | 必要な追加成果物 |
@@ -70,9 +71,12 @@ Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistribution�
 | Ubuntu 24.04 LTS | k3s | `v1.36.x` | Planned | Bootstrap/Control Plane Provider選定、k3s State/Data契約、k3s Lifecycle Adapter |
 | Ubuntu 26.04 LTS | k3s | `v1.36.x` | Planned | Ubuntu 26.04成果物に加え、k3s token/node identity保持証跡 |
 | Debian 13 | k3s | `v1.36.x` | Planned | Debian 13成果物に加え、k3s State/Data path検証 |
+| Ubuntu 24.04 LTS | k0s | `v1.36.x` | Planned | Bootstrap/Control Plane Provider選定、k0s State/Data契約、k0s Lifecycle Adapter |
+| Ubuntu 26.04 LTS | k0s | `v1.36.x` | Planned | Ubuntu 26.04成果物に加え、k0s token/node identity保持証跡 |
+| Debian 13 | k0s | `v1.36.x` | Planned | Debian 13成果物に加え、k0s State/Data path検証 |
 
 `config/templates/cluster-template-kubeadm*.yaml` は kubeadm 用の汎用テンプレートであり、OS差分は
-`OS_ARTIFACT_REF`、`OS_ARTIFACT_REGISTRY`、`PLATFORM_PROFILE` で指定する。k3s 用テンプレートは、
+`OS_ARTIFACT_REF`、`OS_ARTIFACT_REGISTRY`、`PLATFORM_PROFILE` で指定する。k3s/k0s 用テンプレートは、
 対応Bootstrap/Control Plane ProviderとAPI kindが決定し、初期ProvisioningのE2E証跡を追加するまで作成しない。
 実在しないProvider APIを含むテンプレートを先に公開してはならない。
 
@@ -117,6 +121,12 @@ Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistribution�
 - 対応Bootstrap/Control Plane Providerを明記する。
 - `/etc/rancher/k3s`と`/var/lib/rancher/k3s`のState/Data分割を固定する。
 - k3s token/node identityをOSOnly更新後も保持する。
+
+### k0s
+
+- 対応Bootstrap/Control Plane Providerを明記する。
+- `/etc/k0s`と`/var/lib/k0s`のState/Data分割を固定する。
+- k0s token/node identityをOSOnly更新後も保持する。
 
 ### Legacy BIOS
 

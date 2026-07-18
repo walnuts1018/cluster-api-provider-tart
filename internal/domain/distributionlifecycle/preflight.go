@@ -34,6 +34,7 @@ type Distribution string
 const (
 	DistributionKubeadm Distribution = "kubeadm"
 	DistributionK3s     Distribution = "k3s"
+	DistributionK0s     Distribution = "k0s"
 )
 
 // NodeRoleはLifecycle Planの対象Node種別である。
@@ -93,8 +94,13 @@ func parseKubernetesVersion(value string) (kubernetesVersion, error) {
 }
 
 func preflightFailure(input PreflightInput) Failure {
-	if input.Distribution != DistributionKubeadm && input.Distribution != DistributionK3s {
+	if input.Distribution != DistributionKubeadm &&
+		input.Distribution != DistributionK3s &&
+		input.Distribution != DistributionK0s {
 		return UnsupportedDistribution{Value: string(input.Distribution)}
+	}
+	if failure := validateDistributionLifecycleSupport(input); failure != nil {
+		return failure
 	}
 	current, err := parseKubernetesVersion(input.CurrentVersion)
 	if err != nil {
@@ -112,6 +118,16 @@ func preflightFailure(input PreflightInput) Failure {
 	}
 	if input.UpdateClass == UpdateClassStateMigration && input.SnapshotRef == "" {
 		return SnapshotRequired{Step: StepDistributionApplied}
+	}
+	return nil
+}
+
+func validateDistributionLifecycleSupport(input PreflightInput) Failure {
+	if input.Distribution == DistributionK3s {
+		return DistributionLifecycleUnsupported{
+			Distribution: input.Distribution,
+			UpdateClass:  input.UpdateClass,
+		}
 	}
 	return nil
 }

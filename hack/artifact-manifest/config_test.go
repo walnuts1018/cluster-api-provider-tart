@@ -24,19 +24,19 @@ import (
 func TestArtifactConfigは対応MatrixのManifestIdentityを満たす(t *testing.T) {
 	t.Parallel()
 
-	configs := []string{
-		"ubuntu-24.04-amd64.json",
-		"ubuntu-24.04-amd64-k3s.json",
-		"ubuntu-26.04-amd64-kubeadm.json",
-		"ubuntu-26.04-amd64-k3s.json",
-		"debian-13-amd64-kubeadm.json",
-		"debian-13-amd64-k3s.json",
+	configs, err := filepath.Glob(filepath.Join("..", "..", "artifact", "config", "*.json"))
+	if err != nil {
+		t.Fatalf("filepath.Glob() error = %v", err)
 	}
-	for _, name := range configs {
+	if len(configs) == 0 {
+		t.Fatal("artifact config is empty")
+	}
+	for _, path := range configs {
+		name := filepath.Base(path)
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg, err := readConfig(filepath.Join("..", "..", "artifact", "config", name))
+			cfg, err := readConfig(path)
 			if err != nil {
 				t.Fatalf("readConfig() error = %v", err)
 			}

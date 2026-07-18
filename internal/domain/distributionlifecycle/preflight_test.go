@@ -86,3 +86,29 @@ func TestPreflightはStateMigrationでSnapshotRefを必須にする(t *testing.T
 		t.Fatalf("Preflight() error = %v, want nil", err)
 	}
 }
+
+func TestPreflightはK0sのKubernetesBinary更新を許可する(t *testing.T) {
+	err := Preflight(PreflightInput{
+		Distribution:   DistributionK0s,
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    UpdateClassKubernetesBinary,
+		NodeRole:       NodeRoleControlPlane,
+	})
+	if err != nil {
+		t.Fatalf("Preflight() error = %v, want nil", err)
+	}
+}
+
+func TestPreflightはK3sのDistributionLifecycle更新を拒否する(t *testing.T) {
+	err := Preflight(PreflightInput{
+		Distribution:   DistributionK3s,
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
+		UpdateClass:    UpdateClassKubernetesBinary,
+		NodeRole:       NodeRoleWorker,
+	})
+	if err == nil {
+		t.Fatal("Preflight() error = nil, want k3s lifecycle unsupported")
+	}
+}

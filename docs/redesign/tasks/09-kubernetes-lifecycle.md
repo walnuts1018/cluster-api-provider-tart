@@ -2,7 +2,7 @@
 
 ## 目的
 
-A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapshot、検証、Recoveryを実行する。
+A/B OS slot更新とは別に、既存Node上でkubeadm/k0sのversion更新、Snapshot、検証、Recoveryを実行する。
 
 ## 依存
 
@@ -22,6 +22,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapsh
 
 - `DistributionLifecycleDriver` Port
 - kubeadm Adapter
+- k0s Adapter
 - 署名済みPlanだけを実行するNode Lifecycle Service
 - worker/control plane別Plan
 - SnapshotRef
@@ -90,7 +91,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapsh
 - 任意command実行API
 - package managerによる任意version更新
 - application/PVの整合性Snapshot
-- k3s実装
+- k3s KubernetesBinary更新。Cluster APIのInPlaceUpdate ownerとProvider API契約が揃うまで、k3sのDistribution Lifecycle PlanはPreflightで拒否する。
 
 ## 関連
 
@@ -127,6 +128,9 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - Node Ready、期待version、static Pod、etcd quorum、API healthをCommit前に評価するHealth Gate純粋判定
 - `UpgradePlan`、`SaveEtcdSnapshot`、`VerifyEtcdSnapshot`、`UpgradeApply`、`UpgradeNode`、
   `ObserveHealth`の型付きRuntimeへdispatchするkubeadm Lifecycle Driver
+- k0sの`Preflight`、`SaveSnapshot`、`VerifySnapshot`、`UpgradeController`、`UpgradeWorker`、
+  `ObserveHealth`の型付きRuntimeへdispatchするk0s Lifecycle Driver境界
+- k3sはCluster APIのInPlaceUpdate ownerが不足するため、Distribution Lifecycle Preflightで拒否する判定
 - control planeの`ObserveHealth`で、Node Ready/versionに加えて
   static Pod readiness、`etcdctl endpoint health --cluster`、`kubectl get --raw=/readyz`
   を個別観測するkubeadm Runtime

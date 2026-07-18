@@ -78,6 +78,43 @@ entries:
     evidencePaths: []
     notes:
       - "Debian repository lock、k3s State/Data path、OSOnly 更新後の identity 保持証跡が必要。"
+  - name: "Ubuntu 24.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning"
+    category: "initialProvisioning"
+    status: "Planned"
+    kubernetesVersion: "v1.36.x"
+    os: "Ubuntu 24.04 LTS"
+    distribution: "k0s"
+    architecture: "amd64"
+    firmware: "UEFI"
+    platformProfile: "amd64-uefi-ab-ubuntu-24.04-k0s/v1"
+    evidencePaths: []
+    notes:
+      - "対応Bootstrap/Control Plane Provider、k0s State/Data契約、k0s Lifecycle Adapterが未確定。"
+      - "Provider API が確定するまで k0s 用 cluster template は公開しない。"
+  - name: "Ubuntu 26.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning"
+    category: "initialProvisioning"
+    status: "Planned"
+    kubernetesVersion: "v1.36.x"
+    os: "Ubuntu 26.04 LTS"
+    distribution: "k0s"
+    architecture: "amd64"
+    firmware: "UEFI"
+    platformProfile: "amd64-uefi-ab-ubuntu-26.04-k0s/v1"
+    evidencePaths: []
+    notes:
+      - "Ubuntu 26.04 の boot 証跡に加え、k0s token/node identity を OSOnly 更新後も保持する証跡が必要。"
+  - name: "Debian 13 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning"
+    category: "initialProvisioning"
+    status: "Planned"
+    kubernetesVersion: "v1.36.x"
+    os: "Debian 13"
+    distribution: "k0s"
+    architecture: "amd64"
+    firmware: "UEFI"
+    platformProfile: "amd64-uefi-ab-debian-13-k0s/v1"
+    evidencePaths: []
+    notes:
+      - "Debian repository lock、k0s State/Data path、OSOnly 更新後の identity 保持証跡が必要。"
   - name: "worker OSOnly 更新"
     category: "update"
     status: "Experimental"

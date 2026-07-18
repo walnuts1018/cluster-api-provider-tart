@@ -29,15 +29,19 @@ const (
 
 	DistributionKubeadm = "kubeadm"
 	DistributionK3s     = "k3s"
+	DistributionK0s     = "k0s"
 
 	KubernetesV136 = "v1.36.x"
 
 	ProfileUbuntu2404Kubeadm = "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
 	ProfileUbuntu2404K3s     = "amd64-uefi-ab-ubuntu-24.04-k3s/v1"
+	ProfileUbuntu2404K0s     = "amd64-uefi-ab-ubuntu-24.04-k0s/v1"
 	ProfileUbuntu2604Kubeadm = "amd64-uefi-ab-ubuntu-26.04-kubeadm/v1"
 	ProfileUbuntu2604K3s     = "amd64-uefi-ab-ubuntu-26.04-k3s/v1"
+	ProfileUbuntu2604K0s     = "amd64-uefi-ab-ubuntu-26.04-k0s/v1"
 	ProfileDebian13Kubeadm   = "amd64-uefi-ab-debian-13-kubeadm/v1"
 	ProfileDebian13K3s       = "amd64-uefi-ab-debian-13-k3s/v1"
+	ProfileDebian13K0s       = "amd64-uefi-ab-debian-13-k0s/v1"
 
 	LegacyProfileAMD64UEFIABV1 = "amd64-uefi-ab/v1"
 )
@@ -70,14 +74,36 @@ type ArtifactIdentity struct {
 	StateSchemaMax    uint64
 }
 
-var profiles = []Profile{
-	newAMD64UEFIABProfile(ProfileUbuntu2404Kubeadm, "ubuntu", "24.04", DistributionKubeadm),
-	newAMD64UEFIABProfile(ProfileUbuntu2404K3s, "ubuntu", "24.04", DistributionK3s),
-	newAMD64UEFIABProfile(ProfileUbuntu2604Kubeadm, "ubuntu", "26.04", DistributionKubeadm),
-	newAMD64UEFIABProfile(ProfileUbuntu2604K3s, "ubuntu", "26.04", DistributionK3s),
-	newAMD64UEFIABProfile(ProfileDebian13Kubeadm, "debian", "13", DistributionKubeadm),
-	newAMD64UEFIABProfile(ProfileDebian13K3s, "debian", "13", DistributionK3s),
-	newAMD64UEFIABProfile(LegacyProfileAMD64UEFIABV1, "ubuntu", "24.04", DistributionKubeadm),
+type osTarget struct {
+	family  string
+	version string
+	slug    string
+}
+
+var amd64UEFIABOSTargets = []osTarget{
+	{family: "ubuntu", version: "24.04", slug: "ubuntu-24.04"},
+	{family: "ubuntu", version: "26.04", slug: "ubuntu-26.04"},
+	{family: "debian", version: "13", slug: "debian-13"},
+}
+
+var amd64UEFIABDistributions = []string{
+	DistributionKubeadm,
+	DistributionK3s,
+	DistributionK0s,
+}
+
+var profiles = buildProfiles()
+
+func buildProfiles() []Profile {
+	result := make([]Profile, 0, len(amd64UEFIABOSTargets)*len(amd64UEFIABDistributions)+1)
+	for _, target := range amd64UEFIABOSTargets {
+		for _, distribution := range amd64UEFIABDistributions {
+			id := fmt.Sprintf("amd64-uefi-ab-%s-%s/v1", target.slug, distribution)
+			result = append(result, newAMD64UEFIABProfile(id, target.family, target.version, distribution))
+		}
+	}
+	result = append(result, newAMD64UEFIABProfile(LegacyProfileAMD64UEFIABV1, "ubuntu", "24.04", DistributionKubeadm))
+	return result
 }
 
 func newAMD64UEFIABProfile(id, osFamily, osVersion, distribution string) Profile {
@@ -108,6 +134,9 @@ func newAMD64UEFIABProfile(id, osFamily, osVersion, distribution string) Profile
 	case DistributionK3s:
 		profile.StatePaths = append(profile.StatePaths, "/etc/rancher/k3s")
 		profile.DataPaths = append(profile.DataPaths, "/var/lib/rancher/k3s")
+	case DistributionK0s:
+		profile.StatePaths = append(profile.StatePaths, "/etc/k0s")
+		profile.DataPaths = append(profile.DataPaths, "/var/lib/k0s")
 	}
 	return profile
 }

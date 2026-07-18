@@ -1,9 +1,9 @@
-//go:build wireinject
+//go:generate go tool kessoku $GOFILE
 
-package wire
+package kessoku
 
 import (
-	"github.com/google/wire"
+	kessokulib "github.com/mazrean/kessoku"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -152,41 +152,93 @@ func provideReconcilers(
 	}
 }
 
-func InitializeReconcilers(k8sClient client.Client, scheme *runtime.Scheme) (Reconcilers, error) {
-	wire.Build(
-		k8sdrivercapability.NewService,
-		k8sdriverstate.NewService,
-		k8sdrivertarget.NewService,
-		k8sallocation.NewService,
-		k8smachinehealth.NewObserver,
-		k8sv1beta1host.NewService,
-
-		provideInitialProvisioningStep,
-		wire.Bind(new(machineexecution.HostReferenceService), new(*k8sallocation.Service)),
-		wire.Bind(new(machineexecution.NodeHealthObserver), new(*k8smachinehealth.Observer)),
-		wire.Bind(new(operationexecution.PowerOnService), new(*applicationdriver.Service)),
-		wire.Bind(new(operationexecution.BootPreparationService), new(*applicationdriver.Service)),
-		wire.Bind(new(operationexecution.HostPhaseService), new(*k8sv1beta1host.Service)),
-		wire.Bind(new(operationexecution.DriverTargetBuilder), new(*k8sdrivertarget.Service)),
-		wire.Bind(new(operationexecution.DriverCapabilityObserver), new(*k8sdrivercapability.Service)),
-		wire.Bind(new(operationexecution.DriverPowerStateObserver), new(*k8sdriverstate.Service)),
-		wire.Bind(new(operationexecution.DriverBootStateObserver), new(*k8sdriverstate.Service)),
-		wire.Bind(new(k8sdrivercapability.CapabilityDiscoverer), new(*applicationdriver.Service)),
-		wire.Bind(new(k8sdrivercapability.HostCapabilityWriter), new(*k8sv1beta1host.Service)),
-		wire.Bind(new(k8sdriverstate.PowerStateObserver), new(*applicationdriver.Service)),
-		wire.Bind(new(k8sdriverstate.BootStateObserver), new(*applicationdriver.Service)),
-		wire.Bind(new(k8sdriverstate.HostPowerStateWriter), new(*k8sv1beta1host.Service)),
-
-		woladapter.Default,
-		redfishadapter.New,
-		provideDriverRegistry,
-		applicationdriver.NewService,
-		provideTartClusterReconciler,
-		provideTartMachineTemplateReconciler,
-		provideTartMachineV1Beta1Reconciler,
-		provideCleaningStep,
-		provideTartHostOperationReconciler,
-		provideReconcilers,
-	)
-	return Reconcilers{}, nil
+func provideHostReference(service *k8sallocation.Service) machineexecution.HostReferenceService {
+	return service
 }
+
+func provideNodeHealth(service *k8smachinehealth.Observer) machineexecution.NodeHealthObserver {
+	return service
+}
+
+func providePowerOn(service *applicationdriver.Service) operationexecution.PowerOnService {
+	return service
+}
+
+func provideBootPreparation(service *applicationdriver.Service) operationexecution.BootPreparationService {
+	return service
+}
+
+func provideHostPhase(service *k8sv1beta1host.Service) operationexecution.HostPhaseService {
+	return service
+}
+
+func provideDriverTarget(service *k8sdrivertarget.Service) operationexecution.DriverTargetBuilder {
+	return service
+}
+
+func provideDriverCapability(service *k8sdrivercapability.Service) operationexecution.DriverCapabilityObserver {
+	return service
+}
+
+func provideDriverPowerState(service *k8sdriverstate.Service) operationexecution.DriverPowerStateObserver {
+	return service
+}
+
+func provideDriverBootState(service *k8sdriverstate.Service) operationexecution.DriverBootStateObserver {
+	return service
+}
+
+func provideCapabilityDiscoverer(service *applicationdriver.Service) k8sdrivercapability.CapabilityDiscoverer {
+	return service
+}
+
+func provideHostCapabilityWriter(service *k8sv1beta1host.Service) k8sdrivercapability.HostCapabilityWriter {
+	return service
+}
+
+func providePowerStateObserver(service *applicationdriver.Service) k8sdriverstate.PowerStateObserver {
+	return service
+}
+
+func provideBootStateObserver(service *applicationdriver.Service) k8sdriverstate.BootStateObserver {
+	return service
+}
+
+func provideHostPowerStateWriter(service *k8sv1beta1host.Service) k8sdriverstate.HostPowerStateWriter {
+	return service
+}
+
+var _ = kessokulib.Inject[Reconcilers](
+	"InitializeReconcilers",
+	kessokulib.Provide(k8sdrivercapability.NewService),
+	kessokulib.Provide(k8sdriverstate.NewService),
+	kessokulib.Provide(k8sdrivertarget.NewService),
+	kessokulib.Provide(k8sallocation.NewService),
+	kessokulib.Provide(k8smachinehealth.NewObserver),
+	kessokulib.Provide(k8sv1beta1host.NewService),
+	kessokulib.Provide(provideInitialProvisioningStep),
+	kessokulib.Provide(provideHostReference),
+	kessokulib.Provide(provideNodeHealth),
+	kessokulib.Provide(providePowerOn),
+	kessokulib.Provide(provideBootPreparation),
+	kessokulib.Provide(provideHostPhase),
+	kessokulib.Provide(provideDriverTarget),
+	kessokulib.Provide(provideDriverCapability),
+	kessokulib.Provide(provideDriverPowerState),
+	kessokulib.Provide(provideDriverBootState),
+	kessokulib.Provide(provideCapabilityDiscoverer),
+	kessokulib.Provide(provideHostCapabilityWriter),
+	kessokulib.Provide(providePowerStateObserver),
+	kessokulib.Provide(provideBootStateObserver),
+	kessokulib.Provide(provideHostPowerStateWriter),
+	kessokulib.Provide(woladapter.Default),
+	kessokulib.Provide(redfishadapter.New),
+	kessokulib.Provide(provideDriverRegistry),
+	kessokulib.Provide(applicationdriver.NewService),
+	kessokulib.Provide(provideTartClusterReconciler),
+	kessokulib.Provide(provideTartMachineTemplateReconciler),
+	kessokulib.Provide(provideTartMachineV1Beta1Reconciler),
+	kessokulib.Provide(provideCleaningStep),
+	kessokulib.Provide(provideTartHostOperationReconciler),
+	kessokulib.Provide(provideReconcilers),
+)

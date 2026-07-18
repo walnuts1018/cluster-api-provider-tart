@@ -202,8 +202,8 @@ git commit --signoff -m "feat: Update Operationを冪等に開始する"
 - Create: `domain/provisioning/workflow/update_machine/plan.go`
 - Create: `domain/provisioning/workflow/update_machine/plan_test.go`
 - Modify: `infrastructure/repository/k8s/agentapi/plan_writer.go`
-- Modify: `cmd/wire/wire.go`
-- Modify: `cmd/wire/wire_gen.go`
+- Modify: `cmd/kessoku/kessoku.go`
+- Modify: `cmd/kessoku/kessoku_band.go`
 
 - [x] **Step 1: slot選択と危険target拒否の失敗テストを書く**
 
@@ -228,7 +228,7 @@ Planは`OperationTypeUpdate`、現在の`ActiveSlot`、inactive OS/Verity roles�
 Run: `MISE_OFFLINE=1 mise exec -- go test ./domain/provisioning/workflow/update_machine ./infrastructure/repository/k8s/agentapi -v`
 
 ```bash
-git add domain/provisioning/workflow/update_machine infrastructure/repository/k8s/agentapi cmd/wire
+git add domain/provisioning/workflow/update_machine infrastructure/repository/k8s/agentapi cmd/kessoku
 git commit --signoff -m "feat: Inactive Slot向け更新Planを生成する"
 ```
 

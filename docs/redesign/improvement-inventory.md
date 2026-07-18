@@ -44,10 +44,10 @@
 | 状態 | 対象 | 課題 | 改善案 |
 |---|---|---|---|
 | 完了 | `domain/*/workflow` | workflowごとに `model`、`deps`、`steps`、`event_manager` などの分割粒度が不均一で、`operationexecution`がKubernetes実装を直接構築していた。 | bounded context単位の配置へ統合し、compositionをcontrollerへ移した。Entity/Workflow/Infrastructureの逆向き依存はCIで静的検査する。 |
-| 未着手 | `cmd/`、`infrastructure/k8s_controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | wireで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
+| 未着手 | `cmd/`、`infrastructure/k8s_controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | kessokuで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
 | 完了 | `cmd/`、`test/` | artifact、QEMU、Redfish、manifest処理が`hack/`へ横並びで、CIからの呼出し契約が暗黙的だった。 | 実行可能toolを`cmd/<tool>`、検証scriptとfixtureを`test/`へ移し、`hack/`はcontroller-gen用boilerplateだけに限定した。 |
 | 完了 | `Makefile` と `mise.toml` | 同じ処理の定義が二重化し、失敗時の挙動や環境変数が一致しない可能性がある。 | miseを正本にし、MakefileをKubebuilder互換の薄いtask転送層へ縮小した。 |
-| 完了 | 生成物（CRD、DeepCopy、wire） | 生成元変更と生成物差分の検証がジョブごとに分散している。 | CIの生成差分ジョブで`manifests`と`generate`を順に実行し、CRD/RBAC/Webhook、DeepCopy、wireを一括検査する。 |
+| 完了 | 生成物（CRD、DeepCopy、kessoku） | 生成元変更と生成物差分の検証がジョブごとに分散している。 | CIの生成差分ジョブで`manifests`と`generate`を順に実行し、CRD/RBAC/Webhook、DeepCopy、kessokuを一括検査する。 |
 
 ## 優先度 P3: テスト品質・開発体験
 

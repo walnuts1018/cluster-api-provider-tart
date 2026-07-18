@@ -8,6 +8,6 @@
 - [ ] シングルショット配信（ワンタイムトークン）時の通信瞬断エラーリカバリの対応（トークン消費後のダウンロード再開不可の解決）
 - [ ] Private Registry用のCredential情報のコントローラ設定対応
 - [ ] Kubeadm RuntimeのNode Health監視の細分化（`static Pod`, `etcd quorum`, `API health` の個別観測への分割）
-- [ ] wireの代わりにkessokuを使う
+- [x] kessokuへ移行する
 - [ ] lint error直す
 - [ ] GitHub ActionsでE2Eテストを実行できるようにする

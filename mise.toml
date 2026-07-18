@@ -1,6 +1,6 @@
 [tools]
 "go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "0.21.0"
-"go:github.com/google/wire/cmd/wire" = "0.7.0"
+"go:github.com/mazrean/kessoku/cmd/kessoku" = "1.1.1"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "0.24.1"
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "5.8.1"
 kind = "0.32.0"
@@ -41,12 +41,12 @@ description = "DeepCopy コードを生成する"
 run = '''
 # DeepCopy markerを持つAPI packageだけを対象にし、module cacheを走査しない。
 controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
-mise run wire
+mise run kessoku
 '''
 
-[tasks.wire]
-description = "wire injector を生成する"
-run = "(cd cmd/wire && wire)"
+[tasks.kessoku]
+description = "kessoku injector を生成する"
+run = "go generate ./cmd/kessoku"
 
 [tasks.fmt]
 description = "Go コードを go fmt で整形する"
@@ -1017,9 +1017,9 @@ run = "kustomize version"
 description = "controller-gen が mise 経由で利用できることを確認する"
 run = "controller-gen --version"
 
-[tasks.wire-bin]
-description = "wire が mise 経由で利用できることを確認する"
-run = "wire help"
+[tasks.kessoku-bin]
+description = "kessoku が mise 経由で利用できることを確認する"
+run = "go tool kessoku --help"
 
 [tasks.setup-envtest]
 description = "envtest バイナリを用意する"

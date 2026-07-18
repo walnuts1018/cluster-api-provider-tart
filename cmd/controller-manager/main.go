@@ -46,7 +46,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/artifact"
-	"github.com/walnuts1018/cluster-api-provider-tart/cmd/wire"
+	"github.com/walnuts1018/cluster-api-provider-tart/cmd/kessoku"
 	completeprovisioning "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/complete_provisioning"
 	applicationcleaning "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/do_cleaning"
 	applicationinitialprovisioning "github.com/walnuts1018/cluster-api-provider-tart/domain/provisioning/workflow/provision_machine"
@@ -363,7 +363,7 @@ func main() {
 		}
 	}
 
-	reconcilers, err := wire.InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
+	reconcilers, err := kessoku.InitializeReconcilers(mgr.GetClient(), mgr.GetScheme())
 	if err != nil {
 		setupLog.Error(err, "Failed to initialize reconcilers")
 		os.Exit(1)

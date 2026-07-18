@@ -38,8 +38,8 @@
 - `infrastructure/repository/k8s/agentapi/plan_writer.go`
 - `infrastructure/repository/k8s/agentapi/plan_writer_test.go`
 - `cmd/controller-manager/main.go`
-- `cmd/wire/wire.go`
-- `cmd/wire/wire_gen.go`
+- `cmd/kessoku/kessoku.go`
+- `cmd/kessoku/kessoku_band.go`
 
 - [x] TartHost root device、TartMachine image、Operation deadline、Bootstrap formatから`agentprotocol.Plan`を構築する失敗テストを追加する。
 - [x] Planを検証してRFC 8785 digestを算出し、Ed25519署名する。
@@ -73,8 +73,8 @@
 - `infrastructure/k8s_controller/tartmachine_v1beta1_controller.go`
 - `infrastructure/k8s_controller/tarthostoperation_controller.go`
 - `infrastructure/repository/k8s/v1beta1host/service.go`
-- `cmd/wire/wire.go`
-- `cmd/wire/wire_gen.go`
+- `cmd/kessoku/kessoku.go`
+- `cmd/kessoku/kessoku_band.go`
 
 - [x] `WipeAll`、`RetainData`、`RetainState`をPlanの許可Disk Roleへ写像するtable testを追加する。
 - [x] disk容量からWipeAll deadlineを算出する純粋関数と境界値テストを追加する。

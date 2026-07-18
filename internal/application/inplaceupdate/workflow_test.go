@@ -30,7 +30,10 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentprotocol"
 )
 
-const targetKubernetesVersion = "v1.35.0"
+const (
+	currentKubernetesVersion = "v1.35.0"
+	targetKubernetesVersion  = "v1.36.0"
+)
 
 func TestWorkflowはOperation作成後に一致する署名済みPlanを保存する(t *testing.T) {
 	input := workflowInput(t)
@@ -95,7 +98,7 @@ func TestWorkflowは再試行時に保存済みDeadlineから同じPlanを再生
 
 func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t *testing.T) {
 	input := workflowInput(t)
-	input.CurrentDistributionVersion = "v1.34.0"
+	input.CurrentDistributionVersion = currentKubernetesVersion
 	input.TargetDistributionVersion = targetKubernetesVersion
 	input.Machine.Spec.Version = targetKubernetesVersion
 	input.Manifest = updateManifestWithKubernetesVersion(t, targetKubernetesVersion)
@@ -123,9 +126,9 @@ func TestWorkflowはKubernetesBinary更新でNodeLifecyclePlanも保存する(t 
 	}
 	nodePlan := nodeWriter.plan.Value()
 	if nodePlan.NodeRole != distributiondomain.NodeRoleWorker ||
-		nodePlan.CurrentVersion != "v1.34.0" ||
+		nodePlan.CurrentVersion != currentKubernetesVersion ||
 		nodePlan.TargetVersion != targetKubernetesVersion {
-		t.Fatalf("Node Lifecycle Plan = %#v, want worker v1.34.0 -> v1.35.0", nodePlan)
+		t.Fatalf("Node Lifecycle Plan = %#v, want worker v1.35.0 -> v1.36.0", nodePlan)
 	}
 	digest, err := nodeWriter.plan.Digest()
 	if err != nil {
@@ -144,7 +147,7 @@ func workflowInput(t *testing.T) WorkflowInput {
 	input := updateInput()
 	input.PlanDigest = ""
 	input.Host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
-	input.Host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+	input.Host.Spec.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
 	input.Host.Spec.RootDeviceHints.DeviceName = "/dev/disk/by-id/test-root"
 	input.Host.Spec.RootDeviceHints.SerialNumber = "SERIAL-1"
 	input.Host.Spec.RootDeviceHints.MinSizeBytes = 64 << 30

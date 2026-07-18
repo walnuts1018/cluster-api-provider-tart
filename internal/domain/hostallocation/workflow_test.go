@@ -108,7 +108,7 @@ func testCommand(t *testing.T) Command {
 	requirements, err := NewRequirements(
 		"amd64",
 		"UEFI",
-		"amd64-uefi-ab/v1",
+		"amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		256_000_000_000,
 		[]capability.Capability{capability.PowerOn, capability.SetNextBoot},
 		map[string]string{"rack": "a"},
@@ -139,7 +139,7 @@ func testCommand(t *testing.T) Command {
 				Assignment:        Unassigned{},
 				Architecture:      "amd64",
 				Firmware:          "UEFI",
-				PlatformProfile:   "amd64-uefi-ab/v1",
+				PlatformProfile:   "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 				RootDiskSizeBytes: 512_000_000_000,
 				Capabilities:      allCapabilities,
 				Labels:            map[string]string{"rack": "a"},

@@ -21,7 +21,7 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	agentbootdomain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/agentboot"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/agentartifact"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -50,10 +50,11 @@ func (resolver *Resolver) Resolve(ctx context.Context, bootMACAddress string) (T
 	if err != nil {
 		return Target{}, err
 	}
-	if host.Spec.Architecture != infrastructurev1beta1.ArchitectureAMD64 ||
-		host.Spec.Firmware != infrastructurev1beta1.FirmwareUEFI ||
-		host.Spec.PlatformProfile != agentartifact.PlatformProfileAMD64UEFIABV1 ||
-		host.Spec.Management.BootDriver != "ipxe" {
+	profile, ok := platformprofile.Lookup(host.Spec.PlatformProfile)
+	if !ok ||
+		host.Spec.Architecture != infrastructurev1beta1.Architecture(profile.Architecture) ||
+		host.Spec.Firmware != infrastructurev1beta1.Firmware(profile.Firmware) ||
+		host.Spec.Management.BootDriver != profile.BootDriver {
 		return Target{}, ErrUnsupported
 	}
 	operation, err := resolver.findOperation(ctx, host)

@@ -14,6 +14,8 @@
 
 package platformprofile
 
+import sharedprofile "github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
+
 // CredentialMode はPlatform Profileが最初のSession Credentialをどう扱うかを表す。
 type CredentialMode string
 
@@ -30,16 +32,14 @@ type Requirement struct {
 	IsolatedL2Required bool
 }
 
-var knownCredentialRequirements = map[string]Requirement{
-	"amd64-uefi-ab/v1": {
-		Mode:               CredentialModeIsolatedL2,
-		IsolatedL2Required: true,
-	},
-}
-
 // RequirementForProfile はPlatform Profile名から初期認証要件を返す。
 // ここでは外部状態を読まないため、controllerから繰り返し呼んでも副作用を持たない。
 func RequirementForProfile(profile string) (Requirement, bool) {
-	requirement, ok := knownCredentialRequirements[profile]
-	return requirement, ok
+	if _, ok := sharedprofile.Lookup(profile); !ok {
+		return Requirement{}, false
+	}
+	return Requirement{
+		Mode:               CredentialModeIsolatedL2,
+		IsolatedL2Required: true,
+	}, true
 }

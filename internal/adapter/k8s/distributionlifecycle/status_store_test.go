@@ -121,7 +121,7 @@ func TestStatusStoreはSnapshotRefなしのSnapshotCreatedを拒否する(t *tes
 	}
 }
 
-func TestStatusStoreは永続化済みSnapshotRefでKubeadmAppliedを記録する(t *testing.T) {
+func TestStatusStoreは永続化済みSnapshotRefでDistributionAppliedを記録する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
@@ -140,15 +140,15 @@ func TestStatusStoreは永続化済みSnapshotRefでKubeadmAppliedを記録す�
 		Build()
 	store := NewStatusStore(k8sClient)
 
-	if err := store.RecordStep(t.Context(), operation, controlPlanePlan(t), domain.StepKubeadmApplied, nil); err != nil {
-		t.Fatalf("RecordStep(KubeadmApplied) error = %v", err)
+	if err := store.RecordStep(t.Context(), operation, controlPlanePlan(t), domain.StepDistributionApplied, nil); err != nil {
+		t.Fatalf("RecordStep(DistributionApplied) error = %v", err)
 	}
 
 	current := &infrastructurev1beta1.TartHostOperation{}
 	if err := k8sClient.Get(t.Context(), client.ObjectKeyFromObject(operation), current); err != nil {
 		t.Fatalf("get TartHostOperation: %v", err)
 	}
-	want := []string{"PreflightCompleted", "SnapshotCreated", "TargetSlotWritten", "KubeadmApplied"}
+	want := []string{"PreflightCompleted", "SnapshotCreated", "TargetSlotWritten", "DistributionApplied"}
 	if !equalStrings(current.Status.CompletedSteps, want) {
 		t.Fatalf("completedSteps = %#v, want %#v", current.Status.CompletedSteps, want)
 	}
@@ -244,7 +244,7 @@ func TestStatusStoreは各永続化Stepの直後に再実行されても重複�
 		domain.StepPreflightCompleted,
 		domain.StepSnapshotCreated,
 		domain.StepTargetSlotWritten,
-		domain.StepKubeadmApplied,
+		domain.StepDistributionApplied,
 		domain.StepTargetSlotBooted,
 		domain.StepHealthVerified,
 		domain.StepCommitted,
@@ -309,9 +309,10 @@ func testOperation() *infrastructurev1beta1.TartHostOperation {
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "0197d640-8d00-7a65-b67f-3f7c42a6935f",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleControlPlane,
 	})
@@ -324,9 +325,10 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "0197d640-8d00-7a65-b67f-3f7c42a6935f",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
 	})

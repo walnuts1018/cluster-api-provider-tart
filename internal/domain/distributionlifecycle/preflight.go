@@ -28,6 +28,14 @@ const (
 	UpdateClassStateMigration   UpdateClass = "StateMigration"
 )
 
+// DistributionはNode Lifecycle Serviceが扱うKubernetes distributionである。
+type Distribution string
+
+const (
+	DistributionKubeadm Distribution = "kubeadm"
+	DistributionK3s     Distribution = "k3s"
+)
+
 // NodeRoleはLifecycle Planの対象Node種別である。
 type NodeRole string
 
@@ -38,6 +46,7 @@ const (
 
 // PreflightInputはDistribution Lifecycle Plan開始前の純粋判定入力である。
 type PreflightInput struct {
+	Distribution   Distribution
 	CurrentVersion string
 	TargetVersion  string
 	UpdateClass    UpdateClass
@@ -84,6 +93,9 @@ func parseKubernetesVersion(value string) (kubernetesVersion, error) {
 }
 
 func preflightFailure(input PreflightInput) Failure {
+	if input.Distribution != DistributionKubeadm && input.Distribution != DistributionK3s {
+		return UnsupportedDistribution{Value: string(input.Distribution)}
+	}
 	current, err := parseKubernetesVersion(input.CurrentVersion)
 	if err != nil {
 		return InvalidCurrentVersion{Value: input.CurrentVersion}
@@ -99,7 +111,7 @@ func preflightFailure(input PreflightInput) Failure {
 		return failure
 	}
 	if input.UpdateClass == UpdateClassStateMigration && input.SnapshotRef == "" {
-		return SnapshotRequired{Step: StepKubeadmApplied}
+		return SnapshotRequired{Step: StepDistributionApplied}
 	}
 	return nil
 }

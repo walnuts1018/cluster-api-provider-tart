@@ -81,7 +81,7 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			host.Spec.Identifiers.BootMACAddress = mac
 			host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
 			host.Spec.Firmware = infrastructurev1beta1.FirmwareUEFI
-			host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+			host.Spec.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
 			host.Spec.RootDeviceHints.DeviceName = fmt.Sprintf("/dev/disk/by-id/virtio-%s", diskSerial)
 			host.Spec.RootDeviceHints.SerialNumber = diskSerial
 			host.Spec.RootDeviceHints.MinSizeBytes = 64 * 1024 * 1024 * 1024
@@ -830,7 +830,7 @@ spec:
     spec:
       image:
         ref: "%[5]s"
-      platformProfile: amd64-uefi-ab/v1
+      platformProfile: amd64-uefi-ab-ubuntu-24.04-kubeadm/v1
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll

@@ -13,7 +13,7 @@ spec:
     spec:
       image:
         ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-      platformProfile: amd64-uefi-ab/v1
+      platformProfile: amd64-uefi-ab-ubuntu-24.04-kubeadm/v1
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll

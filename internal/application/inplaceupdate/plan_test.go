@@ -137,7 +137,7 @@ func updatePlanInput(t *testing.T) UpdatePlanInput {
 	t.Helper()
 	start := updateInput()
 	start.Host.Spec.Architecture = "amd64"
-	start.Host.Spec.PlatformProfile = "amd64-uefi-ab/v1"
+	start.Host.Spec.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
 	start.Host.Spec.RootDeviceHints.DeviceName = "/dev/disk/by-id/test-root"
 	start.Host.Spec.RootDeviceHints.SerialNumber = "SERIAL-1"
 	start.Host.Spec.RootDeviceHints.MinSizeBytes = 64 << 30
@@ -163,7 +163,7 @@ func updatePlanInput(t *testing.T) UpdatePlanInput {
 
 func updateManifest(t *testing.T) artifact.ValidatedManifest {
 	t.Helper()
-	return updateManifestWithKubernetesVersion(t, "v1.34.0")
+	return updateManifestWithKubernetesVersion(t, "v1.36.0")
 }
 
 func updateManifestWithKubernetesVersion(t *testing.T, version string) artifact.ValidatedManifest {
@@ -181,7 +181,7 @@ func updateManifestWithKubernetesVersion(t *testing.T, version string) artifact.
 		Boot:            artifact.Boot{KernelDigest: testDigest("e"), InitrdDigest: testDigest("f")},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      2,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	})
 	if err != nil {
 		t.Fatalf("artifact.Validate() error = %v", err)

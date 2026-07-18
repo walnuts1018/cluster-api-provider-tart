@@ -26,8 +26,8 @@ func TestDriverはControlPlaneApplyでkubeadmUpgradeApplyを呼ぶ(t *testing.T)
 	runtime := &recordingRuntime{
 		health: domain.HealthInput{
 			NodeReady:       true,
-			NodeVersion:     "v1.35.0",
-			TargetVersion:   "v1.35.0",
+			NodeVersion:     "v1.36.0",
+			TargetVersion:   "v1.36.0",
 			StaticPodsReady: true,
 			EtcdQuorum:      true,
 			APIHealthy:      true,
@@ -40,7 +40,7 @@ func TestDriverはControlPlaneApplyでkubeadmUpgradeApplyを呼ぶ(t *testing.T)
 	if err := driver.Apply(t.Context(), plan); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
-	if !equalCalls(runtime.calls, []string{"UpgradeApply:v1.35.0"}) {
+	if !equalCalls(runtime.calls, []string{"UpgradeApply:v1.36.0"}) {
 		t.Fatalf("calls = %#v", runtime.calls)
 	}
 }
@@ -53,7 +53,7 @@ func TestDriverはWorkerApplyでkubeadmUpgradeNodeを呼ぶ(t *testing.T) {
 	if err := driver.Apply(t.Context(), plan); err != nil {
 		t.Fatalf("Apply() error = %v", err)
 	}
-	if !equalCalls(runtime.calls, []string{"UpgradeNode:v1.35.0"}) {
+	if !equalCalls(runtime.calls, []string{"UpgradeNode:v1.36.0"}) {
 		t.Fatalf("calls = %#v", runtime.calls)
 	}
 }
@@ -78,8 +78,8 @@ func TestDriverはHealthGate失敗時にVerifyを失敗させる(t *testing.T) {
 	runtime := &recordingRuntime{
 		health: domain.HealthInput{
 			NodeReady:     true,
-			NodeVersion:   "v1.34.0",
-			TargetVersion: "v1.35.0",
+			NodeVersion:   "v1.35.0",
+			TargetVersion: "v1.36.0",
 			NodeRole:      domain.NodeRoleWorker,
 		},
 	}
@@ -93,9 +93,10 @@ func TestDriverはHealthGate失敗時にVerifyを失敗させる(t *testing.T) {
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleControlPlane,
 		SnapshotRef:    "etcd-snapshot-1",
@@ -109,9 +110,10 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
 	})

@@ -37,10 +37,10 @@ go test ./cmd/node-lifecycle-service -v
 | `PreflightCompleted` | `Preflight` | `DistributionUpdating` | なし | `["PreflightCompleted"]` |
 | `SnapshotCreated` | `Snapshot` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated"]` |
 | `TargetSlotWritten` | `Apply` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten"]` |
-| `KubeadmApplied` | `Apply` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","KubeadmApplied"]` |
-| `TargetSlotBooted` | `Apply` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","KubeadmApplied","TargetSlotBooted"]` |
-| `HealthVerified` | `Verify` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","KubeadmApplied","TargetSlotBooted","HealthVerified"]` |
-| `Committed` | `Apply` | `Succeeded` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","KubeadmApplied","TargetSlotBooted","HealthVerified","Committed"]` |
+| `DistributionApplied` | `Apply` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","DistributionApplied"]` |
+| `TargetSlotBooted` | `Apply` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","DistributionApplied","TargetSlotBooted"]` |
+| `HealthVerified` | `Verify` | `DistributionUpdating` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","DistributionApplied","TargetSlotBooted","HealthVerified"]` |
+| `Committed` | `Apply` | `Succeeded` | `etcd-snapshot-1` | `["PreflightCompleted","SnapshotCreated","TargetSlotWritten","DistributionApplied","TargetSlotBooted","HealthVerified","Committed"]` |
 
 判定:
 
@@ -53,7 +53,7 @@ go test ./cmd/node-lifecycle-service -v
 前提:
 
 - control plane 向け `StateMigration` Plan
-- `PreflightCompleted`、`SnapshotCreated` 成功後に `KubeadmApplied` を失敗報告する
+- `PreflightCompleted`、`SnapshotCreated` 成功後に `DistributionApplied` を失敗報告する
 
 期待した `TartHostOperation.status`:
 

@@ -267,7 +267,7 @@ func matchingRequirements(t *testing.T) allocationdomain.Requirements {
 	requirements, err := allocationdomain.NewRequirements(
 		"amd64",
 		"UEFI",
-		"amd64-uefi-ab/v1",
+		"amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		256_000_000_000,
 		[]capability.Capability{capability.PowerOn, capability.SetNextBoot},
 		map[string]string{"rack": "a"},
@@ -293,7 +293,7 @@ func matchingHost() *infrastructurev1beta1.TartHost {
 			},
 			Architecture:    infrastructurev1beta1.ArchitectureAMD64,
 			Firmware:        infrastructurev1beta1.FirmwareUEFI,
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			RootDeviceHints: infrastructurev1beta1.RootDeviceHints{
 				MinSizeBytes: 256_000_000_000,
 			},

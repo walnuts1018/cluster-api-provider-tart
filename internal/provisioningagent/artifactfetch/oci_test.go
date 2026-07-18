@@ -36,7 +36,7 @@ func TestOCIFetchVerifiesMetadataBeforeReturningPayloads(t *testing.T) {
 	t.Parallel()
 
 	source, request, repo, image, verity := newTestSource(t)
-	fetched, err := source.Fetch(t.Context(), request, "amd64-uefi-ab/v1")
+	fetched, err := source.Fetch(t.Context(), request, "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1")
 	if err != nil {
 		t.Fatalf("Fetch() error = %v", err)
 	}
@@ -90,7 +90,7 @@ func TestOCIFetchRejectsPlanIdentityMismatchBeforePayloadFetch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			source, request, repo, _, _ := newTestSource(t)
 			test.mutate(&request)
-			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab/v1"); err == nil {
+			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"); err == nil {
 				t.Fatal("Fetch() accepted mismatched Plan identity")
 			}
 			if repo.payloadFetchCount != 0 {
@@ -183,11 +183,11 @@ func newTestSource(
 			RootHash:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.35.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.36.0"},
 		Boot:            artifact.Boot{KernelDigest: digest.FromString("kernel").String(), InitrdDigest: digest.FromString("initrd").String()},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      12,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	})
 	if err != nil {
 		t.Fatal(err)

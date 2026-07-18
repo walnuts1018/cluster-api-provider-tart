@@ -61,7 +61,7 @@ func TestCreateClusterctlConfigReturnsExistingConfigPath(t *testing.T) {
 			},
 		},
 		Variables: map[string]string{
-			"KUBERNETES_VERSION": "v1.35.0",
+			"KUBERNETES_VERSION": "v1.36.0",
 		},
 	}
 

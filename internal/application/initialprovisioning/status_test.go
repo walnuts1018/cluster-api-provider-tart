@@ -32,13 +32,13 @@ func TestStatusWithProvisionedKeepsObservedMachineIDOnceSet(t *testing.T) {
 		},
 	}
 
-	status := StatusWithProvisioned(machine, nil, "machine-id-b", "v1.35.0")
+	status := StatusWithProvisioned(machine, nil, "machine-id-b", "v1.36.0")
 	if status.InstalledMachineID != "machine-id-a" {
 		t.Fatalf("InstalledMachineID = %q, want %q", status.InstalledMachineID, "machine-id-a")
 	}
 
 	machine.Status.InstalledMachineID = ""
-	status = StatusWithProvisioned(machine, nil, "machine-id-b", "v1.35.0")
+	status = StatusWithProvisioned(machine, nil, "machine-id-b", "v1.36.0")
 	if status.InstalledMachineID != "machine-id-b" {
 		t.Fatalf("InstalledMachineID = %q, want %q", status.InstalledMachineID, "machine-id-b")
 	}

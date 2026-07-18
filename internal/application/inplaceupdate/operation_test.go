@@ -128,7 +128,7 @@ func updateInput() StartInput {
 		},
 		Spec: clusterv1.MachineSpec{
 			ClusterName: "sample",
-			Version:     "v1.34.0",
+			Version:     "v1.36.0",
 			ProviderID:  "tart://host-a",
 		},
 	}
@@ -141,7 +141,7 @@ func updateInput() StartInput {
 		Spec: infrastructurev1beta1.TartMachineSpec{
 			ProviderID:      "tart://host-a",
 			Image:           infrastructurev1beta1.ImageSpec{Ref: artifactRef("b")},
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			UpdatePolicy: infrastructurev1beta1.UpdatePolicy{
 				Mode: infrastructurev1beta1.UpdateModeInPlace,
 			},

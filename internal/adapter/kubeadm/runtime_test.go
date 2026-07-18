@@ -25,19 +25,19 @@ func TestRuntimeは型付きkubeadm操作だけを実行する(t *testing.T) {
 	runner := &recordingCommandRunner{}
 	runtime := NewRuntimeForTest(RuntimeConfig{KubeadmPath: "kubeadm"}, runner)
 
-	if err := runtime.UpgradePlan(t.Context(), "v1.35.0"); err != nil {
+	if err := runtime.UpgradePlan(t.Context(), "v1.36.0"); err != nil {
 		t.Fatalf("UpgradePlan() error = %v", err)
 	}
-	if err := runtime.UpgradeApply(t.Context(), "v1.35.0"); err != nil {
+	if err := runtime.UpgradeApply(t.Context(), "v1.36.0"); err != nil {
 		t.Fatalf("UpgradeApply() error = %v", err)
 	}
-	if err := runtime.UpgradeNode(t.Context(), "v1.35.0"); err != nil {
+	if err := runtime.UpgradeNode(t.Context(), "v1.36.0"); err != nil {
 		t.Fatalf("UpgradeNode() error = %v", err)
 	}
 
 	want := []commandCall{
-		{name: "kubeadm", args: []string{"upgrade", "plan", "v1.35.0"}},
-		{name: "kubeadm", args: []string{"upgrade", "apply", "-y", "v1.35.0"}},
+		{name: "kubeadm", args: []string{"upgrade", "plan", "v1.36.0"}},
+		{name: "kubeadm", args: []string{"upgrade", "apply", "-y", "v1.36.0"}},
 		{name: "kubeadm", args: []string{"upgrade", "node"}},
 	}
 	if !equalCommandCalls(runner.calls, want) {
@@ -85,7 +85,7 @@ func TestRuntimeはNodeHealthをkubectlから観測する(t *testing.T) {
 	runner := &recordingCommandRunner{
 		outputs: []string{
 			"True\n",
-			"v1.35.0\n",
+			"v1.36.0\n",
 		},
 	}
 	runtime := NewRuntimeForTest(RuntimeConfig{KubectlPath: "kubectl", NodeName: "node-a"}, runner)
@@ -94,7 +94,7 @@ func TestRuntimeはNodeHealthをkubectlから観測する(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ObserveHealth() error = %v", err)
 	}
-	if !health.NodeReady || health.NodeVersion != "v1.35.0" {
+	if !health.NodeReady || health.NodeVersion != "v1.36.0" {
 		t.Fatalf("health = %#v", health)
 	}
 	want := []commandCall{
@@ -110,7 +110,7 @@ func TestRuntimeはControlPlaneHealthを個別観測する(t *testing.T) {
 	runner := &recordingCommandRunner{
 		outputs: []string{
 			"True\n",
-			"v1.35.0\n",
+			"v1.36.0\n",
 			"true\n",
 			"true\n",
 			"true\n",
@@ -129,7 +129,7 @@ func TestRuntimeはControlPlaneHealthを個別観測する(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ObserveHealth() error = %v", err)
 	}
-	if !health.NodeReady || health.NodeVersion != "v1.35.0" {
+	if !health.NodeReady || health.NodeVersion != "v1.36.0" {
 		t.Fatalf("health = %#v", health)
 	}
 	if !health.StaticPodsReady || !health.EtcdQuorum || !health.APIHealthy {
@@ -162,7 +162,7 @@ func TestRuntimeはControlPlaneStaticPod未準備を検出する(t *testing.T) {
 	runner := &recordingCommandRunner{
 		outputs: []string{
 			"True\n",
-			"v1.35.0\n",
+			"v1.36.0\n",
 			"true\n",
 			"false\n",
 		},

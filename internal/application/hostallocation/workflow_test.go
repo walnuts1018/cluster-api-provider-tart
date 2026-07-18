@@ -81,7 +81,7 @@ func testMachine() *infrastructurev1beta1.TartMachine {
 			UID:       types.UID("machine-a-uid"),
 		},
 		Spec: infrastructurev1beta1.TartMachineSpec{
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			HostSelector: infrastructurev1beta1.HostSelector{
 				MatchLabels: map[string]string{"rack": "a"},
 			},
@@ -106,7 +106,7 @@ func testCandidate(t *testing.T) domain.Candidate {
 		Assignment:        domain.Unassigned{},
 		Architecture:      "amd64",
 		Firmware:          "UEFI",
-		PlatformProfile:   "amd64-uefi-ab/v1",
+		PlatformProfile:   "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		RootDiskSizeBytes: 256_000_000_000,
 		Capabilities:      set,
 		Labels:            map[string]string{"rack": "a"},

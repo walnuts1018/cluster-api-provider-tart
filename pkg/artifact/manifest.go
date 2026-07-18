@@ -24,6 +24,7 @@ import (
 
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
 )
 
 const (
@@ -156,6 +157,22 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		if err := validateSHA256Digest(item.value); err != nil {
 			return ValidatedManifest{}, fmt.Errorf("%s: %w", item.name, err)
 		}
+	}
+	profile, ok := platformprofile.Lookup(manifest.PlatformProfile)
+	if !ok {
+		return ValidatedManifest{}, fmt.Errorf("unsupported platformProfile: %q", manifest.PlatformProfile)
+	}
+	if err := platformprofile.ValidateArtifactIdentity(profile, platformprofile.ArtifactIdentity{
+		OSFamily:          manifest.OS.Family,
+		OSVersion:         manifest.OS.Version,
+		Architecture:      manifest.Architecture,
+		Distribution:      manifest.Kubernetes.Distribution,
+		KubernetesVersion: manifest.Kubernetes.Version,
+		CPULevel:          manifest.Requirements.CPULevel,
+		StateSchemaMin:    manifest.StateSchema.Min,
+		StateSchemaMax:    manifest.StateSchema.Max,
+	}); err != nil {
+		return ValidatedManifest{}, err
 	}
 
 	return ValidatedManifest{manifest: manifest}, nil

@@ -23,6 +23,7 @@ import (
 type PlanInput struct {
 	OperationID string
 
+	Distribution   Distribution
 	CurrentVersion string
 	TargetVersion  string
 	UpdateClass    UpdateClass
@@ -36,6 +37,7 @@ type PlanInput struct {
 // PlanはNode Lifecycle Serviceが型付きStepとして実行する順序を表す。
 type Plan struct {
 	OperationID    string
+	Distribution   Distribution
 	CurrentVersion string
 	TargetVersion  string
 	UpdateClass    UpdateClass
@@ -100,6 +102,7 @@ func indexOfStep(steps []Step, step Step) int {
 
 func (input PlanInput) preflightInput() PreflightInput {
 	return PreflightInput{
+		Distribution:                    input.Distribution,
 		CurrentVersion:                  input.CurrentVersion,
 		TargetVersion:                   input.TargetVersion,
 		UpdateClass:                     input.UpdateClass,

@@ -55,7 +55,7 @@ A/B OS slot更新とは別に、既存Node上でkubeadmのversion更新、Snapsh
 - `PreflightCompleted`
 - `SnapshotCreated`
 - `TargetSlotWritten`
-- `KubeadmApplied`
+- `DistributionApplied`
 - `TargetSlotBooted`
 - `HealthVerified`
 - `Committed`
@@ -108,10 +108,10 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
 - minor versionを2つ以上進める更新、downgrade、major version更新、不正なversionを拒否する判定
 - worker更新でcontrol planeがtarget versionを受理していない場合に拒否する判定
 - StateMigrationでSnapshotRefなしにLifecycle stepを開始しない判定
-- Snapshot作成前にもcontrol plane Planを生成し、`KubeadmApplied`直前にSnapshotRefを必須にする判定
+- Snapshot作成前にもcontrol plane Planを生成し、`DistributionApplied`直前にSnapshotRefを必須にする判定
 - 7つの永続化Stepを順序通りに1回だけ記録し、同じStepの再報告を冪等に扱う純粋ロジック
 - Status上の`completedSteps`がPlan順序と異なる場合に拒否するapplication層の検証
-- workerではSnapshotなし、control planeではSnapshotを`KubeadmApplied`前に含める
+- workerではSnapshotなし、control planeではSnapshotを`DistributionApplied`前に含める
   Distribution Lifecycle Plan順序の純粋生成
 - `DistributionLifecycleDriver` Portと、Preflight/Snapshot/Apply/Verifyを任意commandではなく
   型付きStepとしてdispatchするapplication service
@@ -161,7 +161,7 @@ Task08の実機/E2E未検証前提を維持したまま、Distribution Lifecycle
   `completedSteps`、`lifecyclePhase`、`snapshotRef`、`phase`が再起動後も同じStatusへ収束する
   統合テストを追加
 - `internal/server/agentapi/handler_test.go` に、
-  `StateMigration` が `KubeadmApplied` で失敗した時に `RecoveryRequired` と `SnapshotRef` 保持へ
+  `StateMigration` が `DistributionApplied` で失敗した時に `RecoveryRequired` と `SnapshotRef` 保持へ
   収束する統合テストを追加
 - `docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md` に、
   repository 内で再現可能な再起動耐性と `RecoveryRequired` の証跡を追加

@@ -29,7 +29,7 @@ func TestWorkflowはLifecycleStepをDriverの型付き操作へDispatchする(t 
 	for _, step := range []domain.Step{
 		domain.StepPreflightCompleted,
 		domain.StepSnapshotCreated,
-		domain.StepKubeadmApplied,
+		domain.StepDistributionApplied,
 		domain.StepHealthVerified,
 	} {
 		if _, err := workflow.RunStep(t.Context(), plan, step); err != nil {
@@ -40,7 +40,7 @@ func TestWorkflowはLifecycleStepをDriverの型付き操作へDispatchする(t 
 	want := []domain.Step{
 		domain.StepPreflightCompleted,
 		domain.StepSnapshotCreated,
-		domain.StepKubeadmApplied,
+		domain.StepDistributionApplied,
 		domain.StepHealthVerified,
 	}
 	if len(driver.calls) != len(want) {
@@ -68,8 +68,8 @@ func TestWorkflowはSnapshotRefなしにKubeadmApplyを実行しない(t *testin
 	workflow := NewWorkflow(driver)
 	plan := controlPlanePlanWithoutSnapshot(t)
 
-	if _, err := workflow.RunStep(t.Context(), plan, domain.StepKubeadmApplied); err == nil {
-		t.Fatal("RunStep(KubeadmApplied) error = nil, want SnapshotRef required")
+	if _, err := workflow.RunStep(t.Context(), plan, domain.StepDistributionApplied); err == nil {
+		t.Fatal("RunStep(DistributionApplied) error = nil, want SnapshotRef required")
 	}
 	if len(driver.calls) != 0 {
 		t.Fatalf("driver calls = %v, want no calls", driver.calls)
@@ -79,9 +79,10 @@ func TestWorkflowはSnapshotRefなしにKubeadmApplyを実行しない(t *testin
 func controlPlanePlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleControlPlane,
 		SnapshotRef:    "etcd-snapshot-1",
@@ -95,9 +96,10 @@ func controlPlanePlan(t *testing.T) domain.Plan {
 func controlPlanePlanWithoutSnapshot(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleControlPlane,
 	})
@@ -123,7 +125,7 @@ func (driver *recordingDriver) CreateSnapshot(context.Context, domain.Plan) (Sna
 }
 
 func (driver *recordingDriver) Apply(context.Context, domain.Plan) error {
-	driver.calls = append(driver.calls, domain.StepKubeadmApplied)
+	driver.calls = append(driver.calls, domain.StepDistributionApplied)
 	return nil
 }
 
@@ -136,7 +138,7 @@ func (driver *recordingDriver) ObserveHealth(context.Context, domain.Plan) (doma
 	driver.calls = append(driver.calls, domain.StepHealthVerified)
 	return domain.HealthInput{
 		NodeReady:       true,
-		NodeVersion:     "v1.35.0",
+		NodeVersion:     "v1.36.0",
 		StaticPodsReady: true,
 		EtcdQuorum:      true,
 		APIHealthy:      true,

@@ -41,7 +41,7 @@ func TestRecordStepは完了Stepを順序通りに1回だけ追加する(t *test
 }
 
 func TestRecordStepは順序飛ばしを拒否する(t *testing.T) {
-	completed, decision, err := RecordStep(nil, StepKubeadmApplied)
+	completed, decision, err := RecordStep(nil, StepDistributionApplied)
 	if err == nil {
 		t.Fatalf("RecordStep() completed=%v decision=%#v, want order error", completed, decision)
 	}

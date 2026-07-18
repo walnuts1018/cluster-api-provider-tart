@@ -89,7 +89,7 @@ func TestWorkflowは改ざん済みPlanを実行しない(t *testing.T) {
 	}
 }
 
-func TestWorkflowはSnapshotRefなしにKubeadmAppliedを実行しない(t *testing.T) {
+func TestWorkflowはSnapshotRefなしにDistributionAppliedを実行しない(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey() error = %v", err)
@@ -100,7 +100,7 @@ func TestWorkflowはSnapshotRefなしにKubeadmAppliedを実行しない(t *test
 		domain.StepPreflightCompleted,
 		domain.StepSnapshotCreated,
 		domain.StepTargetSlotWritten,
-		domain.StepKubeadmApplied,
+		domain.StepDistributionApplied,
 	}
 	validated, err := ValidatePlan(plan)
 	if err != nil {
@@ -116,9 +116,9 @@ func TestWorkflowはSnapshotRefなしにKubeadmAppliedを実行しない(t *test
 	if _, err := workflow.RunSignedStep(
 		t.Context(),
 		SignedPlan{Plan: plan, Signature: signature},
-		domain.StepKubeadmApplied,
+		domain.StepDistributionApplied,
 	); err == nil {
-		t.Fatal("RunSignedStep(KubeadmApplied) error = nil, want SnapshotRef required")
+		t.Fatal("RunSignedStep(DistributionApplied) error = nil, want SnapshotRef required")
 	}
 	if runner.calls != 0 {
 		t.Fatalf("runner.calls = %d, want 0", runner.calls)
@@ -132,12 +132,13 @@ func TestBuildSignedPlanはDomainPlanから署名とDigestを生成する(t *tes
 	}
 	deadline := time.Date(2026, 7, 9, 12, 0, 0, 0, time.UTC)
 	domainPlan := domain.Plan{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
+		CurrentVersion: "v1.36.0",
 		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
-		Steps:          []domain.Step{domain.StepPreflightCompleted, domain.StepKubeadmApplied},
+		Steps:          []domain.Step{domain.StepPreflightCompleted, domain.StepDistributionApplied},
 	}
 
 	built, err := BuildSignedPlan(domainPlan, deadline, "lifecycle-key", privateKey)
@@ -198,7 +199,8 @@ func validLifecyclePlan() Plan {
 	return Plan{
 		APIVersion:     APIVersion,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.35.0",
+		Distribution:   domain.DistributionKubeadm,
+		CurrentVersion: "v1.36.0",
 		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
@@ -206,7 +208,7 @@ func validLifecyclePlan() Plan {
 		Steps: []domain.Step{
 			domain.StepPreflightCompleted,
 			domain.StepTargetSlotWritten,
-			domain.StepKubeadmApplied,
+			domain.StepDistributionApplied,
 			domain.StepTargetSlotBooted,
 			domain.StepHealthVerified,
 			domain.StepCommitted,

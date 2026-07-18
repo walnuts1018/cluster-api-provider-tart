@@ -19,8 +19,8 @@ import "testing"
 func TestEvaluateHealthは全Gate成功時だけCommitを許可する(t *testing.T) {
 	result := EvaluateHealth(HealthInput{
 		NodeReady:       true,
-		NodeVersion:     "v1.35.0",
-		TargetVersion:   "v1.35.0",
+		NodeVersion:     "v1.36.0",
+		TargetVersion:   "v1.36.0",
 		StaticPodsReady: true,
 		EtcdQuorum:      true,
 		APIHealthy:      true,
@@ -41,8 +41,8 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 		{
 			name: "Node Ready失敗",
 			input: HealthInput{
-				NodeVersion:     "v1.35.0",
-				TargetVersion:   "v1.35.0",
+				NodeVersion:     "v1.36.0",
+				TargetVersion:   "v1.36.0",
 				StaticPodsReady: true,
 				EtcdQuorum:      true,
 				APIHealthy:      true,
@@ -55,7 +55,7 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 			input: HealthInput{
 				NodeReady:       true,
 				NodeVersion:     "v1.34.0",
-				TargetVersion:   "v1.35.0",
+				TargetVersion:   "v1.36.0",
 				StaticPodsReady: true,
 				EtcdQuorum:      true,
 				APIHealthy:      true,
@@ -67,8 +67,8 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 			name: "static Pod失敗",
 			input: HealthInput{
 				NodeReady:     true,
-				NodeVersion:   "v1.35.0",
-				TargetVersion: "v1.35.0",
+				NodeVersion:   "v1.36.0",
+				TargetVersion: "v1.36.0",
 				EtcdQuorum:    true,
 				APIHealthy:    true,
 				NodeRole:      NodeRoleControlPlane,
@@ -79,8 +79,8 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 			name: "etcd quorum失敗",
 			input: HealthInput{
 				NodeReady:       true,
-				NodeVersion:     "v1.35.0",
-				TargetVersion:   "v1.35.0",
+				NodeVersion:     "v1.36.0",
+				TargetVersion:   "v1.36.0",
 				StaticPodsReady: true,
 				APIHealthy:      true,
 				NodeRole:        NodeRoleControlPlane,
@@ -91,8 +91,8 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 			name: "API health失敗",
 			input: HealthInput{
 				NodeReady:       true,
-				NodeVersion:     "v1.35.0",
-				TargetVersion:   "v1.35.0",
+				NodeVersion:     "v1.36.0",
+				TargetVersion:   "v1.36.0",
 				StaticPodsReady: true,
 				EtcdQuorum:      true,
 				NodeRole:        NodeRoleControlPlane,
@@ -117,8 +117,8 @@ func TestEvaluateHealthは失敗GateがあればCommitを拒否する(t *testing
 func TestEvaluateHealthはWorkerでControlPlane専用Gateを要求しない(t *testing.T) {
 	result := EvaluateHealth(HealthInput{
 		NodeReady:     true,
-		NodeVersion:   "v1.35.0",
-		TargetVersion: "v1.35.0",
+		NodeVersion:   "v1.36.0",
+		TargetVersion: "v1.36.0",
 		NodeRole:      NodeRoleWorker,
 	})
 

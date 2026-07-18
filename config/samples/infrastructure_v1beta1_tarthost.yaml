@@ -11,7 +11,7 @@ spec:
     bootMACAddress: 02:00:00:00:00:01
   architecture: amd64
   firmware: UEFI
-  platformProfile: amd64-uefi-ab/v1
+  platformProfile: amd64-uefi-ab-ubuntu-24.04-kubeadm/v1
   rootDeviceHints:
     deviceName: /dev/disk/by-id/wwn-0x5000000000000001
     wwn: "0x5000000000000001"

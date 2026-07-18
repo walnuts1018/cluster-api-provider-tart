@@ -20,6 +20,7 @@ import (
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	"github.com/walnuts1018/cluster-api-provider-tart/internal/domain/capability"
 	domain "github.com/walnuts1018/cluster-api-provider-tart/internal/domain/hostallocation"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
 )
 
 func CommandFromMachine(machine *infrastructurev1beta1.TartMachine) (domain.Command, error) {
@@ -55,10 +56,9 @@ func RequirementsForMachine(machine *infrastructurev1beta1.TartMachine) (domain.
 }
 
 func parsePlatformProfile(profile string) (architecture, firmware string, err error) {
-	switch profile {
-	case "amd64-uefi-ab/v1":
-		return "amd64", "UEFI", nil
-	default:
+	definition, ok := platformprofile.Lookup(profile)
+	if !ok {
 		return "", "", fmt.Errorf("unsupported platform profile %q", profile)
 	}
+	return definition.Architecture, definition.Firmware, nil
 }

@@ -48,7 +48,7 @@ func (runner effectRunner) run(
 			return StepResult{}, err
 		}
 		return presentSnapshot(snapshot)
-	case domain.StepKubeadmApplied:
+	case domain.StepDistributionApplied:
 		if runner.apply == nil {
 			return StepResult{}, fmt.Errorf("lifecycle applier is required")
 		}

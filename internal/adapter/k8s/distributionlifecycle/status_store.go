@@ -149,7 +149,7 @@ func phaseForStep(step domain.Step) LifecyclePhase {
 		return LifecyclePhasePreflight
 	case domain.StepSnapshotCreated:
 		return LifecyclePhaseSnapshot
-	case domain.StepTargetSlotWritten, domain.StepKubeadmApplied, domain.StepTargetSlotBooted, domain.StepCommitted:
+	case domain.StepTargetSlotWritten, domain.StepDistributionApplied, domain.StepTargetSlotBooted, domain.StepCommitted:
 		return LifecyclePhaseApply
 	case domain.StepHealthVerified:
 		return LifecyclePhaseVerify

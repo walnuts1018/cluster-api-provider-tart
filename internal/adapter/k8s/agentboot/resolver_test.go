@@ -93,7 +93,7 @@ func testHost() *infrastructurev1beta1.TartHost {
 			Identifiers:     infrastructurev1beta1.HostIdentifiers{BootMACAddress: "00:00:5e:00:53:01"},
 			Architecture:    infrastructurev1beta1.ArchitectureAMD64,
 			Firmware:        infrastructurev1beta1.FirmwareUEFI,
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			RootDeviceHints: infrastructurev1beta1.RootDeviceHints{MinSizeBytes: 64 << 30},
 			Management:      infrastructurev1beta1.HostManagement{PowerDriver: "wol", BootDriver: "ipxe"},
 		},

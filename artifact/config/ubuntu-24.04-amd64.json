@@ -11,11 +11,11 @@
   },
   "kubernetes": {
     "distribution": "kubeadm",
-    "version": "v1.35.0"
+    "version": "v1.36.0"
   },
   "requirements": {
     "cpuLevel": "x86-64-v1"
   },
   "generation": 1,
-  "platformProfile": "amd64-uefi-ab/v1"
+  "platformProfile": "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"
 }

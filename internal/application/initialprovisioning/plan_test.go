@@ -85,7 +85,8 @@ func TestBuildProvisionPlanRejectsManifestForDifferentProfile(t *testing.T) {
 	t.Parallel()
 
 	manifestValue := validatedProvisionManifest(t).Value()
-	manifestValue.PlatformProfile = "amd64-uefi-ab/v2"
+	manifestValue.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-k3s/v1"
+	manifestValue.Kubernetes.Distribution = "k3s"
 	manifest, err := artifact.Validate(manifestValue)
 	if err != nil {
 		t.Fatalf("artifact.Validate() error = %v", err)
@@ -114,7 +115,7 @@ func matchingProvisionHost() *infrastructurev1beta1.TartHost {
 		Spec: infrastructurev1beta1.TartHostSpec{
 			Architecture:    infrastructurev1beta1.ArchitectureAMD64,
 			Firmware:        infrastructurev1beta1.FirmwareUEFI,
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			RootDeviceHints: infrastructurev1beta1.RootDeviceHints{
 				DeviceName:   "/dev/disk/by-id/wwn-test",
 				SerialNumber: "disk-serial",
@@ -145,7 +146,7 @@ func validatedProvisionManifest(t *testing.T) artifact.ValidatedManifest {
 		StateSchema: artifact.StateSchema{Min: 1, Max: 1},
 		Kubernetes: artifact.Kubernetes{
 			Distribution: "kubeadm",
-			Version:      "v1.35.0",
+			Version:      "v1.36.0",
 		},
 		Boot: artifact.Boot{
 			KernelDigest: digest.FromString("kernel").String(),
@@ -153,7 +154,7 @@ func validatedProvisionManifest(t *testing.T) artifact.ValidatedManifest {
 		},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      1,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	}
 	validated, err := artifact.Validate(value)
 	if err != nil {

@@ -36,15 +36,16 @@ var identifierPattern = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`
 
 // PlanはNode Lifecycle Serviceが受け取る署名対象のJSON payloadである。
 type Plan struct {
-	APIVersion     string             `json:"apiVersion"`
-	OperationID    string             `json:"operationID"`
-	CurrentVersion string             `json:"currentVersion"`
-	TargetVersion  string             `json:"targetVersion"`
-	UpdateClass    domain.UpdateClass `json:"updateClass"`
-	NodeRole       domain.NodeRole    `json:"nodeRole"`
-	SnapshotRef    string             `json:"snapshotRef,omitempty"`
-	Deadline       time.Time          `json:"deadline"`
-	Steps          []domain.Step      `json:"steps"`
+	APIVersion     string              `json:"apiVersion"`
+	OperationID    string              `json:"operationID"`
+	Distribution   domain.Distribution `json:"distribution"`
+	CurrentVersion string              `json:"currentVersion"`
+	TargetVersion  string              `json:"targetVersion"`
+	UpdateClass    domain.UpdateClass  `json:"updateClass"`
+	NodeRole       domain.NodeRole     `json:"nodeRole"`
+	SnapshotRef    string              `json:"snapshotRef,omitempty"`
+	Deadline       time.Time           `json:"deadline"`
+	Steps          []domain.Step       `json:"steps"`
 }
 
 type SignedPlan struct {
@@ -94,6 +95,7 @@ func FromDomainPlan(plan domain.Plan, deadline time.Time) (ValidatedPlan, error)
 	return ValidatePlan(Plan{
 		APIVersion:     APIVersion,
 		OperationID:    plan.OperationID,
+		Distribution:   plan.Distribution,
 		CurrentVersion: plan.CurrentVersion,
 		TargetVersion:  plan.TargetVersion,
 		UpdateClass:    plan.UpdateClass,
@@ -107,6 +109,7 @@ func FromDomainPlan(plan domain.Plan, deadline time.Time) (ValidatedPlan, error)
 func ToDomainPlan(plan Plan) (domain.Plan, error) {
 	domainPlan := domain.Plan{
 		OperationID:    plan.OperationID,
+		Distribution:   plan.Distribution,
 		CurrentVersion: plan.CurrentVersion,
 		TargetVersion:  plan.TargetVersion,
 		UpdateClass:    plan.UpdateClass,
@@ -125,6 +128,7 @@ func ToDomainPlan(plan Plan) (domain.Plan, error) {
 		return domain.Plan{}, fmt.Errorf("unsupported nodeRole: %q", plan.NodeRole)
 	}
 	preflight := domain.PreflightInput{
+		Distribution:   plan.Distribution,
 		CurrentVersion: plan.CurrentVersion,
 		TargetVersion:  plan.TargetVersion,
 		UpdateClass:    plan.UpdateClass,

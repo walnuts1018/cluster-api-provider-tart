@@ -42,8 +42,8 @@ func TestEvaluateReadinessRequiresEveryProvisioningGate(t *testing.T) {
 		MachineProviderID: "tart://host-a",
 		NodeProviderID:    "tart://host-a",
 		NodeReady:         true,
-		ExpectedVersion:   "v1.35.0",
-		NodeVersion:       "v1.35.0",
+		ExpectedVersion:   "v1.36.0",
+		NodeVersion:       "v1.36.0",
 	}
 
 	tests := []struct {

@@ -29,12 +29,18 @@ run = "mise tasks"
 
 [tasks.manifests]
 description = "CRD と RBAC マニフェストを生成する"
-run = 'controller-gen rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases'
+run = '''
+# repository内のGo module cacheを生成対象に含めると、依存moduleの開発用go.workまで誤読する。
+controller-gen rbac:roleName=manager-role crd webhook \
+  paths="./api/...;./cmd/...;./internal/..." \
+  output:crd:artifacts:config=config/crd/bases
+'''
 
 [tasks.generate]
 description = "DeepCopy コードを生成する"
 run = '''
-controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
+# DeepCopy markerを持つAPI packageだけを対象にし、module cacheを走査しない。
+controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./api/..."
 mise run wire
 '''
 

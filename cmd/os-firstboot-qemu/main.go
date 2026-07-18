@@ -479,6 +479,14 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 	if err := createTargetDisk(metadataDiskPath, 1<<20); err != nil {
 		return err
 	}
+	stateDiskPath := filepath.Join(cfg.workDir, "state.raw")
+	if err := createLabeledExt4Disk(ctx, stateDiskPath, 128<<20, "tart-state"); err != nil {
+		return err
+	}
+	dataDiskPath := filepath.Join(cfg.workDir, "data.raw")
+	if err := createLabeledExt4Disk(ctx, dataDiskPath, 128<<20, "tart-data"); err != nil {
+		return err
+	}
 	metadataScriptPath, err := writeTextFile(
 		filepath.Join(cfg.workDir, "qemu-boot-trial-metadata.sh"),
 		qemuBootTrialMetadataScript(),
@@ -526,6 +534,8 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 		[]qemuDrive{
 			{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
 			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
+			{path: stateDiskPath, id: "statedisk", serial: "qemu-state"},
+			{path: dataDiskPath, id: "datadisk", serial: "qemu-data"},
 		},
 	)
 	if err != nil {
@@ -556,6 +566,8 @@ func verifyBootTrialMetadataPersistence(ctx context.Context, cfg config) error {
 		[]qemuDrive{
 			{path: workspace.osTestImage, id: "rootdisk", serial: rootDiskSerial},
 			{path: metadataDiskPath, id: "metadatadisk", serial: metadataDiskSerial},
+			{path: stateDiskPath, id: "statedisk", serial: "qemu-state"},
+			{path: dataDiskPath, id: "datadisk", serial: "qemu-data"},
 		},
 	)
 	if err != nil {
@@ -824,6 +836,17 @@ func createTargetDisk(path string, sizeBytes int64) error {
 	}
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close target disk image: %w", err)
+	}
+	return nil
+}
+
+func createLabeledExt4Disk(ctx context.Context, path string, sizeBytes int64, label string) error {
+	if err := createTargetDisk(path, sizeBytes); err != nil {
+		return err
+	}
+	command := exec.CommandContext(ctx, "mkfs.ext4", "-F", "-L", label, path)
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("format %s as ext4: %w: %s", label, err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }

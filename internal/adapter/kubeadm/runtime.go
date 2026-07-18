@@ -28,6 +28,7 @@ import (
 const (
 	defaultKubeadmPath = "kubeadm"
 	defaultEtcdctlPath = "etcdctl"
+	defaultEtcdutlPath = "etcdutl"
 	defaultKubectlPath = "kubectl"
 	defaultSnapshotDir = "/var/lib/tart/snapshots"
 )
@@ -35,6 +36,7 @@ const (
 type RuntimeConfig struct {
 	KubeadmPath string
 	EtcdctlPath string
+	EtcdutlPath string
 	KubectlPath string
 	SnapshotDir string
 	NodeName    string
@@ -59,6 +61,9 @@ func NewRuntimeForTest(config RuntimeConfig, runner CommandRunner) *LocalRuntime
 	}
 	if config.EtcdctlPath == "" {
 		config.EtcdctlPath = defaultEtcdctlPath
+	}
+	if config.EtcdutlPath == "" {
+		config.EtcdutlPath = defaultEtcdutlPath
 	}
 	if config.KubectlPath == "" {
 		config.KubectlPath = defaultKubectlPath
@@ -87,7 +92,7 @@ func (runtime *LocalRuntime) SaveEtcdSnapshot(ctx context.Context, operationID s
 }
 
 func (runtime *LocalRuntime) VerifyEtcdSnapshot(ctx context.Context, snapshotRef string) error {
-	_, err := runtime.runner.Run(ctx, runtime.config.EtcdctlPath, "snapshot", "status", snapshotRef)
+	_, err := runtime.runner.Run(ctx, runtime.config.EtcdutlPath, "snapshot", "status", snapshotRef)
 	return err
 }
 

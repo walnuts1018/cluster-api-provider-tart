@@ -143,7 +143,8 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 - `cmd/node-lifecycle-service`を追加し、Agent APIから取得した署名済みNode Lifecycle Planを検証して、
   指定されたLifecycle Stepだけをkubeadm Driverへdispatchするprocess境界を作成
 - OS Artifact buildへ`node-lifecycle-service` binaryを組み込み、インストール済みOSから実行できる配布経路を追加
-- kubeadm v1.36.2が使用するetcd v3.6.8の`etcdctl`を公式release SHA-256で固定し、OS Artifactへ組み込む配布経路を追加
+- kubeadm v1.36.2が使用するetcd v3.6.8の`etcdctl`/`etcdutl`を公式release SHA-256で固定し、OS Artifactへ組み込む配布経路を追加
+- snapshotのnetwork saveは`etcdctl`、保存済みDBのoffline status検証は`etcdutl`へ分離し、etcd 3.6 CLI契約へ追従
 - Node Lifecycle Service用のkubeadm Runtimeを追加し、`kubeadm upgrade plan/apply/node`、
   `etcdctl snapshot save/status`、`kubectl get node`を任意shell commandではなく型付き操作として実行
 - Domain PlanからNode Lifecycle Service向け署名済みPlanとPlan Digestを生成するapplication境界

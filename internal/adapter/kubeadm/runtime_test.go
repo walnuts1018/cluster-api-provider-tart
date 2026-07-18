@@ -50,6 +50,7 @@ func TestRuntimeはSnapshotを固定パスへ保存して検証する(t *testing
 	snapshotDir := t.TempDir()
 	runtime := NewRuntimeForTest(RuntimeConfig{
 		EtcdctlPath: "etcdctl",
+		EtcdutlPath: "etcdutl",
 		SnapshotDir: snapshotDir,
 	}, runner)
 
@@ -74,7 +75,7 @@ func TestRuntimeはSnapshotを固定パスへ保存して検証する(t *testing
 			"save",
 			wantRef,
 		}},
-		{name: "etcdctl", args: []string{"snapshot", "status", wantRef}},
+		{name: "etcdutl", args: []string{"snapshot", "status", wantRef}},
 	}
 	if !equalCommandCalls(runner.calls, want) {
 		t.Fatalf("calls = %#v, want %#v", runner.calls, want)

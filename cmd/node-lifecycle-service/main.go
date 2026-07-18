@@ -56,6 +56,7 @@ type config struct {
 	step             domain.Step
 	kubeadmPath      string
 	etcdctlPath      string
+	etcdutlPath      string
 	kubectlPath      string
 	snapshotDir      string
 	nodeName         string
@@ -111,6 +112,7 @@ func run(ctx context.Context, args []string) error {
 	runtime := kubeadmadapter.NewRuntime(kubeadmadapter.RuntimeConfig{
 		KubeadmPath: cfg.kubeadmPath,
 		EtcdctlPath: cfg.etcdctlPath,
+		EtcdutlPath: cfg.etcdutlPath,
 		KubectlPath: cfg.kubectlPath,
 		SnapshotDir: cfg.snapshotDir,
 		NodeName:    cfg.nodeName,
@@ -309,6 +311,7 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&step, "step", "", "Lifecycle step to execute.")
 	flags.StringVar(&cfg.kubeadmPath, "kubeadm-path", "kubeadm", "Path to kubeadm.")
 	flags.StringVar(&cfg.etcdctlPath, "etcdctl-path", "etcdctl", "Path to etcdctl.")
+	flags.StringVar(&cfg.etcdutlPath, "etcdutl-path", "etcdutl", "Path to etcdutl.")
 	flags.StringVar(&cfg.kubectlPath, "kubectl-path", "kubectl", "Path to kubectl.")
 	flags.StringVar(&cfg.snapshotDir, "snapshot-dir", "/var/lib/tart/snapshots", "Directory for etcd snapshots.")
 	flags.StringVar(&cfg.nodeName, "node-name", "", "Kubernetes Node name used by health verification.")

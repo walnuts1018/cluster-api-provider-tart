@@ -1,8 +1,7 @@
 # dorny/paths-filter 用パスフィルター定義
-# YAMLアンカーを使用して共通パスの重複を排除する
 
-# go コードに関連するパス（アンカーで再利用）
-.go-paths: &go-paths
+# Goコード、生成物、ビルド、CIに関連するパス。
+go:
   - ".github/workflows/ci.yaml"
   - ".github/actions/**"
   - "api/**"
@@ -21,8 +20,6 @@
   - ".github/workflows/**"
   - ".github/filters.yml"
   - "renovate.json5"
-
-go: *go-paths
 
 # lint設定だけが変わった場合にもlintを実行する。
 lint_config:

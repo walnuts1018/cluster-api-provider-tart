@@ -33,7 +33,9 @@ import (
 
 var (
 	// managerImage is the manager image to be built and loaded for testing.
-	managerImage = "example.com/cluster-api-provider-tart:v0.0.1"
+	managerImage = "registry.test.walnuts.dev/cluster-api-provider-tart:v0.0.1"
+	// metricsCurlImage is digest-pinned so the readiness probe cannot change between CI retries.
+	metricsCurlImage = "curlimages/curl@sha256:43ebaa53d3806db6b1ce4353b6b26ae638ec1c167ee351524b05690f988bb20d"
 	// shouldCleanupCertManager tracks whether CertManager was installed by this suite.
 	shouldCleanupCertManager = false
 )

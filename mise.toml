@@ -768,14 +768,15 @@ go run ./hack/agent-artifact-manifest \
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"
 run = '''
-IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+: "${IMG:?IMG is required}"
 IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
-IPXE_TAG="latest"
+IPXE_TAG="${IPXE_TAG:-}"
 image_without_digest="${IMG%%@*}"
 last_image_segment="${image_without_digest##*/}"
 if [ "$image_without_digest" = "$IMG" ] && [ "${last_image_segment#*:}" != "$last_image_segment" ]; then
   IPXE_TAG="${last_image_segment##*:}"
 fi
+: "${IPXE_TAG:?IPXE_TAG is required when IMG is digest-pinned}"
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
@@ -817,7 +818,7 @@ kustomize build config/real-hardware > dist/install-real-hardware.yaml
 [tasks.build-installer-e2e]
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
 run = '''
-IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+IMG="${IMG:-registry.test.walnuts.dev/cluster-api-provider-tart:e2e}"
 mise run prepare-provisioning-e2e-artifact
 agent_hostpath="${PROVISIONING_E2E_AGENT_ARTIFACT_HOSTPATH:-/var/lib/tart-provisioning-e2e/agent-artifact}"
 sudo rm -rf "$agent_hostpath"
@@ -931,7 +932,7 @@ fi
 [tasks.test-provisioning-e2e]
 description = "CAPI Test Framework と k3s を使用して Provisioning E2E テストを実行する"
 run = '''
-IMG="${IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart:latest}"
+IMG="${IMG:-registry.test.walnuts.dev/cluster-api-provider-tart:e2e}"
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
 mise run setup-test-provisioning-k3s
 mise run build-installer-e2e

@@ -18,8 +18,8 @@ secretGenerator:
 
 images:
 - name: controller
-  newName: ghcr.io/walnuts1018/cluster-api-provider-tart
-  newTag: latest
+  newName: registry.test.walnuts.dev/cluster-api-provider-tart
+  newTag: e2e
 
 patches:
 - target:

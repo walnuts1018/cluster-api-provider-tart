@@ -6,7 +6,7 @@ resources:
 
 images:
 - name: controller
-  newName: example.com/cluster-api-provider-tart
+  newName: registry.test.walnuts.dev/cluster-api-provider-tart
   newTag: v0.0.1
 
 patches:

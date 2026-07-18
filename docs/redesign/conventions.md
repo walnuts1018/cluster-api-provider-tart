@@ -55,7 +55,7 @@
 | `TartHostOperation` | 1回のProvision、Update、Rollback、Cleanを表すCR。長時間処理の再開位置を保存 |
 | controller | 管理クラスタ上のcontroller-manager process。Reconcileと組み込みnetwork serverを実行 |
 | Provisioning Agent | 一時OS上で動作し、diskの検出、partition作成、image書き込み、検証を行う実行ファイル |
-| Node Lifecycle Service | インストール済みOS上でone-shot起動し、`kubeadm upgrade`等のdistribution固有処理を行う実行ファイル。任意command実行APIは持たない |
+| Node Lifecycle Service | インストール済みOS上でone-shot起動し、`kubeadm upgrade`や`k0s`更新等のdistribution固有処理を行う実行ファイル。任意command実行APIは持たない |
 
 ## 5. 境界を表す用語
 
@@ -66,7 +66,7 @@
 | Driver | 物理機器の操作を実装するAdapterの総称。Power、BootOverride、VirtualMediaの各Portを必要な分だけ実装 |
 | Capability | Driverが実行できる操作を表す列挙値。`PowerOn`、`PowerOff`、`ObservePowerState`、`SetNextBoot`、`VirtualMedia`のいずれか |
 | Platform Profile | architecture、firmware、boot transport、partition role、bootloader、Agent artifactの組を識別するversion付き設定 |
-| Distribution Lifecycle Driver | kubeadmまたはk3sの更新前検査、snapshot、適用、検証を実行するPort/Adapter |
+| Distribution Lifecycle Driver | kubeadmまたはk0sの更新前検査、snapshot、適用、検証を実行するPort/Adapter |
 | Boot Transport | Provisioning Agentを起動する経路。`IPXE`、`RedfishPXE`、`RedfishHTTPBoot`、`RedfishVirtualMedia`、`RaspberryPiEEPROM`のいずれか |
 
 「plugin」は外部processで動くgRPC実装にだけ使用する。controllerに組み込むGo実装は「Adapter」または「Driver」と呼ぶ。
@@ -86,7 +86,7 @@
 | Physical Layout | Disk RoleをGPT partitionへ割り当てたPlatform Profile固有の定義 |
 | `stateSchema` | State内のdirectory、file、formatの互換version。単調増加する正の整数 |
 
-Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`または`/etc/rancher/k3s`、Bootstrap適用済みmarkerを保存する。Dataには、少なくともcontainer runtime data、kubelet data、etcd data、明示されたstorage pathを保存する。最終的なpath一覧はOSとdistributionの組ごとにPlatform Profileで固定する。
+Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`、`/etc/rancher/k3s`、`/etc/k0s`のうち対象distributionに必要なpath、Bootstrap適用済みmarkerを保存する。Dataには、少なくともcontainer runtime data、kubelet data、etcd/k3s/k0s data、明示されたstorage pathを保存する。最終的なpath一覧はOSとdistributionの組ごとにPlatform Profileで固定する。
 
 ## 7. Artifactと認証データ
 
@@ -136,7 +136,7 @@ Stateには、少なくともmachine-id、node credential、`/etc/kubernetes`ま
 |---|---|---|
 | `OSOnly` | Kubernetes version、Bootstrap Data、stateSchemaを変更せず、OS Artifactだけを変更 | 必須 |
 | `KubernetesBinary` | version skew範囲内でKubernetes binaryと設定を変更し、不可逆なState migrationを行わない | 検証で許可された組合せだけ可能 |
-| `StateMigration` | kubeadm、etcd、k3s等がState/Dataのformatを変更 | 禁止。Snapshotを使うRecoveryへ遷移 |
+| `StateMigration` | kubeadm、etcd、k0s等がState/Dataのformatを変更 | 禁止。Snapshotを使うRecoveryへ遷移 |
 
 更新クラスはPlan作成時にcontrollerが決定し、Agentが推測してはならない。
 

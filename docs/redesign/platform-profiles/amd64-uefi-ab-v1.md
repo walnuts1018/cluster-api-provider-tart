@@ -8,7 +8,7 @@ Task 11では、同じamd64 UEFI A/B disk layoutをOSとdistributionごとのPro
 - 8 GiBのUbuntu 24.04 ext4 imageがOS-A/OS-Bへ収まる。
 - detached dm-verity hash treeが1 GiBのVerity-A/Verity-Bへ収まる。
 - ESP 512 MiBで採用bootloaderのA/B entryとboot trial metadataを保持できる。
-- State 8 GiBでkubeadmまたはk3s、kubelet identity、Bootstrap markerを保持できる。
+- State 8 GiBでkubeadm、k3s、k0sのいずれかと、kubelet identity、Bootstrap markerを保持できる。
 - 64 GiB disk上のData容量でTask 01のcontainerd/kubelet起動試験が成立する。
 
 ## Initial Credential
@@ -35,10 +35,13 @@ Task 11では、同じamd64 UEFI A/B disk layoutをOSとdistributionごとのPro
 |---|---|---|---|---|---|
 | `amd64-uefi-ab-ubuntu-24.04-kubeadm/v1` | Ubuntu 24.04 LTS | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
 | `amd64-uefi-ab-ubuntu-24.04-k3s/v1` | Ubuntu 24.04 LTS | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
+| `amd64-uefi-ab-ubuntu-24.04-k0s/v1` | Ubuntu 24.04 LTS | k0s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/k0s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/k0s` |
 | `amd64-uefi-ab-ubuntu-26.04-kubeadm/v1` | Ubuntu 26.04 LTS | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
 | `amd64-uefi-ab-ubuntu-26.04-k3s/v1` | Ubuntu 26.04 LTS | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
+| `amd64-uefi-ab-ubuntu-26.04-k0s/v1` | Ubuntu 26.04 LTS | k0s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/k0s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/k0s` |
 | `amd64-uefi-ab-debian-13-kubeadm/v1` | Debian 13 | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
 | `amd64-uefi-ab-debian-13-k3s/v1` | Debian 13 | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
+| `amd64-uefi-ab-debian-13-k0s/v1` | Debian 13 | k0s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/k0s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/k0s` |
 
 ## Physical Layout
 

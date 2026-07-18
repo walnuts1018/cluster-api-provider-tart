@@ -25,10 +25,13 @@ func TestAllは要求されたOSDistribution組み合わせを含む(t *testing.
 	want := map[string]struct{}{
 		ProfileUbuntu2404Kubeadm: {},
 		ProfileUbuntu2404K3s:     {},
+		ProfileUbuntu2404K0s:     {},
 		ProfileUbuntu2604Kubeadm: {},
 		ProfileUbuntu2604K3s:     {},
+		ProfileUbuntu2604K0s:     {},
 		ProfileDebian13Kubeadm:   {},
 		ProfileDebian13K3s:       {},
+		ProfileDebian13K0s:       {},
 	}
 	for _, profile := range All() {
 		delete(want, profile.ID)

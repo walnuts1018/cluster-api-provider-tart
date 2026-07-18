@@ -25,12 +25,13 @@ func TestDriverSetはPlanのDistributionでDriverを選ぶ(t *testing.T) {
 	t.Parallel()
 
 	kubeadm := &driverSetRecordingDriver{name: "kubeadm"}
-	k3s := &driverSetRecordingDriver{name: "k3s"}
+	k0s := &driverSetRecordingDriver{name: "k0s"}
 	set := NewDriverSet(map[domain.Distribution]Driver{
 		domain.DistributionKubeadm: kubeadm,
-		domain.DistributionK3s:     k3s,
+		domain.DistributionK3s:     &driverSetRecordingDriver{name: "k3s"},
+		domain.DistributionK0s:     k0s,
 	})
-	plan := domain.Plan{Distribution: domain.DistributionK3s}
+	plan := domain.Plan{Distribution: domain.DistributionK0s}
 
 	if err := set.Apply(t.Context(), plan); err != nil {
 		t.Fatalf("Apply() error = %v", err)
@@ -38,16 +39,20 @@ func TestDriverSetはPlanのDistributionでDriverを選ぶ(t *testing.T) {
 	if len(kubeadm.applied) != 0 {
 		t.Fatalf("kubeadm applied = %d, want 0", len(kubeadm.applied))
 	}
-	if len(k3s.applied) != 1 || k3s.applied[0].Distribution != domain.DistributionK3s {
-		t.Fatalf("k3s applied = %#v, want k3s plan", k3s.applied)
+	if len(k0s.applied) != 1 || k0s.applied[0].Distribution != domain.DistributionK0s {
+		t.Fatalf("k0s applied = %#v, want k0s plan", k0s.applied)
 	}
 }
 
 func TestDriverSetは未登録Distributionを拒否する(t *testing.T) {
 	t.Parallel()
 
-	set := NewDriverSet(map[domain.Distribution]Driver{})
-	err := set.Preflight(t.Context(), domain.Plan{Distribution: domain.DistributionK3s})
+	set := NewDriverSet(map[domain.Distribution]Driver{
+		domain.DistributionKubeadm: nil,
+		domain.DistributionK3s:     nil,
+		domain.DistributionK0s:     nil,
+	})
+	err := set.Preflight(t.Context(), domain.Plan{Distribution: domain.Distribution("unknown")})
 	if err == nil {
 		t.Fatal("Preflight() error = nil, want unregistered distribution")
 	}

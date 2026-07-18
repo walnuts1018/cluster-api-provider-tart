@@ -9,10 +9,13 @@ Agent Artifactをversion付きで固定する。Profile IDの`vN`は物理disk�
 |---|---|---|
 | `amd64-uefi-ab-ubuntu-24.04-kubeadm/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 | `amd64-uefi-ab-ubuntu-24.04-k3s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
+| `amd64-uefi-ab-ubuntu-24.04-k0s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 | `amd64-uefi-ab-ubuntu-26.04-kubeadm/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 | `amd64-uefi-ab-ubuntu-26.04-k3s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
+| `amd64-uefi-ab-ubuntu-26.04-k0s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 | `amd64-uefi-ab-debian-13-kubeadm/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 | `amd64-uefi-ab-debian-13-k3s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
+| `amd64-uefi-ab-debian-13-k0s/v1` | Planned | [amd64 UEFI A/B v1](amd64-uefi-ab-v1.md) |
 
 `amd64-uefi-ab/v1` はTask 06までの暫定IDとしてのみ残す。新しいManifest、Template、Release Matrixでは
 OSとdistributionを含むProfile IDを使用する。

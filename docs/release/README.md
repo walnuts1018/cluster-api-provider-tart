@@ -17,6 +17,9 @@
 | Ubuntu 24.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
 | Ubuntu 26.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
 | Debian 13 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
+| Ubuntu 24.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
+| Ubuntu 26.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
+| Debian 13 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
 | worker OSOnly 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
 | worker KubernetesBinary 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
 | 3 台以上の control plane KubernetesBinary 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |

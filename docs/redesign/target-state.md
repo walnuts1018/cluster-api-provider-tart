@@ -62,7 +62,7 @@ OSOnly更新の条件に加え、次を必須とする。
 2. Target Kubernetes versionがversion skew policy内である。
 3. Node Lifecycle Serviceの`Preflight`、`Apply`、`Verify` Stepが各1回成功している。
 4. workerではcontrol planeがTarget versionを受理した後に更新している。
-5. control planeではSnapshot取得後にtarget versionの`kubeadm upgrade apply`を実行している。
+5. control planeではSnapshot取得後にtarget distributionのtyped Applyを実行している。
 6. Node、control plane component、etcd quorumのHealth Gateが成立している。
 
 ### 4.3 StateMigration更新
@@ -104,12 +104,12 @@ Snapshotが作成されていないStateMigration Planは開始しない。
 | 項目 | 追加対象 |
 |---|---|
 | OS | Ubuntu 26.04 LTS、Debian 13 |
-| Kubernetes distribution | k3s |
+| Kubernetes distribution | k3s、k0s |
 | CPU architecture | arm64 |
 | Firmware | Legacy BIOS、Raspberry Pi 4/5 EEPROM boot |
 | Boot Transport | RedfishPXE、RedfishHTTPBoot、RedfishVirtualMedia |
 | Power Driver | Redfish |
-| 更新 | control plane、単一ノード、KubernetesBinary、StateMigration Recovery |
+| 更新 | control plane、単一ノード、kubeadm/k0sのKubernetesBinary、StateMigration Recovery |
 | 外部Driver | versioned gRPC plugin |
 
 Ubuntu 26.04成果物はx86-64-v1でビルドし、Intel Sandy Bridge実機またはQEMUの`-cpu SandyBridge`でboot testを行う。Ubuntu cloud imageの既定CPU levelを本Providerの対応根拠として使用しない。
@@ -134,6 +134,7 @@ Ubuntu 26.04成果物はx86-64-v1でビルドし、Intel Sandy Bridge実機ま�
 | kubeadm | `/etc/kubernetes` |
 | kubelet identity | kubelet client certificate、kubeconfig、設定 |
 | k3s | `/etc/rancher/k3s` |
+| k0s | `/etc/k0s` |
 | Bootstrap | payload digest、成功marker |
 | 更新 | 受理済みArtifact Generation、Lifecycle Step marker |
 
@@ -149,6 +150,7 @@ State全体をread-onlyにしてはならない。証明書rotationやkubelet設
 | kubelet | `/var/lib/kubelet` |
 | etcd | `/var/lib/etcd` |
 | k3s | `/var/lib/rancher/k3s`のうち大容量可変データ |
+| k0s | `/var/lib/k0s` |
 | Storage | 利用者がPlatform Profileで列挙したlocal-path/Longhorn path |
 
 最終path一覧はOSとdistributionの組ごとにPlatform Profileへ保存し、`stateSchema`でversion管理する。Manifestの互換範囲に現在の`stateSchema`が含まれない場合は、disk書き込み前にPlanを拒否する。

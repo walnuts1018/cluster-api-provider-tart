@@ -198,6 +198,7 @@ mise run vet
 mkdir -p bin
 go build -o bin/manager ./cmd/controller-manager
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
+go build -o bin/efi-commit ./cmd/efi-commit
 go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 '''
 
@@ -207,6 +208,7 @@ run = '''
 mkdir -p bin
 go build -o bin/manager ./cmd/controller-manager
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
+go build -o bin/efi-commit ./cmd/efi-commit
 go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 '''
 
@@ -404,6 +406,7 @@ if [ ! -x "$busybox_path" ]; then
 fi
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/efi-commit" ./cmd/efi-commit
 rm -rf "$agent_initramfs_dir"
 mkdir -p \
   "$agent_initramfs_dir/bin" \
@@ -413,6 +416,7 @@ mkdir -p \
   "$agent_initramfs_dir/sys" \
   "$agent_initramfs_dir/tmp"
 cp "$output_dir/provisioning-agent" "$agent_initramfs_dir/bin/provisioning-agent"
+cp "$output_dir/efi-commit" "$agent_initramfs_dir/bin/efi-commit"
 cp "$busybox_path" "$agent_initramfs_dir/bin/busybox"
 for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc ifconfig route; do
   ln -sf busybox "$agent_initramfs_dir/bin/$applet"
@@ -750,6 +754,55 @@ go run ./cmd/agent-artifact-manifest \
   -signing-key "$AGENT_ARTIFACT_SIGNING_KEY" \
   -key-id "$AGENT_ARTIFACT_SIGNING_KEY_ID" \
   -output-dir "$agent_output"
+'''
+
+[tasks.agent-artifact-build-real]
+description = "実機用Provisioning Agent initramfsを生成する"
+run = '''
+set -eu
+: "${AGENT_KERNEL:?AGENT_KERNEL is required}"
+: "${AGENT_INITRD:?AGENT_INITRD is required}"
+: "${AGENT_PLAN_PUBLIC_KEY:?AGENT_PLAN_PUBLIC_KEY is required}"
+: "${AGENT_TLS_CERT:?AGENT_TLS_CERT is required}"
+: "${OS_ARTIFACT_PUBLIC_KEY:?OS_ARTIFACT_PUBLIC_KEY is required}"
+: "${SYSTEMD_BOOT_EFI:?SYSTEMD_BOOT_EFI is required}"
+: "${TART_PLAN_KEY_ID:?TART_PLAN_KEY_ID is required}"
+: "${TART_OS_ARTIFACT_KEY_ID:?TART_OS_ARTIFACT_KEY_ID is required}"
+busybox_path="${BUSYBOX_PATH:-$(command -v busybox || true)}"
+: "${busybox_path:?BUSYBOX_PATH or busybox is required}"
+output_dir="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
+work_dir="$(mktemp -d)"
+cleanup() { rm -rf "$work_dir"; }
+trap cleanup EXIT
+mkdir -p "$output_dir" "$work_dir/root"/bin "$work_dir/root"/dev "$work_dir/root"/etc/tart "$work_dir/root"/proc "$work_dir/root"/sys "$work_dir/root"/run "$work_dir/root"/tmp "$work_dir/root"/usr/lib/systemd/boot/efi
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/provisioning-agent" ./cmd/provisioning-agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/efi-commit" ./cmd/efi-commit
+cp "$busybox_path" "$work_dir/root/bin/busybox"
+for applet in sh mount umount mkdir cat ln poweroff halt sleep udhcpc ifconfig route blockdev sfdisk udevadm mkfs.ext4 install sync reboot; do ln -sf busybox "$work_dir/root/bin/$applet"; done
+cp "$AGENT_PLAN_PUBLIC_KEY" "$work_dir/root/etc/tart/agent-plan-public.pem"
+cp "$AGENT_TLS_CERT" "$work_dir/root/etc/tart/agent-tls.crt"
+cp "$OS_ARTIFACT_PUBLIC_KEY" "$work_dir/root/etc/tart/os-artifact-public.pem"
+cp "$SYSTEMD_BOOT_EFI" "$work_dir/root/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
+cat > "$work_dir/root/init" <<'INIT'
+#!/bin/sh
+set -eu
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/disk/by-id /etc /run /tmp
+for iface in /sys/class/net/*; do iface="${iface##*/}"; [ "$iface" != lo ] || continue; ifconfig "$iface" up || true; udhcpc -i "$iface" -q -n -t 5 -T 3 || true; done
+system_uuid=""
+for arg in $(cat /proc/cmdline); do case "$arg" in tart.agent.host-uid=*) system_uuid="${arg#tart.agent.host-uid=}";; esac; done
+/bin/provisioning-agent --provision --system-uuid="$system_uuid" --tls-ca-file=/etc/tart/agent-tls.crt --plan-key-id=__PLAN_KEY_ID__ --plan-key-file=/etc/tart/agent-plan-public.pem --artifact-key-id=__ARTIFACT_KEY_ID__ --artifact-key-file=/etc/tart/os-artifact-public.pem --efi-commit-driver=/bin/efi-commit
+poweroff -f || halt -f
+INIT
+sed -i "s/__PLAN_KEY_ID__/$TART_PLAN_KEY_ID/; s/__ARTIFACT_KEY_ID__/$TART_OS_ARTIFACT_KEY_ID/" "$work_dir/root/init"
+chmod 0755 "$work_dir/root/init"
+(cd "$work_dir/root" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$work_dir/overlay.initrd"
+cp "$AGENT_KERNEL" "$output_dir/vmlinuz"
+cat "$AGENT_INITRD" "$work_dir/overlay.initrd" > "$output_dir/initrd"
 '''
 
 [tasks.build-installer]

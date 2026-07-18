@@ -3,7 +3,7 @@ set -eu
 
 state_dir="${TART_STATE_DIR:-/var/lib/tart}"
 bootstrap_work_dir="${TART_BOOTSTRAP_WORK_DIR:-/run/tart/bootstrap}"
-controller_trust_dir="${TART_CONTROLLER_TRUST_DIR:-/etc/tart}"
+controller_trust_dir="${TART_CONTROLLER_TRUST_DIR:-$state_dir/trust}"
 active_slot_file="${TART_ACTIVE_SLOT_FILE:-/etc/tart/active-slot}"
 artifact_generation_file="${TART_ARTIFACT_GENERATION_FILE:-/etc/tart/artifact-generation}"
 bootstrap_adapter="${TART_BOOTSTRAP_ADAPTER:-/usr/libexec/tart/apply-cloud-config}"

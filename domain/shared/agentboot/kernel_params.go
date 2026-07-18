@@ -25,6 +25,7 @@ const (
 	KernelParameterHostUID       = "tart.agent.host-uid"
 	KernelParameterOperationUID  = "tart.agent.operation-uid"
 	KernelParameterBootMAC       = "tart.agent.boot-mac"
+	KernelParameterTrustURL      = "tart.agent.trust-url"
 	legacyKernelParameterBootMAC = "tart.agent.boot-mac-address"
 )
 
@@ -33,6 +34,7 @@ type KernelParameters struct {
 	HostUID       string
 	OperationUID  string
 	BootMAC       string
+	TrustURL      string
 }
 
 type kernelParameterDefinition struct {
@@ -67,6 +69,12 @@ var kernelParameterDefinitions = []kernelParameterDefinition{
 			params.BootMAC = value
 		},
 	},
+	{
+		canonical: KernelParameterTrustURL,
+		set: func(params *KernelParameters, value string) {
+			params.TrustURL = value
+		},
+	},
 }
 
 func (params KernelParameters) Arguments() ([]string, error) {
@@ -84,12 +92,17 @@ func (params KernelParameters) Arguments() ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s is invalid", KernelParameterBootMAC)
 	}
+	trustURL, err := parseArtifactBaseURL(params.TrustURL)
+	if err != nil {
+		return nil, fmt.Errorf("%s is invalid: %w", KernelParameterTrustURL, err)
+	}
 
 	return []string{
 		KernelParameterControllerURL + "=" + controllerURL.String(),
 		KernelParameterHostUID + "=" + params.HostUID,
 		KernelParameterOperationUID + "=" + params.OperationUID,
 		KernelParameterBootMAC + "=" + mac.String(),
+		KernelParameterTrustURL + "=" + trustURL.String(),
 	}, nil
 }
 

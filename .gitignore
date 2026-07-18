@@ -37,6 +37,8 @@ go.work.sum
 .worktree/
 dist/
 config/provisioning-e2e/generated/
+config/real-hardware/generated/
+tart-signing-keys/
 
 # OS Artifact build outputs and downloaded locked packages
 artifact/mkosi/mkosi.cache/

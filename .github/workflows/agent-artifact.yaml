@@ -40,41 +40,20 @@ jobs:
       - name: Prepare signing keys
         id: keys
         env:
-          AGENT_PLAN_PUBLIC_KEY_PEM: ${{ secrets.AGENT_PLAN_PUBLIC_KEY_PEM }}
-          OS_ARTIFACT_PUBLIC_KEY_PEM: ${{ secrets.OS_ARTIFACT_PUBLIC_KEY_PEM }}
+          AGENT_ARTIFACT_SIGNING_KEY: ${{ secrets.AGENT_ARTIFACT_SIGNING_KEY }}
         run: |
           umask 077
-          if [ -n "$AGENT_PLAN_PUBLIC_KEY_PEM" ]; then
-            printf '%s' "$AGENT_PLAN_PUBLIC_KEY_PEM" > "$RUNNER_TEMP/agent-plan-public.pem"
-          else
-            openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/agent-plan-private.pem"
-            openssl pkey -in "$RUNNER_TEMP/agent-plan-private.pem" -pubout -out "$RUNNER_TEMP/agent-plan-public.pem"
-          fi
-          if [ -n "$OS_ARTIFACT_PUBLIC_KEY_PEM" ]; then
-            printf '%s' "$OS_ARTIFACT_PUBLIC_KEY_PEM" > "$RUNNER_TEMP/os-artifact-public.pem"
-          else
-            openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/os-artifact-private.pem"
-            openssl pkey -in "$RUNNER_TEMP/os-artifact-private.pem" -pubout -out "$RUNNER_TEMP/os-artifact-public.pem"
-          fi
-          openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/agent-artifact-signing-key.pem"
+          test -n "$AGENT_ARTIFACT_SIGNING_KEY"
+          printf '%s' "$AGENT_ARTIFACT_SIGNING_KEY" > "$RUNNER_TEMP/agent-artifact-signing-key.pem"
           openssl pkey -in "$RUNNER_TEMP/agent-artifact-signing-key.pem" -pubout -out "$RUNNER_TEMP/agent-artifact-public.pem"
 
       - name: Build Agent initramfs
         env:
           AGENT_KERNEL: /tmp/tart-agent-vmlinuz
           AGENT_INITRD: /tmp/tart-agent-initrd
-          AGENT_PLAN_PUBLIC_KEY: ${{ runner.temp }}/agent-plan-public.pem
-          AGENT_TLS_CERT: ${{ runner.temp }}/agent-api.crt
-          OS_ARTIFACT_PUBLIC_KEY: ${{ runner.temp }}/os-artifact-public.pem
           SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
-          TART_PLAN_KEY_ID: release-plan-v1
-          TART_OS_ARTIFACT_KEY_ID: release-os-v1
           AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
         run: |
-          openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-            -subj '/CN=tart-provisioning-agent' \
-            -keyout "$RUNNER_TEMP/agent-api.key" \
-            -out "$RUNNER_TEMP/agent-api.crt"
           kernel_path="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -print | sort | tail -n 1)"
           initrd_path="$(find /boot -maxdepth 1 -type f -name 'initrd.img-*' -print | sort | tail -n 1)"
           test -n "$kernel_path" -a -n "$initrd_path"
@@ -113,6 +92,4 @@ jobs:
             dist/agent-artifact/references.env
             dist/agent-artifact/vmlinuz
             dist/agent-artifact/initrd
-            ${{ runner.temp }}/agent-plan-public.pem
             ${{ runner.temp }}/agent-artifact-public.pem
-            ${{ runner.temp }}/os-artifact-public.pem

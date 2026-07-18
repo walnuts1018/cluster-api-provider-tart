@@ -34,6 +34,7 @@ type options struct {
 	initrdPath      string
 	outputPath      string
 	controllerURL   string
+	trustURL        string
 	hostUID         string
 	operationUID    string
 	bootMACAddress  string
@@ -61,6 +62,7 @@ func parseFlags() options {
 	flag.StringVar(&opts.initrdPath, "initrd", "", "Path to Agent initrd payload")
 	flag.StringVar(&opts.outputPath, "output", "", "Path to write virtual-media.iso")
 	flag.StringVar(&opts.controllerURL, "controller-url", "", "HTTPS Agent boot server base URL")
+	flag.StringVar(&opts.trustURL, "trust-url", "", "HTTP(S) URL that serves the Agent trust bundle")
 	flag.StringVar(&opts.hostUID, "host-uid", "", "TartHost UID passed to the Agent")
 	flag.StringVar(&opts.operationUID, "operation-uid", "", "TartHostOperation UID passed to the Agent")
 	flag.StringVar(&opts.bootMACAddress, "boot-mac", "", "Boot NIC MAC address passed to the Agent")
@@ -130,6 +132,7 @@ func validateOptions(opts options) error {
 		{name: "controller-url", value: opts.controllerURL},
 		{name: "host-uid", value: opts.hostUID},
 		{name: "operation-uid", value: opts.operationUID},
+		{name: "trust-url", value: opts.trustURL},
 		{name: "boot-mac", value: opts.bootMACAddress},
 	}
 	for _, item := range required {
@@ -162,12 +165,22 @@ func validateOptions(opts options) error {
 	if opts.sourceDateEpoch != "" && strings.ContainsAny(opts.sourceDateEpoch, " \t\r\n") {
 		return errors.New("source-date-epoch cannot contain whitespace")
 	}
+	if _, err := (agentboot.KernelParameters{
+		ControllerURL: opts.controllerURL,
+		TrustURL:      opts.trustURL,
+		HostUID:       opts.hostUID,
+		OperationUID:  opts.operationUID,
+		BootMAC:       opts.bootMACAddress,
+	}).Arguments(); err != nil {
+		return fmt.Errorf("validate Agent kernel arguments: %w", err)
+	}
 	return nil
 }
 
 func grubConfig(opts options) string {
 	args, err := agentboot.KernelParameters{
 		ControllerURL: opts.controllerURL,
+		TrustURL:      opts.trustURL,
 		HostUID:       opts.hostUID,
 		OperationUID:  opts.operationUID,
 		BootMAC:       opts.bootMACAddress,

@@ -1,118 +1,70 @@
-# 実機へのインストールと最初のクラスタ作成
+# Cluster API OperatorによるTart Provider導入
 
-この手順は、公開済みReleaseのProvider image、iPXE、OS Artifact、Provisioning Agent Artifactを利用して、Ubuntu 24.04 + kubeadmのamd64 UEFI物理ホストをCluster API (CAPI)から作成するための導入手順です。利用者はProviderをビルドしません。
+この手順では、利用者はProvider image、iPXE、OS Artifact、Provisioning Agent Artifact、署名公開鍵、TLS証明書、Agent Plan鍵を作成または登録しません。同じReleaseの`operator-provider.yaml`を適用すると、Providerが必要な公開鍵を含む構成で導入されます。
 
-## 構成と前提
+対象はUbuntu 24.04、amd64、UEFI、iPXE、Wake-on-LANを使う隔離Provisioning L2です。ProviderはProxyDHCPとして動作し、既存DHCPのIPアドレス配布を置き換えません。
 
-- 管理クラスタ: Kubernetes v1.35以降。`kubectl` が接続済みであること
-- 管理クラスタの1 node: Provisioning L2へ接続し、Provider Podを `hostNetwork` で実行できること
-- 対象PC: amd64、UEFI、UEFI network boot、Wake-on-LAN、64 GiB以上のdisk、安定したdisk by-id path
-- Provisioning L2: 管理node、対象PC、必要なネットワーク機器だけが参加する隔離L2。通常LANからroutingしない
-- 作業者端末: `kubectl`、`kustomize`、`clusterctl`、`helm`
+## 事前条件
 
-ProviderはDHCPでIPを配布しません。既存DHCPが対象PCへIPを配布し、ProviderはProxyDHCP/iPXE、TFTP、Agent APIを担当します。
+- Kubernetes管理クラスタへ`kubectl`で接続できること
+- Provider Podが起動する管理クラスタnodeと対象PCが、同じ隔離Provisioning L2に接続されていること
+- 対象PCでUEFI network bootとWake-on-LANを有効にしていること
+- GitHub Container RegistryからRelease imageをpullできること
 
-## GitHub ActionsのSecretを準備する
+初回bootでは隔離Provisioning L2上のHTTP経路で公開鍵とAgent API証明書を取得します。一般利用LANと同じbroadcast domainでこの構成を使うことは禁止です。
 
-Release workflowを実行する前に、次のRepository Secretを登録します。値はPEMファイルの内容を改行を含めてそのまま登録してください。
-
-```bash
-mkdir -p ./tart-signing-keys
-chmod 700 ./tart-signing-keys
-
-# Agent Planの署名検証用鍵。公開鍵はActions、秘密鍵は管理クラスタのSecretで使います。
-openssl genpkey -algorithm Ed25519 -out ./tart-signing-keys/agent-plan-private.pem
-openssl pkey -in ./tart-signing-keys/agent-plan-private.pem -pubout \
-  -out ./tart-signing-keys/agent-plan-public.pem
-
-# OS Artifactの署名用鍵。秘密鍵はActions、公開鍵はActionsと管理クラスタで使います。
-openssl genpkey -algorithm Ed25519 -out ./tart-signing-keys/os-artifact-private.pem
-openssl pkey -in ./tart-signing-keys/os-artifact-private.pem -pubout \
-  -out ./tart-signing-keys/os-artifact-public.pem
-```
-
-GitHub CLIで登録する場合は、リポジトリのルートで次を実行します。
+## 1. Cluster API Operatorを導入する
 
 ```bash
-gh secret set AGENT_PLAN_PUBLIC_KEY_PEM < ./tart-signing-keys/agent-plan-public.pem
-gh secret set OS_ARTIFACT_SIGNING_KEY < ./tart-signing-keys/os-artifact-private.pem
-gh secret set OS_ARTIFACT_PUBLIC_KEY_PEM < ./tart-signing-keys/os-artifact-public.pem
+helm repo add capi-operator https://kubernetes-sigs.github.io/cluster-api-operator
+helm repo update
+helm install capi-operator capi-operator/cluster-api-operator \
+  --namespace capi-operator-system \
+  --create-namespace \
+  --set cert-manager.enabled=true \
+  --wait --timeout 90s
 ```
 
-登録値と用途は次のとおりです。
+管理クラスタへCAPI core、CABPK、KCPが未導入なら、次を一度だけ適用します。
 
-| Secret名 | 登録する値 | 用途 |
-| --- | --- | --- |
-| `AGENT_PLAN_PUBLIC_KEY_PEM` | `agent-plan-public.pem` の内容 | Agent initramfsがAgent Planを検証する公開鍵 |
-| `OS_ARTIFACT_SIGNING_KEY` | `os-artifact-private.pem` の内容 | OS Artifactの署名に使う秘密鍵 |
-| `OS_ARTIFACT_PUBLIC_KEY_PEM` | `os-artifact-public.pem` の内容 | Agent initramfsがOS Artifactを検証する公開鍵 |
+```yaml
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: CoreProvider
+metadata:
+  name: cluster-api
+  namespace: capi-system
+---
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: BootstrapProvider
+metadata:
+  name: kubeadm
+  namespace: capi-kubeadm-bootstrap-system
+---
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: ControlPlaneProvider
+metadata:
+  name: kubeadm
+  namespace: capi-kubeadm-control-plane-system
+```
 
-`GITHUB_TOKEN` はActionsが自動提供するため、登録不要です。Agent Artifactの署名鍵はworkflow実行時に生成され、Release assetの `agent-artifact-public.pem` として公開されます。Releaseごとに公開鍵を取得し、後述の管理クラスタSecretへ登録してください。
+## 2. Tart Providerを導入する
 
-`AGENT_PLAN_PUBLIC_KEY_PEM` を設定しない場合、Agent Plan鍵もworkflowごとに一時生成されます。その場合はworkflow実行ログや成果物から対応する公開鍵を取得できないため、実機運用では上記の固定鍵を登録してください。
-
-## 1. Release成果物を選ぶ
-
-GitHubのReleaseから、同じRelease tagの次のファイルを取得します。
-
-- `infrastructure-components.yaml`: Provider imageとiPXEをdigest固定で参照するCAPI install manifest
-- `metadata.yaml`: `clusterctl`用Provider metadata
-- `reference.txt`: Ubuntu 24.04 amd64 OS Artifactのdigest固定OCI参照
-- Agent Artifactの署名公開鍵と参照情報
-
-OS ArtifactとAgent Artifactのworkflowは、Release作成または`workflow_dispatch`で実行されます。Release以外で手動実行する場合は、指定したtagのGHCR参照を使用してください。
-
-Provider image、iPXE、Artifactのビルド、署名、GHCRへの公開はGitHub Actionsが行います。ローカル端末で`docker build`、`mise run artifact-build-mkosi`、`mise run agent-artifact-build-real`を実行する必要はありません。
-
-## 2. Providerを管理クラスタへインストールする
-
-まずCAPI core、CABPK、KCPを`clusterctl`で導入し、Release assetのmanifestを適用します。
+GitHub Releaseから同じtagの`operator-provider.yaml`を取得して適用します。
 
 ```bash
-clusterctl init \
-  --core cluster-api:v1.13.1 \
-  --bootstrap kubeadm:v1.13.1 \
-  --control-plane kubeadm:v1.13.1
-
-export TART_NAMESPACE=cluster-api-provider-tart-system
-kubectl create namespace "$TART_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n "$TART_NAMESPACE" create configmap tart-provisioning-settings \
-  --from-literal=bootstrapAdvertiseAddress=provisioning.example.test \
-  --from-literal=agentAPIURL=https://provisioning.example.test:8444 \
-  --from-literal=agentArtifactBaseURL=https://provisioning.example.test:8082 \
-  --from-literal=agentArtifactKeyID=release-agent-v1 \
-  --from-literal=osArtifactKeyID=release-v1 \
-  --from-literal=agentPlanKeyID=release-plan-v1
-kubectl -n "$TART_NAMESPACE" create secret generic tart-provisioning-credentials \
-  --from-file=agent-api.crt=/secure/agent-api.crt \
-  --from-file=agent-api.key=/secure/agent-api.key \
-  --from-file=agent-artifact-public.pem=/secure/agent-artifact-public.pem \
-  --from-file=os-artifact-public.pem=/secure/os-artifact-public.pem \
-  --from-file=agent-plan-private.pem=/secure/agent-plan-private.pem
-kubectl apply -f infrastructure-components.yaml
-kubectl -n "$TART_NAMESPACE" rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=5m
+kubectl apply -f operator-provider.yaml
+kubectl wait --for=condition=Ready infrastructureprovider/tart \
+  -n cluster-api-provider-tart-system --timeout=10m
+kubectl -n cluster-api-provider-tart-system get job provisioning-credential-init
 ```
 
-管理nodeへProvisioning network labelを付けます。Deploymentが別nodeへ移動してもAgent ArtifactはOCI image volumeから取得されます。
+`provisioning-credential-init` JobはAgent Plan秘密鍵を管理クラスタ内に一度だけ生成します。Provider Podのinit containerは、起動nodeのIPアドレスをSANに含む短期間のAgent API証明書を自動生成します。これらの値を利用者が取得、登録、更新する必要はありません。
 
-```bash
-kubectl label node MANAGEMENT_NODE tart.walnuts.dev/provisioning-network=true
-```
+Provider Podは任意の管理クラスタnodeへscheduleされます。複数nodeのうちProvisioning L2へ接続していないnodeがある場合だけ、`InfrastructureProvider.spec.deployment.nodeSelector`で接続済みnodeを選択してください。
 
-Providerが起動し、Agent Artifactの署名検証が成功していることを確認します。
+## 3. TartHostを登録する
 
-```bash
-kubectl -n "$TART_NAMESPACE" logs deployment/cluster-api-provider-tart-controller-manager -c manager
-kubectl get crd tartclusters.infrastructure.cluster.x-k8s.io
-```
-
-Agent Artifactの公開鍵とOS Artifactの公開鍵はRelease assetから取得し、Agent API証明書・秘密鍵とAgent Plan秘密鍵は管理クラスタのSecretへ登録します。Agent Artifact payloadはProviderのOCI image volumeから自動的にマウントされるため、node上へのファイル配置は不要です。
-
-Releaseの署名を継続利用する場合は、GitHub Actionsの`OS_ARTIFACT_SIGNING_KEY`をRepository Secretとして固定してください。未設定時はworkflow実行ごとに一時鍵が生成されるため、対応する公開鍵を毎回Secretへ更新する必要があります。
-
-## 3. Host inventoryを登録する
-
-対象PCごとに、実機で確認したUUID、boot MAC、disk serial/WWNを指定します。値を推測しないでください。
+物理PCごとに、実機から確認したUUID、boot MAC、disk by-idとserial/WWNを指定します。これらは物理資産を誤って別PCへ書き込まないために必須です。
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
@@ -137,48 +89,53 @@ spec:
     bootDriver: ipxe
 ```
 
-control plane用とworker用を必要台数登録し、`status.phase=Available`になることを確認します。
+workerには`TartHost`を追加し、`tart.walnuts.dev/role: worker`を設定します。Providerが`Available`と表示したHostだけをクラスタ作成に使います。
 
-## 4. workload clusterを作成する
+```bash
+kubectl get tarthost
+```
 
-`config/templates/cluster-template-kubeadm-ubuntu.yaml` をコピーし、次の値を置換します。
+## 4. ワークロードクラスタを作成する
 
-- `CLUSTER_NAME`
-- `CONTROL_PLANE_ENDPOINT_HOST`（対象PCから到達できる固定アドレスまたはDNS）
-- `OS_ARTIFACT_REF`（digest固定OCI参照）
-- `OS_ARTIFACT_REGISTRY`
-- `CONTROL_PLANE_MACHINE_COUNT` と `WORKER_MACHINE_COUNT`
+Releaseの`cluster-template-kubeadm-ubuntu.yaml`を使い、クラスタ名、control plane endpoint、台数だけを環境に合わせて設定します。OS Artifactのdigest固定参照はRelease作成時にテンプレートへ設定済みです。
 
 ```bash
 export CLUSTER_NAME=ubuntu-kubeadm
 export CONTROL_PLANE_ENDPOINT_HOST=192.168.100.100
-export OS_ARTIFACT_REF=oci://registry.example.test/tart/ubuntu@sha256:REPLACE_WITH_DIGEST
-export OS_ARTIFACT_REGISTRY=registry.example.test
 export CONTROL_PLANE_MACHINE_COUNT=1
 export WORKER_MACHINE_COUNT=1
 export KUBERNETES_VERSION=v1.36.2
-export CONTROL_PLANE_ENDPOINT_PORT=6443
-export POD_CIDR=192.168.0.0/16
-export SERVICE_CIDR=10.128.0.0/12
-export PLATFORM_PROFILE=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1
-export CNI_URL=https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml
 
-envsubst < config/templates/cluster-template-kubeadm-ubuntu.yaml > "$CLUSTER_NAME.yaml"
-kubectl apply -f "$CLUSTER_NAME.yaml"
+envsubst < cluster-template-kubeadm-ubuntu.yaml | kubectl apply -f -
 ```
 
-確認コマンド:
+Provider以外のArtifactや鍵をローカルでビルドする必要はありません。
+
+進捗は次で確認します。
 
 ```bash
-kubectl get cluster,machine,tartcluster,tartmachine,tarthost,tarthostoperation -A -w
-kubectl describe tartmachine -A
-kubectl describe tarthostoperation -A
+kubectl get cluster,tartcluster,tartmachine,tarthost,tarthostoperation
+kubectl -n cluster-api-provider-tart-system logs deployment/cluster-api-provider-tart-controller-manager -c manager
 ```
 
-成功条件は、各 `TartHostOperation` が `Succeeded`、各 `TartMachine.status.initialization.provisioned=true`、対応するworkload Nodeが `Ready=True`、providerIDが一致することです。Bootstrap失敗時はpayloadを削除せずOperationが `Failed` になるため、最初にOperationとcontroller logを確認します。
+## Release管理者向けGitHub Actions Secret
 
-## 現時点の制約
+利用者ではなくRelease管理者だけが、次のRepository Secretを登録します。
 
-実機のUEFI、PXE、L2 broadcast、WoL、NIC driver、disk layoutはこの環境から検証できません。上記のコード経路とCI/QEMU契約は検証できますが、初回実機では必ず消去対象diskを専用にし、consoleを記録してください。`WipeAll` とProvisionは対象diskのpartitionを破壊します。
+| Secret名 | 用途 |
+| --- | --- |
+| `OS_ARTIFACT_SIGNING_KEY` | OS Artifact署名用Ed25519秘密鍵 |
+| `OS_ARTIFACT_PUBLIC_KEY_PEM` | OS Artifact署名公開鍵。Agent ArtifactとProvider manifestへ同梱する |
+| `AGENT_ARTIFACT_SIGNING_KEY` | Provisioning Agent Artifact署名用Ed25519秘密鍵 |
 
-関連する詳細は [Ubuntu 24.04 kubeadm実機導入](docs/installation/ubuntu-kubeadm.md)、[real-hardware overlay](config/real-hardware/README.md)、[Task 07](docs/redesign/tasks/07-initial-provisioning.md) を参照してください。
+`GITHUB_TOKEN`はActionsが自動提供します。`AGENT_PLAN_PUBLIC_KEY_PEM`は不要になりました。Agent Plan鍵は各管理クラスタへ自動生成され、秘密鍵がGitHub ReleaseやGHCRへ公開されることはありません。
+
+```bash
+openssl genpkey -algorithm Ed25519 -out os-artifact-signing-key.pem
+openssl pkey -in os-artifact-signing-key.pem -pubout -out os-artifact-public.pem
+openssl genpkey -algorithm Ed25519 -out agent-artifact-signing-key.pem
+
+gh secret set OS_ARTIFACT_SIGNING_KEY < os-artifact-signing-key.pem
+gh secret set OS_ARTIFACT_PUBLIC_KEY_PEM < os-artifact-public.pem
+gh secret set AGENT_ARTIFACT_SIGNING_KEY < agent-artifact-signing-key.pem
+```

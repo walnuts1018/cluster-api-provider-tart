@@ -286,6 +286,11 @@ jobs:
         run: |
           reference="$(mise run artifact-push)"
           printf '%s\n' "$reference" > dist/os-artifact/reference.txt
+          sed \
+            -e "s|\${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}|$reference|" \
+            -e "s|\${OS_ARTIFACT_REGISTRY:=registry.sample.walnuts.dev}|ghcr.io|" \
+            config/templates/cluster-template-kubeadm-ubuntu.yaml \
+            > dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml
 
       - name: Upload Artifact reference
         if: github.event_name == 'release'
@@ -293,4 +298,5 @@ jobs:
         with:
           files: |
             dist/os-artifact/reference.txt
+            dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml
             ${{ runner.temp }}/os-artifact-public.pem

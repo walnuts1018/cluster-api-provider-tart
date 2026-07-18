@@ -716,6 +716,7 @@ run = '''
 : "${AGENT_ARTIFACT_KERNEL:?AGENT_ARTIFACT_KERNEL is required}"
 : "${AGENT_ARTIFACT_INITRD:?AGENT_ARTIFACT_INITRD is required}"
 : "${AGENT_ARTIFACT_CONTROLLER_URL:?AGENT_ARTIFACT_CONTROLLER_URL is required}"
+: "${AGENT_ARTIFACT_TRUST_URL:?AGENT_ARTIFACT_TRUST_URL is required}"
 : "${AGENT_ARTIFACT_HOST_UID:?AGENT_ARTIFACT_HOST_UID is required}"
 : "${AGENT_ARTIFACT_OPERATION_UID:?AGENT_ARTIFACT_OPERATION_UID is required}"
 : "${AGENT_ARTIFACT_BOOT_MAC:?AGENT_ARTIFACT_BOOT_MAC is required}"
@@ -726,6 +727,7 @@ go run ./cmd/agent-artifact-iso \
   -initrd "$AGENT_ARTIFACT_INITRD" \
   -output "$agent_output/virtual-media.iso" \
   -controller-url "$AGENT_ARTIFACT_CONTROLLER_URL" \
+  -trust-url "$AGENT_ARTIFACT_TRUST_URL" \
   -host-uid "$AGENT_ARTIFACT_HOST_UID" \
   -operation-uid "$AGENT_ARTIFACT_OPERATION_UID" \
   -boot-mac "$AGENT_ARTIFACT_BOOT_MAC"
@@ -762,12 +764,7 @@ run = '''
 set -eu
 : "${AGENT_KERNEL:?AGENT_KERNEL is required}"
 : "${AGENT_INITRD:?AGENT_INITRD is required}"
-: "${AGENT_PLAN_PUBLIC_KEY:?AGENT_PLAN_PUBLIC_KEY is required}"
-: "${AGENT_TLS_CERT:?AGENT_TLS_CERT is required}"
-: "${OS_ARTIFACT_PUBLIC_KEY:?OS_ARTIFACT_PUBLIC_KEY is required}"
 : "${SYSTEMD_BOOT_EFI:?SYSTEMD_BOOT_EFI is required}"
-: "${TART_PLAN_KEY_ID:?TART_PLAN_KEY_ID is required}"
-: "${TART_OS_ARTIFACT_KEY_ID:?TART_OS_ARTIFACT_KEY_ID is required}"
 busybox_path="${BUSYBOX_PATH:-$(command -v busybox || true)}"
 : "${busybox_path:?BUSYBOX_PATH or busybox is required}"
 output_dir="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
@@ -778,10 +775,7 @@ mkdir -p "$output_dir" "$work_dir/root"/bin "$work_dir/root"/dev "$work_dir/root
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/efi-commit" ./cmd/efi-commit
 cp "$busybox_path" "$work_dir/root/bin/busybox"
-for applet in sh mount umount mkdir cat ln poweroff halt sleep udhcpc ifconfig route blockdev sfdisk udevadm mkfs.ext4 install sync reboot; do ln -sf busybox "$work_dir/root/bin/$applet"; done
-cp "$AGENT_PLAN_PUBLIC_KEY" "$work_dir/root/etc/tart/agent-plan-public.pem"
-cp "$AGENT_TLS_CERT" "$work_dir/root/etc/tart/agent-tls.crt"
-cp "$OS_ARTIFACT_PUBLIC_KEY" "$work_dir/root/etc/tart/os-artifact-public.pem"
+for applet in sh mount umount mkdir cat ln poweroff halt sleep udhcpc ifconfig route blockdev sfdisk udevadm mkfs.ext4 install sync reboot wget; do ln -sf busybox "$work_dir/root/bin/$applet"; done
 cp "$SYSTEMD_BOOT_EFI" "$work_dir/root/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
 cat > "$work_dir/root/init" <<'INIT'
 #!/bin/sh
@@ -794,11 +788,16 @@ mount -t devtmpfs devtmpfs /dev
 mkdir -p /dev/disk/by-id /etc /run /tmp
 for iface in /sys/class/net/*; do iface="${iface##*/}"; [ "$iface" != lo ] || continue; ifconfig "$iface" up || true; udhcpc -i "$iface" -q -n -t 5 -T 3 || true; done
 system_uuid=""
-for arg in $(cat /proc/cmdline); do case "$arg" in tart.agent.host-uid=*) system_uuid="${arg#tart.agent.host-uid=}";; esac; done
-/bin/provisioning-agent --provision --system-uuid="$system_uuid" --tls-ca-file=/etc/tart/agent-tls.crt --plan-key-id=__PLAN_KEY_ID__ --plan-key-file=/etc/tart/agent-plan-public.pem --artifact-key-id=__ARTIFACT_KEY_ID__ --artifact-key-file=/etc/tart/os-artifact-public.pem --efi-commit-driver=/bin/efi-commit
+trust_url=""
+for arg in $(cat /proc/cmdline); do case "$arg" in tart.agent.host-uid=*) system_uuid="${arg#tart.agent.host-uid=}";; tart.agent.trust-url=*) trust_url="${arg#tart.agent.trust-url=}";; esac; done
+[ -n "$trust_url" ]
+# 初回bootは隔離Provisioning L2だけを前提にし、ここで取得した公開鍵で以後のHTTPS通信とPlanを検証する。
+wget -q -O /etc/tart/agent-tls.crt "$trust_url/v1/agent-trust/agent-api-ca.pem"
+wget -q -O /etc/tart/agent-plan-public.pem "$trust_url/v1/agent-trust/agent-plan-public.pem"
+wget -q -O /etc/tart/os-artifact-public.pem "$trust_url/v1/agent-trust/os-artifact-public.pem"
+/bin/provisioning-agent --provision --system-uuid="$system_uuid" --tls-ca-file=/etc/tart/agent-tls.crt --plan-key-id=install-plan-v1 --plan-key-file=/etc/tart/agent-plan-public.pem --artifact-key-id=release-v1 --artifact-key-file=/etc/tart/os-artifact-public.pem --efi-commit-driver=/bin/efi-commit
 poweroff -f || halt -f
 INIT
-sed -i "s/__PLAN_KEY_ID__/$TART_PLAN_KEY_ID/; s/__ARTIFACT_KEY_ID__/$TART_OS_ARTIFACT_KEY_ID/" "$work_dir/root/init"
 chmod 0755 "$work_dir/root/init"
 (cd "$work_dir/root" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$work_dir/overlay.initrd"
 cp "$AGENT_KERNEL" "$output_dir/vmlinuz"
@@ -850,12 +849,17 @@ description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml �
 run = '''
 IMG="${IMG:-controller:latest}"
 AGENT_ARTIFACT_REF="${AGENT_ARTIFACT_REF:-ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest}"
+: "${AGENT_ARTIFACT_PUBLIC_KEY_PEM:?AGENT_ARTIFACT_PUBLIC_KEY_PEM is required}"
+: "${OS_ARTIFACT_PUBLIC_KEY_PEM:?OS_ARTIFACT_PUBLIC_KEY_PEM is required}"
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
 cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization" config/real-hardware/generated/agent-artifact-public.pem config/real-hardware/generated/os-artifact-public.pem' EXIT
 mkdir -p dist
+mkdir -p config/real-hardware/generated
+printf '%s' "$AGENT_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/agent-artifact-public.pem
+printf '%s' "$OS_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/os-artifact-public.pem
 (cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent=$AGENT_ARTIFACT_REF")
 kustomize build config/real-hardware > dist/install-real-hardware.yaml
 '''

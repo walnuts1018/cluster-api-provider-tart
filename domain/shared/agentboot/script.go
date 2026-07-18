@@ -70,6 +70,7 @@ func BuildScript(input ScriptInput) (string, error) {
 		HostUID:       input.HostUID,
 		OperationUID:  input.OperationUID,
 		BootMAC:       input.BootMACAddress,
+		TrustURL:      input.ArtifactBaseURL,
 	}.Arguments()
 	if err != nil {
 		if strings.Contains(err.Error(), KernelParameterBootMAC) {

@@ -8,48 +8,34 @@ spec:
     spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      nodeSelector:
-        tart.walnuts.dev/provisioning-network: "true"
       containers:
       - name: manager
         args:
         - --leader-elect
         - --health-probe-bind-address=:8081
         - --bootstrap-bind-address=0.0.0.0
-        - --bootstrap-advertise-address=$(TART_BOOTSTRAP_ADVERTISE_ADDRESS)
+        - --bootstrap-advertise-address=$(TART_PROVISIONING_ADDRESS)
         - --tftp-bind-address=:69
         - --ipxe-bind-address=:8082
         - --agent-api-bind-address=:8444
-        - --agent-api-cert-file=/etc/tart/credentials/agent-api.crt
-        - --agent-api-key-file=/etc/tart/credentials/agent-api.key
-        - --agent-api-url=$(TART_AGENT_API_URL)
+        - --agent-api-cert-file=/var/run/tart/tls/agent-api.crt
+        - --agent-api-key-file=/var/run/tart/tls/agent-api.key
+        - --agent-api-url=https://$(TART_PROVISIONING_ADDRESS):8444
         - --agent-api-allow-isolated-l2
         - --agent-artifact-root=/var/lib/tart/agent-artifact
         - --agent-artifact-key-id=$(TART_AGENT_ARTIFACT_KEY_ID)
-        - --agent-artifact-public-key-file=/etc/tart/credentials/agent-artifact-public.pem
-        - --agent-artifact-base-url=$(TART_AGENT_ARTIFACT_BASE_URL)
-        - --agent-boot-cert-file=/etc/tart/credentials/agent-api.crt
-        - --agent-boot-key-file=/etc/tart/credentials/agent-api.key
+        - --agent-artifact-public-key-file=/etc/tart/trust/agent-artifact-public.pem
+        - --agent-artifact-base-url=http://$(TART_PROVISIONING_ADDRESS):8082
+        - --agent-boot-allow-http
         - --os-artifact-key-id=$(TART_OS_ARTIFACT_KEY_ID)
-        - --os-artifact-public-key-file=/etc/tart/credentials/os-artifact-public.pem
+        - --os-artifact-public-key-file=/etc/tart/trust/os-artifact-public.pem
         - --agent-plan-key-id=$(TART_AGENT_PLAN_KEY_ID)
         - --agent-plan-private-key-file=/etc/tart/credentials/agent-plan-private.pem
         env:
-        - name: TART_BOOTSTRAP_ADVERTISE_ADDRESS
+        - name: TART_PROVISIONING_ADDRESS
           valueFrom:
-            configMapKeyRef:
-              name: tart-provisioning-settings
-              key: bootstrapAdvertiseAddress
-        - name: TART_AGENT_API_URL
-          valueFrom:
-            configMapKeyRef:
-              name: tart-provisioning-settings
-              key: agentAPIURL
-        - name: TART_AGENT_ARTIFACT_BASE_URL
-          valueFrom:
-            configMapKeyRef:
-              name: tart-provisioning-settings
-              key: agentArtifactBaseURL
+            fieldRef:
+              fieldPath: status.hostIP
         - name: TART_AGENT_ARTIFACT_KEY_ID
           valueFrom:
             configMapKeyRef:
@@ -79,14 +65,44 @@ spec:
         - name: provisioning-credentials
           mountPath: /etc/tart/credentials
           readOnly: true
-        - name: agent-artifact
-          mountPath: /var/lib/tart/agent-artifact
+        - name: provisioning-trust
+          mountPath: /etc/tart/trust
           readOnly: true
+        - name: agent-api-tls
+          mountPath: /var/run/tart/tls
+          readOnly: true
+      initContainers:
+      - name: agent-api-tls-init
+        image: controller:latest
+        command:
+        - /credential-init
+        - --tls-dir=/var/run/tart/tls
+        env:
+        - name: TART_PROVISIONING_ADDRESS
+          valueFrom:
+            fieldRef:
+              fieldPath: status.hostIP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: agent-api-tls
+          mountPath: /var/run/tart/tls
       volumes:
       - name: provisioning-credentials
         secret:
           secretName: tart-provisioning-credentials
           defaultMode: 0440
+      - name: provisioning-trust
+        configMap:
+          name: provisioning-trust
+          defaultMode: 0444
+      - name: agent-api-tls
+        emptyDir:
+          medium: Memory
       - name: agent-artifact
         image:
           reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest

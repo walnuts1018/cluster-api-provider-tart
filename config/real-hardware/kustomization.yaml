@@ -3,6 +3,21 @@ kind: Kustomization
 
 resources:
 - ../default
+- credential-init-job.yaml
+
+configMapGenerator:
+- name: tart-provisioning-settings
+  literals:
+  - agentArtifactKeyID=release-agent-v1
+  - osArtifactKeyID=release-v1
+  - agentPlanKeyID=install-plan-v1
+- name: provisioning-trust
+  files:
+  - agent-artifact-public.pem=generated/agent-artifact-public.pem
+  - os-artifact-public.pem=generated/os-artifact-public.pem
+
+generatorOptions:
+  disableNameSuffixHash: true
 
 patches:
 - path: manager-patch.yaml

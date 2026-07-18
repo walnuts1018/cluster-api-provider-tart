@@ -28,11 +28,13 @@ func TestParseKernelParametersは互換aliasを含む契約を1か所で解決�
 		KernelParameterHostUID+"=host-uid",
 		KernelParameterOperationUID+"=operation-uid",
 		legacyKernelParameterBootMAC+"=AA-BB-CC-DD-EE-FF",
+		KernelParameterTrustURL+"=http://boot.test/agent",
 	))
 	if params.ControllerURL != "https://controller.test/agent" ||
 		params.HostUID != "host-uid" ||
 		params.OperationUID != "operation-uid" ||
-		params.BootMAC != "AA-BB-CC-DD-EE-FF" {
+		params.BootMAC != "AA-BB-CC-DD-EE-FF" ||
+		params.TrustURL != "http://boot.test/agent" {
 		t.Fatalf("ParseKernelParameters() = %#v", params)
 	}
 
@@ -43,6 +45,7 @@ func TestParseKernelParametersは互換aliasを含む契約を1か所で解決�
 		KernelParameterControllerURL,
 		KernelParameterHostUID,
 		KernelParameterOperationUID,
+		KernelParameterTrustURL,
 	}
 	slices.Sort(wantKeys)
 	if !slices.Equal(keys, wantKeys) {

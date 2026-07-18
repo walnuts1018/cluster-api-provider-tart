@@ -39,6 +39,7 @@ func TestBuildScriptは検証済みArtifactの固定URLを生成する(t *testin
 		KernelParameterControllerURL + "=https://agent-api.test:8443",
 		KernelParameterHostUID + "=host-uid",
 		KernelParameterOperationUID + "=operation-uid",
+		KernelParameterTrustURL + "=https://boot.test/agent",
 		KernelParameterBootMAC + "=00:00:5e:00:53:01",
 		"initrd --name agent-initrd https://boot.test/agent/v1/agent-artifacts/sha256/" + strings.Repeat("a", 64) + "/initrd",
 		"\nboot\n",
@@ -124,6 +125,7 @@ func TestBuildScriptはregister入力をkernel引数へ正規化する(t *testin
 		KernelParameterControllerURL + "=https://controller.test/agent",
 		KernelParameterHostUID + "=host-uid",
 		KernelParameterOperationUID + "=operation-uid",
+		KernelParameterTrustURL + "=https://boot.test/base",
 	}
 	slices.Sort(got)
 	if !slices.Equal(got, want) {

@@ -40,6 +40,13 @@ type Config struct {
 	Artifact        Artifact
 	ArtifactBaseURL string
 	AgentAPIURL     string
+	Trust           Trust
+}
+
+type Trust struct {
+	AgentAPICertificate []byte
+	PlanPublicKey       []byte
+	OSArtifactPublicKey []byte
 }
 
 type Handler struct {
@@ -47,6 +54,7 @@ type Handler struct {
 	artifact        Artifact
 	artifactBaseURL string
 	agentAPIURL     string
+	trust           Trust
 	mux             *http.ServeMux
 }
 
@@ -62,6 +70,7 @@ func NewHandler(config Config) (*Handler, error) {
 		artifact:        config.Artifact,
 		artifactBaseURL: config.ArtifactBaseURL,
 		agentAPIURL:     config.AgentAPIURL,
+		trust:           config.Trust,
 		mux:             http.NewServeMux(),
 	}
 	if _, err := agentbootdomain.BuildScript(agentbootdomain.ScriptInput{
@@ -77,6 +86,9 @@ func NewHandler(config Config) (*Handler, error) {
 	handler.mux.HandleFunc("GET /livez", handler.handleHealth)
 	handler.mux.HandleFunc("GET /readyz", handler.handleHealth)
 	handler.mux.HandleFunc("GET /ipxe", handler.handleIPXE)
+	handler.mux.HandleFunc("GET /v1/agent-trust/agent-api-ca.pem", handler.serveAgentAPICertificate)
+	handler.mux.HandleFunc("GET /v1/agent-trust/agent-plan-public.pem", handler.servePlanPublicKey)
+	handler.mux.HandleFunc("GET /v1/agent-trust/os-artifact-public.pem", handler.serveOSArtifactPublicKey)
 	prefix := fmt.Sprintf("/v1/agent-artifacts/sha256/%s/", config.Artifact.digest.Encoded())
 	handler.mux.HandleFunc("GET "+prefix+"kernel", handler.serveKernel)
 	handler.mux.HandleFunc("HEAD "+prefix+"kernel", handler.serveKernel)
@@ -87,6 +99,24 @@ func NewHandler(config Config) (*Handler, error) {
 		handler.mux.HandleFunc("HEAD "+prefix+"virtual-media", handler.serveVirtualMedia)
 	}
 	return handler, nil
+}
+
+func (handler *Handler) serveAgentAPICertificate(response http.ResponseWriter, _ *http.Request) {
+	handler.serveTrustFile(response, handler.trust.AgentAPICertificate)
+}
+
+func (handler *Handler) servePlanPublicKey(response http.ResponseWriter, _ *http.Request) {
+	handler.serveTrustFile(response, handler.trust.PlanPublicKey)
+}
+
+func (handler *Handler) serveOSArtifactPublicKey(response http.ResponseWriter, _ *http.Request) {
+	handler.serveTrustFile(response, handler.trust.OSArtifactPublicKey)
+}
+
+func (handler *Handler) serveTrustFile(response http.ResponseWriter, contents []byte) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Content-Type", "application/x-pem-file")
+	_, _ = response.Write(contents)
 }
 
 func (handler *Handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {

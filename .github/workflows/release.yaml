@@ -212,13 +212,23 @@ jobs:
         uses: ./.github/actions/setup-tools
 
       - name: Build release manifest
+        env:
+          AGENT_ARTIFACT_SIGNING_KEY: ${{ secrets.AGENT_ARTIFACT_SIGNING_KEY }}
+          OS_ARTIFACT_PUBLIC_KEY_PEM: ${{ secrets.OS_ARTIFACT_PUBLIC_KEY_PEM }}
         run: |
+          test -n "$AGENT_ARTIFACT_SIGNING_KEY"
+          printf '%s' "$AGENT_ARTIFACT_SIGNING_KEY" > "$RUNNER_TEMP/agent-artifact-signing-key.pem"
+          AGENT_ARTIFACT_PUBLIC_KEY_PEM="$(openssl pkey -in "$RUNNER_TEMP/agent-artifact-signing-key.pem" -pubout)"
+          export AGENT_ARTIFACT_PUBLIC_KEY_PEM
           IMG="${REGISTRY}/${IMAGE_NAME}@${{ needs.merge.outputs.digest }}" \
           IPXE_REF="${REGISTRY}/${IPXE_IMAGE_NAME}@${{ needs.ipxe.outputs.digest }}" \
           AGENT_ARTIFACT_REF="${REGISTRY}/${{ github.repository }}-provisioning-agent:${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}" \
             mise run build-installer-real-hardware
           cp dist/install-real-hardware.yaml dist/infrastructure-components.yaml
           cp metadata.yaml dist/metadata.yaml
+          release_tag="${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}"
+          sed "s/REPLACE_WITH_RELEASE_VERSION/$release_tag/" \
+            config/operator/infrastructure-provider.yaml > dist/operator-provider.yaml
 
       - name: Upload release manifests
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -227,6 +237,7 @@ jobs:
           path: |
             dist/infrastructure-components.yaml
             dist/metadata.yaml
+            dist/operator-provider.yaml
           if-no-files-found: error
 
   release-assets:
@@ -248,4 +259,5 @@ jobs:
           files: |
             dist/infrastructure-components.yaml
             dist/metadata.yaml
+            dist/operator-provider.yaml
           tag_name: ${{ github.ref_name }}

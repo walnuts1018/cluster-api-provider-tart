@@ -16,7 +16,10 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -511,11 +514,48 @@ func main() {
 			setupLog.Error(err, "Failed to configure Redfish VirtualMedia Agent Artifact")
 			os.Exit(1)
 		}
+		planPrivateKey, err := signingkey.LoadPrivateReadOnly(agentPlanPrivateKeyFile)
+		if err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
+			}
+			setupLog.Error(err, "Failed to load Agent Plan signing key for Agent boot")
+			os.Exit(1)
+		}
+		planPublicKey, err := encodePublicKey(planPrivateKey.Public().(ed25519.PublicKey))
+		if err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
+			}
+			setupLog.Error(err, "Failed to encode Agent Plan verification key for Agent boot")
+			os.Exit(1)
+		}
+		agentAPICertificate, err := os.ReadFile(agentAPICertFile)
+		if err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
+			}
+			setupLog.Error(err, "Failed to read Agent API certificate for Agent boot")
+			os.Exit(1)
+		}
+		osArtifactPublicKey, err := os.ReadFile(osArtifactPublicKeyFile)
+		if err != nil {
+			if closeErr := artifact.Close(); closeErr != nil {
+				setupLog.Error(closeErr, "Failed to close Agent Artifact")
+			}
+			setupLog.Error(err, "Failed to read OS Artifact verification key for Agent boot")
+			os.Exit(1)
+		}
 		handler, err := agentboot.NewHandler(agentboot.Config{
 			Resolver:        k8sagentboot.NewResolver(mgr.GetClient()),
 			Artifact:        artifact,
 			ArtifactBaseURL: baseURL,
 			AgentAPIURL:     agentAPIURL,
+			Trust: agentboot.Trust{
+				AgentAPICertificate: agentAPICertificate,
+				PlanPublicKey:       planPublicKey,
+				OSArtifactPublicKey: osArtifactPublicKey,
+			},
 		})
 		if err != nil {
 			if closeErr := artifact.Close(); closeErr != nil {
@@ -717,6 +757,14 @@ func main() {
 		setupLog.Error(startErr, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+func encodePublicKey(key ed25519.PublicKey) ([]byte, error) {
+	encoded, err := x509.MarshalPKIXPublicKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("encode Ed25519 public key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: encoded}), nil
 }
 
 func optionalFilePath(path string) (string, error) {

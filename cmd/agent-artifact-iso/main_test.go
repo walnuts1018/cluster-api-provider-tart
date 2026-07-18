@@ -39,6 +39,7 @@ func TestRunStagesGrubISOInputs(t *testing.T) {
 		initrdPath:      initrdPath,
 		outputPath:      outputPath,
 		controllerURL:   "https://controller.test/agent",
+		trustURL:        "http://boot.test/agent",
 		hostUID:         "host-uid",
 		operationUID:    "operation-uid",
 		bootMACAddress:  "aa:bb:cc:dd:ee:ff",
@@ -76,6 +77,7 @@ func TestRunStagesGrubISOInputs(t *testing.T) {
 		"linux /vmlinuz",
 		"initrd /initrd",
 		agentboot.KernelParameterControllerURL + "=https://controller.test/agent",
+		agentboot.KernelParameterTrustURL + "=http://boot.test/agent",
 		agentboot.KernelParameterHostUID + "=host-uid",
 		agentboot.KernelParameterOperationUID + "=operation-uid",
 		agentboot.KernelParameterBootMAC + "=aa:bb:cc:dd:ee:ff",
@@ -95,6 +97,7 @@ func TestRunRejectsSecretBearingKernelArguments(t *testing.T) {
 		initrdPath:     writeTestFile(t, root, "initrd", []byte("initrd")),
 		outputPath:     filepath.Join(root, "virtual-media.iso"),
 		controllerURL:  "https://controller.test/agent?token=secret",
+		trustURL:       "http://boot.test/agent",
 		hostUID:        "host-uid",
 		operationUID:   "operation-uid",
 		bootMACAddress: "aa:bb:cc:dd:ee:ff",
@@ -112,6 +115,7 @@ func TestVirtualMediaはHTTPBootとPXEと同じregister入力へ収束する(t *
 
 	opts := options{
 		controllerURL:  "https://controller.test/agent",
+		trustURL:       "https://artifacts.test/agent",
 		hostUID:        "host-uid",
 		operationUID:   "operation-uid",
 		bootMACAddress: "AA-BB-CC-DD-EE-FF",
@@ -135,6 +139,7 @@ func TestVirtualMediaはHTTPBootとPXEと同じregister入力へ収束する(t *
 		agentboot.KernelParameterControllerURL + "=https://controller.test/agent",
 		agentboot.KernelParameterHostUID + "=host-uid",
 		agentboot.KernelParameterOperationUID + "=operation-uid",
+		agentboot.KernelParameterTrustURL + "=https://artifacts.test/agent",
 	}
 	slices.Sort(gotVirtualMedia)
 	slices.Sort(gotNetworkBoot)

@@ -298,6 +298,7 @@ func TestBuildRegisterRequestはVirtualMediaとHTTPBootPXEで一致する(t *tes
 		HostUID:       "host-uid",
 		OperationUID:  "operation-uid",
 		BootMAC:       "AA-BB-CC-DD-EE-FF",
+		TrustURL:      "https://artifacts.test.walnuts.dev/agent",
 	}.Arguments()
 	if err != nil {
 		t.Fatalf("KernelParameters.Arguments() error = %v", err)

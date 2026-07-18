@@ -107,6 +107,11 @@ func (handler *Handler) handleIPXE(response http.ResponseWriter, request *http.R
 	if err != nil {
 		if errors.Is(err, agentbootdomain.ErrTargetNotFound) ||
 			errors.Is(err, agentbootdomain.ErrUnsupportedHost) {
+			crlog.FromContext(request.Context()).Info(
+				"No eligible Agent boot target found; returning an exit script",
+				"mac", mac,
+				"reason", err.Error(),
+			)
 			response.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			response.WriteHeader(http.StatusOK)
 			_, _ = response.Write([]byte("#!ipxe\nexit\n"))
@@ -117,6 +122,12 @@ func (handler *Handler) handleIPXE(response http.ResponseWriter, request *http.R
 		return
 	}
 	if target.PlatformProfile != handler.artifact.Manifest().PlatformProfile {
+		crlog.FromContext(request.Context()).Info(
+			"Agent Artifact platform profile does not match the boot target; returning an exit script",
+			"mac", mac,
+			"targetPlatformProfile", target.PlatformProfile,
+			"artifactPlatformProfile", handler.artifact.Manifest().PlatformProfile,
+		)
 		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		response.WriteHeader(http.StatusOK)
 		_, _ = response.Write([]byte("#!ipxe\nexit\n"))

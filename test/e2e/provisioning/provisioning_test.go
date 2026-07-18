@@ -78,6 +78,10 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 			host := &infrastructurev1beta1.TartHost{}
 			host.Name = fmt.Sprintf("%s-host-%d", clusterName, i)
 			host.Namespace = namespace.Name
+			host.Labels = map[string]string{"tart.walnuts.dev/role": "worker"}
+			if i == 0 {
+				host.Labels["tart.walnuts.dev/role"] = "control-plane"
+			}
 			host.Spec.Identifiers.BootMACAddress = mac
 			host.Spec.Architecture = infrastructurev1beta1.ArchitectureAMD64
 			host.Spec.Firmware = infrastructurev1beta1.FirmwareUEFI

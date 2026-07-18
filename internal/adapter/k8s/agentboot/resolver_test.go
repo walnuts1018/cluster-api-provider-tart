@@ -73,6 +73,61 @@ func TestResolverは削除中Hostをboot候補から除外する(t *testing.T) {
 	}
 }
 
+func TestResolverはActiveOperationのない同一MACHostをboot候補から除外する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	activeHost := testHost()
+	activeHost.Name = "active-host"
+	activeHost.UID = types.UID("active-host-uid")
+	operation := testOperation(activeHost)
+
+	staleHost := testHost()
+	staleHost.Name = "stale-host"
+	staleHost.Namespace = "terminating-namespace"
+	staleHost.UID = types.UID("stale-host-uid")
+
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(activeHost, staleHost, operation).Build())
+	target, err := resolver.Resolve(t.Context(), activeHost.Spec.Identifiers.BootMACAddress)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if target.HostUID != string(activeHost.UID) {
+		t.Fatalf("Resolve().HostUID = %q, want %q", target.HostUID, activeHost.UID)
+	}
+}
+
+func TestResolverは同一MACのActiveOperationが複数ある場合に拒否する(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	firstHost := testHost()
+	firstHost.Name = "first-host"
+	firstHost.UID = types.UID("first-host-uid")
+	firstOperation := testOperation(firstHost)
+	firstOperation.Name = "first-operation"
+
+	secondHost := testHost()
+	secondHost.Name = "second-host"
+	secondHost.Namespace = "second-namespace"
+	secondHost.UID = types.UID("second-host-uid")
+	secondOperation := testOperation(secondHost)
+	secondOperation.Name = "second-operation"
+
+	resolver := NewResolver(fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		firstHost,
+		firstOperation,
+		secondHost,
+		secondOperation,
+	).Build())
+	_, err := resolver.Resolve(t.Context(), firstHost.Spec.Identifiers.BootMACAddress)
+	if !errors.Is(err, ErrAmbiguous) {
+		t.Fatalf("Resolve() error = %v, want %v", err, ErrAmbiguous)
+	}
+}
+
 func TestResolverは対象外HostとOperationを拒否する(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := infrastructurev1beta1.AddToScheme(scheme); err != nil {

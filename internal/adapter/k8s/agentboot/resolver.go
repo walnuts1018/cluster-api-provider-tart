@@ -16,6 +16,7 @@ package agentboot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 
@@ -46,38 +47,57 @@ func (resolver *Resolver) Resolve(ctx context.Context, bootMACAddress string) (T
 	if err != nil {
 		return Target{}, ErrNotFound
 	}
-	host, err := resolver.findHost(ctx, normalizedMAC)
+	hosts, err := resolver.findHosts(ctx, normalizedMAC)
 	if err != nil {
 		return Target{}, err
 	}
-	profile, ok := platformprofile.Lookup(host.Spec.PlatformProfile)
-	if !ok ||
-		host.Spec.Architecture != infrastructurev1beta1.Architecture(profile.Architecture) ||
-		host.Spec.Firmware != infrastructurev1beta1.Firmware(profile.Firmware) ||
-		host.Spec.Management.BootDriver != profile.BootDriver {
+	var found *Target
+	supportedHostFound := false
+	for i := range hosts {
+		host := &hosts[i]
+		profile, ok := platformprofile.Lookup(host.Spec.PlatformProfile)
+		if !ok ||
+			host.Spec.Architecture != infrastructurev1beta1.Architecture(profile.Architecture) ||
+			host.Spec.Firmware != infrastructurev1beta1.Firmware(profile.Firmware) ||
+			host.Spec.Management.BootDriver != profile.BootDriver {
+			continue
+		}
+		supportedHostFound = true
+		operation, err := resolver.findOperation(ctx, host)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return Target{}, err
+		}
+		if found != nil {
+			return Target{}, ErrAmbiguous
+		}
+		found = &Target{
+			HostUID:         string(host.UID),
+			OperationUID:    operation.Spec.OperationID,
+			BootMACAddress:  normalizedMAC,
+			PlatformProfile: host.Spec.PlatformProfile,
+		}
+	}
+	if found != nil {
+		return *found, nil
+	}
+	if !supportedHostFound {
 		return Target{}, ErrUnsupported
 	}
-	operation, err := resolver.findOperation(ctx, host)
-	if err != nil {
-		return Target{}, err
-	}
-	return Target{
-		HostUID:         string(host.UID),
-		OperationUID:    operation.Spec.OperationID,
-		BootMACAddress:  normalizedMAC,
-		PlatformProfile: host.Spec.PlatformProfile,
-	}, nil
+	return Target{}, ErrNotFound
 }
 
-func (resolver *Resolver) findHost(
+func (resolver *Resolver) findHosts(
 	ctx context.Context,
 	normalizedMAC string,
-) (*infrastructurev1beta1.TartHost, error) {
+) ([]infrastructurev1beta1.TartHost, error) {
 	hosts := &infrastructurev1beta1.TartHostList{}
 	if err := resolver.client.List(ctx, hosts); err != nil {
 		return nil, fmt.Errorf("list TartHosts for Agent boot: %w", err)
 	}
-	var found *infrastructurev1beta1.TartHost
+	matches := make([]infrastructurev1beta1.TartHost, 0, 1)
 	for i := range hosts.Items {
 		if !hosts.Items[i].DeletionTimestamp.IsZero() {
 			continue
@@ -86,15 +106,12 @@ func (resolver *Resolver) findHost(
 		if err != nil || candidateMAC != normalizedMAC {
 			continue
 		}
-		if found != nil {
-			return nil, ErrAmbiguous
-		}
-		found = hosts.Items[i].DeepCopy()
+		matches = append(matches, *hosts.Items[i].DeepCopy())
 	}
-	if found == nil {
+	if len(matches) == 0 {
 		return nil, ErrNotFound
 	}
-	return found, nil
+	return matches, nil
 }
 
 func (resolver *Resolver) findOperation(

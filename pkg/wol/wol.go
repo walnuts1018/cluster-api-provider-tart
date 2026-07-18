@@ -60,14 +60,14 @@ func NewSender(address string) Sender {
 }
 
 // Send は指定した MAC アドレスへ Magic Packet を送信します。
-func (s Sender) Send(macAddress string) error {
+func (s Sender) Send(ctx context.Context, macAddress string) error {
 	packet, err := MagicPacket(macAddress)
 	if err != nil {
 		return err
 	}
 
 	dialer := &net.Dialer{}
-	conn, err := dialer.DialContext(context.Background(), "udp", s.address)
+	conn, err := dialer.DialContext(ctx, "udp", s.address)
 	if err != nil {
 		return fmt.Errorf("failed to dial wol address: %w", err)
 	}

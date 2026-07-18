@@ -99,6 +99,9 @@ Host=`Provisioned`、TartMachine Ready=`true`へ収束させる。旧slotのHeal
 9. 失敗Artifact Generationを同じdesired specのまま自動再試行しない。
 10. RuntimeSDK/InPlaceUpdates無効時はExtension endpointを登録せず通常置換だけを行う。
 11. worker、複数control plane、単一control planeを別feature gateで順に有効化する。
+12. OSOnly更新の前後で、State/Data上のbyte列、Kubernetes ResourceのUID、PV/PVCのUID、
+    PVCへ書き込んだ検証payloadのSHA-256 digestが一致する。検証対象Resourceは少なくとも
+    Namespace、Deployment、StatefulSet、Service、ConfigMap、Secret、PV、PVCを含む。
 
 ## 完了証跡
 
@@ -106,6 +109,7 @@ Host=`Provisioned`、TartMachine Ready=`true`へ収束させる。旧slotのHeal
 - 100並列UpdateMachine test
 - failure injection 5種のslot/Operation最終状態
 - Node UID/providerID/machine-id比較
+- State/Data byte列とKubernetes Resource/PVC payloadの更新前後比較
 - feature gate on/off E2E
 
 ## 対象外
@@ -168,12 +172,14 @@ Task 01未検証の前提を維持したまま、I/Oへ依存しない更新判�
   Artifact Generation、最大試行回数をtyped requestとしてboot trial driverへ渡す処理
 - Provisioning Agentのcommand adapterがboot device pathとslot情報を固定引数で受け取り、
   boot trial metadata更新を外部driverへ委譲する処理
+- Provisioning AgentのUpdate writer実行後もState/Data deviceのbyte列が変化しない回帰テスト
 - controllerのOS Artifact Manifest resolverが、Docker互換config fileから読んだ
   private OCI Registry credentialを使ってdigest固定Artifactを解決する処理
 
 未実装・未検証:
 
-- QEMUまたは実機によるdm-verity、boot trial、電源断、Node UIDと実machine-idの維持、E2E検証
+- QEMUまたは実機によるdm-verity、boot trial、電源断、Node UIDと実machine-idの維持、
+  Kubernetes Resource UIDとPV/PVC payload digestを含むE2E検証
 
 ## 関連
 

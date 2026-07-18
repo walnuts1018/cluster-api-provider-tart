@@ -139,7 +139,7 @@ func TestWriterWritesAndReadsBackOSAndVerity(t *testing.T) {
 	}
 }
 
-func TestWriterUpdateConfiguresBootTrialMetadata(t *testing.T) {
+func TestWriterUpdateConfiguresBootTrialMetadataWithoutChangingStateOrData(t *testing.T) {
 	t.Parallel()
 
 	image := bytes.Repeat([]byte("i"), 2<<20)
@@ -156,11 +156,29 @@ func TestWriterUpdateConfiguresBootTrialMetadata(t *testing.T) {
 	resolved[agentprotocol.DiskRoleVerityB] = layout.RoleDevice{
 		Role: agentprotocol.DiskRoleVerityB, DevicePath: "verity-b", SizeBytes: 1 << 30,
 	}
+	resolved[agentprotocol.DiskRoleState] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleState, DevicePath: "state", SizeBytes: 4 << 30,
+	}
+	resolved[agentprotocol.DiskRoleData] = layout.RoleDevice{
+		Role: agentprotocol.DiskRoleData, DevicePath: "data", SizeBytes: 32 << 30,
+	}
 	layoutPreparer := &fakeLayout{resolved: resolved}
 	targetDirectory := t.TempDir()
+	statePath := filepath.Join(targetDirectory, "state")
+	dataPath := filepath.Join(targetDirectory, "data")
+	stateBefore := []byte("persistent node identity")
+	dataBefore := []byte("persistent volume payload")
+	if err := os.WriteFile(statePath, stateBefore, 0o600); err != nil {
+		t.Fatalf("write State fixture: %v", err)
+	}
+	if err := os.WriteFile(dataPath, dataBefore, 0o600); err != nil {
+		t.Fatalf("write Data fixture: %v", err)
+	}
 	opener := fakeOpener{paths: map[string]string{
 		"os-b":     filepath.Join(targetDirectory, "os-b"),
 		"verity-b": filepath.Join(targetDirectory, "verity-b"),
+		"state":    statePath,
+		"data":     dataPath,
 	}}
 	bootTrial := &fakeBootTrialDriver{}
 	targetWriter := New(layoutPreparer, fetcher, opener, nil)
@@ -191,6 +209,8 @@ func TestWriterUpdateConfiguresBootTrialMetadata(t *testing.T) {
 	if bootTrial.request.ArtifactGeneration != 12 || bootTrial.request.MaxAttempts != 3 {
 		t.Fatalf("boot trial request = %#v, want generation 12 attempts 3", bootTrial.request)
 	}
+	assertFilePrefix(t, statePath, stateBefore)
+	assertFilePrefix(t, dataPath, dataBefore)
 }
 
 func TestWriterUpdateRejectsMissingBootTrialDriver(t *testing.T) {

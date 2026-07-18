@@ -220,8 +220,12 @@ Supportedへ変更する組合せごとに、次のE2Eを全て成功させる�
 6. OSOnly更新
 7. 新slot boot失敗からのRollback
 8. Machine削除とPolicyどおりのHost状態
+9. OSOnly更新の前後でKubernetes ResourceのUID、PV/PVCのUID、PVC検証payloadの
+   SHA-256 digestが一致すること
 
 KubernetesBinaryまたはStateMigrationをSupportedにする場合は、さらにsnapshot、apply中断、RecoveryのE2Eを追加する。
+KubernetesBinaryをSupportedにする場合は、更新前後のKubernetes Resource/PVC比較を
+control planeとworkerの更新を含む一連のE2Eで再実行する。
 
 ## 13. 対象外
 

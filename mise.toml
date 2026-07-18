@@ -236,11 +236,14 @@ IMG="${IMG:-controller:latest}"
 PLATFORMS="${PLATFORMS:-linux/arm64,linux/amd64,linux/s390x,linux/ppc64le}"
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
 sed -e '1 s/\(^FROM\)/FROM --platform=\${BUILDPLATFORM}/; t' -e ' 1,// s//FROM --platform=\${BUILDPLATFORM}/' Dockerfile > Dockerfile.cross
-"$CONTAINER_TOOL" buildx create --name cluster-api-provider-tart-builder || true
+cleanup() {
+  rm -f Dockerfile.cross
+  "$CONTAINER_TOOL" buildx rm cluster-api-provider-tart-builder >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+"$CONTAINER_TOOL" buildx create --name cluster-api-provider-tart-builder
 "$CONTAINER_TOOL" buildx use cluster-api-provider-tart-builder
-"$CONTAINER_TOOL" buildx build --push --platform="$PLATFORMS" --tag "$IMG" -f Dockerfile.cross . || true
-"$CONTAINER_TOOL" buildx rm cluster-api-provider-tart-builder || true
-rm Dockerfile.cross
+"$CONTAINER_TOOL" buildx build --push --platform="$PLATFORMS" --tag "$IMG" -f Dockerfile.cross .
 '''
 
 [tasks.docker-build-ipxe]

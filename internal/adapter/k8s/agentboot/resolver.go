@@ -36,7 +36,7 @@ var (
 
 type Target = agentbootdomain.Target
 
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 type Resolver struct {
 	client client.Client

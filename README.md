@@ -1,22 +1,17 @@
-# cluster-api-provider-Tart
+# cluster-api-provider-tart
 
-Tart is a Kubernetes cluster API provider for local bare-metal desktop PCs. It uses an OS-independent pull-based PXE architecture to enable consistent deployment and operational management of Kubernetes clusters on hardware.
+Tart は、一般的な物理 PC を Cluster API で管理するための Infrastructure Provider です。PXE と
+Provisioning Agent を使い、管理クラスタから物理 Host の初期導入を行います。
 
-## Installation
+> [!WARNING]
+> このプロジェクトは開発中であり、現時点では本番利用をサポートしていません。操作によって対象 Host の
+> ディスクが消去されるため、検証専用の隔離ネットワークと再利用してよいディスクだけを使用してください。
 
-See [installation.md](./installation.md) for detailed installation instructions.
+## はじめに
 
-## Development
+- [ドキュメント](docs/README.md): 導入手順
+- [Ubuntu 24.04 と kubeadm の実機導入](docs/installation/ubuntu-kubeadm.md): 現在提供している検証用導入手順
 
-### envtest setup
+## 開発への参加
 
-The local controller test suite uses `envtest` with binaries stored under `bin/k8s`.
-Run `mise run setup-envtest` before `mise run test` to download the required assets into that directory.
-If you already have envtest binaries available elsewhere, set `KUBEBUILDER_ASSETS` explicitly instead.
-
-The controller test suite also uses repository fixtures for the Cluster API CRDs under `test/envtest/crds`, so the normal controller envtest flow does not fetch CRDs from GitHub during test setup.
-
-### Local e2e
-
-Local e2e workflows are not part of the normal developer loop in this repository.
-Use the GitHub Actions workflows for `mise run test-e2e` and `mise run test-provisioning-e2e` instead of running them on your workstation.
+設計方針、開発手順、CI 検証は [開発者向けドキュメント](docs/development/README.md) にまとめています。

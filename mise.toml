@@ -255,27 +255,6 @@ trap cleanup EXIT
 "$CONTAINER_TOOL" buildx build --push --platform="$PLATFORMS" --tag "$IMG" -f Dockerfile.cross .
 '''
 
-[tasks.docker-build-ipxe]
-description = "iPXE binaries をダウンロードして local に取り出す"
-run = '''
-mkdir -p dist/ipxe
-go run ./cmd/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
-rm -rf /tmp/ipxeboot
-tar xzf /tmp/ipxeboot.tar.gz -C /tmp
-cp /tmp/ipxeboot/x86_64/ipxe.efi dist/ipxe/ipxe-x86_64.efi
-cp /tmp/ipxeboot/arm64/ipxe.efi dist/ipxe/ipxe-arm64.efi
-cp /tmp/ipxeboot/x86_64/undionly.kpxe dist/ipxe/undionly.kpxe
-rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
-'''
-
-[tasks.docker-push-ipxe]
-description = "iPXE artifact を ORAS を使って push する"
-run = '''
-IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
-: "${IPXE_TAG:?IPXE_TAG is required}"
-go run cmd/artifacter/main.go -dir dist/ipxe -repo "$IPXE_IMG" -tag "$IPXE_TAG"
-'''
-
 [tasks.artifact-manifest]
 description = "OS/Verity payload から署名済み Artifact Manifest を生成する"
 run = '''
@@ -828,20 +807,6 @@ trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$man
 mkdir -p dist
 (cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe=$IPXE_REF")
 kustomize build config/default > dist/install.yaml
-'''
-
-[tasks.build-installer-external-bootstrap]
-description = "外部 DHCP/TFTP 前提の install-external-bootstrap.yaml を生成する"
-run = '''
-IMG="${IMG:-controller:latest}"
-mise run manifests
-mise run generate
-manager_kustomization="$(mktemp)"
-cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
-mkdir -p dist
-(cd config/manager && kustomize edit set image controller="$IMG")
-kustomize build config/external-bootstrap > dist/install-external-bootstrap.yaml
 '''
 
 [tasks.build-installer-real-hardware]

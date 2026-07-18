@@ -1,0 +1,9 @@
+# 開発者向けドキュメント
+
+このディレクトリは、Tart を開発・保守するための恒久的な技術文書です。導入手順は親ディレクトリの
+[利用者向けドキュメント](../README.md)を参照してください。
+
+- [開発ガイド](development.md): セットアップ、生成、テスト、変更時の確認
+- [アーキテクチャ](architecture.md): コンポーネントの責務と依存方向
+- [リソースと Provisioning の流れ](resources-and-provisioning.md): CR、Operation、Agent 通信、セキュリティ境界
+- [検証方針](verification.md): CI と実機検証の役割分担

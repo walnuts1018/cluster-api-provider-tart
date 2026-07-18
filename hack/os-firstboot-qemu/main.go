@@ -834,12 +834,12 @@ func createBootloaderESPDisk(
 	artifacts artifactPaths,
 	rootDevice string,
 ) error {
-	if err := createTargetDisk(espDiskPath, 128<<20); err != nil {
+	if err := createTargetDisk(espDiskPath, 512<<20); err != nil {
 		return err
 	}
 	layout := strings.Join([]string{
 		"label: gpt",
-		",96MiB,U,*",
+		",448MiB,U,*",
 		"",
 	}, "\n")
 	if err := runPrivilegedInput(ctx, layout, "sfdisk", espDiskPath); err != nil {

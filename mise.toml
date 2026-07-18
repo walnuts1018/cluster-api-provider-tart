@@ -1,6 +1,5 @@
 [tools]
 "go:sigs.k8s.io/controller-tools/cmd/controller-gen" = "0.21.0"
-"go:github.com/mazrean/kessoku/cmd/kessoku" = "1.1.1"
 "go:sigs.k8s.io/controller-runtime/tools/setup-envtest" = "0.24.1"
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "5.8.1"
 kind = "0.32.0"
@@ -1016,10 +1015,6 @@ run = "kustomize version"
 [tasks.controller-gen]
 description = "controller-gen が mise 経由で利用できることを確認する"
 run = "controller-gen --version"
-
-[tasks.kessoku-bin]
-description = "kessoku が mise 経由で利用できることを確認する"
-run = "go tool kessoku --help"
 
 [tasks.setup-envtest]
 description = "envtest バイナリを用意する"

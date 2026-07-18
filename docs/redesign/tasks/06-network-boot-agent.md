@@ -81,7 +81,7 @@ Plan schemaは未リリースのため互換層を設けず、`operationType`、
 | 5 | 実装済み | `TestValidateTargets`と`TestServiceDoesNotWriteUnsafeUpdateTarget`でActive OS/Verity、State、Dataを拒否 |
 | 6 | 一部実装 | Updateの書込み先をInactive OS/Verity Slotへ限定し、実block device writerへ接続済み。50% failure injectionと再起動後disk状態の確認が残る |
 | 7 | 一部実装 | OCI payloadの1 MiB単位write、fsync、read-back verifyを実block device writerへ接続済み。boot target adapter接続後のfailure injectionが残る |
-| 8 | 一部実装 | OCI descriptor、Manifest payload digest、書込み後read-back digestの不一致を失敗させる。verity root hash検証とboot target非変更testが残る |
+| 8 | 一部実装 | OCI descriptor、Manifest payload digest、書込み後read-back digestの不一致を失敗させる。boot target非変更testを追加済みで、verity root hash検証が残る |
 | 9 | 実装済み、切替試験未実施 | DHCP、TFTP、iPXE/HTTPS、Agent APIのRunnableをleader election対象にした。leader切替時listener logの保存が残る |
 | 10 | 実装済み | Agent progressはOperationだけを更新し、TartMachine Readyを変更しない。Node health判定はTask 07 |
 

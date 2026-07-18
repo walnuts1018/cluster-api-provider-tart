@@ -366,6 +366,56 @@ func TestServicePrepareBootUsesVirtualMediaBeforePXE(t *testing.T) {
 	}
 }
 
+func TestServicePrepareBootDoesNotAdvanceBootTargetWhenVirtualMediaMountFails(t *testing.T) {
+	t.Parallel()
+
+	mountErr := errors.New("virtual media mount failed")
+	bootOverride := &recordingBootOverrideDriver{
+		errorsByTarget: map[driverdomain.BootTarget][]error{
+			driverdomain.BootTargetHTTP:         {driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("http boot unavailable"))},
+			driverdomain.BootTargetVirtualMedia: nil,
+			driverdomain.BootTargetPXE:          nil,
+		},
+	}
+	virtualMedia := &recordingVirtualMediaDriver{err: mountErr}
+	registry := NewRegistry()
+	if err := registry.RegisterBootOverride(driverdomain.Redfish, bootOverride); err != nil {
+		t.Fatalf("RegisterBootOverride() error = %v", err)
+	}
+	if err := registry.RegisterVirtualMedia(driverdomain.Redfish, virtualMedia); err != nil {
+		t.Fatalf("RegisterVirtualMedia() error = %v", err)
+	}
+	service, err := NewServiceForTest(registry, time.Second, sleep, func(delay time.Duration) time.Duration {
+		return delay
+	})
+	if err != nil {
+		t.Fatalf("NewServiceForTest() error = %v", err)
+	}
+	provider, err := NewStaticAgentArtifactProvider("https://boot.test/v1/agent-artifacts/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/virtual-media")
+	if err != nil {
+		t.Fatalf("NewStaticAgentArtifactProvider() error = %v", err)
+	}
+	service.SetAgentArtifactProvider(provider)
+
+	_, err = service.PrepareBoot(
+		t.Context(),
+		driverdomain.Redfish,
+		testTarget(t),
+		testOperationID(t),
+		nil,
+		Invocation{OperationType: "Provision", Phase: "PreparingBoot"},
+	)
+	if !errors.Is(err, mountErr) {
+		t.Fatalf("PrepareBoot() error = %v, want %v", err, mountErr)
+	}
+	if got := bootOverride.calls; len(got) != 1 || got[0] != driverdomain.BootTargetHTTP {
+		t.Fatalf("SetNextBoot calls = %v, want [HTTP]", got)
+	}
+	if virtualMedia.calls != 1 {
+		t.Fatalf("Mount() calls = %d, want 1", virtualMedia.calls)
+	}
+}
+
 func TestServicePrepareBootRejectsVirtualMediaPreferenceWithoutArtifactProvider(t *testing.T) {
 	t.Parallel()
 
@@ -578,6 +628,8 @@ func (driver *recordingBootOverrideDriver) SetNextBoot(
 
 type recordingVirtualMediaDriver struct {
 	mounts []string
+	calls  int
+	err    error
 }
 
 func (driver *recordingVirtualMediaDriver) Mount(
@@ -586,6 +638,10 @@ func (driver *recordingVirtualMediaDriver) Mount(
 	artifact driverdomain.Artifact,
 	_ operationdomain.ID,
 ) error {
+	driver.calls++
+	if driver.err != nil {
+		return driver.err
+	}
 	driver.mounts = append(driver.mounts, artifact.Reference())
 	return nil
 }

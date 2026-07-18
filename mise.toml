@@ -140,7 +140,6 @@ run = '''
 mise run golangci-lint run --fix
 mise run actionlint
 mise run lint-shell
-mise run check-dmmf-dependencies
 '''
 
 [tasks.ci-lint]
@@ -149,7 +148,6 @@ run = '''
 mise run golangci-lint run
 mise run actionlint
 mise run lint-shell
-mise run check-dmmf-dependencies
 '''
 
 [tasks.lint-fix]
@@ -261,7 +259,7 @@ run = '''
 : "${ARTIFACT_SIGNING_KEY:?ARTIFACT_SIGNING_KEY is required}"
 : "${ARTIFACT_SIGNING_KEY_ID:?ARTIFACT_SIGNING_KEY_ID is required}"
 go run ./cmd/artifact-manifest \
-  -config "${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64.json}" \
+  -config "${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64-kubeadm.json}" \
   -image "$ARTIFACT_IMAGE" \
   -verity "$ARTIFACT_VERITY" \
   -verity-root-hash "$ARTIFACT_VERITY_ROOT_HASH" \
@@ -517,7 +515,7 @@ run = '''
 artifact_output="${ARTIFACT_OUTPUT_DIR:-dist/artifact}"
 go run ./cmd/artifact-provenance \
   -manifest "$artifact_output/manifest.json" \
-  -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
+  -lock "${ARTIFACT_LOCK:-artifact/locks/amd64.json}" \
   -source-uri "$ARTIFACT_SOURCE_URI" \
   -source-revision "$ARTIFACT_SOURCE_REVISION" \
   -builder-id "$ARTIFACT_BUILDER_ID" \
@@ -528,7 +526,7 @@ go run ./cmd/artifact-provenance \
 description = "lock fileで固定したArtifact build入力を取得して検証する"
 run = '''
 go run ./cmd/locked-download \
-  -lock "${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}" \
+  -lock "${ARTIFACT_LOCK:-artifact/locks/amd64.json}" \
   -output-dir artifact/mkosi/mkosi.packages
 '''
 
@@ -541,22 +539,50 @@ go run ./cmd/locked-download \
 '''
 
 [tasks.artifact-build-mkosi]
-description = "mkosiでUbuntu OS/Verity payloadを生成する（Linux専用）"
+description = "Artifact設定に対応するOS/Verity payloadをmkosiで生成する（Linux専用）"
 depends = ["artifact-download-inputs", "artifact-download-runtime-inputs"]
 run = '''
 if [ "$(uname -s)" != Linux ]; then
   echo "artifact-build-mkosi requires Linux" >&2
   exit 1
 fi
-lock="${ARTIFACT_LOCK:-artifact/locks/ubuntu-24.04-amd64.json}"
-snapshot="$(jq -er '.ubuntuSnapshot' "$lock")"
+config="${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64-kubeadm.json}"
+lock="${ARTIFACT_LOCK:-artifact/locks/amd64.json}"
+os_family="$(jq -er '.os.family' "$config")"
+os_version="$(jq -er '.os.version' "$config")"
+architecture="$(jq -er '.architecture' "$config")"
+distribution="$(jq -er '.kubernetes.distribution' "$config")"
 source_date_epoch="$(jq -er '.sourceDateEpoch' "$lock")"
-snapshot_base="https://snapshot.ubuntu.com/ubuntu/$snapshot/dists"
+snapshot="$(jq -er '.snapshot' "$lock")"
+case "$os_family:$os_version" in
+  ubuntu:24.04) mkosi_release="noble" ;;
+  ubuntu:26.04) mkosi_release="resolute" ;;
+  debian:13) mkosi_release="trixie" ;;
+  *)
+    echo "unsupported artifact OS: $os_family $os_version" >&2
+    exit 1
+    ;;
+esac
+case "$architecture" in
+  amd64) mkosi_architecture="x86-64"; go_architecture="amd64" ;;
+  arm64) mkosi_architecture="arm64"; go_architecture="arm64" ;;
+  *)
+    echo "unsupported artifact architecture: $architecture" >&2
+    exit 1
+    ;;
+esac
+case "$distribution" in
+  kubeadm|k0s) ;;
+  *)
+    echo "unsupported artifact Kubernetes distribution: $distribution" >&2
+    exit 1
+    ;;
+esac
 extra_dir="artifact/mkosi/mkosi.extra"
 runtime_input_dir="${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
 mkdir -p "$extra_dir/usr/bin"
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$extra_dir/usr/bin/node-lifecycle-service" ./cmd/node-lifecycle-service
+CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
+CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/node-lifecycle-service" ./cmd/node-lifecycle-service
 tar \
   --extract \
   --gzip \
@@ -575,28 +601,32 @@ tar \
 chmod 0755 "$extra_dir/usr/bin/etcdutl"
 # build contextへ一時配置したbinaryをsource treeへ残さない。
 trap 'rm -f "$extra_dir/usr/bin/provisioning-agent" "$extra_dir/usr/bin/node-lifecycle-service" "$extra_dir/usr/bin/etcdctl" "$extra_dir/usr/bin/etcdutl"' EXIT
-for suite in noble noble-updates noble-security; do
-  available=0
-  for delay in 0 1 2; do
-    if [ "$delay" -gt 0 ]; then
-      sleep "$delay"
-    fi
-    if curl --fail --silent --show-error --head --location --max-time 30 \
-      "$snapshot_base/$suite/InRelease" >/dev/null; then
-      available=1
-      break
-    fi
-  done
-  if [ "$available" -ne 1 ]; then
-    echo "Ubuntu snapshot is unavailable: $snapshot_base/$suite/InRelease" >&2
-    exit 1
-  fi
-done
-mkosi \
-  --directory artifact/mkosi \
-  --snapshot "$snapshot" \
-  --source-date-epoch "$source_date_epoch" \
-  build
+mkosi_args=(
+  --directory artifact/mkosi
+  --distribution "$os_family"
+  --release "$mkosi_release"
+  --architecture "$mkosi_architecture"
+  --output "tart-$os_family-$os_version-$architecture-$distribution"
+  --snapshot "$snapshot"
+  --source-date-epoch "$source_date_epoch"
+)
+if [ "$distribution" = k0s ]; then
+  mkosi_args+=(
+    --remove-package kubeadm
+    --remove-package kubectl
+    --remove-package kubelet
+    --remove-package kubernetes-cni
+    --remove-package cri-tools
+  )
+fi
+if [ "$os_family" = debian ]; then
+  mkosi_args+=(
+    --remove-package ubuntu-minimal
+    --remove-package linux-generic
+    --package linux-image-amd64
+  )
+fi
+mkosi "${mkosi_args[@]}" build
 bash artifact/mkosi/normalize-output.sh \
   artifact/mkosi/mkosi.output \
   "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}"

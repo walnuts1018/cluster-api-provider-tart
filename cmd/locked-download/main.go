@@ -39,7 +39,7 @@ var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 type lockFile struct {
 	SchemaVersion   int          `json:"schemaVersion"`
 	SourceDateEpoch int64        `json:"sourceDateEpoch"`
-	UbuntuSnapshot  string       `json:"ubuntuSnapshot"`
+	Snapshot        string       `json:"snapshot"`
 	Mkosi           mkosiLock    `json:"mkosi"`
 	Files           []lockedFile `json:"files"`
 }

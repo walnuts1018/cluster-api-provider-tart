@@ -71,8 +71,22 @@ concurrency:
 
 jobs:
   artifact-config-contract:
-    name: Artifact config contract
+    name: Artifact config contract (${{ matrix.os }} / ${{ matrix.kubernetes }} / ${{ matrix.architecture }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04, debian-13]
+        kubernetes: [kubeadm, k0s]
+        architecture: [amd64, arm64]
+        # arm64のconfig、lock file、runnerを追加するまでjobを作成しない。
+        exclude:
+          - {os: ubuntu-24.04, kubernetes: kubeadm, architecture: arm64}
+          - {os: ubuntu-24.04, kubernetes: k0s, architecture: arm64}
+          - {os: ubuntu-26.04, kubernetes: kubeadm, architecture: arm64}
+          - {os: ubuntu-26.04, kubernetes: k0s, architecture: arm64}
+          - {os: debian-13, kubernetes: kubeadm, architecture: arm64}
+          - {os: debian-13, kubernetes: k0s, architecture: arm64}
     steps:
       - name: Check out
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -83,12 +97,39 @@ jobs:
           go-version-file: go.mod
 
       - name: Verify artifact manifest configuration
-        run: go test ./cmd/artifact-manifest ./artifact ./domain/shared/platformprofile
+        env:
+          ARTIFACT_CONFIG: artifact/config/${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}.json
+        run: |
+          jq -e \
+            --arg os "${{ matrix.os }}" \
+            --arg kubernetes "${{ matrix.kubernetes }}" \
+            --arg architecture "${{ matrix.architecture }}" \
+            '.architecture == $architecture and .kubernetes.distribution == $kubernetes and (.os.family + "-" + .os.version) == $os' \
+            "$ARTIFACT_CONFIG" >/dev/null
+          go test ./cmd/artifact-manifest ./artifact ./domain/shared/platformprofile
 
-  ubuntu-24-04-amd64:
-    name: Ubuntu 24.04 amd64
+  os-artifact:
+    name: OS Artifact (${{ matrix.os }} / ${{ matrix.kubernetes }} / ${{ matrix.architecture }})
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04, debian-13]
+        kubernetes: [kubeadm, k0s]
+        architecture: [amd64, arm64]
+        # arm64のconfig、lock file、runnerを追加するまでjobを作成しない。
+        exclude:
+          - {os: ubuntu-24.04, kubernetes: kubeadm, architecture: arm64}
+          - {os: ubuntu-24.04, kubernetes: k0s, architecture: arm64}
+          - {os: ubuntu-26.04, kubernetes: kubeadm, architecture: arm64}
+          - {os: ubuntu-26.04, kubernetes: k0s, architecture: arm64}
+          - {os: debian-13, kubernetes: kubeadm, architecture: arm64}
+          - {os: debian-13, kubernetes: k0s, architecture: arm64}
+    env:
+      ARTIFACT_CONFIG: artifact/config/${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}.json
+      ARTIFACT_LOCK: artifact/locks/amd64.json
     permissions:
       contents: write
       packages: write
@@ -153,7 +194,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ubuntu-24.04-amd64-qemu-evidence
+          name: ${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}-qemu-evidence
           path: |
             dist/os-artifact/qemu-firstboot/evidence.json
             dist/os-artifact/qemu-firstboot/serial.log
@@ -216,7 +257,7 @@ jobs:
       - name: Upload build evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ubuntu-24.04-amd64-os-artifact
+          name: ${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}-os-artifact
           path: |
             dist/os-artifact/manifest.json
             dist/os-artifact/manifest.signature.json
@@ -249,7 +290,7 @@ jobs:
         id: publish
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
         env:
-          ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository }}-os-ubuntu-24.04-amd64
+          ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository }}-os-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}
           ARTIFACT_TAG: ${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}
           ARTIFACT_OUTPUT_DIR: dist/os-artifact
           ARTIFACT_IMAGE: dist/os-artifact/os.img
@@ -261,18 +302,25 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           reference="$(mise run artifact-push)"
-          printf '%s\n' "$reference" > dist/os-artifact/reference.txt
-          sed \
-            -e "s|\${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}|$reference|" \
-            -e "s|\${OS_ARTIFACT_REGISTRY:=registry.sample.walnuts.dev}|ghcr.io|" \
-            config/templates/cluster-template-kubeadm-ubuntu.yaml \
-            > dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml
+          printf '%s\n' "$reference" > "dist/os-artifact/reference-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}.txt"
+          if [ "${{ matrix.os }}" = ubuntu-24.04 ] && [ "${{ matrix.kubernetes }}" = kubeadm ]; then
+            sed \
+              -e "s|\${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}|$reference|" \
+              -e "s|\${OS_ARTIFACT_REGISTRY:=registry.sample.walnuts.dev}|ghcr.io|" \
+              config/templates/cluster-template-kubeadm-ubuntu.yaml \
+              > dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml
+          fi
 
       - name: Upload Artifact reference
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           files: |
-            dist/os-artifact/reference.txt
-            dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml
+            dist/os-artifact/reference-${{ matrix.os }}-${{ matrix.architecture }}-${{ matrix.kubernetes }}.txt
             ${{ runner.temp }}/os-artifact-public.pem
+
+      - name: Upload kubeadm cluster template
+        if: github.event_name == 'release' && matrix.os == 'ubuntu-24.04' && matrix.kubernetes == 'kubeadm'
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: dist/os-artifact/cluster-template-kubeadm-ubuntu.yaml

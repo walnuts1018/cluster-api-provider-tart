@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sourceDateEpoch": 1783204483,
-  "ubuntuSnapshot": "20260704T223443Z",
+  "snapshot": "20260704T223443Z",
   "mkosi": {
     "version": "26",
     "commit": "84af20892b61c8e177e391f997ded8b4cb5514f2"

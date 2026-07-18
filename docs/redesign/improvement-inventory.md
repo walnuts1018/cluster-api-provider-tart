@@ -6,7 +6,7 @@
 
 - 対象: Goコード、CRD/Deployment/Kustomize、artifact生成処理、mise task、GitHub Actions、テスト、既存ドキュメント。
 - `env GOCACHE=$(pwd)/.cache/go-build go test ./...` を実行した。通常のパッケージは通過したが、sandbox の `listen ...: bind: operation not permitted` により Redfish simulator 契約テストと WoL UDP テストが失敗した。CIではネットワーク権限を持つジョブで再実行し、環境失敗と回帰を別の結果として保存する。
-- 作業開始時点で既存の未コミット変更（`docs/redesign/ci-verification.md`、`target-state.md`、Task 08/09、`writer_test.go`）がある。これらは本監査の変更と混ぜず、意図を確認してから統合する。
+- 2026-07-18時点で、生成、build、全packageのcompile、lint、主要Kustomize overlayのrenderを再検証した。Provisioning E2EとCluster lifecycle E2Eの完了判定はGitHub Actionsの実行結果だけを使用する。
 
 ## 優先度 P0: 先に直すべき安全性・再現性
 
@@ -17,7 +17,7 @@
 | 一部完了 | `.github/workflows/*`、`mise.toml` | OS/Kubernetes更新時に実workload clusterのResource UID、PVC UID、payload digestを比較するCIジョブがない。 | UID/digest比較器の不具合を修正し、入力検証と改変検出のCI契約を追加した。次に実workload clusterからの採取とOSOnly/KubernetesBinary更新へ接続する。 | OSOnly更新とKubernetesBinary更新の両方で、Resource/PVCデータ保持の証跡が1 runに残る。 |
 | 完了 | `test/e2e/config/tart.yaml` | どのtemplateからも参照されないOS別kernel/initrd URLが残り、`latest`と`current`がE2Eの依存関係に見えていた。 | 未使用変数を削除し、実際に使用するdigest固定OCI Artifactを設定の中心にする。 | E2E設定に未使用の可変URLが残らない。 |
 | 完了 | `mise.toml`、`artifact/locks/k3s-e2e.json` | Provisioning E2Eが可変な`get.k3s.io`を検証せずshellへ直結していた。 | management clusterのK3s version、公式installer URL、SHA-256をlockへ固定し、検証後だけ実行する。 | installer改変や取得失敗時にcluster setupが実行前に失敗する。 |
-| 完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要な変更を網羅せず、sequence anchorをlist内へ展開して二重配列を作っていた。 | 主要ディレクトリを共通Goフィルターへ含め、anchorを文字列配列として直接割り当てた。lint設定専用フィルターはCI条件でGoフィルターとORする。 | YAML上の各filterが文字列配列であり、Go関連変更またはlint設定変更で必要なjobが起動する。 |
+| 完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要な変更を網羅せず、sequence anchorをlist内へ展開して二重配列を作っていた。 | 主要ディレクトリを平坦なGoフィルターへ含め、lint設定専用フィルターはCI条件でGoフィルターとORする。 | YAML上の各filterが文字列配列であり、Go関連変更またはlint設定変更で必要なjobが起動する。 |
 | 完了 | `mise.toml` の `docker-buildx` | build/pushの失敗を `|| true` で握りつぶしていた。 | build/createの失敗を伝播させ、`trap`で一時ファイルとbuilderを後始末するよう変更した。 | push失敗時にtaskとCIが失敗し、後始末だけは実行される。 |
 | 完了 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | E2E helperとiPXE Image Volumeをdigest固定し、Artifact publisherは`latest`を拒否するようにした。未使用のTalos/installer可変URLは削除した。開発時にkustomizeが置換する`controller:latest`だけをローカル用placeholderとして残す。 | CI再実行で同じ入力digestが得られ、mutable参照が外部取得へ使われない。 |
 

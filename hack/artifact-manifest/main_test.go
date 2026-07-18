@@ -45,10 +45,10 @@ func TestRunGeneratesSignedManifestFromPayloads(t *testing.T) {
 		Architecture:    "amd64",
 		Filesystem:      "ext4",
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.35.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.36.0"},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      1,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	})
 	if err != nil {
 		t.Fatalf("json.Marshal() error = %v", err)

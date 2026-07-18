@@ -30,14 +30,14 @@ func TestStatusWithUpdateSucceededはCommit済みImageとDistributionVersionを�
 			Spec: infrastructurev1beta1.TartHostOperationSpec{
 				TargetSlot:                infrastructurev1beta1.OSSlotB,
 				TargetImageDigest:         "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-				TargetDistributionVersion: "v1.35.0",
+				TargetDistributionVersion: "v1.36.0",
 			},
 		},
 	)
 
 	if status.ActiveSlot != infrastructurev1beta1.OSSlotB ||
 		status.InstalledImageDigest != "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" ||
-		status.InstalledDistributionVersion != "v1.35.0" {
+		status.InstalledDistributionVersion != "v1.36.0" {
 		t.Fatalf("status = %#v, want committed slot, image digest, and distribution version", status)
 	}
 }

@@ -1,15 +1,14 @@
-# `amd64-uefi-ab/v1`
+# `amd64-uefi-ab-*/*` v1 layout
 
 ## 状態
 
-Task 06の実装を進めるための暫定Platform Profileである。Task 01のQEMU検証は未完了であり、
-Supportedとは表示しない。次のいずれかが成立しない場合は既存値を変更せず、
-`amd64-uefi-ab/v2`として置き換える。
+Task 11では、同じamd64 UEFI A/B disk layoutをOSとdistributionごとのProfile IDへ分ける。
+次のいずれかが成立しない場合は既存値を変更せず、対象組み合わせだけ`v2`として置き換える。
 
 - 8 GiBのUbuntu 24.04 ext4 imageがOS-A/OS-Bへ収まる。
 - detached dm-verity hash treeが1 GiBのVerity-A/Verity-Bへ収まる。
 - ESP 512 MiBで採用bootloaderのA/B entryとboot trial metadataを保持できる。
-- State 8 GiBでkubeadm、kubelet identity、Bootstrap markerを保持できる。
+- State 8 GiBでkubeadmまたはk3s、kubelet identity、Bootstrap markerを保持できる。
 - 64 GiB disk上のData容量でTask 01のcontainerd/kubelet起動試験が成立する。
 
 ## Initial Credential
@@ -29,6 +28,17 @@ Supportedとは表示しない。次のいずれかが成立しない場合は�
 | Disk最小容量 | 64 GiB |
 | 対応logical sector size | 512 byte、4096 byte |
 | partition alignment | 1 MiB |
+
+## OS / Distribution Profile
+
+| Profile ID | OS | Distribution | Kubernetes | State paths | Data paths |
+|---|---|---|---|---|---|
+| `amd64-uefi-ab-ubuntu-24.04-kubeadm/v1` | Ubuntu 24.04 LTS | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
+| `amd64-uefi-ab-ubuntu-24.04-k3s/v1` | Ubuntu 24.04 LTS | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
+| `amd64-uefi-ab-ubuntu-26.04-kubeadm/v1` | Ubuntu 26.04 LTS | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
+| `amd64-uefi-ab-ubuntu-26.04-k3s/v1` | Ubuntu 26.04 LTS | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
+| `amd64-uefi-ab-debian-13-kubeadm/v1` | Debian 13 | kubeadm | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/kubernetes` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/etcd` |
+| `amd64-uefi-ab-debian-13-k3s/v1` | Debian 13 | k3s | `v1.36.x` | `/etc/machine-id`, `/etc/tart`, `/etc/rancher/k3s` | `/var/lib/containerd`, `/var/lib/kubelet`, `/var/lib/rancher/k3s` |
 
 ## Physical Layout
 
@@ -56,7 +66,7 @@ A/Bの区別は一意なGPT labelで行い、OS起動時のmountはAgentが報�
 - `sfdisk`完了後は`udevadm settle --timeout=30`を待ってからRoleを解決する。
 - Agent Artifactには`blockdev`、`sfdisk`、`udevadm`を含める。
 - Agent Artifact manifestは`application/vnd.tart.provisioning-agent.v1`とし、digest固定OCI参照、
-  `architecture=amd64`、`firmware=UEFI`、`platformProfile=amd64-uefi-ab/v1`、
+  `architecture=amd64`、`firmware=UEFI`、OS/distribution込みの`platformProfile`、
   kernel/initrdのSHA-256 digestとsizeを署名対象へ含める。Redfish VirtualMediaで
   起動するArtifactは、追加で`virtualMedia`のSHA-256 digestとsizeを署名対象へ含める。
 - controllerへmountするAgent Artifact directoryは`manifest.json`、

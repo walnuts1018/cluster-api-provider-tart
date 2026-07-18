@@ -21,6 +21,7 @@ import (
 
 func TestBuildPlanはWorkerではSnapshotなしのLifecycleStepを作る(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
+		Distribution:   DistributionKubeadm,
 		OperationID:    "operation-1",
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",
@@ -36,7 +37,7 @@ func TestBuildPlanはWorkerではSnapshotなしのLifecycleStepを作る(t *test
 	want := []Step{
 		StepPreflightCompleted,
 		StepTargetSlotWritten,
-		StepKubeadmApplied,
+		StepDistributionApplied,
 		StepTargetSlotBooted,
 		StepHealthVerified,
 		StepCommitted,
@@ -48,6 +49,7 @@ func TestBuildPlanはWorkerではSnapshotなしのLifecycleStepを作る(t *test
 
 func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
+		Distribution:   DistributionKubeadm,
 		OperationID:    "operation-1",
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",
@@ -61,7 +63,7 @@ func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *tes
 		StepPreflightCompleted,
 		StepSnapshotCreated,
 		StepTargetSlotWritten,
-		StepKubeadmApplied,
+		StepDistributionApplied,
 		StepTargetSlotBooted,
 		StepHealthVerified,
 		StepCommitted,
@@ -73,6 +75,7 @@ func TestBuildPlanはControlPlaneではSnapshotをApply前に要求する(t *tes
 
 func TestPlanReadyForStepはKubeadmApply前にSnapshotRefを要求する(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
+		Distribution:   DistributionKubeadm,
 		OperationID:    "operation-1",
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",
@@ -83,17 +86,18 @@ func TestPlanReadyForStepはKubeadmApply前にSnapshotRefを要求する(t *test
 		t.Fatalf("BuildPlan() error = %v", err)
 	}
 
-	if err := ReadyForStep(plan, StepKubeadmApplied); err == nil {
-		t.Fatal("ReadyForStep(KubeadmApplied) error = nil, want SnapshotRef required")
+	if err := ReadyForStep(plan, StepDistributionApplied); err == nil {
+		t.Fatal("ReadyForStep(DistributionApplied) error = nil, want SnapshotRef required")
 	}
 	plan.SnapshotRef = "etcd-snapshot-1"
-	if err := ReadyForStep(plan, StepKubeadmApplied); err != nil {
-		t.Fatalf("ReadyForStep(KubeadmApplied) error = %v", err)
+	if err := ReadyForStep(plan, StepDistributionApplied); err != nil {
+		t.Fatalf("ReadyForStep(DistributionApplied) error = %v", err)
 	}
 }
 
 func TestRecordPlanStepはPlanごとのStep順序を使う(t *testing.T) {
 	plan, err := BuildPlan(PlanInput{
+		Distribution:   DistributionKubeadm,
 		OperationID:    "operation-1",
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",

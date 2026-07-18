@@ -60,7 +60,7 @@ func TestTartMachineTemplateCannotCarryProviderID(t *testing.T) {
 			Template: TartMachineTemplateResource{
 				Spec: TartMachineTemplateResourceSpec{
 					Image:           ImageSpec{Ref: "oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
-					PlatformProfile: "amd64-uefi-ab/v1",
+					PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 					DeletionPolicy:  DeletionPolicyWipeAll,
 				},
 			},

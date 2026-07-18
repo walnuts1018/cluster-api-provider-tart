@@ -71,9 +71,10 @@ func TestRecordCompletedStepは順序が壊れたStatusを拒否する(t *testin
 func workerPlan(t *testing.T) domain.Plan {
 	t.Helper()
 	plan, err := domain.BuildPlan(domain.PlanInput{
+		Distribution:   domain.DistributionKubeadm,
 		OperationID:    "operation-1",
-		CurrentVersion: "v1.34.0",
-		TargetVersion:  "v1.35.0",
+		CurrentVersion: "v1.35.0",
+		TargetVersion:  "v1.36.0",
 		UpdateClass:    domain.UpdateClassKubernetesBinary,
 		NodeRole:       domain.NodeRoleWorker,
 	})

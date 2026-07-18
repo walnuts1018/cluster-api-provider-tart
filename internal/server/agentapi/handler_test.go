@@ -46,8 +46,8 @@ import (
 
 const (
 	testOperationUID       = "operation-uid"
-	testCurrentVersion     = "v1.34.0"
-	testTargetVersion      = "v1.35.0"
+	testCurrentVersion     = "v1.35.0"
+	testTargetVersion      = "v1.36.0"
 	testNodeLifecycleKeyID = "node-lifecycle-key"
 )
 
@@ -303,6 +303,7 @@ func TestHandlerServesNodeLifecyclePlanAfterSessionAuthentication(t *testing.T) 
 	signed := nodelifecycle.SignedPlan{
 		Plan: nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,
@@ -422,6 +423,7 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,
@@ -432,7 +434,7 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepSnapshotCreated,
 				distributiondomain.StepTargetSlotWritten,
-				distributiondomain.StepKubeadmApplied,
+				distributiondomain.StepDistributionApplied,
 				distributiondomain.StepTargetSlotBooted,
 				distributiondomain.StepHealthVerified,
 				distributiondomain.StepCommitted,
@@ -466,7 +468,7 @@ func TestHandlerは各NodeLifecycleStep直後の再起動後も完了報告を�
 			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
 		},
 		{
-			step:               distributiondomain.StepKubeadmApplied,
+			step:               distributiondomain.StepDistributionApplied,
 			wantSnapshotRef:    "etcd-snapshot-1",
 			wantLifecyclePhase: "Apply",
 			wantPhase:          infrastructurev1beta1.TartHostOperationPhaseDistributionUpdating,
@@ -553,6 +555,7 @@ func TestHandlerは一時停止復帰後もfreshHandler経由で完了Stepを一
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,
@@ -660,6 +663,7 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,
@@ -670,7 +674,7 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepSnapshotCreated,
-				distributiondomain.StepKubeadmApplied,
+				distributiondomain.StepDistributionApplied,
 			},
 		},
 		func(operation *infrastructurev1beta1.TartHostOperation) {
@@ -718,7 +722,7 @@ func TestHandlerはStateMigration失敗時にSnapshotRefを保持したままRec
 			APIVersion:   agentprotocol.APIVersion,
 			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
-			Step:         string(distributiondomain.StepKubeadmApplied),
+			Step:         string(distributiondomain.StepDistributionApplied),
 			Result:       agentprotocol.NodeLifecycleResultFailed,
 		},
 	)
@@ -744,6 +748,7 @@ func TestHandlerはKubernetesBinary失敗時にRollingBackへ遷移する(t *tes
 		nil,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,
@@ -753,7 +758,7 @@ func TestHandlerはKubernetesBinary失敗時にRollingBackへ遷移する(t *tes
 			Steps: []distributiondomain.Step{
 				distributiondomain.StepPreflightCompleted,
 				distributiondomain.StepTargetSlotWritten,
-				distributiondomain.StepKubeadmApplied,
+				distributiondomain.StepDistributionApplied,
 			},
 		},
 		func(operation *infrastructurev1beta1.TartHostOperation) {
@@ -800,7 +805,7 @@ func TestHandlerはKubernetesBinary失敗時にRollingBackへ遷移する(t *tes
 			APIVersion:   agentprotocol.APIVersion,
 			OperationUID: testOperationUID,
 			PlanDigest:   state.nodePlanDigest,
-			Step:         string(distributiondomain.StepKubeadmApplied),
+			Step:         string(distributiondomain.StepDistributionApplied),
 			Result:       agentprotocol.NodeLifecycleResultFailed,
 		},
 	)
@@ -1163,6 +1168,7 @@ func newAuthenticatedHandler(t *testing.T, bootstrap BootstrapProvider) (*Handle
 		bootstrap,
 		nodelifecycle.Plan{
 			APIVersion:     nodelifecycle.APIVersion,
+			Distribution:   distributiondomain.DistributionKubeadm,
 			OperationID:    testOperationUID,
 			CurrentVersion: testCurrentVersion,
 			TargetVersion:  testTargetVersion,

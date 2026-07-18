@@ -57,6 +57,25 @@ Task 09 完了直後の release candidate では、更新系の公開状態を�
 
 Supported へ変更する時は、対象行ごとに `target-state.md` と Release Note を同じ変更で更新する。
 
+## k8s v1.36 対応Matrixの追跡範囲
+
+Task 11 では Kubernetes `v1.36.x` を対象versionとし、OSとdistributionの組み合わせを次の6行で追跡する。
+`Supported` へ昇格するまでは `docs/release/release-matrix.yaml` の状態を `Planned` とする。
+
+| OS | Distribution | Kubernetes | 現在の状態 | 必要な追加成果物 |
+|---|---|---|---|---|
+| Ubuntu 24.04 LTS | kubeadm | `v1.36.x` | Planned | v1.36 OS Artifact、kubeadm Lifecycle E2E、Release Matrix証跡 |
+| Ubuntu 26.04 LTS | kubeadm | `v1.36.x` | Planned | x86-64-v1 build、Sandy Bridge boot証跡、systemd mount差分記録 |
+| Debian 13 | kubeadm | `v1.36.x` | Planned | Debian repository lock、State/Data path検証、kubeadm Lifecycle E2E |
+| Ubuntu 24.04 LTS | k3s | `v1.36.x` | Planned | Bootstrap/Control Plane Provider選定、k3s State/Data契約、k3s Lifecycle Adapter |
+| Ubuntu 26.04 LTS | k3s | `v1.36.x` | Planned | Ubuntu 26.04成果物に加え、k3s token/node identity保持証跡 |
+| Debian 13 | k3s | `v1.36.x` | Planned | Debian 13成果物に加え、k3s State/Data path検証 |
+
+`config/templates/cluster-template-kubeadm*.yaml` は kubeadm 用の汎用テンプレートであり、OS差分は
+`OS_ARTIFACT_REF`、`OS_ARTIFACT_REGISTRY`、`PLATFORM_PROFILE` で指定する。k3s 用テンプレートは、
+対応Bootstrap/Control Plane ProviderとAPI kindが決定し、初期ProvisioningのE2E証跡を追加するまで作成しない。
+実在しないProvider APIを含むテンプレートを先に公開してはならない。
+
 ### 2026-07-17 時点の docs 実装状況
 
 - `docs/release/release-matrix.yaml` を Supported/Experimental Matrix の正本として追加した。

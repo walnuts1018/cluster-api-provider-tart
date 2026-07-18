@@ -289,7 +289,7 @@ func testMachine() *infrastructurev1beta1.TartMachine {
 			Image: infrastructurev1beta1.ImageSpec{
 				Ref: "oci://registry.test.walnuts.dev/os@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			HostSelector: infrastructurev1beta1.HostSelector{
 				MatchLabels: map[string]string{"rack": "a"},
 			},

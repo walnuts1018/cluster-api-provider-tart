@@ -34,6 +34,7 @@ func TestPreflightはminorVersionSkipを拒否する(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := Preflight(PreflightInput{
+				Distribution:   DistributionKubeadm,
 				CurrentVersion: tt.current,
 				TargetVersion:  tt.target,
 				UpdateClass:    UpdateClassKubernetesBinary,
@@ -48,6 +49,7 @@ func TestPreflightはminorVersionSkipを拒否する(t *testing.T) {
 
 func TestPreflightはWorkerがControlPlaneより先に進むことを拒否する(t *testing.T) {
 	err := Preflight(PreflightInput{
+		Distribution:                    DistributionKubeadm,
 		CurrentVersion:                  "v1.34.0",
 		TargetVersion:                   "v1.35.0",
 		ControlPlaneAcceptedVersion:     "v1.34.0",
@@ -62,6 +64,7 @@ func TestPreflightはWorkerがControlPlaneより先に進むことを拒否す�
 
 func TestPreflightはStateMigrationでSnapshotRefを必須にする(t *testing.T) {
 	err := Preflight(PreflightInput{
+		Distribution:   DistributionKubeadm,
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",
 		UpdateClass:    UpdateClassStateMigration,
@@ -72,6 +75,7 @@ func TestPreflightはStateMigrationでSnapshotRefを必須にする(t *testing.T
 	}
 
 	err = Preflight(PreflightInput{
+		Distribution:   DistributionKubeadm,
 		CurrentVersion: "v1.34.0",
 		TargetVersion:  "v1.35.0",
 		UpdateClass:    UpdateClassStateMigration,

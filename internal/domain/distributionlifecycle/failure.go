@@ -26,6 +26,10 @@ type InvalidTargetVersion struct {
 	Value string
 }
 
+type UnsupportedDistribution struct {
+	Value string
+}
+
 type MajorVersionChangeUnsupported struct{}
 
 type VersionDowngradeUnsupported struct{}
@@ -61,6 +65,7 @@ type APIUnhealthy struct{}
 
 func (InvalidCurrentVersion) isDistributionLifecycleFailure()              {}
 func (InvalidTargetVersion) isDistributionLifecycleFailure()               {}
+func (UnsupportedDistribution) isDistributionLifecycleFailure()            {}
 func (MajorVersionChangeUnsupported) isDistributionLifecycleFailure()      {}
 func (VersionDowngradeUnsupported) isDistributionLifecycleFailure()        {}
 func (MinorVersionSkipUnsupported) isDistributionLifecycleFailure()        {}

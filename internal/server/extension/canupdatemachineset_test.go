@@ -53,13 +53,13 @@ func TestHandleCanUpdateMachineSetはOSOnly差分だけをPatchする(t *testing
 		{
 			name: "Kubernetes version",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
-				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.35.0"
+				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.36.0"
 			},
 		},
 		{
 			name: "Kubernetes version with distribution lifecycle gate",
 			mutate: func(request *runtimehooksv1.CanUpdateMachineSetRequest) {
-				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.35.0"
+				request.Desired.MachineSet.Spec.Template.Spec.Version = "v1.36.0"
 			},
 			distributionGates: DistributionLifecycleFeatureGates{Worker: true},
 			wantPatch:         true,
@@ -156,7 +156,7 @@ func machineSetUpdateRequest(t *testing.T) *runtimehooksv1.CanUpdateMachineSetRe
 			Template: infrastructurev1beta1.TartMachineTemplateResource{
 				Spec: infrastructurev1beta1.TartMachineTemplateResourceSpec{
 					Image:           infrastructurev1beta1.ImageSpec{Ref: extensionArtifactRef("a")},
-					PlatformProfile: "amd64-uefi-ab/v1",
+					PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 					UpdatePolicy: infrastructurev1beta1.UpdatePolicy{
 						Mode: infrastructurev1beta1.UpdateModeReplace,
 					},

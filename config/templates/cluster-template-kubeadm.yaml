@@ -41,7 +41,7 @@ metadata:
   name: ${CLUSTER_NAME}-control-plane
 spec:
   replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
-  version: ${KUBERNETES_VERSION}
+  version: ${KUBERNETES_VERSION:=v1.36.2}
   machineTemplate:
     spec:
       infrastructureRef:
@@ -58,7 +58,7 @@ spec:
     spec:
       image:
         ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
-      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}
+      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1}
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll
@@ -75,7 +75,7 @@ spec:
   template:
     spec:
       clusterName: ${CLUSTER_NAME}
-      version: ${KUBERNETES_VERSION}
+      version: ${KUBERNETES_VERSION:=v1.36.2}
       bootstrap:
         configRef:
           apiGroup: bootstrap.cluster.x-k8s.io
@@ -100,7 +100,7 @@ spec:
     spec:
       image:
         ref: ${OS_ARTIFACT_REF:=oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
-      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}
+      platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1}
       updatePolicy:
         mode: Replace
       deletionPolicy: WipeAll

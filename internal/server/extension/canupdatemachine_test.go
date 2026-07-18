@@ -30,7 +30,7 @@ import (
 
 const (
 	extensionCurrentVersion = "v1.34.0"
-	extensionTargetVersion  = "v1.35.0"
+	extensionTargetVersion  = "v1.36.0"
 )
 
 func TestHandleCanUpdateMachineはOSOnly差分だけをPatchする(t *testing.T) {
@@ -299,7 +299,7 @@ func machineUpdateRequest(t *testing.T) *runtimehooksv1.CanUpdateMachineRequest 
 		Spec: infrastructurev1beta1.TartMachineSpec{
 			ProviderID:      "tart://host-1",
 			Image:           infrastructurev1beta1.ImageSpec{Ref: extensionArtifactRef("a")},
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			HostSelector: infrastructurev1beta1.HostSelector{
 				MatchLabels: map[string]string{"rack": "rack-a"},
 			},

@@ -60,6 +60,7 @@ func buildSignedNodeLifecyclePlanStep(
 	}
 	plan, err := distributiondomain.BuildPlan(distributiondomain.PlanInput{
 		OperationID:    operation.Spec.OperationID,
+		Distribution:   distributiondomain.Distribution(input.Manifest.Value().Kubernetes.Distribution),
 		CurrentVersion: currentDistributionVersion(input.StartInput),
 		TargetVersion:  targetDistributionVersion(input.StartInput),
 		UpdateClass:    distributiondomain.UpdateClassKubernetesBinary,

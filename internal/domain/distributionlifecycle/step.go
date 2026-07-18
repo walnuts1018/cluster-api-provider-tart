@@ -20,20 +20,20 @@ import "fmt"
 type Step string
 
 const (
-	StepPreflightCompleted Step = "PreflightCompleted"
-	StepSnapshotCreated    Step = "SnapshotCreated"
-	StepTargetSlotWritten  Step = "TargetSlotWritten"
-	StepKubeadmApplied     Step = "KubeadmApplied"
-	StepTargetSlotBooted   Step = "TargetSlotBooted"
-	StepHealthVerified     Step = "HealthVerified"
-	StepCommitted          Step = "Committed"
+	StepPreflightCompleted  Step = "PreflightCompleted"
+	StepSnapshotCreated     Step = "SnapshotCreated"
+	StepTargetSlotWritten   Step = "TargetSlotWritten"
+	StepDistributionApplied Step = "DistributionApplied"
+	StepTargetSlotBooted    Step = "TargetSlotBooted"
+	StepHealthVerified      Step = "HealthVerified"
+	StepCommitted           Step = "Committed"
 )
 
 var lifecycleSteps = []Step{
 	StepPreflightCompleted,
 	StepSnapshotCreated,
 	StepTargetSlotWritten,
-	StepKubeadmApplied,
+	StepDistributionApplied,
 	StepTargetSlotBooted,
 	StepHealthVerified,
 	StepCommitted,

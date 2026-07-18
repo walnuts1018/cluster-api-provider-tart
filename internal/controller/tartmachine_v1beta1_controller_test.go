@@ -226,8 +226,8 @@ func TestTartMachineV1Beta1ReconcilerDoesNotProvisionBeforeHealthGate(t *testing
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         true,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 	}
 
@@ -418,8 +418,8 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         true,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 		Provisioner: provisioner,
 	}
@@ -435,8 +435,8 @@ func TestTartMachineV1Beta1ReconcilerProvisionsAfterEveryHealthGate(t *testing.T
 	if current.Status.Initialization.Provisioned == nil || !*current.Status.Initialization.Provisioned {
 		t.Fatalf("initialization.provisioned = %#v, want true", current.Status.Initialization.Provisioned)
 	}
-	if current.Status.InstalledDistributionVersion != "v1.35.0" {
-		t.Fatalf("installedDistributionVersion = %q, want v1.35.0", current.Status.InstalledDistributionVersion)
+	if current.Status.InstalledDistributionVersion != "v1.36.0" {
+		t.Fatalf("installedDistributionVersion = %q, want v1.36.0", current.Status.InstalledDistributionVersion)
 	}
 	if provisioner.completeCalls != 1 {
 		t.Fatalf("CompleteProvisioning() calls = %d, want 1", provisioner.completeCalls)
@@ -463,8 +463,8 @@ func TestTartMachineV1Beta1ReconcilerKeepsAwaitingHealthUntilNodeIsReady(t *test
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         false,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 		Provisioner: provisioner,
 	}
@@ -694,8 +694,8 @@ func TestTartMachineV1Beta1ReconcilerDoesNotOverwriteRollbackConditionWithNodeHe
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         true,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 	}
 
@@ -764,8 +764,8 @@ func TestTartMachineV1Beta1ReconcilerCompletesUpdateAfterNodeHealth(t *testing.T
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         true,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 	}
 
@@ -839,8 +839,8 @@ func TestTartMachineV1Beta1ReconcilerRollsBackUpdateWhenNodeHealthFails(t *testi
 			MachineProviderID: machine.Spec.ProviderID,
 			NodeProviderID:    machine.Spec.ProviderID,
 			NodeReady:         false,
-			ExpectedVersion:   "v1.35.0",
-			NodeVersion:       "v1.35.0",
+			ExpectedVersion:   "v1.36.0",
+			NodeVersion:       "v1.36.0",
 		}},
 	}
 

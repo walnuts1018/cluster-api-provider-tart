@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	liveDistributionVersion   = "v1.34.0"
-	targetDistributionVersion = "v1.35.0"
+	liveDistributionVersion   = "v1.35.0"
+	targetDistributionVersion = "v1.36.0"
 )
 
 func TestServiceStartはLiveStatusとDesiredSpecからWorkflowを開始する(t *testing.T) {
@@ -177,7 +177,7 @@ func updateTartMachine() *infrastructurev1beta1.TartMachine {
 		},
 		Spec: infrastructurev1beta1.TartMachineSpec{
 			Image:           infrastructurev1beta1.ImageSpec{Ref: requestArtifactRef("a")},
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			UpdatePolicy: infrastructurev1beta1.UpdatePolicy{
 				Mode: infrastructurev1beta1.UpdateModeInPlace,
 			},
@@ -202,7 +202,7 @@ func updateHost() *infrastructurev1beta1.TartHost {
 		},
 		Spec: infrastructurev1beta1.TartHostSpec{
 			Architecture:    infrastructurev1beta1.ArchitectureAMD64,
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		},
 		Status: infrastructurev1beta1.TartHostStatus{
 			Phase: infrastructurev1beta1.TartHostPhaseProvisioned,
@@ -226,7 +226,7 @@ func updateCAPIMachine() clusterv1.Machine {
 
 func updateArtifactManifest(t *testing.T) artifact.ValidatedManifest {
 	t.Helper()
-	return updateArtifactManifestWithKubernetesVersion(t, liveDistributionVersion)
+	return updateArtifactManifestWithKubernetesVersion(t, targetDistributionVersion)
 }
 
 func updateArtifactManifestWithKubernetesVersion(t *testing.T, version string) artifact.ValidatedManifest {
@@ -244,7 +244,7 @@ func updateArtifactManifestWithKubernetesVersion(t *testing.T, version string) a
 		Boot:            artifact.Boot{KernelDigest: requestDigest("e"), InitrdDigest: requestDigest("f")},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      2,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	})
 	if err != nil {
 		t.Fatalf("artifact.Validate() error = %v", err)

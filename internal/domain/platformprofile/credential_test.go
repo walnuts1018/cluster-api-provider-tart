@@ -27,7 +27,7 @@ func TestRequirementForProfile(t *testing.T) {
 	}{
 		{
 			name:    "隔離L2必須profile",
-			profile: "amd64-uefi-ab/v1",
+			profile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 			want: Requirement{
 				Mode:               CredentialModeIsolatedL2,
 				IsolatedL2Required: true,
@@ -36,7 +36,7 @@ func TestRequirementForProfile(t *testing.T) {
 		},
 		{
 			name:    "未知profile",
-			profile: "amd64-uefi-ab/v2",
+			profile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v2",
 			wantOK:  false,
 		},
 	}

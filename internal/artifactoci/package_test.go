@@ -149,11 +149,11 @@ func createInput(t *testing.T) Input {
 			RootHash:  strings.Repeat("a", 64),
 		},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
-		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.35.0"},
+		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", Version: "v1.36.0"},
 		Boot:            artifact.Boot{KernelDigest: kernelDescription.Digest, InitrdDigest: initrdDescription.Digest},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      1,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	})
 	if err != nil {
 		t.Fatalf("artifact.Validate() error = %v", err)

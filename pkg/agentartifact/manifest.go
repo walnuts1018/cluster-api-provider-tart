@@ -25,6 +25,7 @@ import (
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
 	"github.com/walnuts1018/cluster-api-provider-tart/pkg/artifact"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/platformprofile"
 )
 
 const (
@@ -32,7 +33,7 @@ const (
 	MediaType                    = "application/vnd.tart.provisioning-agent.v1"
 	ArchitectureAMD64            = "amd64"
 	FirmwareUEFI                 = "UEFI"
-	PlatformProfileAMD64UEFIABV1 = "amd64-uefi-ab/v1"
+	PlatformProfileAMD64UEFIABV1 = platformprofile.LegacyProfileAMD64UEFIABV1
 	SignatureAlgorithmEd25519    = "Ed25519"
 )
 
@@ -88,12 +89,15 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact mediaType: %q", manifest.MediaType)
 	case !referencePattern.MatchString(manifest.Reference):
 		return ValidatedManifest{}, errors.New("agent Artifact reference must be a digest-pinned OCI reference")
-	case manifest.Architecture != ArchitectureAMD64:
-		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact architecture: %q", manifest.Architecture)
-	case manifest.Firmware != FirmwareUEFI:
-		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact firmware: %q", manifest.Firmware)
-	case manifest.PlatformProfile != PlatformProfileAMD64UEFIABV1:
+	}
+	profile, ok := platformprofile.Lookup(manifest.PlatformProfile)
+	switch {
+	case !ok:
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact platformProfile: %q", manifest.PlatformProfile)
+	case manifest.Architecture != profile.Architecture:
+		return ValidatedManifest{}, fmt.Errorf("agent artifact architecture %q does not match platformProfile %q", manifest.Architecture, manifest.PlatformProfile)
+	case manifest.Firmware != profile.Firmware:
+		return ValidatedManifest{}, fmt.Errorf("agent artifact firmware %q does not match platformProfile %q", manifest.Firmware, manifest.PlatformProfile)
 	}
 	if err := validateDescriptor("kernel", manifest.Kernel); err != nil {
 		return ValidatedManifest{}, err

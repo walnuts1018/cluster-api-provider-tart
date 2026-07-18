@@ -80,7 +80,7 @@ func TestClusterTemplatesUseV1Beta1ArtifactModel(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm-ubuntu.yaml"),
-			want: "platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab/v1}",
+			want: "platformProfile: ${PLATFORM_PROFILE:=amd64-uefi-ab-ubuntu-24.04-kubeadm/v1}",
 		},
 		{
 			path: filepath.Join("..", "..", "config", "templates", "cluster-template-kubeadm.yaml"),
@@ -99,7 +99,7 @@ func TestSamplesUseV1Beta1ArtifactModel(t *testing.T) {
 		},
 		{
 			path: filepath.Join("..", "..", "config", "samples", "cluster-kubeadm-ubuntu.yaml"),
-			want: "platformProfile: amd64-uefi-ab/v1",
+			want: "platformProfile: amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		},
 	})
 }

@@ -1,0 +1,21 @@
+{
+  "os": {
+    "family": "debian",
+    "version": "13"
+  },
+  "architecture": "amd64",
+  "filesystem": "ext4",
+  "stateSchema": {
+    "min": 1,
+    "max": 1
+  },
+  "kubernetes": {
+    "distribution": "k3s",
+    "version": "v1.36.0"
+  },
+  "requirements": {
+    "cpuLevel": "x86-64-v1"
+  },
+  "generation": 1,
+  "platformProfile": "amd64-uefi-ab-debian-13-k3s/v1"
+}

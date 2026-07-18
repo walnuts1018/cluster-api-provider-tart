@@ -122,7 +122,7 @@ func TestServiceSynchronizesIsolatedL2ConditionAcrossStatusUpdates(t *testing.T)
 					UID:        "host-uid",
 				},
 				Spec: infrastructurev1beta1.TartHostSpec{
-					PlatformProfile: "amd64-uefi-ab/v1",
+					PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 					ConsumerRef: &infrastructurev1beta1.ResourceReference{
 						Namespace: "default",
 						Name:      "machine-a",
@@ -162,7 +162,7 @@ func TestServiceSynchronizesIsolatedL2ConditionAcrossStatusUpdates(t *testing.T)
 			if condition.Reason != "IsolatedL2Required" {
 				t.Fatalf("CredentialRequirement reason = %q, want IsolatedL2Required", condition.Reason)
 			}
-			wantMessage := "Platform profile amd64-uefi-ab/v1 requires an isolated provisioning L2 because it does not have hardware-bound initial credential."
+			wantMessage := "Platform profile amd64-uefi-ab-ubuntu-24.04-kubeadm/v1 requires an isolated provisioning L2 because it does not have hardware-bound initial credential."
 			if condition.Message != wantMessage {
 				t.Fatalf("CredentialRequirement message = %q, want %q", condition.Message, wantMessage)
 			}
@@ -233,7 +233,7 @@ func TestServiceSynchronizesIsolatedL2ConditionPreservesExistingDegradedReason(t
 			Generation: 3,
 		},
 		Spec: infrastructurev1beta1.TartHostSpec{
-			PlatformProfile: "amd64-uefi-ab/v1",
+			PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 		},
 		Status: infrastructurev1beta1.TartHostStatus{
 			Conditions: []metav1.Condition{{

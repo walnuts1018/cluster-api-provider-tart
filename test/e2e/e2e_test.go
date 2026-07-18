@@ -389,7 +389,7 @@ metadata:
 spec:
   image:
     ref: oci://registry.sample.walnuts.dev/tart/ubuntu@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-  platformProfile: amd64-uefi-ab/v1
+  platformProfile: amd64-uefi-ab-ubuntu-24.04-kubeadm/v1
   deletionPolicy: WipeAll
 `
 			cmd := exec.Command(

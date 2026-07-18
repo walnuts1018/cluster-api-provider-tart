@@ -60,7 +60,7 @@ crictl ps --name kube-scheduler
 1. `PreflightCompleted`
 2. `SnapshotCreated`
 3. `TargetSlotWritten`
-4. `KubeadmApplied`
+4. `DistributionApplied`
 5. `TargetSlotBooted`
 6. `HealthVerified`
 7. `Committed`
@@ -81,10 +81,10 @@ crictl ps --name kube-scheduler
 
 - `PreflightCompleted` まで:
   State/Data は未変更の想定。原因を除去後に新しい Update Operation を作り直す。
-- `SnapshotCreated` 以降 `KubeadmApplied` 未満:
+- `SnapshotCreated` 以降 `DistributionApplied` 未満:
   Snapshot は取得済み、Kubernetes State 変更は未着手。target slot 書き込み失敗や boot 失敗の
   切り分けを行い、State 復元は通常不要。
-- `KubeadmApplied` 以降:
+- `DistributionApplied` 以降:
   Kubernetes State が変更済みの可能性がある。旧 slot へ戻しても整合性が保証されないため、
   `status.snapshotRef` を使った復元判断を必須にする。
 
@@ -122,9 +122,9 @@ Snapshot 名だけで信頼せず、Operation ID、Host、取得時刻、restore
 
 ### 手順 4. 復元方針を選ぶ
 
-- `KubeadmApplied` 未満:
+- `DistributionApplied` 未満:
   原因除去後に新しい Update Operation を作り直す方針を優先する。
-- `KubeadmApplied` 以降かつ etcd/API 不健全:
+- `DistributionApplied` 以降かつ etcd/API 不健全:
   Snapshot から State を復元する。
 - 単一 control plane で management API が停止:
   management API の復帰手段を先に確保する。Task 09 時点では Experimental 扱いのままとする。
@@ -155,7 +155,7 @@ Plan を見直した上で新しい Operation を作る。
 ## 禁止事項
 
 - `status.snapshotRef` が空のまま StateMigration を復旧済みと判断しない。
-- `KubeadmApplied` 以降の失敗を、slot 切り戻しだけで `Succeeded` と報告しない。
+- `DistributionApplied` 以降の失敗を、slot 切り戻しだけで `Succeeded` と報告しない。
 - `completedSteps` を手で書き換えて再開済み扱いにしない。
 - 別 Host、別 Operation、別 cluster の Snapshot を流用しない。
 - rollout owner に通知せず複数 Node を同時に手動復旧しない。

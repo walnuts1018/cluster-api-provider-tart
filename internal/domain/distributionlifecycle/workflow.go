@@ -25,7 +25,7 @@ func DecidePlan(input PlanInput) PlanResult {
 	}
 	steps = append(steps,
 		StepTargetSlotWritten,
-		StepKubeadmApplied,
+		StepDistributionApplied,
 		StepTargetSlotBooted,
 		StepHealthVerified,
 		StepCommitted,
@@ -33,6 +33,7 @@ func DecidePlan(input PlanInput) PlanResult {
 
 	return PlanReady{Plan: Plan{
 		OperationID:    input.OperationID,
+		Distribution:   input.Distribution,
 		CurrentVersion: input.CurrentVersion,
 		TargetVersion:  input.TargetVersion,
 		UpdateClass:    input.UpdateClass,
@@ -46,7 +47,7 @@ func DecideStep(command StepCommand) RunnableDecision {
 	if indexOfStep(command.Plan.Steps, command.Step) < 0 {
 		return StepBlocked{Failure: StepNotInPlan{Step: command.Step}}
 	}
-	if command.Step == StepKubeadmApplied &&
+	if command.Step == StepDistributionApplied &&
 		(command.Plan.NodeRole == NodeRoleControlPlane ||
 			command.Plan.UpdateClass == UpdateClassStateMigration) &&
 		command.Plan.SnapshotRef == "" {

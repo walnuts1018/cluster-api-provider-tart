@@ -70,6 +70,27 @@ func TestValidateManifest(t *testing.T) {
 			},
 			wantErr: "platformProfile",
 		},
+		{
+			name: "profile OS mismatch",
+			mutate: func(manifest *Manifest) {
+				manifest.PlatformProfile = "amd64-uefi-ab-debian-13-kubeadm/v1"
+			},
+			wantErr: "os.family",
+		},
+		{
+			name: "profile distribution mismatch",
+			mutate: func(manifest *Manifest) {
+				manifest.PlatformProfile = "amd64-uefi-ab-ubuntu-24.04-k3s/v1"
+			},
+			wantErr: "distribution",
+		},
+		{
+			name: "unsupported Kubernetes version",
+			mutate: func(manifest *Manifest) {
+				manifest.Kubernetes.Version = "v1.35.0"
+			},
+			wantErr: "kubernetes.version",
+		},
 	}
 
 	for _, tt := range tests {
@@ -174,7 +195,7 @@ func validManifest() Manifest {
 		StateSchema: StateSchema{Min: 1, Max: 1},
 		Kubernetes: Kubernetes{
 			Distribution: "kubeadm",
-			Version:      "v1.35.0",
+			Version:      "v1.36.0",
 		},
 		Boot: Boot{
 			KernelDigest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
@@ -182,6 +203,6 @@ func validManifest() Manifest {
 		},
 		Requirements:    Requirements{CPULevel: "x86-64-v1"},
 		Generation:      1,
-		PlatformProfile: "amd64-uefi-ab/v1",
+		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
 	}
 }

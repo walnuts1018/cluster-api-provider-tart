@@ -1,101 +1,132 @@
 # Ubuntu 24.04 と kubeadm の実機導入
 
 > [!WARNING]
-> この手順は開発版の検証を対象とします。初期 Provisioning は未完成であり、完了した
-> Kubernetes Node を得ることは保証されません。対象 Host のディスクは消去されるため、隔離した
-> Provisioning L2 と検証用ディスクだけを使用してください。
+> Tart は開発中です。本番環境には使用せず、隔離した Provisioning L2 と消去してよいディスクだけを
+> 使用してください。初期 Provisioning により対象 Host のディスクは消去されます。
 
-## 対象
+この手順では、Provider image、iPXE、Provisioning Agent Artifact、OS Artifact、署名鍵を利用者が
+ビルドまたはアップロードする必要はありません。同じ Tart Release が配布する manifest と
+`cluster-template-kubeadm-ubuntu.yaml` を使用します。
 
-この手順は、`amd64-uefi-ab-ubuntu-24.04-kubeadm/v1` Profile、Ubuntu 24.04、kubeadm
-Kubernetes v1.36.2を対象とする。管理クラスタと対象Hostは、一般利用LANから分離した同一の
-Provisioning L2へ接続する。管理クラスタnodeがProxyDHCP broadcastを送受信できない構成では、
-この手順を使用しない。
+対象は、Ubuntu 24.04、amd64、UEFI、iPXE、Wake-on-LAN を使う隔離 Provisioning L2 です。Provider は
+ProxyDHCP として動作するため、既存 DHCP の IP アドレス配布を置き換えません。
 
-対象HostはUEFI network boot、Wake-on-LAN、64 GiB以上のroot disk、x86-64-v1 CPUを必要とする。
-`rootDeviceHints.deviceName`にはAgentから見える安定した`/dev/disk/by-id` pathを指定する。
-disk名の推測やHostへのSSH操作は行わない。
+## 事前条件
 
-## 事前準備
+- Kubernetes 管理クラスタへ `kubectl` で接続できること
+- Provider Pod が起動する管理クラスタ node と対象 PC が、同じ隔離 Provisioning L2 に接続されていること
+- 対象 PC で UEFI network boot と Wake-on-LAN を有効にしていること
+- GitHub Container Registry と GitHub Release から Tart Release を取得できること
 
-1. Provisioning L2だけへ接続された管理クラスタnodeを1台決め、labelを付ける。
+初回 boot では、隔離 Provisioning L2 上の HTTP 経路で Agent の公開鍵と Agent API 証明書を取得します。
+一般利用 LAN と同じ broadcast domain でこの構成を使ってはいけません。
 
-```bash
-kubectl label node MANAGEMENT_NODE tart.walnuts.dev/provisioning-network=true
-```
+## Release を選ぶ
 
-2. controllerのAgent APIとAgent Artifact配信に使うDNS名を用意する。TLS証明書のSANには
-そのDNS名を含める。iPXE binaryはこのCAを信頼する専用buildを使用する。公開の汎用iPXE binaryと
-自己署名証明書の組合せは使用しない。
-
-3. Ubuntu 24.04のOS ArtifactをLinux builder上で作成し、署名済みOCI Artifactとして公開する。
-`artifact/locks/ubuntu-24.04-amd64.json`が固定するkubeadm、kubelet、kubectlのversionはv1.36.2である。
+利用する Tart Release を 1 つ選びます。以降の Provider manifest とクラスターテンプレートは、必ず同じ
+`TART_VERSION` のものを使用してください。
 
 ```bash
-MISE_OFFLINE=1 mise run artifact-build-mkosi
-ARTIFACT_IMAGE=dist/os-artifact/os.img \
-ARTIFACT_VERITY=dist/os-artifact/os.verity \
-ARTIFACT_KERNEL=dist/os-artifact/vmlinuz \
-ARTIFACT_INITRD=dist/os-artifact/initrd \
-ARTIFACT_VERITY_ROOT_HASH="$(tr -d '[:space:]' < dist/os-artifact/verity-root-hash)" \
-ARTIFACT_SIGNING_KEY=PATH_TO_OS_ARTIFACT_PRIVATE_KEY \
-ARTIFACT_SIGNING_KEY_ID=operator-os-v1 \
-MISE_OFFLINE=1 mise run artifact-manifest
+export TART_VERSION=REPLACE_WITH_TART_RELEASE_VERSION
+export TART_RELEASE_URL="https://github.com/walnuts1018/cluster-api-provider-tart/releases/download/${TART_VERSION}"
 ```
 
-Artifactをregistryへ公開した後、出力されたdigest固定`oci://...@sha256:...`参照を保存する。
-可変tagを`TartMachine`へ指定してはならない。
+Release に次のファイルがあることを確認します。
 
-4. managerを実行するnode上の`/srv/tart/agent-artifact`へ検証済みAgent Artifactを配置する。
-directoryには`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`が必要である。
-Agent Artifactの署名公開鍵、OS Artifactの署名公開鍵、Agent Plan署名鍵、Agent API証明書と鍵を
-operatorが管理する。
+- `infrastructure-components.yaml`: Provider image、iPXE、Provisioning Agent Artifact と信頼情報を含む導入 manifest
+- `metadata.yaml`: `clusterctl` 用の Provider metadata
+- `operator-provider.yaml`: Cluster API Operator 用の `InfrastructureProvider`
+- `cluster-template-kubeadm-ubuntu.yaml`: Release 済み OS Artifact の digest を固定した kubeadm テンプレート
 
-## Provider導入
+## Provider を導入する
 
-次の例では、`PROVISIONING_ADDRESS`はProvisioning L2から到達できる管理nodeのDNS名またはIPである。
-Secret名とConfigMap名は、`config/real-hardware`が参照する名前と完全一致させる。
+Cluster API Operator または `clusterctl` のどちらか一方を選びます。どちらの経路でも、利用者が image や
+Artifact を作成・公開する必要はありません。
+
+### Cluster API Operator を使う
+
+Cluster API Operator が未導入なら、先に導入します。
 
 ```bash
-export TART_NAMESPACE=cluster-api-provider-tart-system
-export PROVISIONING_ADDRESS=provisioning.example.test
-
-kubectl create namespace "$TART_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n "$TART_NAMESPACE" create configmap tart-provisioning-settings \
-  --from-literal=bootstrapAdvertiseAddress="$PROVISIONING_ADDRESS" \
-  --from-literal=agentAPIURL="https://$PROVISIONING_ADDRESS:8444" \
-  --from-literal=agentArtifactBaseURL="https://$PROVISIONING_ADDRESS:8082" \
-  --from-literal=agentArtifactKeyID=operator-agent-v1 \
-  --from-literal=osArtifactKeyID=operator-os-v1 \
-  --from-literal=agentPlanKeyID=operator-plan-v1
-
-kubectl -n "$TART_NAMESPACE" create secret generic tart-provisioning-credentials \
-  --from-file=agent-api.crt=PATH_TO_AGENT_API_CERTIFICATE \
-  --from-file=agent-api.key=PATH_TO_AGENT_API_PRIVATE_KEY \
-  --from-file=agent-artifact-public.pem=PATH_TO_AGENT_ARTIFACT_PUBLIC_KEY \
-  --from-file=os-artifact-public.pem=PATH_TO_OS_ARTIFACT_PUBLIC_KEY \
-  --from-file=agent-plan-private.pem=PATH_TO_AGENT_PLAN_PRIVATE_KEY
-
-IMG=REGISTRY/cluster-api-provider-tart:TAG MISE_OFFLINE=1 mise run build-installer-real-hardware
-kubectl apply -f dist/install-real-hardware.yaml
-kubectl -n "$TART_NAMESPACE" rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=5m
+helm repo add capi-operator https://kubernetes-sigs.github.io/cluster-api-operator
+helm repo update
+helm install capi-operator capi-operator/cluster-api-operator \
+  --namespace capi-operator-system \
+  --create-namespace \
+  --set cert-manager.enabled=true \
+  --wait --timeout 90s
 ```
 
-`config/real-hardware`は`hostPath`を使うため、controller Deploymentを別nodeへ移動する前に
-同じAgent Artifactを移動先の`/srv/tart/agent-artifact`へ配置する。Agent Artifactのkey、CA、
-OS側first-boot設定は同じ信頼束で生成する。
+管理クラスタへ CAPI core、CABPK、KCP が未導入なら、次を一度だけ適用します。
 
-## Host inventory
+```yaml
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: CoreProvider
+metadata:
+  name: cluster-api
+  namespace: capi-system
+---
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: BootstrapProvider
+metadata:
+  name: kubeadm
+  namespace: capi-kubeadm-bootstrap-system
+---
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: ControlPlaneProvider
+metadata:
+  name: kubeadm
+  namespace: capi-kubeadm-control-plane-system
+```
 
-control plane用Hostとworker用Hostを別labelで登録する。`systemUUID`、MAC address、disk serial、
-WWNは実機から取得した値に置き換える。
+Tart Provider を導入します。
+
+```bash
+kubectl apply -f "${TART_RELEASE_URL}/operator-provider.yaml"
+kubectl wait --for=condition=Ready infrastructureprovider/tart \
+  -n cluster-api-provider-tart-system --timeout=10m
+kubectl -n cluster-api-provider-tart-system get job provisioning-credential-init
+```
+
+### `clusterctl` を使う
+
+`clusterctl` の設定へ Tart Release を登録して初期化します。
+
+```bash
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/cluster-api"
+cat > "${XDG_CONFIG_HOME:-$HOME/.config}/cluster-api/clusterctl.yaml" <<EOF
+providers:
+- name: tart
+  type: InfrastructureProvider
+  url: ${TART_RELEASE_URL}/infrastructure-components.yaml
+EOF
+
+clusterctl init \
+  --core cluster-api \
+  --bootstrap kubeadm \
+  --control-plane kubeadm \
+  --infrastructure tart
+
+kubectl -n cluster-api-provider-tart-system get job provisioning-credential-init
+```
+
+`provisioning-credential-init` Job は Agent Plan 秘密鍵を管理クラスタ内に一度だけ生成します。Provider Pod の
+init container は、起動 node の IP アドレスを SAN に含む Agent API 証明書を自動生成します。これらの値を
+利用者が取得、登録、更新する必要はありません。
+
+Provider Pod は任意の管理クラスタ node へ schedule されます。Provisioning L2 へ接続していない node が
+ある場合だけ、Provider の Deployment に node selector を設定して接続済み node を選択してください。
+
+## TartHost を登録する
+
+物理 PC ごとに、実機から確認した UUID、boot MAC、disk by-id と serial または WWN を指定します。これらは
+物理資産を誤って別の PC へ書き込まないために必須です。
 
 ```yaml
 apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
 kind: TartHost
 metadata:
   name: cp-01
-  namespace: default
   labels:
     tart.walnuts.dev/role: control-plane
 spec:
@@ -114,62 +145,36 @@ spec:
     bootDriver: ipxe
 ```
 
-workerには`metadata.name`、MAC、UUID、disk identityを変え、`tart.walnuts.dev/role: worker`を付ける。
-
-## Cluster作成
-
-`clusterctl`へこのrepositoryのInfrastructure Providerを登録し、kubeadm bootstrap/control-plane
-providerと合わせて初期化する。`OS_ARTIFACT_REF`は前節で公開したdigest固定参照を指定する。
+worker 用には、`metadata.name`、MAC、UUID、disk identity を変え、`tart.walnuts.dev/role: worker` を付けた
+`TartHost` を追加します。Provider が `Available` と表示した Host だけをクラスタ作成に使います。
 
 ```bash
+kubectl get tarthost
+```
+
+## ワークロードクラスタを作成する
+
+Release 済みのテンプレートを適用し、クラスタ名、control plane endpoint、台数だけを環境に合わせて設定します。
+OS Artifact の digest 固定参照は Release 作成時にテンプレートへ設定済みです。
+
+```bash
+curl -fsSLO "${TART_RELEASE_URL}/cluster-template-kubeadm-ubuntu.yaml"
+
 export CLUSTER_NAME=ubuntu-kubeadm
-export CONTROL_PLANE_ENDPOINT_HOST=192.0.2.100
-export CONTROL_PLANE_ENDPOINT_PORT=6443
-export OS_ARTIFACT_REF=oci://REGISTRY/tart/ubuntu@sha256:REPLACE_WITH_DIGEST
-export OS_ARTIFACT_REGISTRY=REGISTRY
+export CONTROL_PLANE_ENDPOINT_HOST=192.168.100.100
+export CONTROL_PLANE_MACHINE_COUNT=1
+export WORKER_MACHINE_COUNT=1
+export KUBERNETES_VERSION=v1.36.2
 
-cat > /tmp/clusterctl-tart.yaml <<EOF
-providers:
-- name: tart
-  type: InfrastructureProvider
-  url: file://${PWD}/dist/install-real-hardware.yaml
-variables:
-  CLUSTER_NAME: ${CLUSTER_NAME}
-  CONTROL_PLANE_ENDPOINT_HOST: ${CONTROL_PLANE_ENDPOINT_HOST}
-  CONTROL_PLANE_ENDPOINT_PORT: ${CONTROL_PLANE_ENDPOINT_PORT}
-  OS_ARTIFACT_REF: ${OS_ARTIFACT_REF}
-  OS_ARTIFACT_REGISTRY: ${OS_ARTIFACT_REGISTRY}
-EOF
-
-clusterctl init \
-  --config /tmp/clusterctl-tart.yaml \
-  --core cluster-api:v1.13.1 \
-  --bootstrap kubeadm:v1.13.1 \
-  --control-plane kubeadm:v1.13.1 \
-  --infrastructure tart:v0.0.0
-
-clusterctl generate cluster "$CLUSTER_NAME" \
-  --from config/templates/cluster-template-kubeadm-ubuntu.yaml \
-  > "$CLUSTER_NAME.yaml"
-kubectl apply -f "$CLUSTER_NAME.yaml"
+envsubst < cluster-template-kubeadm-ubuntu.yaml | kubectl apply -f -
 ```
 
-進行は次で確認する。
+進捗は次で確認します。
 
 ```bash
-kubectl get cluster,machine,tartmachine,tarthost,tarthostoperation -A
-kubectl describe tarthostoperation -n default active-HOST_UID_PREFIX
+kubectl get cluster,tartcluster,tartmachine,tarthost,tarthostoperation
+kubectl -n cluster-api-provider-tart-system logs deployment/cluster-api-provider-tart-controller-manager -c manager
 ```
 
-## 現在の制約
-
-この導入経路のmanager起動、Artifact署名検証、Host割当、CAPI/KCP/CABPK object生成までは
-構成として定義されている。一方、通常Provisioning Agentのboot commitには未実装が残る。
-AgentはOS/Verity payloadの書込み後にEFI boot entryとState上のcontroller trustを確定し、
-再起動してfirst-bootのBootstrap適用へ遷移しなければならないが、現時点の通常Agentは
-`--write-payloads-only`診断で停止する。そのため、この文書のCluster作成手順は実機検証の
-前提準備であり、`Node Ready`到達を成功として扱ってはならない。
-
-通常 Agent の boot commit、EFI boot entry、State trust の引渡しが提供されるまでは、この手順を
-通常運用へ使用しないでください。診断用の`--write-payloads-only`はディスクを破壊するため、
-通常の導入操作として実行してはいけません。
+Provider 以外の image、iPXE、Artifact、鍵をローカルでビルドしたり、registry へ公開したりする必要はありません。
+独自 OS Artifact を使う場合だけは、[開発者向けドキュメント](../development/README.md)を参照して別途作成・署名します。

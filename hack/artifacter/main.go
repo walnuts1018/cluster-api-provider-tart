@@ -47,13 +47,13 @@ func main() {
 	var password string
 
 	flag.StringVar(&dir, "dir", "", "Directory containing files to push")
-	flag.StringVar(&tag, "tag", "latest", "Tag for the artifact")
+	flag.StringVar(&tag, "tag", "", "Immutable release tag for the artifact")
 	flag.StringVar(&repository, "repo", "", "Repository to push to (e.g. ghcr.io/user/repo)")
 	flag.StringVar(&username, "username", os.Getenv("GITHUB_ACTOR"), "Username for registry")
 	flag.StringVar(&password, "password", os.Getenv("GITHUB_TOKEN"), "Password/Token for registry")
 	flag.Parse()
 
-	if dir == "" || repository == "" {
+	if dir == "" || repository == "" || tag == "" {
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -84,6 +84,12 @@ type RepositoryCredential struct {
 }
 
 func pushOCIArtifact(ctx context.Context, dir string, tag string, repository string, cred ...RepositoryCredential) error {
+	if tag == "" {
+		return fmt.Errorf("artifact tag is required")
+	}
+	if tag == "latest" {
+		return fmt.Errorf("mutable latest artifact tag is not allowed")
+	}
 	store := memory.New()
 
 	entries, err := os.ReadDir(dir)

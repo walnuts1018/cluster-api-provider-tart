@@ -226,6 +226,7 @@ func TestQEMUFirstBootDropInはReadOnlyRoot向けの一時Stateを使う(t *test
 	for _, want := range []string{
 		"[Service]",
 		"Environment=TART_STATE_DIR=/run/tart/state",
+		"Environment=TART_CONTROLLER_TRUST_DIR=/etc/tart",
 		"Environment=TART_BOOTSTRAP_ADAPTER=/bin/true",
 		"Environment=TART_SYSTEM_UUID=00000000-0000-4000-8000-000000000001",
 	} {

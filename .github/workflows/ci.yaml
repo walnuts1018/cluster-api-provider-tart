@@ -29,7 +29,7 @@ jobs:
           filters: .github/filters.yml
 
   generate:
-    name: generateで差分があったら落とす
+    name: 生成物に差分があったら落とす
     runs-on: ubuntu-slim
     needs: changes
     if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
@@ -42,8 +42,10 @@ jobs:
         with:
           go-cache: "false"
 
-      - name: generate
-        run: mise run generate
+      - name: Generate manifests and Go code
+        run: |
+          mise run manifests
+          mise run generate
 
       - name: diff があったら落とす
         run: git diff --exit-code

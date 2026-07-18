@@ -70,7 +70,7 @@ KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCAL
 '''
 
 [tasks.ci-test]
-description = "CI 用テスト（generate/manifests/fmt/vet は別ジョブ実行済みのため省略）"
+description = "CI 用テスト（generate/manifests/lint は別ジョブ実行済みのため省略）"
 run = '''
 mise run test-resource-preservation
 LOCALBIN="${LOCALBIN:-$PWD/bin}"

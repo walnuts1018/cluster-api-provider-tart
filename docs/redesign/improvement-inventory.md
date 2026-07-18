@@ -17,7 +17,7 @@
 | 完了 | `test/e2e/config/tart.yaml` | どのtemplateからも参照されないOS別kernel/initrd URLが残り、`latest`と`current`がE2Eの依存関係に見えていた。 | 未使用変数を削除し、実際に使用するdigest固定OCI Artifactを設定の中心にする。 | E2E設定に未使用の可変URLが残らない。 |
 | 一部完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要なビルド・workflow変更を網羅していなかった。 | Dockerfile、Makefile、hack、artifact、workflow、renovateをgo/lint対象へ追加した。フィルター契約テストは残課題。 | 各主要ディレクトリの変更に対するフィルター契約テストまたはactionlint検査が通る。 |
 | 完了 | `mise.toml` の `docker-buildx` | build/pushの失敗を `|| true` で握りつぶしていた。 | build/createの失敗を伝播させ、`trap`で一時ファイルとbuilderを後始末するよう変更した。 | push失敗時にtaskとCIが失敗し、後始末だけは実行される。 |
-| 一部完了 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | E2E helperとiPXE Image Volumeをdigest固定し、Artifact publisherは`latest`を拒否するようにした。Talos/installer入力などの外部URL固定は残課題。 | CI再実行で同じ入力digestが得られ、mutable参照のallowlist違反がない。 |
+| 完了 | `artifact/mkosi`、`config/*`、`test/e2e/*` | `latest` タグ、外部URLのmutable参照が複数存在し、同じコミットを再現できない。 | E2E helperとiPXE Image Volumeをdigest固定し、Artifact publisherは`latest`を拒否するようにした。未使用のTalos/installer可変URLは削除した。開発時にkustomizeが置換する`controller:latest`だけをローカル用placeholderとして残す。 | CI再実行で同じ入力digestが得られ、mutable参照が外部取得へ使われない。 |
 
 ## 優先度 P1: 機能欠落・回帰リスク
 
@@ -38,8 +38,8 @@
 | 未着手 | `internal/application/**` | workflowごとに `model`、`port`、`step`、`handler` などの分割粒度が不均一で、空に近いパッケージもある。 | DMMFの境界（domain/application/adapter）を維持しつつ、公開されない1ファイルパッケージを親packageへ統合する。依存方向を静的検査する。 |
 | 未着手 | `cmd/`、`internal/controller/` | composition rootとcontrollerの責務が肥大化しやすい。 | wireで組み立てる依存を明示し、controllerはworkflow起動とKubernetes I/Oだけに限定する。 |
 | 未着手 | `hack/` | artifact、QEMU、Redfish、manifest処理が横並びで、CIからの呼出し契約が暗黙的。 | `hack/<capability>` ごとに入力・出力artifact schemaを固定し、共通のevidence writerを抽出する。 |
-| 未着手 | `Makefile` と `mise.toml` | 同じ処理の定義が二重化し、失敗時の挙動や環境変数が一致しない可能性がある。 | miseを正本にしてMakefileは薄い互換ラッパーへ縮小し、task名と引数を検査する。 |
-| 未着手 | 生成物（CRD、DeepCopy、wire） | 生成元変更と生成物差分の検証がジョブごとに分散している。 | `generate`、`manifests`、wireの再生成を1つのCI契約にまとめ、差分検査を常時実行する。 |
+| 完了 | `Makefile` と `mise.toml` | 同じ処理の定義が二重化し、失敗時の挙動や環境変数が一致しない可能性がある。 | miseを正本にし、MakefileをKubebuilder互換の薄いtask転送層へ縮小した。 |
+| 完了 | 生成物（CRD、DeepCopy、wire） | 生成元変更と生成物差分の検証がジョブごとに分散している。 | CIの生成差分ジョブで`manifests`と`generate`を順に実行し、CRD/RBAC/Webhook、DeepCopy、wireを一括検査する。 |
 
 ## 優先度 P3: テスト品質・開発体験
 

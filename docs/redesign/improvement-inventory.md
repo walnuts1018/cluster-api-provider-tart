@@ -13,6 +13,7 @@
 | 状態 | 対象 | 課題 | 改善案 | 完了条件 |
 |---|---|---|---|---|
 | 完了 | `config/prometheus/monitor.yaml` | `insecureSkipVerify: true` が標準マニフェストで有効だった。 | cert-manager管理SecretのCA参照へ変更し、TLS検証を既定で有効化した。 | render後のServiceMonitorが検証を無効化しない。 |
+| 完了 | `Dockerfile`、`config/manager/manager.yaml` | manager binaryへ`cap_net_bind_service`を付与する一方、Podのcapability bounding setから`NET_BIND_SERVICE`を除外していたため、container runtimeが`exec /manager: operation not permitted`で起動を拒否した。 | Restricted Pod Securityで許可される`NET_BIND_SERVICE`だけを明示的にaddし、それ以外はdropする。 | digest/tagに関係なくmanager containerが非rootで起動し、低位portを利用できる。 |
 | 一部完了 | `.github/workflows/*`、`mise.toml` | OS/Kubernetes更新時に実workload clusterのResource UID、PVC UID、payload digestを比較するCIジョブがない。 | UID/digest比較器の不具合を修正し、入力検証と改変検出のCI契約を追加した。次に実workload clusterからの採取とOSOnly/KubernetesBinary更新へ接続する。 | OSOnly更新とKubernetesBinary更新の両方で、Resource/PVCデータ保持の証跡が1 runに残る。 |
 | 完了 | `test/e2e/config/tart.yaml` | どのtemplateからも参照されないOS別kernel/initrd URLが残り、`latest`と`current`がE2Eの依存関係に見えていた。 | 未使用変数を削除し、実際に使用するdigest固定OCI Artifactを設定の中心にする。 | E2E設定に未使用の可変URLが残らない。 |
 | 一部完了 | `.github/workflows/ci.yaml`、`.github/filters.yml` | `go`/`lint` フィルターが重要なビルド・workflow変更を網羅していなかった。 | Dockerfile、Makefile、hack、artifact、workflow、renovateをgo/lint対象へ追加した。フィルター契約テストは残課題。 | 各主要ディレクトリの変更に対するフィルター契約テストまたはactionlint検査が通る。 |

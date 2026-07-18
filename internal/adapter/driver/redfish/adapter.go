@@ -656,7 +656,9 @@ func (session *session) do(
 		return nil
 	}
 	if err := json.NewDecoder(response.Body).Decode(into); err != nil {
-		_ = response.Body.Close()
+		if closeErr := response.Body.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close Redfish response: %w", closeErr))
+		}
 		return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("decode Redfish response: %w", err))
 	}
 	if err := response.Body.Close(); err != nil {

@@ -30,6 +30,7 @@
 | 完了 | `.github/workflows/release.yaml`、`hack/artifacter` | release manifestが公開ジョブと独立して可変tagを埋め込み、手動tag入力もshellへ直接展開していた。 | manager multi-arch indexとiPXE OCI indexの公開digestをjob outputで渡し、両方をdigest固定したmanifestだけをrelease assetにする。tagは環境変数経由で渡し、OCI tag形式を検証する。 |
 | 完了 | `config/templates/*kubeadm*.yaml`、`internal/adapter/k8s/agentboot` | CAPI v1beta2で廃止された`clusterConfiguration.networking`がtemplate適用を拒否され、削除中Hostが同じMACの有効HostをAgent boot不能にしていた。 | network CIDRはClusterの`spec.clusterNetwork`だけを正本にし、削除中inventoryをboot候補から除外する。 |
 | 完了 | `pkg/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
+| 完了 | `internal/adapter/driver/redfish` | JSON decode失敗時だけHTTP response bodyのclose errorを捨てていた。 | decode errorへclose errorを結合し、I/O失敗の原因を失わず一時障害として返す。 |
 | 一部完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | `TODO(user)` や生成元のプレースホルダーが残り、resources・volume・hostNetworkの意図がマニフェストだけでは判別しにくい。 | Kubebuilder由来のresourcesコメントを削除した。resource値・hostNetwork・bootloader供給の契約検証は残課題。 |
 | 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |

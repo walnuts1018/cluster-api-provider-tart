@@ -127,13 +127,13 @@ kind delete cluster --name "$KIND_CLUSTER"
 [tasks."build-golangci-lint"]
 description = "カスタム golangci-lint バイナリを用意する"
 sources = [".custom-gcl.yml"]
-outputs = ["bin/golangci-lint"]
+outputs = ["bin/custom-gcl"]
 run = "golangci-lint custom"
 
 [tasks."golangci-lint"]
 description = "golangci-lint を実行する（ローカル開発用: --fix で自動修正を行う）"
 depends = ["build-golangci-lint"]
-run = "./bin/golangci-lint"
+run = "./bin/custom-gcl"
 
 [tasks.lint]
 description = "lintを実行する"
@@ -163,7 +163,7 @@ mise run golangci-lint run --fix
 description = "golangci-lint 設定を検証する"
 depends = ["build-golangci-lint"]
 run = '''
-./bin/golangci-lint config verify
+./bin/custom-gcl config verify
 '''
 
 [tasks.actionlint]

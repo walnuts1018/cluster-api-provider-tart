@@ -32,7 +32,7 @@
 | 完了 | `internal/domain/operation`、`internal/application/operationexecution` | `PowerOn`後までboot-active phaseが保存されず、高速起動したHostへ終了スクリプトを返す競合があった。また`WaitingForAgent`へ遷移する実装がなく、Agent progressが`Writing`へ進めなかった。 | boot準備と電源投入を別のdomain resultに分け、`PreparingBoot`を永続化して配信対象を公開した後に電源投入し、`WaitingForAgent`へ遷移する。 |
 | 完了 | `pkg/telemetry/otel.go` | `ServiceVersion: "latest"` は観測データをリリースへ関連付けられなかった。 | build情報のversionを利用し、開発ビルドは `dev` とする。 |
 | 完了 | `internal/adapter/driver/redfish` | JSON decode失敗時だけHTTP response bodyのclose errorを捨てていた。 | decode errorへclose errorを結合し、I/O失敗の原因を失わず一時障害として返す。 |
-| 一部完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | `TODO(user)` や生成元のプレースホルダーが残り、resources・volume・hostNetworkの意図がマニフェストだけでは判別しにくい。 | Kubebuilder由来のresourcesコメントを削除した。resource値・hostNetwork・bootloader供給の契約検証は残課題。 |
+| 完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | 単一バイナリ方針へ移行済みなのに、未参照のdnsmasq DeploymentとConfigMapが残り、別のbootstrap方式が利用可能に見えていた。 | 未参照の旧bootstrap一式を削除し、manager内蔵ProxyDHCP/TFTPとreal-hardware overlayを唯一の導入経路にした。managerのresource値とbootloader Image Volumeはrender検証で維持する。 |
 | 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |
 | 完了 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | metrics確認用curlをamd64 digestへ固定し、managerのテスト用repositoryを`registry.test.walnuts.dev`へ置換した。 |

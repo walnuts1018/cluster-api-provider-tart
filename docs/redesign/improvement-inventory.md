@@ -35,6 +35,7 @@
 | 完了 | `config/manager/manager.yaml`、`config/bootstrap/*` | 単一バイナリ方針へ移行済みなのに、未参照のdnsmasq DeploymentとConfigMapが残り、別のbootstrap方式が利用可能に見えていた。 | 未参照の旧bootstrap一式を削除し、manager内蔵ProxyDHCP/TFTPとreal-hardware overlayを唯一の導入経路にした。managerのresource値とbootloader Image Volumeはrender検証で維持する。 |
 | 完了 | `test/e2e/e2e_suite_test.go`、`cmd/main.go` | Kubebuilder由来の `TODO(user)` コメントが残っている。チーム向けの制約・置換条件が書かれていない。 | Kubebuilder由来のコメントを、現在の起動・E2E目的を表す客観的なコメントへ置換した。 |
 | 完了 | `pkg/gomega/have_fields_test.go` | 内容のない `TODO` がテストに残っている。 | 実行されないコメントアウト済みテスト案を削除した。 |
+| 完了 | `pkg/gomega` | `HaveFields` matcherは自身のテスト以外から一度も利用されず、汎用化されないまま専用の直接依存を増やしていた。 | 未使用パッケージを削除し、推移的に必要なmoduleはindirect依存として明示した。 |
 | 完了 | `test/e2e/e2e_test.go` | `example.com` と `:latest` のイメージを使用し、実運用の認証・固定性を検証できない。 | metrics確認用curlをamd64 digestへ固定し、managerのテスト用repositoryを`registry.test.walnuts.dev`へ置換した。 |
 | 完了 | `config/e2e/kustomization.yaml`、`test/utils/debug.go` | E2E overlayが無効化済みbind引数を重複追加し、失敗時診断が不正なdnsmasq起動を試みていた。 | bind引数はbase manifestを正本にし、診断は既存process・lease・network状態の読取りだけに限定する。 |
 

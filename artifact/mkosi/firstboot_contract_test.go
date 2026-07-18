@@ -106,6 +106,22 @@ func TestRepartVerityHashはDataPartitionの最小化設定と対応する(t *te
 	}
 }
 
+func Test永続ディスクのMountPointがPackage構成に依存しない(t *testing.T) {
+	for _, path := range []string{
+		"mkosi.extra/var/lib/tart",
+		"mkosi.extra/var/lib/containerd",
+		"mkosi.extra/var/lib/kubelet",
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%s is not a directory", path)
+		}
+	}
+}
+
 func readText(t *testing.T, path string) string {
 	t.Helper()
 	data, err := os.ReadFile(path)

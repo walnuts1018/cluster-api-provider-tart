@@ -242,6 +242,14 @@ func verifyFirstBoot(ctx context.Context, cfg config) error {
 	osTestImagePath := workspace.osTestImage
 	targetDiskPath := workspace.targetDisk
 	serialLogPath := workspace.serialLog
+	stateDiskPath := filepath.Join(cfg.workDir, "state.raw")
+	if err := createLabeledExt4Disk(ctx, stateDiskPath, "tart-state"); err != nil {
+		return err
+	}
+	dataDiskPath := filepath.Join(cfg.workDir, "data.raw")
+	if err := createLabeledExt4Disk(ctx, dataDiskPath, "tart-data"); err != nil {
+		return err
+	}
 
 	planPublicKeyPath, planPrivateKey, err := generatePlanPublicKey(filepath.Join(cfg.workDir, "agent-plan-public.pem"))
 	if err != nil {
@@ -330,6 +338,8 @@ func verifyFirstBoot(ctx context.Context, cfg config) error {
 		[]qemuDrive{
 			{path: osTestImagePath, id: "rootdisk", serial: rootDiskSerial},
 			{path: targetDiskPath, id: "targetdisk", serial: targetDiskSerial},
+			{path: stateDiskPath, id: "statedisk", serial: "qemu-state"},
+			{path: dataDiskPath, id: "datadisk", serial: "qemu-data"},
 		},
 	)
 	if err != nil {

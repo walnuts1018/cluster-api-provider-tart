@@ -1,6 +1,6 @@
 # 実機へのインストールと最初のクラスタ作成
 
-この手順は、Ubuntu 24.04 + kubeadm の amd64 UEFI 物理ホストを1台の control plane と1台の worker として、Cluster API (CAPI) から作成するための導入手順です。Providerは現在未リリースのため、管理クラスタへローカルでビルドしたイメージを適用する流れを正本にします。
+この手順は、公開済みReleaseのProvider image、iPXE、OS Artifact、Provisioning Agent Artifactを利用して、Ubuntu 24.04 + kubeadmのamd64 UEFI物理ホストをCluster API (CAPI)から作成するための導入手順です。利用者はProviderをビルドしません。
 
 ## 構成と前提
 
@@ -8,76 +8,26 @@
 - 管理クラスタの1 node: Provisioning L2へ接続し、Provider Podを `hostNetwork` で実行できること
 - 対象PC: amd64、UEFI、UEFI network boot、Wake-on-LAN、64 GiB以上のdisk、安定したdisk by-id path
 - Provisioning L2: 管理node、対象PC、必要なネットワーク機器だけが参加する隔離L2。通常LANからroutingしない
-- Linux build node: Docker、`mise`、Go、`cpio`、`busybox-static`、`systemd-boot` のEFI binaryを利用できること
 - 作業者端末: `kubectl`、`kustomize`、`clusterctl`、`helm`
 
 ProviderはDHCPでIPを配布しません。既存DHCPが対象PCへIPを配布し、ProviderはProxyDHCP/iPXE、TFTP、Agent APIを担当します。
 
-## 1. Provider imageとiPXEを用意する
+## 1. Release成果物を選ぶ
 
-registryへpushできるイメージ名を決め、実機でpullできるようにします。iPXEはdigest固定で指定してください。
+GitHubのReleaseから、同じRelease tagの次のファイルを取得します。
 
-```bash
-export IMG=registry.example.test/tart/cluster-api-provider-tart:dev
-export IPXE_REF=registry.example.test/tart/ipxe@sha256:REPLACE_WITH_IPXE_DIGEST
+- `infrastructure-components.yaml`: Provider imageとiPXEをdigest固定で参照するCAPI install manifest
+- `metadata.yaml`: `clusterctl`用Provider metadata
+- `reference.txt`: Ubuntu 24.04 amd64 OS Artifactのdigest固定OCI参照
+- Agent Artifactの`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`、`agent-artifact-public.pem`、`references.env`
 
-docker build -t "$IMG" .
-docker push "$IMG"
-IMG="$IMG" IPXE_REF="$IPXE_REF" MISE_OFFLINE=1 mise run build-installer-real-hardware
-```
+OS ArtifactとAgent Artifactのworkflowは、Release作成または`workflow_dispatch`で実行されます。Release以外で手動実行する場合は、指定したtagのGHCR参照を使用してください。
 
-`dist/install-real-hardware.yaml` はCRD、RBAC、Webhook、controller Deploymentを含みます。生成物へ機密鍵を埋め込まないでください。
+Provider image、iPXE、Artifactのビルド、署名、GHCRへの公開はGitHub Actionsが行います。ローカル端末で`docker build`、`mise run artifact-build-mkosi`、`mise run agent-artifact-build-real`を実行する必要はありません。
 
-## 2. OS Artifactを作成する
+## 2. Providerを管理クラスタへインストールする
 
-Linux build nodeで、署名済みのUbuntu 24.04 OS Artifactを作成し、digest固定OCI参照を得ます。
-
-```bash
-MISE_OFFLINE=1 mise run artifact-build-mkosi
-ARTIFACT_IMAGE=dist/os-artifact/os.img \
-ARTIFACT_VERITY=dist/os-artifact/os.verity \
-ARTIFACT_KERNEL=dist/os-artifact/vmlinuz \
-ARTIFACT_INITRD=dist/os-artifact/initrd \
-ARTIFACT_VERITY_ROOT_HASH="$(tr -d '[:space:]' < dist/os-artifact/verity-root-hash)" \
-ARTIFACT_SIGNING_KEY=/secure/os-artifact-private.pem \
-ARTIFACT_SIGNING_KEY_ID=operator-os-v1 \
-MISE_OFFLINE=1 mise run artifact-manifest
-```
-
-Artifactをregistryへ公開し、出力された `oci://...@sha256:...` を保存します。tagだけの参照は `TartMachine` へ指定できません。
-
-## 3. Agent Artifactを作成する
-
-Agent Artifactには、`provisioning-agent`、`efi-commit`、`sfdisk`、`udevadm`、`mkfs.ext4`、`mount`、systemd-boot EFI binaryが必要です。`efi-commit` はOS/Verityを書き込んだ後にBoot partitionへkernel/initrdとsystemd-boot entryを配置し、Stateへcontroller trustを保存してから再起動します。
-
-```bash
-TART_PLAN_KEY_ID=operator-plan-v1 \
-TART_OS_ARTIFACT_KEY_ID=operator-os-v1 \
-AGENT_KERNEL=/path/to/agent/vmlinuz \
-AGENT_INITRD=/path/to/agent/base-initrd \
-AGENT_PLAN_PUBLIC_KEY=/secure/agent-plan-public.pem \
-AGENT_TLS_CERT=/secure/agent-api-ca.crt \
-OS_ARTIFACT_PUBLIC_KEY=/secure/os-artifact-public.pem \
-SYSTEMD_BOOT_EFI=/usr/lib/systemd/boot/efi/systemd-bootx64.efi \
-MISE_OFFLINE=1 mise run agent-artifact-build-real
-```
-
-生成した `dist/agent-artifact` に `vmlinuz` と `initrd` を置き、Agent Artifact manifestを生成して署名します。`manifest.json`、`manifest.signature.json`、`vmlinuz`、`initrd`を、controller Podが動くnodeの `/srv/tart/agent-artifact` へ配置します。
-
-```bash
-AGENT_ARTIFACT_REFERENCE=oci://registry.example.test/tart/agent@sha256:REPLACE_WITH_DIGEST \
-AGENT_ARTIFACT_KERNEL=dist/agent-artifact/vmlinuz \
-AGENT_ARTIFACT_INITRD=dist/agent-artifact/initrd \
-AGENT_ARTIFACT_SIGNING_KEY=/secure/agent-artifact-private.pem \
-AGENT_ARTIFACT_SIGNING_KEY_ID=operator-agent-v1 \
-MISE_OFFLINE=1 mise run agent-artifact-manifest
-```
-
-Agent Artifactの署名公開鍵、OS Artifactの署名公開鍵、Agent Plan秘密鍵、Agent API証明書・秘密鍵は、管理クラスタのSecretへファイルとして登録します。秘密鍵をGitへ保存しないでください。
-
-## 4. CAPIを管理クラスタへインストールする
-
-まずCAPI core、CABPK、KCPを `clusterctl` で導入します。次にTart Providerの実機overlayを適用します。
+まずCAPI core、CABPK、KCPを`clusterctl`で導入し、Release assetのmanifestを適用します。
 
 ```bash
 clusterctl init \
@@ -91,16 +41,16 @@ kubectl -n "$TART_NAMESPACE" create configmap tart-provisioning-settings \
   --from-literal=bootstrapAdvertiseAddress=provisioning.example.test \
   --from-literal=agentAPIURL=https://provisioning.example.test:8444 \
   --from-literal=agentArtifactBaseURL=https://provisioning.example.test:8082 \
-  --from-literal=agentArtifactKeyID=operator-agent-v1 \
-  --from-literal=osArtifactKeyID=operator-os-v1 \
-  --from-literal=agentPlanKeyID=operator-plan-v1
+  --from-literal=agentArtifactKeyID=release-agent-v1 \
+  --from-literal=osArtifactKeyID=release-v1 \
+  --from-literal=agentPlanKeyID=release-plan-v1
 kubectl -n "$TART_NAMESPACE" create secret generic tart-provisioning-credentials \
   --from-file=agent-api.crt=/secure/agent-api.crt \
   --from-file=agent-api.key=/secure/agent-api.key \
   --from-file=agent-artifact-public.pem=/secure/agent-artifact-public.pem \
   --from-file=os-artifact-public.pem=/secure/os-artifact-public.pem \
   --from-file=agent-plan-private.pem=/secure/agent-plan-private.pem
-kubectl apply -f dist/install-real-hardware.yaml
+kubectl apply -f infrastructure-components.yaml
 kubectl -n "$TART_NAMESPACE" rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=5m
 ```
 
@@ -117,7 +67,16 @@ kubectl -n "$TART_NAMESPACE" logs deployment/cluster-api-provider-tart-controlle
 kubectl get crd tartclusters.infrastructure.cluster.x-k8s.io
 ```
 
-## 5. Host inventoryを登録する
+Agent Artifactの公開鍵とOS Artifactの公開鍵はRelease assetから取得し、Agent API証明書・秘密鍵とAgent Plan秘密鍵は管理クラスタのSecretへ登録します。Artifact payloadは、Provider Podが動くnodeの`/srv/tart/agent-artifact`へ配置します。これはビルドではなく、Release assetの展開です。
+
+Releaseの署名を継続利用する場合は、GitHub Actionsの`OS_ARTIFACT_SIGNING_KEY`をRepository Secretとして固定してください。未設定時はworkflow実行ごとに一時鍵が生成されるため、対応する公開鍵を毎回Secretへ更新する必要があります。
+
+```bash
+mkdir -p /srv/tart/agent-artifact
+cp manifest.json manifest.signature.json vmlinuz initrd /srv/tart/agent-artifact/
+```
+
+## 3. Host inventoryを登録する
 
 対象PCごとに、実機で確認したUUID、boot MAC、disk serial/WWNを指定します。値を推測しないでください。
 
@@ -146,7 +105,7 @@ spec:
 
 control plane用とworker用を必要台数登録し、`status.phase=Available`になることを確認します。
 
-## 6. workload clusterを作成する
+## 4. workload clusterを作成する
 
 `config/templates/cluster-template-kubeadm-ubuntu.yaml` をコピーし、次の値を置換します。
 

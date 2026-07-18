@@ -1,6 +1,8 @@
 name: OS Artifact
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       publish:
@@ -112,7 +114,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Check out
@@ -209,8 +211,9 @@ jobs:
             echo "key-id=release-v1" >> "$GITHUB_OUTPUT"
           else
             openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/os-artifact-signing-key.pem"
-            echo "key-id=github-actions-ephemeral" >> "$GITHUB_OUTPUT"
+            echo "key-id=release-v1" >> "$GITHUB_OUTPUT"
           fi
+          openssl pkey -in "$RUNNER_TEMP/os-artifact-signing-key.pem" -pubout -out "$RUNNER_TEMP/os-artifact-public.pem"
 
       - name: Generate signed Artifact Manifest
         env:
@@ -267,10 +270,11 @@ jobs:
           if-no-files-found: error
 
       - name: Publish OCI Artifact
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        id: publish
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
         env:
           ARTIFACT_REPOSITORY: ghcr.io/${{ github.repository }}-os-ubuntu-24.04-amd64
-          ARTIFACT_TAG: ${{ inputs.image_tag }}
+          ARTIFACT_TAG: ${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}
           ARTIFACT_OUTPUT_DIR: dist/os-artifact
           ARTIFACT_IMAGE: dist/os-artifact/os.img
           ARTIFACT_VERITY: dist/os-artifact/os.verity
@@ -279,4 +283,14 @@ jobs:
           ARTIFACT_SBOM: dist/os-artifact/sbom.cdx.json
           ARTIFACT_PROVENANCE: dist/os-artifact/provenance.intoto.json
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mise run artifact-push
+        run: |
+          reference="$(mise run artifact-push)"
+          printf '%s\n' "$reference" > dist/os-artifact/reference.txt
+
+      - name: Upload Artifact reference
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: |
+            dist/os-artifact/reference.txt
+            ${{ runner.temp }}/os-artifact-public.pem

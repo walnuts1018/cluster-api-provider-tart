@@ -1,0 +1,117 @@
+name: Provisioning Agent Artifact
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Immutable OCI tag for the Agent Artifact.
+        required: true
+        type: string
+        default: dev
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-provisioning-agent
+
+jobs:
+  build:
+    name: Build and publish the provisioning Agent Artifact
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+
+      - name: Install Agent Artifact inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends busybox-static cpio systemd-boot
+
+      - name: Prepare signing keys
+        id: keys
+        env:
+          AGENT_PLAN_PUBLIC_KEY_PEM: ${{ secrets.AGENT_PLAN_PUBLIC_KEY_PEM }}
+          OS_ARTIFACT_PUBLIC_KEY_PEM: ${{ secrets.OS_ARTIFACT_PUBLIC_KEY_PEM }}
+        run: |
+          umask 077
+          if [ -n "$AGENT_PLAN_PUBLIC_KEY_PEM" ]; then
+            printf '%s' "$AGENT_PLAN_PUBLIC_KEY_PEM" > "$RUNNER_TEMP/agent-plan-public.pem"
+          else
+            openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/agent-plan-private.pem"
+            openssl pkey -in "$RUNNER_TEMP/agent-plan-private.pem" -pubout -out "$RUNNER_TEMP/agent-plan-public.pem"
+          fi
+          if [ -n "$OS_ARTIFACT_PUBLIC_KEY_PEM" ]; then
+            printf '%s' "$OS_ARTIFACT_PUBLIC_KEY_PEM" > "$RUNNER_TEMP/os-artifact-public.pem"
+          else
+            openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/os-artifact-private.pem"
+            openssl pkey -in "$RUNNER_TEMP/os-artifact-private.pem" -pubout -out "$RUNNER_TEMP/os-artifact-public.pem"
+          fi
+          openssl genpkey -algorithm Ed25519 -out "$RUNNER_TEMP/agent-artifact-signing-key.pem"
+          openssl pkey -in "$RUNNER_TEMP/agent-artifact-signing-key.pem" -pubout -out "$RUNNER_TEMP/agent-artifact-public.pem"
+
+      - name: Build Agent initramfs
+        env:
+          AGENT_KERNEL: /tmp/tart-agent-vmlinuz
+          AGENT_INITRD: /tmp/tart-agent-initrd
+          AGENT_PLAN_PUBLIC_KEY: ${{ runner.temp }}/agent-plan-public.pem
+          AGENT_TLS_CERT: ${{ runner.temp }}/agent-api.crt
+          OS_ARTIFACT_PUBLIC_KEY: ${{ runner.temp }}/os-artifact-public.pem
+          SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+          TART_PLAN_KEY_ID: release-plan-v1
+          TART_OS_ARTIFACT_KEY_ID: release-os-v1
+          AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
+        run: |
+          openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+            -subj '/CN=tart-provisioning-agent' \
+            -keyout "$RUNNER_TEMP/agent-api.key" \
+            -out "$RUNNER_TEMP/agent-api.crt"
+          kernel_path="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -print | sort | tail -n 1)"
+          initrd_path="$(find /boot -maxdepth 1 -type f -name 'initrd.img-*' -print | sort | tail -n 1)"
+          test -n "$kernel_path" -a -n "$initrd_path"
+          sudo cp "$kernel_path" /tmp/tart-agent-vmlinuz
+          sudo cp "$initrd_path" /tmp/tart-agent-initrd
+          mise run agent-artifact-build-real
+
+      - name: Create Agent Artifact manifest and publish OCI payload
+        id: publish
+        env:
+          AGENT_REPOSITORY: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          AGENT_TAG: ${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          payload_digest=$(go run ./cmd/artifacter -dir dist/agent-artifact -repo "$AGENT_REPOSITORY" -tag "$AGENT_TAG-payload")
+          reference="oci://$AGENT_REPOSITORY@$payload_digest"
+          AGENT_ARTIFACT_REFERENCE="$reference" \
+          AGENT_ARTIFACT_KERNEL=dist/agent-artifact/vmlinuz \
+          AGENT_ARTIFACT_INITRD=dist/agent-artifact/initrd \
+          AGENT_ARTIFACT_SIGNING_KEY="$RUNNER_TEMP/agent-artifact-signing-key.pem" \
+          AGENT_ARTIFACT_SIGNING_KEY_ID=release-agent-v1 \
+          AGENT_ARTIFACT_OUTPUT_DIR=dist/agent-artifact \
+            mise run agent-artifact-manifest
+          cp dist/agent-artifact/manifest.json dist/agent-artifact/manifest.signature.json "$RUNNER_TEMP/"
+          printf 'AGENT_ARTIFACT_REFERENCE=%s\n' "$reference" > dist/agent-artifact/references.env
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Agent Artifact release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: |
+            dist/agent-artifact/manifest.json
+            dist/agent-artifact/manifest.signature.json
+            dist/agent-artifact/references.env
+            dist/agent-artifact/vmlinuz
+            dist/agent-artifact/initrd
+            ${{ runner.temp }}/agent-plan-public.pem
+            ${{ runner.temp }}/agent-artifact-public.pem
+            ${{ runner.temp }}/os-artifact-public.pem

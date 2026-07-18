@@ -116,6 +116,23 @@ func TestParseConfigRequiresExactlyOneMode(t *testing.T) {
 	if _, err := parseConfig(missingArtifactTrust); err == nil {
 		t.Fatal("parseConfig() accepted payload mode without Artifact trust inputs")
 	}
+	provision := append(
+		base,
+		"--provision",
+		"--artifact-key-id=artifact-key",
+		"--artifact-key-file=/trust/artifact.pem",
+		"--efi-commit-driver=/usr/libexec/tart/efi-commit",
+	)
+	cfg, err = parseConfig(provision)
+	if err != nil {
+		t.Fatalf("parseConfig() error = %v", err)
+	}
+	if !cfg.provision || cfg.efiCommitDriver == "" {
+		t.Fatalf("parseConfig() = %#v", cfg)
+	}
+	if _, err := parseConfig(append(base, "--provision", "--artifact-key-id=artifact-key", "--artifact-key-file=/trust/artifact.pem")); err == nil {
+		t.Fatal("parseConfig() accepted Provision mode without EFI commit driver")
+	}
 }
 
 func TestParseConfigUsesKernelCommandLineAgentInputs(t *testing.T) {

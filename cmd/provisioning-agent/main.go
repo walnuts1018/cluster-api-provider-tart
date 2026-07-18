@@ -23,10 +23,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -66,7 +68,9 @@ type config struct {
 	artifactKeyFile    string
 	registryConfig     string
 	bootTrialDriver    string
+	efiCommitDriver    string
 	preflight          bool
+	provision          bool
 	prepareLayout      bool
 	writePayloads      bool
 	applyBootstrap     bool
@@ -154,6 +158,9 @@ func run(ctx context.Context, args []string) error {
 	if cfg.writePayloads {
 		return writePayloads(operationContext, cfg, apiClient, registration, validatedPlan, devices, target)
 	}
+	if cfg.provision {
+		return provision(operationContext, cfg, apiClient, registration, validatedPlan, devices, target)
+	}
 	if cfg.applyBootstrap {
 		return applyBootstrap(operationContext, cfg, apiClient, registration, validatedPlan)
 	}
@@ -167,6 +174,120 @@ func run(ctx context.Context, args []string) error {
 		"disk_count", len(devices),
 	)
 	return nil
+}
+
+// provisionは一時OSで完結する通常Provisioning経路であり、EFI commit成功前に再起動しない。
+func provision(
+	ctx context.Context,
+	cfg config,
+	apiClient *agentclient.Client,
+	registration agentprotocol.RegisterResponse,
+	validatedPlan agentprotocol.ValidatedPlan,
+	devices []disk.Device,
+	target disk.Device,
+) error {
+	if err := writePayloads(ctx, cfg, apiClient, registration, validatedPlan, devices, target); err != nil {
+		return err
+	}
+	if err := commitEFI(ctx, cfg, validatedPlan, target); err != nil {
+		return err
+	}
+	if err := exec.CommandContext(ctx, "reboot", "-f").Run(); err != nil {
+		return fmt.Errorf("reboot installed OS: %w", err)
+	}
+	return errors.New("reboot command returned unexpectedly")
+}
+
+func commitEFI(ctx context.Context, cfg config, validatedPlan agentprotocol.ValidatedPlan, target disk.Device) error {
+	if cfg.efiCommitDriver == "" {
+		return errors.New("--efi-commit-driver is required with --provision")
+	}
+	if validatedPlan.Value().OperationType != agentprotocol.OperationTypeProvision {
+		return errors.New("--provision only supports Provision Plans")
+	}
+	if validatedPlan.Value().Artifact == nil {
+		return errors.New("Provision Plan artifact is required")
+	}
+	artifactPublicKey, err := loadPublicKey(cfg.artifactKeyFile, "artifact")
+	if err != nil {
+		return err
+	}
+	credential, err := registrycredential.Load(cfg.registryConfig)
+	if err != nil {
+		return err
+	}
+	source, err := artifactfetch.NewOCI(artifact.StaticTrustStore{cfg.artifactKeyID: artifactPublicKey}, credential)
+	if err != nil {
+		return err
+	}
+	fetched, err := source.Fetch(ctx, *validatedPlan.Value().Artifact, layout.ProfileID)
+	if err != nil {
+		return fmt.Errorf("fetch verified boot payloads: %w", err)
+	}
+	stagingDir, err := os.MkdirTemp("", "tart-efi-commit-")
+	if err != nil {
+		return fmt.Errorf("create EFI staging directory: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(stagingDir); removeErr != nil {
+			slog.Warn("Failed to remove EFI staging directory", "error", removeErr)
+		}
+	}()
+	kernelPath, err := stagePayload(ctx, fetched.Kernel, filepath.Join(stagingDir, "vmlinuz"))
+	if err != nil {
+		return err
+	}
+	initrdPath, err := stagePayload(ctx, fetched.Initrd, filepath.Join(stagingDir, "initrd"))
+	if err != nil {
+		return err
+	}
+	resolved, err := layout.NewManager(layout.NewLinuxDiskIO()).Inspect(ctx, target)
+	if err != nil {
+		return fmt.Errorf("resolve EFI commit partitions: %w", err)
+	}
+	args := []string{
+		"configure",
+		"--boot-device", resolved[agentprotocol.DiskRoleBoot].DevicePath,
+		"--state-device", resolved[agentprotocol.DiskRoleState].DevicePath,
+		"--data-device", resolved[agentprotocol.DiskRoleData].DevicePath,
+		"--os-device", resolved[agentprotocol.DiskRoleOSA].DevicePath,
+		"--verity-device", resolved[agentprotocol.DiskRoleVerityA].DevicePath,
+		"--os-partuuid", resolved[agentprotocol.DiskRoleOSA].PARTUUID,
+		"--verity-partuuid", resolved[agentprotocol.DiskRoleVerityA].PARTUUID,
+		"--slot", "A",
+		"--root-hash", fetched.Manifest.Value().Verity.RootHash,
+		"--kernel", kernelPath,
+		"--initrd", initrdPath,
+		"--tls-ca-file", cfg.tlsCAFile,
+		"--plan-key-file", cfg.planKeyFile,
+	}
+	if output, err := exec.CommandContext(ctx, cfg.efiCommitDriver, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("commit EFI boot and controller trust: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func stagePayload(ctx context.Context, payload artifactfetch.Payload, path string) (string, error) {
+	reader, err := payload.Open(ctx)
+	if err != nil {
+		return "", fmt.Errorf("open EFI payload: %w", err)
+	}
+	defer func() {
+		if closeErr := reader.Close(); closeErr != nil {
+			slog.Warn("Failed to close EFI payload", "error", closeErr)
+		}
+	}()
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("create EFI payload: %w", err)
+	}
+	_, copyErr := io.Copy(file, reader)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		return "", fmt.Errorf("stage EFI payload: %w", err)
+	}
+	return path, nil
 }
 
 func prepareLayout(
@@ -406,7 +527,9 @@ func parseConfig(args []string) (config, error) {
 	flags.StringVar(&cfg.artifactKeyFile, "artifact-key-file", cfg.artifactKeyFile, "PEM Ed25519 public key used to verify OS Artifacts.")
 	flags.StringVar(&cfg.registryConfig, "registry-config", cfg.registryConfig, "Optional Docker-compatible registry credential file.")
 	flags.StringVar(&cfg.bootTrialDriver, "boot-trial-driver", cfg.bootTrialDriver, "Optional executable that writes boot trial metadata for Update Plans.")
+	flags.StringVar(&cfg.efiCommitDriver, "efi-commit-driver", cfg.efiCommitDriver, "Executable that installs the EFI boot entry and controller trust into State for Provision Plans.")
 	flags.BoolVar(&cfg.preflight, "preflight-only", cfg.preflight, "Validate registration, signed Plan, and disk selection without writing.")
+	flags.BoolVar(&cfg.provision, "provision", cfg.provision, "Write and verify the Provision Plan, commit EFI boot and State trust, then reboot into the installed OS.")
 	flags.BoolVar(
 		&cfg.prepareLayout,
 		"prepare-layout-only",
@@ -452,13 +575,13 @@ func parseConfig(args []string) (config, error) {
 		return config{}, errors.New("unexpected positional arguments")
 	}
 	modeCount := 0
-	for _, enabled := range []bool{cfg.preflight, cfg.prepareLayout, cfg.writePayloads, cfg.applyBootstrap, cfg.reportBoot} {
+	for _, enabled := range []bool{cfg.preflight, cfg.provision, cfg.prepareLayout, cfg.writePayloads, cfg.applyBootstrap, cfg.reportBoot} {
 		if enabled {
 			modeCount++
 		}
 	}
 	if modeCount != 1 {
-		return config{}, errors.New("exactly one of --preflight-only, --prepare-layout-only, --write-payloads-only, --apply-bootstrap-only, or --report-boot-only is required")
+		return config{}, errors.New("exactly one execution mode is required")
 	}
 	required := map[string]string{
 		"controller-url":   cfg.controllerURL,
@@ -473,13 +596,16 @@ func parseConfig(args []string) (config, error) {
 			return config{}, fmt.Errorf("--%s is required", name)
 		}
 	}
-	if cfg.writePayloads {
+	if cfg.writePayloads || cfg.provision {
 		switch {
 		case cfg.artifactKeyID == "":
 			return config{}, errors.New("--artifact-key-id is required with --write-payloads-only")
 		case cfg.artifactKeyFile == "":
 			return config{}, errors.New("--artifact-key-file is required with --write-payloads-only")
 		}
+	}
+	if cfg.provision && cfg.efiCommitDriver == "" {
+		return config{}, errors.New("--efi-commit-driver is required with --provision")
 	}
 	if cfg.applyBootstrap {
 		switch {

@@ -63,6 +63,14 @@ func (manager *Manager) Prepare(
 		return nil, fmt.Errorf("unsupported operation type: %q", operation)
 	}
 
+	return manager.Inspect(ctx, device)
+}
+
+// Inspectは既存GPTを変更せず、Platform ProfileのDisk Roleだけを解決する。
+func (manager *Manager) Inspect(
+	ctx context.Context,
+	device disk.Device,
+) (map[agentprotocol.DiskRole]RoleDevice, error) {
 	observed, err := manager.diskIO.ReadPartitionTable(ctx, device.Path)
 	if err != nil {
 		return nil, fmt.Errorf("read partition table: %w", err)

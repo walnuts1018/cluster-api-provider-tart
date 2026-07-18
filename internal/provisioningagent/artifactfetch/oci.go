@@ -62,6 +62,8 @@ type Artifact struct {
 	Manifest artifact.ValidatedManifest
 	Image    Payload
 	Verity   Payload
+	Kernel   Payload
+	Initrd   Payload
 }
 
 func NewPayload(descriptor ocispec.Descriptor, fetcher content.Fetcher) Payload {
@@ -117,6 +119,8 @@ func (source *OCI) Fetch(
 		Manifest: resolved.manifest,
 		Image:    Payload{descriptor: resolved.layers.image, fetcher: resolved.repository},
 		Verity:   Payload{descriptor: resolved.layers.verity, fetcher: resolved.repository},
+		Kernel:   Payload{descriptor: resolved.layers.kernel, fetcher: resolved.repository},
+		Initrd:   Payload{descriptor: resolved.layers.initrd, fetcher: resolved.repository},
 	}, nil
 }
 
@@ -209,6 +213,8 @@ type requiredLayers struct {
 	signature ocispec.Descriptor
 	image     ocispec.Descriptor
 	verity    ocispec.Descriptor
+	kernel    ocispec.Descriptor
+	initrd    ocispec.Descriptor
 }
 
 func selectRequiredLayers(manifest ocispec.Manifest) (requiredLayers, error) {
@@ -224,7 +230,9 @@ func selectRequiredLayers(manifest ocispec.Manifest) (requiredLayers, error) {
 		case artifactoci.ManifestMediaType,
 			artifactoci.ManifestSignatureMediaType,
 			artifactoci.OSFilesystemMediaType,
-			artifactoci.VerityMediaType:
+			artifactoci.VerityMediaType,
+			artifactoci.KernelMediaType,
+			artifactoci.InitrdMediaType:
 			if _, exists := byMediaType[layer.MediaType]; exists {
 				return requiredLayers{}, fmt.Errorf("OCI artifact contains duplicate %q layer", layer.MediaType)
 			}
@@ -236,6 +244,8 @@ func selectRequiredLayers(manifest ocispec.Manifest) (requiredLayers, error) {
 		artifactoci.ManifestSignatureMediaType,
 		artifactoci.OSFilesystemMediaType,
 		artifactoci.VerityMediaType,
+		artifactoci.KernelMediaType,
+		artifactoci.InitrdMediaType,
 	}
 	for _, mediaType := range required {
 		if _, ok := byMediaType[mediaType]; !ok {
@@ -247,6 +257,8 @@ func selectRequiredLayers(manifest ocispec.Manifest) (requiredLayers, error) {
 		signature: byMediaType[artifactoci.ManifestSignatureMediaType],
 		image:     byMediaType[artifactoci.OSFilesystemMediaType],
 		verity:    byMediaType[artifactoci.VerityMediaType],
+		kernel:    byMediaType[artifactoci.KernelMediaType],
+		initrd:    byMediaType[artifactoci.InitrdMediaType],
 	}, nil
 }
 
@@ -279,6 +291,10 @@ func validatePayloadDescriptors(manifest artifact.ValidatedManifest, layers requ
 		return errors.New("OS filesystem layer does not match artifact manifest")
 	case layers.verity.Digest.String() != value.Verity.Digest || layers.verity.Size != value.Verity.SizeBytes:
 		return errors.New("verity layer does not match artifact manifest")
+	case layers.kernel.Digest.String() != value.Boot.KernelDigest:
+		return errors.New("kernel layer does not match artifact manifest")
+	case layers.initrd.Digest.String() != value.Boot.InitrdDigest:
+		return errors.New("initrd layer does not match artifact manifest")
 	default:
 		return nil
 	}

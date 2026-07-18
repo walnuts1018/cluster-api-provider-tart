@@ -45,6 +45,8 @@ func TestOCIFetchVerifiesMetadataBeforeReturningPayloads(t *testing.T) {
 	}
 	assertPayload(t, fetched.Image, image)
 	assertPayload(t, fetched.Verity, verity)
+	assertPayload(t, fetched.Kernel, []byte("kernel"))
+	assertPayload(t, fetched.Initrd, []byte("initrd"))
 	if repo.fetchReferenceCount != 1 {
 		t.Fatalf("FetchReference() count = %d, want 1", repo.fetchReferenceCount)
 	}
@@ -167,6 +169,8 @@ func newTestSource(
 	verity := []byte("verity payload")
 	imageDescriptor := testDescriptor(image, artifactoci.OSFilesystemMediaType)
 	verityDescriptor := testDescriptor(verity, artifactoci.VerityMediaType)
+	kernelDescriptor := testDescriptor([]byte("kernel"), artifactoci.KernelMediaType)
+	initrdDescriptor := testDescriptor([]byte("initrd"), artifactoci.InitrdMediaType)
 	validated, err := artifact.Validate(artifact.Manifest{
 		SchemaVersion: artifact.SchemaVersion,
 		MediaType:     artifact.MediaType,
@@ -184,7 +188,7 @@ func newTestSource(
 		},
 		StateSchema:     artifact.StateSchema{Min: 1, Max: 1},
 		Kubernetes:      artifact.Kubernetes{Distribution: "kubeadm", LifecycleRuntime: "kubeadm.cluster.x-k8s.io/v1", Version: "v1.36.0"},
-		Boot:            artifact.Boot{KernelDigest: digest.FromString("kernel").String(), InitrdDigest: digest.FromString("initrd").String()},
+		Boot:            artifact.Boot{KernelDigest: kernelDescriptor.Digest.String(), InitrdDigest: initrdDescriptor.Digest.String()},
 		Requirements:    artifact.Requirements{CPULevel: "x86-64-v1"},
 		Generation:      12,
 		PlatformProfile: "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1",
@@ -215,6 +219,8 @@ func newTestSource(
 			signatureDescriptor,
 			imageDescriptor,
 			verityDescriptor,
+			kernelDescriptor,
+			initrdDescriptor,
 		},
 	})
 	if err != nil {
@@ -229,10 +235,14 @@ func newTestSource(
 			signatureDescriptor.Digest: signatureData,
 			imageDescriptor.Digest:     image,
 			verityDescriptor.Digest:    verity,
+			kernelDescriptor.Digest:    []byte("kernel"),
+			initrdDescriptor.Digest:    []byte("initrd"),
 		},
 		payloadMediaTypes: map[string]struct{}{
 			artifactoci.OSFilesystemMediaType: {},
 			artifactoci.VerityMediaType:       {},
+			artifactoci.KernelMediaType:       {},
+			artifactoci.InitrdMediaType:       {},
 		},
 	}
 	source, err := NewOCI(artifact.StaticTrustStore{"artifact-key": publicKey}, nil)

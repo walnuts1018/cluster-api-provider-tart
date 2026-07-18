@@ -15,6 +15,7 @@
 package wol
 
 import (
+	"context"
 	"testing"
 
 	drivercontract "github.com/walnuts1018/cluster-api-provider-tart/internal/adapter/driver/contract"
@@ -65,7 +66,7 @@ type recordingSender struct {
 	addresses []string
 }
 
-func (sender *recordingSender) Send(address string) error {
+func (sender *recordingSender) Send(_ context.Context, address string) error {
 	sender.addresses = append(sender.addresses, address)
 	return nil
 }

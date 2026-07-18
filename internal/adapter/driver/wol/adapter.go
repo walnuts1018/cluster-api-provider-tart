@@ -24,7 +24,7 @@ import (
 )
 
 type Sender interface {
-	Send(string) error
+	Send(context.Context, string) error
 }
 
 type Adapter struct {
@@ -53,7 +53,7 @@ func (adapter *Adapter) PowerOn(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := adapter.sender.Send(target.BootMACAddress().String()); err != nil {
+	if err := adapter.sender.Send(ctx, target.BootMACAddress().String()); err != nil {
 		return driverdomain.NewError(
 			driverdomain.ErrorTemporary,
 			fmt.Errorf("send Wake-on-LAN packet: %w", err),

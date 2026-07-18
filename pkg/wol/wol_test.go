@@ -16,6 +16,8 @@ package wol_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"net"
 	"testing"
 
@@ -55,7 +57,7 @@ func TestSend(t *testing.T) {
 	sender := wol.NewSender(addr)
 
 	const mac = "00:00:5e:00:53:02"
-	if err := sender.Send(mac); err != nil {
+	if err := sender.Send(t.Context(), mac); err != nil {
 		t.Fatalf("Send() error = %v", err)
 	}
 
@@ -76,7 +78,7 @@ func TestSendRejectsInvalidMACAddress(t *testing.T) {
 	t.Parallel()
 
 	sender := wol.NewSender("127.0.0.1:9")
-	if err := sender.Send("invalid"); err == nil {
+	if err := sender.Send(t.Context(), "invalid"); err == nil {
 		t.Fatal("Send() error = nil, want error")
 	}
 }
@@ -86,8 +88,20 @@ func TestSendFailsOnUnreachableAddress(t *testing.T) {
 
 	// 不正なアドレスへの dial が失敗することを確認する
 	sender := wol.NewSender("not-a-valid-address")
-	if err := sender.Send("00:00:5e:00:53:02"); err == nil {
+	if err := sender.Send(t.Context(), "00:00:5e:00:53:02"); err == nil {
 		t.Fatal("Send() error = nil, want error")
+	}
+}
+
+func TestSendHonorsCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	sender := wol.NewSender("127.0.0.1:9")
+	if err := sender.Send(ctx, "00:00:5e:00:53:02"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Send() error = %v, want context.Canceled", err)
 	}
 }
 

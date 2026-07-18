@@ -120,8 +120,8 @@ entries:
     category: "update"
     status: "Experimental"
     evidencePaths:
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
     notes:
       - "feature gate 必須。failure injection と E2E の継続実行前のため Supported へ昇格しない。"
       - "既知制約と復旧判断は release note と Recovery Runbook を参照する。"
@@ -129,8 +129,8 @@ entries:
     category: "update"
     status: "Experimental"
     evidencePaths:
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
     notes:
       - "feature gate 必須。実機または E2E の継続成功前の公開状態。"
       - "controller 再起動相当の再開性は simulated record に限定される。"
@@ -138,8 +138,8 @@ entries:
     category: "update"
     status: "Experimental"
     evidencePaths:
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
     notes:
       - "feature gate 必須。snapshot、apply、recovery の E2E 継続実行前。"
       - "StateMigration 自動復旧は未提供で、RecoveryRequired 到達時は手動復旧を前提にする。"
@@ -147,8 +147,8 @@ entries:
     category: "update"
     status: "Experimental"
     evidencePaths:
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
-      - "docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md"
+      - "docs/development/redesign/runbooks/09-kubernetes-lifecycle-recovery.md"
     notes:
       - "feature gate なしでは受理しない。"
       - "management API outage を含む controller 再接続 E2E が未完了のため Supported へ昇格しない。"

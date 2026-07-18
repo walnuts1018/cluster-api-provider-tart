@@ -1,5 +1,10 @@
 # Ubuntu 24.04 と kubeadm の実機導入
 
+> [!WARNING]
+> この手順は開発版の検証を対象とします。初期 Provisioning は Supported ではなく、完了した
+> Kubernetes Node を得ることは保証されません。対象 Host のディスクは消去されるため、隔離した
+> Provisioning L2 と検証用ディスクだけを使用してください。
+
 ## 対象
 
 この手順は、`amd64-uefi-ab-ubuntu-24.04-kubeadm/v1` Profile、Ubuntu 24.04、kubeadm
@@ -156,7 +161,7 @@ kubectl get cluster,machine,tartmachine,tarthost,tarthostoperation -A
 kubectl describe tarthostoperation -n default active-HOST_UID_PREFIX
 ```
 
-## 現時点の完了条件
+## 現在の制約
 
 この導入経路のmanager起動、Artifact署名検証、Host割当、CAPI/KCP/CABPK object生成までは
 構成として定義されている。一方、通常Provisioning Agentのboot commitには未実装が残る。
@@ -165,6 +170,6 @@ AgentはOS/Verity payloadの書込み後にEFI boot entryとState上のcontrolle
 `--write-payloads-only`診断で停止する。そのため、この文書のCluster作成手順は実機検証の
 前提準備であり、`Node Ready`到達を成功として扱ってはならない。
 
-この残差はTask 07の通常Agent実行、EFI boot commit、State trust引渡しを実装し、QEMUと
-GitHub ActionsのProvisioning E2Eで再現可能な証跡を追加した後に解消する。実機で先に試す場合も、
-diskを破壊する`--write-payloads-only`を通常運用へ使わない。
+通常 Agent の boot commit、EFI boot entry、State trust の引渡しが提供されるまでは、この手順を
+通常運用へ使用しないでください。診断用の`--write-payloads-only`はディスクを破壊するため、
+通常の導入操作として実行してはいけません。

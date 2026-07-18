@@ -104,7 +104,7 @@ BMC搭載HostでRedfishを使って電源、次回boot、Virtual Mediaを操作�
 - `cmd/agent-artifact-manifest` と `mise run agent-artifact-manifest` を追加し、`virtual-media.iso` が存在する場合は Agent Artifact manifest の `virtualMedia` descriptor と署名対象へ含めるようにした。
 - `cmd/provisioning-agent` に kernel command line を register 入力へ収束させる処理を追加し、`main_test.go` で `tart.agent.*` の4項目が iPXE と VirtualMedia のどちらから来ても共通の register 入力へ正規化されることを固定した。
 - `cmd/provisioning-agent` で `/v1/agent/register` request 組み立てを helper へ集約し、明示flag、kernel command line、VirtualMedia 相当の GRUB、HTTPBoot/PXE 相当の iPXE script が最終的に同じ `agentprotocol.RegisterRequest` へ収束することを package test で固定した。
-- `docs/redesign/runbooks/10-redfish-simulated-record.md` に、repository内testで確認できる疑似contract証跡を追加した。
+- `docs/development/redesign/runbooks/10-redfish-simulated-record.md` に、repository内testで確認できる疑似contract証跡を追加した。
 
 ### 未検証
 

@@ -108,7 +108,7 @@ Task 01のboot方式比較は保留したまま、Task 04を解放するManifest
 - `dto/agent_artifact`、`infrastructure/http_server/agentboot`、`infrastructure/provisioning_agent/artifactfetch`に
   Agent Artifact/OS Artifactの署名・digest検証を追加し、controllerとAgentの双方が信頼していない署名鍵や
   改変済みpayloadを拒否するようにした。
-- `docs/redesign/runbooks/05-os-artifact-security-simulated-record.md` に、repository内testで確認できる
+- `docs/development/redesign/runbooks/05-os-artifact-security-simulated-record.md` に、repository内testで確認できる
   署名・digest検証の疑似証跡を追加した。
 
 未検証・未実装:

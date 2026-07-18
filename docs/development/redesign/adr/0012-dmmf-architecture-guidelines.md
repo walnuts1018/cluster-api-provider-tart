@@ -491,5 +491,5 @@ func (r *TartMachineReconciler) reconcileNormal(
 ## References
 
 - [アーキテクチャ](../architecture.md)
-- [AI Agent向けWorkflow設計規約](../ai-workflow-architecture.md)
+- [DMMF のディレクトリ構成](../../dmmf/new_directory.md)
 - [ADR 0005: 能力別Go interfaceを先に実装し、外部ABIはgRPCを候補とする](0005-capability-drivers.md)

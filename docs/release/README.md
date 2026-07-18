@@ -1,35 +1,36 @@
-# Release Matrix
+# 対応状況
 
-このディレクトリでは、repository 内で公開する release candidate の対応範囲を管理する。
-機械可読な正本は [release-matrix.yaml](release-matrix.yaml) とし、人間向けの説明と
-既知制約は [../release-notes/unreleased.md](../release-notes/unreleased.md) に集約する。
+このページは、Tart で利用できる機能の現在の公開状況を示します。機械可読な正本は
+[release-matrix.yaml](release-matrix.yaml)です。
 
-## 現在の公開状態
+## 公開状況
 
-`release-matrix.yaml` に定義した現行 release candidate の公開状態は次のとおり。
+| 状態 | 意味 |
+|---|---|
+| Supported | 利用者向けに提供し、定められた検証を満たしている機能 |
+| Experimental | 検証目的で提供する機能。互換性や復旧手順に制約があります |
+| Planned | 設計または実装中であり、利用者向けには提供していない機能 |
 
-| 名前 | 区分 | 状態 | 参照 |
-|---|---|---|---|
-| Ubuntu 24.04 amd64 UEFI kubeadm 初期Provisioning | `initialProvisioning` | Supported | [Task 07 証跡](../redesign/runbooks/07-initial-provisioning-simulated-record.md)、[Task 10 証跡](../redesign/runbooks/10-redfish-simulated-record.md) |
-| Ubuntu 24.04 amd64 UEFI kubeadm Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Ubuntu 26.04 amd64 UEFI kubeadm Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Debian 13 amd64 UEFI kubeadm Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Ubuntu 24.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Ubuntu 26.04 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Debian 13 amd64 UEFI k3s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Ubuntu 24.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Ubuntu 26.04 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| Debian 13 amd64 UEFI k0s Kubernetes v1.36 初期Provisioning | `initialProvisioning` | Planned | Task 11 |
-| worker OSOnly 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
-| worker KubernetesBinary 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
-| 3 台以上の control plane KubernetesBinary 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
-| 単一 control plane KubernetesBinary 更新 | `update` | Experimental | [Task 09 simulated record](../redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md)、[Task 09 recovery](../redesign/runbooks/09-kubernetes-lifecycle-recovery.md) |
+現時点で Supported の組合せはありません。本番環境での利用はしないでください。
 
-## 読み方
+## Experimental
 
-- `Supported` は、現行 release candidate で repository 内に公開する対象を示す。
-- `Experimental` は、feature gate または既知制約付きで公開する対象を示す。
-- `Planned` は、Task と公開判定条件は定義済みだが、利用者向け機能として公開しない対象を示す。
-- 各行の詳細な根拠、GitHub Actions の実行記録、手動復旧手順は `evidencePaths` の参照先に置く。
-- k3s は初期ProvisioningのPlanned対象として扱う。k3s Node Lifecycle Engine未実装の間、KubernetesBinary/StateMigration更新は公開対象に含めない。
-- 昇格や降格を行うときは、`release-matrix.yaml` と release note を同じ変更で更新する。
+次の更新機能は試験的に扱います。
+
+- worker の OSOnly 更新
+- worker の KubernetesBinary 更新
+- 3 台以上の control plane の KubernetesBinary 更新
+- 単一 control plane の KubernetesBinary 更新
+
+これらの機能には feature gate が必要で、障害時には手動復旧が必要になる場合があります。利用前に
+[未リリースノート](../release-notes/unreleased.md)を確認してください。
+
+## Planned
+
+次の初期 Provisioning は提供予定です。
+
+- Ubuntu 24.04 / 26.04、Debian 13 上の amd64 UEFI kubeadm
+- Ubuntu 24.04 / 26.04、Debian 13 上の amd64 UEFI k3s
+- Ubuntu 24.04 / 26.04、Debian 13 上の amd64 UEFI k0s
+
+各組合せは OS Artifact、Platform Profile、end-to-end 検証が揃うまで利用者向けには公開しません。

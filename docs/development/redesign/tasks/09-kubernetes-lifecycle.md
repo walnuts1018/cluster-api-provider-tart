@@ -161,7 +161,7 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 - `TartMachine.status.installedDistributionVersion`を追加し、Update成功後の次回更新でcurrent version入力として使用
 - Node Lifecycle Engine feature gateが有効な対象に限り、`CanUpdateMachine`/`CanUpdateMachineSet`
   がKubernetes version差分をin-place update対象として受理し、無効時はpatchなしで通常置換へfallbackする
-- `docs/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
+- `docs/development/redesign/runbooks/09-kubernetes-lifecycle-recovery.md` に
   `RecoveryRequired` と `SnapshotRef` を前提にした手動復旧 Runbook を追加
 - `infrastructure/repository/k8s/nodelifecycleengine/status_store_test.go` に、
   7つの永続化Stepごとにfresh processから同じ完了報告を再送しても`completedSteps`を重複記録しない
@@ -173,7 +173,7 @@ Task08の実機/E2E未検証前提を維持したまま、Node Lifecycle Engine�
 - `infrastructure/http_server/agentapi/handler_test.go` に、
   `StateMigration` が `DistributionApplied` で失敗した時に `RecoveryRequired` と `SnapshotRef` 保持へ
   収束する統合テストを追加
-- `docs/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md` に、
+- `docs/development/redesign/runbooks/09-kubernetes-lifecycle-simulated-record.md` に、
   repository 内で再現可能な再起動耐性と `RecoveryRequired` の証跡を追加
 
 未実装・未検証:

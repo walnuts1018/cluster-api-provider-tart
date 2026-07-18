@@ -2,18 +2,16 @@
 
 ## 目的
 
-このディレクトリは、多様な物理ホストに対してOSの初期導入とA/B更新を行うCluster API Infrastructure Providerへの再設計方針を定義する。現在の実装をそのまま拡張するための仕様ではなく、移行先の境界、段階、完了条件を定める計画文書である。
+このディレクトリは開発者向けであり、多様な物理ホストに対してOSの初期導入とA/B更新を行うCluster API Infrastructure Providerへの再設計方針を定義する。現在の実装をそのまま拡張するための仕様ではなく、移行先の境界、段階、完了条件を定める計画文書である。
 
 ## 文書一覧
 
 - [記述規約と用語集](conventions.md)
 - [達成すべき状態](target-state.md)
 - [アーキテクチャ](architecture.md)
-- [AI Agent向けWorkflow設計規約](ai-workflow-architecture.md)
-- [Application Workflowパッケージ整理方針](application-workflow-package-map.md)
 - [CI検証方針](ci-verification.md)
-- [Release Matrix](../release/README.md)
-- [Release Note (unreleased)](../release-notes/unreleased.md)
+- [Release Matrix](../../release/README.md)
+- [Release Note (unreleased)](../../release-notes/unreleased.md)
 - [全体の実装計画](implementation-plan.md)
 - [Platform Profile一覧](platform-profiles/README.md)
 - [Runbook一覧](runbooks/README.md)

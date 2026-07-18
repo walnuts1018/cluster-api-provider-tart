@@ -16,6 +16,7 @@ shellcheck = "0.11.0"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"
+GOMODCACHE = "{{config_root}}/.cache/go/pkg/mod"
 GOLANGCI_LINT_CACHE = "{{config_root}}/.cache/golangci-lint"
 
 [tasks.all]

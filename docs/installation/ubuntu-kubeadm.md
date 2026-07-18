@@ -1,7 +1,7 @@
 # Ubuntu 24.04 と kubeadm の実機導入
 
 > [!WARNING]
-> この手順は開発版の検証を対象とします。初期 Provisioning は Supported ではなく、完了した
+> この手順は開発版の検証を対象とします。初期 Provisioning は未完成であり、完了した
 > Kubernetes Node を得ることは保証されません。対象 Host のディスクは消去されるため、隔離した
 > Provisioning L2 と検証用ディスクだけを使用してください。
 

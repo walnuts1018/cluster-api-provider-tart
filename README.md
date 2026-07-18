@@ -9,11 +9,9 @@ Provisioning Agent を使い、管理クラスタから物理 Host の初期導�
 
 ## はじめに
 
-- [ドキュメント](docs/README.md): 導入手順、対応状況、既知の制約
+- [ドキュメント](docs/README.md): 導入手順
 - [Ubuntu 24.04 と kubeadm の実機導入](docs/installation/ubuntu-kubeadm.md): 現在提供している検証用導入手順
-- [対応状況](docs/release/README.md): 利用可能・試験的・未提供の機能
-- [未リリースノート](docs/release-notes/unreleased.md): 既知の制約
 
 ## 開発への参加
 
-設計方針、実装計画、CI 検証、ADR は [開発者向けドキュメント](docs/development/README.md) にまとめています。
+設計方針、開発手順、CI 検証は [開発者向けドキュメント](docs/development/README.md) にまとめています。

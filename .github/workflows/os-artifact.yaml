@@ -75,28 +75,6 @@ jobs:
   artifact-config-contract:
     name: Artifact config contract
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - key: ubuntu-24.04-amd64-kubeadm
-            config: artifact/config/ubuntu-24.04-amd64.json
-          - key: ubuntu-24.04-amd64-k3s
-            config: artifact/config/ubuntu-24.04-amd64-k3s.json
-          - key: ubuntu-24.04-amd64-k0s
-            config: artifact/config/ubuntu-24.04-amd64-k0s.json
-          - key: ubuntu-26.04-amd64-kubeadm
-            config: artifact/config/ubuntu-26.04-amd64-kubeadm.json
-          - key: ubuntu-26.04-amd64-k3s
-            config: artifact/config/ubuntu-26.04-amd64-k3s.json
-          - key: ubuntu-26.04-amd64-k0s
-            config: artifact/config/ubuntu-26.04-amd64-k0s.json
-          - key: debian-13-amd64-kubeadm
-            config: artifact/config/debian-13-amd64-kubeadm.json
-          - key: debian-13-amd64-k3s
-            config: artifact/config/debian-13-amd64-k3s.json
-          - key: debian-13-amd64-k0s
-            config: artifact/config/debian-13-amd64-k0s.json
     steps:
       - name: Check out
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -106,7 +84,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Verify ${{ matrix.key }} manifest config
+      - name: Verify artifact manifest configuration
         run: go test ./cmd/artifact-manifest ./artifact ./domain/shared/platformprofile
 
   ubuntu-24-04-amd64:

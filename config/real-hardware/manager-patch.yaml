@@ -6,7 +6,7 @@ metadata:
 spec:
   template:
     spec:
-      # init containerとmanagerが共有するemptyDirへ、非rootユーザーのまま書き込めるようにする。
+      # emptyDirをroot専用のまま残すと、非rootのinit containerが証明書を作成できない。
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -88,6 +88,9 @@ spec:
             fieldRef:
               fieldPath: status.hostIP
         securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
           allowPrivilegeEscalation: false
           capabilities:
             drop:
@@ -109,7 +112,3 @@ spec:
       - name: agent-api-tls
         emptyDir:
           medium: Memory
-      - name: agent-artifact
-        image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:dev
-          pullPolicy: IfNotPresent

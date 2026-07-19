@@ -847,13 +847,16 @@ AGENT_ARTIFACT_REF="${AGENT_ARTIFACT_REF:-ghcr.io/walnuts1018/cluster-api-provid
 mise run manifests
 mise run generate
 manager_kustomization="$(mktemp)"
+real_hardware_kustomization="$(mktemp)"
 cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization" config/real-hardware/generated/agent-artifact-public.pem config/real-hardware/generated/os-artifact-public.pem' EXIT
+cp config/real-hardware/kustomization.yaml "$real_hardware_kustomization"
+trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; cp "$real_hardware_kustomization" config/real-hardware/kustomization.yaml; rm -f "$manager_kustomization" "$real_hardware_kustomization" config/real-hardware/generated/agent-artifact-public.pem config/real-hardware/generated/os-artifact-public.pem' EXIT
 mkdir -p dist
 mkdir -p config/real-hardware/generated
 printf '%s' "$AGENT_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/agent-artifact-public.pem
 printf '%s' "$OS_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/os-artifact-public.pem
 (cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent=$AGENT_ARTIFACT_REF")
+(cd config/real-hardware && kustomize edit set image controller="$IMG")
 kustomize build config/real-hardware > dist/install-real-hardware.yaml
 '''
 

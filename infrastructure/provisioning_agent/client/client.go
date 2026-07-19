@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	retry "github.com/avast/retry-go/v4"
+	retry "github.com/avast/retry-go/v5"
 
 	nodelifecycle "github.com/walnuts1018/cluster-api-provider-tart/domain/node/workflow/run_signed_step"
 	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
@@ -270,7 +270,14 @@ func (client *Client) doJSON(
 	if err != nil {
 		return err
 	}
-	return retry.Do(
+	return retry.New(
+		retry.Attempts(maxAttempts),
+		retry.Context(ctx),
+		retry.DelayType(func(attempt uint, _ error, _ retry.DelayContext) time.Duration {
+			return client.retryDelay(attempt)
+		}),
+		retry.LastErrorOnly(true),
+	).Do(
 		func() error {
 			attemptContext, cancel := context.WithTimeout(ctx, requestTimeout)
 			defer cancel()
@@ -319,12 +326,6 @@ func (client *Client) doJSON(
 			}
 			return nil
 		},
-		retry.Attempts(maxAttempts),
-		retry.Context(ctx),
-		retry.DelayType(func(attempt uint, _ error, _ *retry.Config) time.Duration {
-			return client.retryDelay(attempt)
-		}),
-		retry.LastErrorOnly(true),
 	)
 }
 

@@ -251,7 +251,13 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		By("Creating a manual WipeAll operation for the retained Host")
 		host := waitForHostByMAC(ctx, bootstrapClusterProxy.GetClient(), namespace.Name, simulators[0].macAddress)
 		operation := createManualWipeAllOperation(ctx, bootstrapClusterProxy.GetClient(), host)
-		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhasePreparingBoot)
+		waitForOperationPhase(
+			ctx,
+			bootstrapClusterProxy.GetClient(),
+			operation,
+			infrastructurev1beta1.TartHostOperationPhasePreparingBoot,
+			infrastructurev1beta1.TartHostOperationPhaseWaitingForAgent,
+		)
 		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseCleaning)
 
 		By("Completing the manual WipeAll operation through the controller workflow")
@@ -464,12 +470,12 @@ func waitForOperationPhase(
 	ctx context.Context,
 	client crclient.Client,
 	operation *infrastructurev1beta1.TartHostOperation,
-	phase infrastructurev1beta1.TartHostOperationPhase,
+	phases ...infrastructurev1beta1.TartHostOperationPhase,
 ) {
 	Eventually(func(g Gomega) {
 		current := &infrastructurev1beta1.TartHostOperation{}
 		g.Expect(client.Get(ctx, crclient.ObjectKeyFromObject(operation), current)).To(Succeed())
-		g.Expect(current.Status.Phase).To(Equal(phase))
+		g.Expect(current.Status.Phase).To(BeElementOf(phases))
 	}, 3*time.Minute, 2*time.Second).Should(Succeed())
 }
 

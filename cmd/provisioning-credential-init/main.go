@@ -45,18 +45,35 @@ const (
 
 func main() {
 	var tlsDir string
+	var credentialsDir string
 	flag.StringVar(&tlsDir, "tls-dir", "", "Directory for a generated Agent API TLS certificate and key.")
+	flag.StringVar(&credentialsDir, "credentials-dir", "", "Directory for the Agent Plan signing key.")
 	flag.Parse()
-	if err := run(context.Background(), tlsDir); err != nil {
+	if err := run(context.Background(), tlsDir, credentialsDir); err != nil {
 		slog.Error("Failed to initialize provisioning credentials", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, tlsDir string) error {
-	if tlsDir != "" {
-		return initializeTLS(tlsDir, os.Getenv("TART_PROVISIONING_ADDRESS"))
+func run(ctx context.Context, tlsDir, credentialsDir string) error {
+	if tlsDir != "" || credentialsDir != "" {
+		if tlsDir != "" {
+			if err := initializeTLS(tlsDir, os.Getenv("TART_PROVISIONING_ADDRESS")); err != nil {
+				return err
+			}
+		}
+		if credentialsDir != "" {
+			if err := initializeCredentials(ctx, credentialsDir); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
+
+	return initializeCredentialsInCluster(ctx)
+}
+
+func initializeCredentialsInCluster(ctx context.Context) error {
 	namespace := os.Getenv("POD_NAMESPACE")
 	if namespace == "" {
 		return errors.New("POD_NAMESPACE is required")
@@ -69,29 +86,73 @@ func run(ctx context.Context, tlsDir string) error {
 	if err != nil {
 		return fmt.Errorf("create Kubernetes client: %w", err)
 	}
+	return initializeCredentialsWithClient(ctx, clientset, namespace, "")
+}
+
+func initializeCredentials(ctx context.Context, directory string) error {
+	namespace := os.Getenv("POD_NAMESPACE")
+	if namespace == "" {
+		return errors.New("POD_NAMESPACE is required")
+	}
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("load Kubernetes configuration: %w", err)
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("create Kubernetes client: %w", err)
+	}
+	return initializeCredentialsWithClient(ctx, clientset, namespace, directory)
+}
+
+func initializeCredentialsWithClient(ctx context.Context, clientset kubernetes.Interface, namespace, directory string) error {
 	secrets := clientset.CoreV1().Secrets(namespace)
-	if _, err := secrets.Get(ctx, credentialSecretName, metav1.GetOptions{}); err == nil {
-		return nil
+	var secret *corev1.Secret
+	if existing, err := secrets.Get(ctx, credentialSecretName, metav1.GetOptions{}); err == nil {
+		secret = existing
 	} else if !apierrors.IsNotFound(err) {
 		return fmt.Errorf("get provisioning credential Secret: %w", err)
+	} else {
+		_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return fmt.Errorf("generate Agent Plan signing key: %w", err)
+		}
+		encoded, err := x509.MarshalPKCS8PrivateKey(privateKey)
+		if err != nil {
+			return fmt.Errorf("encode Agent Plan signing key: %w", err)
+		}
+		secret = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: credentialSecretName, Namespace: namespace},
+			Type:       corev1.SecretTypeOpaque,
+			Data: map[string][]byte{
+				planPrivateKeyName: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}),
+			},
+		}
+		if created, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err == nil {
+			secret = created
+		} else if apierrors.IsAlreadyExists(err) {
+			secret, err = secrets.Get(ctx, credentialSecretName, metav1.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("get concurrently created provisioning credential Secret: %w", err)
+			}
+		} else {
+			return fmt.Errorf("create provisioning credential Secret: %w", err)
+		}
 	}
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return fmt.Errorf("generate Agent Plan signing key: %w", err)
+	key, ok := secret.Data[planPrivateKeyName]
+	if !ok || len(key) == 0 {
+		return fmt.Errorf("provisioning credential Secret must contain %q", planPrivateKeyName)
 	}
-	encoded, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return fmt.Errorf("encode Agent Plan signing key: %w", err)
+	if directory == "" {
+		return nil
 	}
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: credentialSecretName, Namespace: namespace},
-		Type:       corev1.SecretTypeOpaque,
-		Data: map[string][]byte{
-			planPrivateKeyName: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: encoded}),
-		},
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return fmt.Errorf("create provisioning credential directory: %w", err)
 	}
-	if _, err := secrets.Create(ctx, secret, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create provisioning credential Secret: %w", err)
+	// Secret volumeをPodのadmission時点で要求すると、Secret生成前のmount競合が起きるため、
+	// init containerで取得した鍵だけをメモリ上の一時領域へ展開してからmanagerを起動する。
+	if err := os.WriteFile(filepath.Join(directory, planPrivateKeyName), key, 0o400); err != nil {
+		return fmt.Errorf("write provisioning credential: %w", err)
 	}
 	return nil
 }

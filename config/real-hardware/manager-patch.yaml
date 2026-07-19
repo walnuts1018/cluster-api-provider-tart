@@ -30,7 +30,7 @@ spec:
         - --os-artifact-key-id=$(TART_OS_ARTIFACT_KEY_ID)
         - --os-artifact-public-key-file=/etc/tart/trust/os-artifact-public.pem
         - --agent-plan-key-id=$(TART_AGENT_PLAN_KEY_ID)
-        - --agent-plan-private-key-file=/etc/tart/credentials/agent-plan-private.pem
+        - --agent-plan-private-key-file=/var/run/tart/credentials/agent-plan-private.pem
         env:
         - name: TART_PROVISIONING_ADDRESS
           valueFrom:
@@ -63,7 +63,7 @@ spec:
             - "ALL"
         volumeMounts:
         - name: provisioning-credentials
-          mountPath: /etc/tart/credentials
+          mountPath: /var/run/tart/credentials
           readOnly: true
         - name: provisioning-trust
           mountPath: /etc/tart/trust
@@ -72,10 +72,11 @@ spec:
           mountPath: /var/run/tart/tls
           readOnly: true
       initContainers:
-      - name: agent-api-tls-init
+      - name: credential-init
         image: controller:latest
         command:
         - /credential-init
+        - --credentials-dir=/var/run/tart/credentials
         - --tls-dir=/var/run/tart/tls
         env:
         - name: TART_PROVISIONING_ADDRESS
@@ -89,13 +90,14 @@ spec:
             - "ALL"
           readOnlyRootFilesystem: true
         volumeMounts:
+        - name: provisioning-credentials
+          mountPath: /var/run/tart/credentials
         - name: agent-api-tls
           mountPath: /var/run/tart/tls
       volumes:
       - name: provisioning-credentials
-        secret:
-          secretName: tart-provisioning-credentials
-          defaultMode: 0440
+        emptyDir:
+          medium: Memory
       - name: provisioning-trust
         configMap:
           name: provisioning-trust

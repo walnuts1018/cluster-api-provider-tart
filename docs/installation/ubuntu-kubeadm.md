@@ -85,7 +85,7 @@ Tart Provider を導入します。
 kubectl apply -f "${TART_RELEASE_URL}/operator-provider.yaml"
 kubectl wait --for=condition=Ready infrastructureprovider/tart \
   -n cluster-api-provider-tart-system --timeout=10m
-kubectl -n cluster-api-provider-tart-system get job provisioning-credential-init
+kubectl -n cluster-api-provider-tart-system rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=10m
 ```
 
 ### `clusterctl` を使う
@@ -107,12 +107,21 @@ clusterctl init \
   --control-plane kubeadm \
   --infrastructure tart
 
-kubectl -n cluster-api-provider-tart-system get job provisioning-credential-init
+kubectl -n cluster-api-provider-tart-system rollout status deployment/cluster-api-provider-tart-controller-manager --timeout=10m
 ```
 
-`provisioning-credential-init` Job は Agent Plan 秘密鍵を管理クラスタ内に一度だけ生成します。Provider Pod の
-init container は、起動 node の IP アドレスを SAN に含む Agent API 証明書を自動生成します。これらの値を
-利用者が取得、登録、更新する必要はありません。
+Agent Plan 秘密鍵を格納する `tart-provisioning-credentials` Secret と、起動 node の IP アドレスを SAN に
+含む Agent API 証明書は、Provider Pod の init container が自動生成します。Secret が既に存在する場合は
+既存の鍵を再利用するため、利用者が Secret を作成、取得、登録、更新する必要はありません。Secret が
+削除された場合は、次回の Pod 起動時に新しい鍵を生成します。既存の Provisioning Agent が保持する公開鍵
+と一致しなくなるため、稼働中の環境で Secret を削除しないでください。
+
+旧版から更新する場合、旧版の `provisioning-credential-init` Job が残っていれば、新しい Provider Pod の
+起動後に削除できます。新方式ではこの Job を使用しません。
+
+```bash
+kubectl -n cluster-api-provider-tart-system delete job provisioning-credential-init --ignore-not-found
+```
 
 Provider Pod は任意の管理クラスタ node へ schedule されます。Provisioning L2 へ接続していない node が
 ある場合だけ、Provider の Deployment に node selector を設定して接続済み node を選択してください。

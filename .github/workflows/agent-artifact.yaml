@@ -31,6 +31,8 @@ jobs:
 
       - name: Setup tools
         uses: ./.github/actions/setup-tools
+        with:
+          install-args: go
 
       - name: Install Agent Artifact inputs
         run: |

@@ -65,6 +65,8 @@ jobs:
 
       - name: Setup tools
         uses: ./.github/actions/setup-tools
+        with:
+          install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen go:sigs.k8s.io/kustomize/kustomize/v5 kubectl jq
 
       - name: Select provisioning E2E scenario
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'replacement-only'

@@ -12,12 +12,17 @@ inputs:
     description: "golangci-lint キャッシュも含めるか"
     required: false
     default: "false"
+  install-args:
+    description: "miseでインストールするツールをスペース区切りで指定する"
+    required: true
 
 runs:
   using: composite
   steps:
     - name: Setup tools
       uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+      with:
+        install_args: ${{ inputs.install-args }}
 
     - name: Go module cache
       if: inputs.go-cache == 'true'

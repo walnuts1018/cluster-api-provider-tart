@@ -41,6 +41,7 @@ jobs:
         uses: ./.github/actions/setup-tools
         with:
           go-cache: "false"
+          install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen
 
       - name: Generate manifests and Go code
         run: |
@@ -67,6 +68,7 @@ jobs:
         with:
           go-cache: "true"
           golangci-lint-cache: "true"
+          install-args: go golangci-lint actionlint shellcheck
 
       - name: Lint
         run: mise ci-lint
@@ -85,6 +87,8 @@ jobs:
 
       - name: Setup tools
         uses: ./.github/actions/setup-tools
+        with:
+          install-args: go go:sigs.k8s.io/controller-runtime/tools/setup-envtest
 
       - name: Running Test
         run: mise run ci-test
@@ -102,6 +106,8 @@ jobs:
 
       - name: Setup tools
         uses: ./.github/actions/setup-tools
+        with:
+          install-args: go
 
       - name: build
         run: mise run ci-build
@@ -120,6 +126,8 @@ jobs:
 
       - name: Setup tools
         uses: ./.github/actions/setup-tools
+        with:
+          install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen kind
 
       - name: Running Test e2e
         run: mise run test-e2e

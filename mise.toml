@@ -535,7 +535,7 @@ go run ./cmd/locked-download \
 description = "lock fileで固定したNode Lifecycle runtime入力を取得して検証する"
 run = '''
 go run ./cmd/locked-download \
-  -lock "${ETCDCTL_LOCK:-artifact/locks/etcdctl-3.6.8-linux-amd64.json}" \
+  -lock "${ETCDCTL_LOCK:-artifact/locks/etcdctl-linux-amd64.json}" \
   -output-dir "${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
 '''
 
@@ -581,6 +581,9 @@ case "$distribution" in
 esac
 extra_dir="artifact/mkosi/mkosi.extra"
 runtime_input_dir="${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
+runtime_lock="${ETCDCTL_LOCK:-artifact/locks/etcdctl-linux-amd64.json}"
+etcdctl_archive="$(jq -er '.files[0].name' "$runtime_lock")"
+etcdctl_root="${etcdctl_archive%.tar.gz}"
 workspace_dir="${ARTIFACT_MKOSI_WORKSPACE_DIR:-}"
 mkdir -p "$extra_dir/usr/bin"
 CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
@@ -588,18 +591,18 @@ CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/b
 tar \
   --extract \
   --gzip \
-  --file "$runtime_input_dir/etcd-v3.6.8-linux-amd64.tar.gz" \
+  --file "$runtime_input_dir/$etcdctl_archive" \
   --strip-components=1 \
   --to-stdout \
-  etcd-v3.6.8-linux-amd64/etcdctl >"$extra_dir/usr/bin/etcdctl"
+  "$etcdctl_root/etcdctl" >"$extra_dir/usr/bin/etcdctl"
 chmod 0755 "$extra_dir/usr/bin/etcdctl"
 tar \
   --extract \
   --gzip \
-  --file "$runtime_input_dir/etcd-v3.6.8-linux-amd64.tar.gz" \
+  --file "$runtime_input_dir/$etcdctl_archive" \
   --strip-components=1 \
   --to-stdout \
-  etcd-v3.6.8-linux-amd64/etcdutl >"$extra_dir/usr/bin/etcdutl"
+  "$etcdctl_root/etcdutl" >"$extra_dir/usr/bin/etcdutl"
 chmod 0755 "$extra_dir/usr/bin/etcdutl"
 # build contextへ一時配置したbinaryをsource treeへ残さない。
 trap 'rm -f "$extra_dir/usr/bin/provisioning-agent" "$extra_dir/usr/bin/node-lifecycle-service" "$extra_dir/usr/bin/etcdctl" "$extra_dir/usr/bin/etcdutl"' EXIT

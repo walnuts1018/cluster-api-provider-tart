@@ -9,6 +9,7 @@
       managerFilePatterns: [
         '/^config/.*/kustomization.yaml$/',
         '/^test/utils/utils.go$/',
+        '/^artifact/.*\\.json$/',
       ],
       matchStringsStrategy: 'any',
       matchStrings: [
@@ -18,5 +19,22 @@
       ],
       datasourceTemplate: 'github-tags',
     },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^artifact/mkosi/mkosi\\.conf$/'],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>[^ ]+) depName=(?<depName>[^ ]+)\\n\\s+[^=\\n]+=v?(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)(?:-[0-9.]+)?',
+      ],
+      versioningTemplate: 'semver-coerced',
+    },
   ],
+  postUpgradeTasks: {
+    commands: ['./hack/renovate/post-upgrade.sh'],
+    fileFilters: [
+      'artifact/**',
+      'mise.toml',
+      'hack/renovate/post-upgrade.sh',
+    ],
+    executionMode: 'branch',
+  },
 }

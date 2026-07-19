@@ -111,5 +111,5 @@ spec:
           medium: Memory
       - name: agent-artifact
         image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:v0.1.3
           pullPolicy: IfNotPresent

@@ -841,7 +841,7 @@ kustomize build config/default > dist/install.yaml
 description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml を生成する"
 run = '''
 IMG="${IMG:-controller:latest}"
-AGENT_ARTIFACT_REF="${AGENT_ARTIFACT_REF:-ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest}"
+: "${AGENT_ARTIFACT_REF:?AGENT_ARTIFACT_REF is required (e.g. ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:v0.1.3)}"
 : "${AGENT_ARTIFACT_PUBLIC_KEY_PEM:?AGENT_ARTIFACT_PUBLIC_KEY_PEM is required}"
 : "${OS_ARTIFACT_PUBLIC_KEY_PEM:?OS_ARTIFACT_PUBLIC_KEY_PEM is required}"
 mise run manifests

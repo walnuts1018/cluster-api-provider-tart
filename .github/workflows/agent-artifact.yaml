@@ -68,6 +68,8 @@ jobs:
           AGENT_TAG: ${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          [[ "$AGENT_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]
+          [ "$AGENT_TAG" != latest ]
           payload_digest=$(go run ./cmd/artifacter -dir dist/agent-artifact -repo "$AGENT_REPOSITORY" -tag "$AGENT_TAG-payload")
           reference="oci://$AGENT_REPOSITORY@$payload_digest"
           AGENT_ARTIFACT_REFERENCE="$reference" \

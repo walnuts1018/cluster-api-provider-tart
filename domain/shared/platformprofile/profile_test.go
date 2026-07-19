@@ -41,6 +41,18 @@ func TestAllは要求されたOSDistribution組み合わせを含む(t *testing.
 	}
 }
 
+func TestProfileはAgentArtifact互換profileを定義する(t *testing.T) {
+	t.Parallel()
+
+	profile, err := MustLookup(ProfileUbuntu2404Kubeadm)
+	if err != nil {
+		t.Fatalf("MustLookup() error = %v", err)
+	}
+	if profile.AgentArtifactProfile != LegacyProfileAMD64UEFIABV1 {
+		t.Fatalf("AgentArtifactProfile = %q, want %q", profile.AgentArtifactProfile, LegacyProfileAMD64UEFIABV1)
+	}
+}
+
 func TestValidateArtifactIdentityはProfile外の組み合わせを拒否する(t *testing.T) {
 	t.Parallel()
 

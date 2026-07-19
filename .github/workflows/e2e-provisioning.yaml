@@ -66,13 +66,6 @@ jobs:
       - name: Setup tools
         uses: ./.github/actions/setup-tools
 
-      - name: Install dependencies (QEMU & KVM & tools)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2 tcpdump linux-image-generic cpio ipxe busybox-static
-          # The provisioning simulator listens on the real Wake-on-LAN UDP port 9.
-          sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
-
       - name: Select provisioning E2E scenario
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'replacement-only'
         run: |

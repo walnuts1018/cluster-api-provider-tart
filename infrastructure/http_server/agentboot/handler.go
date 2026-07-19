@@ -24,6 +24,7 @@ import (
 	"time"
 
 	agentbootdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/agentboot"
+	platformprofile "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/platformprofile"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -151,11 +152,13 @@ func (handler *Handler) handleIPXE(response http.ResponseWriter, request *http.R
 		http.Error(response, "failed to resolve Agent boot target", http.StatusInternalServerError)
 		return
 	}
-	if target.PlatformProfile != handler.artifact.Manifest().PlatformProfile {
+	profile, ok := platformprofile.Lookup(target.PlatformProfile)
+	if !ok || profile.AgentArtifactProfile != handler.artifact.Manifest().PlatformProfile {
 		crlog.FromContext(request.Context()).Info(
 			"Agent Artifact platform profile does not match the boot target; returning an exit script",
 			"mac", mac,
 			"targetPlatformProfile", target.PlatformProfile,
+			"requiredAgentArtifactPlatformProfile", profile.AgentArtifactProfile,
 			"artifactPlatformProfile", handler.artifact.Manifest().PlatformProfile,
 		)
 		response.Header().Set("Content-Type", "text/plain; charset=utf-8")

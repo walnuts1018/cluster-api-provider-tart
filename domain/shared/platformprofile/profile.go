@@ -53,19 +53,20 @@ const (
 var ErrUnsupportedProfile = errors.New("unsupported platform profile")
 
 type Profile struct {
-	ID                 string
-	Architecture       string
-	Firmware           string
-	BootDriver         string
-	OSFamily           string
-	OSVersion          string
-	Distribution       string
-	LifecycleRuntime   string
-	KubernetesVersions []string
-	CPULevel           string
-	StateSchema        uint64
-	StatePaths         []string
-	DataPaths          []string
+	ID                   string
+	Architecture         string
+	Firmware             string
+	BootDriver           string
+	AgentArtifactProfile string
+	OSFamily             string
+	OSVersion            string
+	Distribution         string
+	LifecycleRuntime     string
+	KubernetesVersions   []string
+	CPULevel             string
+	StateSchema          uint64
+	StatePaths           []string
+	DataPaths            []string
 }
 
 type ArtifactIdentity struct {
@@ -114,17 +115,18 @@ func buildProfiles() []Profile {
 
 func newAMD64UEFIABProfile(id, osFamily, osVersion, distribution string) Profile {
 	profile := Profile{
-		ID:                 id,
-		Architecture:       ArchitectureAMD64,
-		Firmware:           FirmwareUEFI,
-		BootDriver:         BootDriverIPXE,
-		OSFamily:           osFamily,
-		OSVersion:          osVersion,
-		Distribution:       distribution,
-		LifecycleRuntime:   lifecycleRuntimeFor(distribution),
-		KubernetesVersions: []string{KubernetesV136},
-		CPULevel:           "x86-64-v1",
-		StateSchema:        1,
+		ID:                   id,
+		Architecture:         ArchitectureAMD64,
+		Firmware:             FirmwareUEFI,
+		BootDriver:           BootDriverIPXE,
+		AgentArtifactProfile: LegacyProfileAMD64UEFIABV1,
+		OSFamily:             osFamily,
+		OSVersion:            osVersion,
+		Distribution:         distribution,
+		LifecycleRuntime:     lifecycleRuntimeFor(distribution),
+		KubernetesVersions:   []string{KubernetesV136},
+		CPULevel:             "x86-64-v1",
+		StateSchema:          1,
 		StatePaths: []string{
 			"/etc/machine-id",
 			"/etc/tart",

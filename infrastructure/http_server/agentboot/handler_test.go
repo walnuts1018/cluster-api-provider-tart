@@ -28,6 +28,7 @@ import (
 	"strings"
 	"testing"
 
+	platformprofile "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/platformprofile"
 	agentartifact "github.com/walnuts1018/cluster-api-provider-tart/dto/agent_artifact"
 )
 
@@ -80,7 +81,7 @@ func TestHandlerはScriptと固定DigestArtifactを配信する(t *testing.T) {
 			HostUID:         "host-uid",
 			OperationUID:    "operation-uid",
 			BootMACAddress:  "00:00:5e:00:53:01",
-			PlatformProfile: agentartifact.PlatformProfileAMD64UEFIABV1,
+			PlatformProfile: platformprofile.ProfileUbuntu2404Kubeadm,
 		}},
 		Artifact:        artifact,
 		ArtifactBaseURL: "https://boot.test",

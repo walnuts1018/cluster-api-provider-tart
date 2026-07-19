@@ -979,8 +979,22 @@ else
 fi
 '''
 
+[tasks.setup-provisioning-e2e-host]
+description = "Provisioning E2Eに必要なLinuxホスト依存パッケージを導入する"
+run = '''
+if ! command -v apt-get >/dev/null 2>&1; then
+  echo "setup-provisioning-e2e-host supports Debian/Ubuntu hosts only" >&2
+  exit 1
+fi
+sudo apt-get update
+sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2 tcpdump linux-image-generic cpio ipxe busybox-static
+# The provisioning simulator listens on the real Wake-on-LAN UDP port 9.
+sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
+'''
+
 [tasks.test-provisioning-e2e]
 description = "CAPI Test Framework と k3s を使用して Provisioning E2E テストを実行する"
+depends = ["setup-provisioning-e2e-host"]
 run = '''
 IMG="${IMG:-registry.test.walnuts.dev/cluster-api-provider-tart:e2e}"
 CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"

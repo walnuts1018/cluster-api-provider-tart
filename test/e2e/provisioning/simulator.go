@@ -27,7 +27,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -118,7 +117,6 @@ type HostSimulator struct {
 	bridge          string
 	diskSerial      string
 	diskPath        string
-	qemuPIDFile     string
 	qemuCmd         *exec.Cmd
 	qemuDone        chan struct{}
 	stopping        bool
@@ -187,10 +185,6 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	}
 
 	logFile := s.logFilePath()
-	pidFile, err := s.createPIDFilePath()
-	if err != nil {
-		return err
-	}
 	args := []string{
 		"-enable-kvm",
 		"-m", "2048",
@@ -203,7 +197,6 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		"-bios", ovmfPath,
 		"-nographic",
 		"-serial", fmt.Sprintf("file:%s", logFile),
-		"-pidfile", pidFile,
 		"-display", "none",
 	}
 
@@ -219,12 +212,10 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	cmd.Stderr = io.Discard
 
 	if err := cmd.Start(); err != nil {
-		_ = os.Remove(pidFile)
 		return err
 	}
 
 	s.qemuCmd = cmd
-	s.qemuPIDFile = pidFile
 	done := make(chan struct{})
 	s.qemuDone = done
 	logger.Info("QEMU started", "pid", cmd.Process.Pid)
@@ -235,12 +226,8 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		if s.qemuCmd == cmd {
 			s.qemuCmd = nil
 			s.qemuDone = nil
-			s.qemuPIDFile = ""
 		}
 		s.mu.Unlock()
-		if err := os.Remove(pidFile); err != nil && !os.IsNotExist(err) {
-			logger.Error(err, "Failed to remove QEMU PID file")
-		}
 		close(done)
 		if err != nil {
 			logger.Error(err, "QEMU process exited with error")
@@ -300,21 +287,6 @@ func (s *HostSimulator) ensureRootDisk() (string, error) {
 	return diskPath, nil
 }
 
-func (s *HostSimulator) createPIDFilePath() (string, error) {
-	pidFile, err := os.CreateTemp("", "tart-e2e-qemu-*.pid")
-	if err != nil {
-		return "", fmt.Errorf("failed to create QEMU PID file path: %w", err)
-	}
-	pidFilePath := pidFile.Name()
-	if err := pidFile.Close(); err != nil {
-		return "", fmt.Errorf("failed to close QEMU PID file: %w", err)
-	}
-	if err := os.Remove(pidFilePath); err != nil {
-		return "", fmt.Errorf("failed to prepare QEMU PID file path: %w", err)
-	}
-	return pidFilePath, nil
-}
-
 func (s *HostSimulator) findOVMF() string {
 	paths := []string{
 		"/usr/share/ovmf/OVMF.fd",         // Ubuntu/macOS Brew
@@ -335,19 +307,11 @@ func (s *HostSimulator) Stop() error {
 	cmd := s.qemuCmd
 	done := s.qemuDone
 	diskPath := s.diskPath
-	pidFile := s.qemuPIDFile
 	s.mu.Unlock()
 
 	if cmd != nil && cmd.Process != nil && done != nil {
 		pid := cmd.Process.Pid
-		qemuPID, err := qemuPIDFromFile(pidFile)
-		if err != nil {
-			return err
-		}
 		stopQEMU := func(signal string) {
-			if qemuPID != 0 {
-				_ = exec.Command("sudo", "kill", signal, fmt.Sprintf("%d", qemuPID)).Run()
-			}
 			_ = exec.Command("sudo", "pkill", signal, "-P", fmt.Sprintf("%d", pid)).Run()
 			_ = exec.Command("sudo", "kill", signal, fmt.Sprintf("%d", pid)).Run()
 		}
@@ -374,22 +338,4 @@ func (s *HostSimulator) Stop() error {
 		s.mu.Unlock()
 	}
 	return nil
-}
-
-func qemuPIDFromFile(pidFile string) (int, error) {
-	if pidFile == "" {
-		return 0, nil
-	}
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, fmt.Errorf("read QEMU PID file: %w", err)
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, fmt.Errorf("parse QEMU PID file: %w", err)
-	}
-	return pid, nil
 }

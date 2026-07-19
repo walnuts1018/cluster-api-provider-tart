@@ -6,6 +6,10 @@ metadata:
 spec:
   template:
     spec:
+      # init containerとmanagerが共有するemptyDirへ、非rootユーザーのまま書き込めるようにする。
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:
@@ -107,5 +111,5 @@ spec:
           medium: Memory
       - name: agent-artifact
         image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:latest
+          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:dev
           pullPolicy: IfNotPresent

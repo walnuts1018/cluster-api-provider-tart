@@ -40,7 +40,10 @@ refresh_url_lock() {
 
 k3s_lock='artifact/locks/k3s-e2e.json'
 k3s_url="$(jq -er '.installer.url' "$k3s_lock")"
-k3s_url_version="${k3s_url#https://raw.githubusercontent.com/k3s-io/k3s/}"
+raw_host='raw.githubusercontent.com'
+k3s_repo='k3s-io/k3s'
+k3s_url_prefix="https://${raw_host}/${k3s_repo}/"
+k3s_url_version="${k3s_url#"$k3s_url_prefix"}"
 k3s_url_version="${k3s_url_version%%/install.sh}"
 if [[ "$k3s_url_version" != v[0-9]* ]]; then
   echo "unsupported k3s installer URL: $k3s_url" >&2

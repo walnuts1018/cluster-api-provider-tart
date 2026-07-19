@@ -3,13 +3,13 @@
   extends: [
     'github>walnuts1018/renovate-config',
   ],
+  ignorePaths: ['hack/renovate/**'],
   customManagers: [
     {
       customType: 'regex',
       managerFilePatterns: [
         '/^config/.*/kustomization.yaml$/',
         '/^test/utils/utils.go$/',
-        '/^artifact/.*\\.json$/',
       ],
       matchStringsStrategy: 'any',
       matchStrings: [
@@ -28,13 +28,12 @@
       versioningTemplate: 'semver-coerced',
     },
   ],
-  postUpgradeTasks: {
-    commands: ['./hack/renovate/post-upgrade.sh'],
-    fileFilters: [
-      'artifact/**',
-      'mise.toml',
-      'hack/renovate/post-upgrade.sh',
-    ],
-    executionMode: 'branch',
-  },
+  packageRules: [
+    {
+      description: 'テスト用の存在しないprivate registryを依存関係として扱わない',
+      matchDatasources: ['docker'],
+      matchPackageNames: ['registry.test.walnuts.dev/cluster-api-provider-tart'],
+      enabled: false,
+    },
+  ],
 }

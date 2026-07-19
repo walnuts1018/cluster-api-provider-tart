@@ -114,9 +114,11 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		for _, sim := range simulators {
 			Expect(sim.Stop()).To(Succeed())
 		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cleanupCancel()
 		if namespace != nil {
 			By("Collecting test namespace resources before cleanup")
-			framework.DumpAllResources(ctx, framework.DumpAllResourcesInput{
+			framework.DumpAllResources(cleanupCtx, framework.DumpAllResourcesInput{
 				Lister:               bootstrapClusterProxy.GetClient(),
 				KubeConfigPath:       bootstrapClusterProxy.GetKubeconfigPath(),
 				ClusterctlConfigPath: clusterctlConfig,
@@ -129,9 +131,9 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 				),
 			})
 		}
-		cleanupNodeReadySimulation(ctx, bootstrapClusterProxy.GetClient(), clusterName)
+		cleanupNodeReadySimulation(cleanupCtx, bootstrapClusterProxy.GetClient(), clusterName)
 		if namespace != nil && !skipCleanup {
-			framework.DeleteNamespace(ctx, framework.DeleteNamespaceInput{
+			framework.DeleteNamespace(cleanupCtx, framework.DeleteNamespaceInput{
 				Deleter: bootstrapClusterProxy.GetClient(),
 				Name:    namespace.Name,
 			})

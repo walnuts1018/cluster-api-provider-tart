@@ -626,10 +626,8 @@ if [ "$distribution" = k0s ]; then
     --remove-package cri-tools
 fi
 if [ "$os_family" = debian ]; then
-  set -- "$@" \
-    --remove-package ubuntu-minimal \
-    --remove-package linux-generic \
-    --package linux-image-amd64
+	set -- "$@" \
+		--package linux-image-amd64
 fi
 mkosi "$@" build
 bash artifact/mkosi/normalize-output.sh \

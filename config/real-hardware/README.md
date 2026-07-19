@@ -5,8 +5,7 @@
 Agent Artifact配置手順を完了する。Agent Plan署名鍵とAgent API証明書はProvider Podの起動時に自動生成する。
 
 Agent Artifactのイメージは`latest`を使用せず、リリースタグを指定する。リリースmanifestを生成する場合は、
-例えば`AGENT_ARTIFACT_REF=ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:v0.1.3`
-のように指定する。
+`github.ref_name`に対応するタグを`AGENT_ARTIFACT_REF`へ指定する。
 
 `hostPath`はnode固有であるため、`tart.walnuts.dev/provisioning-network=true`を付けたnodeへ
 Agent Artifactを配置する。Deploymentを別nodeへ移動させる場合は、先に同じ検証済みArtifactを

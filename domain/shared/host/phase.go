@@ -150,7 +150,7 @@ func allowedHostTransition(state State, target Phase) bool {
 	case PhaseAvailable:
 		return target == PhaseReserved || target == PhaseCleaning || target == PhaseError
 	case PhaseReserved:
-		return target == PhaseProvisioning || target == PhaseCleaning || target == PhaseError
+		return target == PhaseProvisioning || target == PhaseProvisioned || target == PhaseCleaning || target == PhaseError
 	case PhaseProvisioning:
 		return target == PhaseProvisioned || target == PhaseCleaning || target == PhaseError
 	case PhaseProvisioned:

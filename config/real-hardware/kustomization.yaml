@@ -3,7 +3,6 @@ kind: Kustomization
 
 resources:
 - ../default
-- credential-init-job.yaml
 
 configMapGenerator:
 - name: tart-provisioning-settings

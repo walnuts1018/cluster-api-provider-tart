@@ -222,13 +222,13 @@ jobs:
           printf '%s' "$AGENT_ARTIFACT_SIGNING_KEY" > "$RUNNER_TEMP/agent-artifact-signing-key.pem"
           AGENT_ARTIFACT_PUBLIC_KEY_PEM="$(openssl pkey -in "$RUNNER_TEMP/agent-artifact-signing-key.pem" -pubout)"
           export AGENT_ARTIFACT_PUBLIC_KEY_PEM
-          IMG="${REGISTRY}/${IMAGE_NAME}@${{ needs.merge.outputs.digest }}" \
-          IPXE_REF="${REGISTRY}/${IPXE_IMAGE_NAME}@${{ needs.ipxe.outputs.digest }}" \
-          AGENT_ARTIFACT_REF="${REGISTRY}/${{ github.repository }}-provisioning-agent:${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}" \
+          release_tag="${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}"
+          IMG="${REGISTRY}/${IMAGE_NAME}:${release_tag}@${{ needs.merge.outputs.digest }}" \
+          IPXE_REF="${REGISTRY}/${IPXE_IMAGE_NAME}:${release_tag}@${{ needs.ipxe.outputs.digest }}" \
+          AGENT_ARTIFACT_REF="${REGISTRY}/${{ github.repository }}-provisioning-agent:${release_tag}" \
             mise run build-installer-real-hardware
           cp dist/install-real-hardware.yaml dist/infrastructure-components.yaml
           cp metadata.yaml dist/metadata.yaml
-          release_tag="${{ github.event_name == 'release' && github.ref_name || inputs.image_tag }}"
           sed "s/REPLACE_WITH_RELEASE_VERSION/$release_tag/" \
             config/operator/infrastructure-provider.yaml > dist/operator-provider.yaml
 

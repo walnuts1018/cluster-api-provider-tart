@@ -5,18 +5,23 @@ resources:
 - ../default
 
 configMapGenerator:
-- name: tart-provisioning-settings
-  literals:
+- literals:
   - agentArtifactKeyID=release-agent-v1
   - osArtifactKeyID=release-v1
   - agentPlanKeyID=install-plan-v1
-- name: provisioning-trust
-  files:
+  name: tart-provisioning-settings
+- files:
   - agent-artifact-public.pem=generated/agent-artifact-public.pem
   - os-artifact-public.pem=generated/os-artifact-public.pem
+  name: provisioning-trust
 
 generatorOptions:
   disableNameSuffixHash: true
 
 patches:
 - path: manager-patch.yaml
+- path: generated/agent-artifact-patch.yaml
+images:
+- name: controller
+  newName: controller
+  newTag: latest

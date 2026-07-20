@@ -852,7 +852,7 @@ esac
 case "$agent_artifact_tag" in
   ''|dev|latest) echo "AGENT_ARTIFACT_REF must use a GitHub release tag" >&2; exit 1 ;;
 esac
-if ! [[ "$agent_artifact_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]]; then
+if ! echo "$agent_artifact_tag" | grep -qE '^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$'; then
   echo "AGENT_ARTIFACT_REF has an invalid release tag" >&2
   exit 1
 fi

@@ -24,6 +24,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math/big"
 	"net"
@@ -152,7 +153,9 @@ func initializeCredentialsWithClient(ctx context.Context, clientset kubernetes.I
 	// Secret volumeをPodのadmission時点で要求すると、Secret生成前のmount競合が起きるため、
 	// init containerで取得した鍵だけをメモリ上の一時領域へ展開してからmanagerを起動する。
 	path := filepath.Join(directory, planPrivateKeyName)
-	os.Remove(path)
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove existing provisioning credential: %w", err)
+	}
 	if err := os.WriteFile(path, key, 0o400); err != nil {
 		return fmt.Errorf("write provisioning credential: %w", err)
 	}

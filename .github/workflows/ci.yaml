@@ -88,7 +88,7 @@ jobs:
       - name: Setup tools
         uses: ./.github/actions/setup-tools
         with:
-          install-args: go go:sigs.k8s.io/controller-runtime/tools/setup-envtest
+          install-args: go jq go:sigs.k8s.io/controller-runtime/tools/setup-envtest
 
       - name: Running Test
         run: mise run ci-test

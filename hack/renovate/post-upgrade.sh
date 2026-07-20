@@ -19,7 +19,11 @@ for command in curl gzip jq sha256sum stat; do
 done
 
 file_size() {
-  stat -f '%z' "$1" 2>/dev/null || stat -c '%s' "$1"
+  if stat --version 2>/dev/null | grep -q "GNU"; then
+    stat -c '%s' "$1"
+  else
+    stat -f '%z' "$1"
+  fi
 }
 
 refresh_url_lock() {

@@ -6,7 +6,7 @@ metadata:
 spec:
   template:
     spec:
-      # emptyDirをroot専用のまま残すと、非rootのinit containerが証明書を作成できない。
+      # fsGroupを適用できるvolumeではmanagerの補助groupにも共有領域を公開する。
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -88,9 +88,10 @@ spec:
             fieldRef:
               fieldPath: status.hostIP
         securityContext:
-          runAsNonRoot: true
-          runAsUser: 65532
-          runAsGroup: 65532
+          # volume実装によるfsGroupの反映差異で起動に失敗しないよう、所有権の確定だけをrootで行う。
+          runAsNonRoot: false
+          runAsUser: 0
+          runAsGroup: 0
           allowPrivilegeEscalation: false
           capabilities:
             drop:

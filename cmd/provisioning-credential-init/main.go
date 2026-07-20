@@ -41,6 +41,7 @@ import (
 const (
 	credentialSecretName = "tart-provisioning-credentials"
 	planPrivateKeyName   = "agent-plan-private.pem"
+	managerGroupID       = 65532
 )
 
 func main() {
@@ -146,12 +147,12 @@ func initializeCredentialsWithClient(ctx context.Context, clientset kubernetes.I
 	if directory == "" {
 		return nil
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create provisioning credential directory: %w", err)
+	if err := prepareSharedDirectory(directory); err != nil {
+		return fmt.Errorf("prepare provisioning credential directory: %w", err)
 	}
 	// Secret volumeをPodのadmission時点で要求すると、Secret生成前のmount競合が起きるため、
 	// init containerで取得した鍵だけをメモリ上の一時領域へ展開してからmanagerを起動する。
-	if err := os.WriteFile(filepath.Join(directory, planPrivateKeyName), key, 0o400); err != nil {
+	if err := writeManagerPrivateFile(filepath.Join(directory, planPrivateKeyName), key); err != nil {
 		return fmt.Errorf("write provisioning credential: %w", err)
 	}
 	return nil
@@ -193,14 +194,41 @@ func initializeTLS(directory, address string) error {
 	if err != nil {
 		return fmt.Errorf("encode Agent API TLS key: %w", err)
 	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create Agent API TLS directory: %w", err)
+	if err := prepareSharedDirectory(directory); err != nil {
+		return fmt.Errorf("prepare Agent API TLS directory: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(directory, "agent-api.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate}), 0o444); err != nil {
 		return fmt.Errorf("write Agent API certificate: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(directory, "agent-api.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o400); err != nil {
+	if err := writeManagerPrivateFile(filepath.Join(directory, "agent-api.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER})); err != nil {
 		return fmt.Errorf("write Agent API TLS key: %w", err)
+	}
+	return nil
+}
+
+func prepareSharedDirectory(directory string) error {
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return err
+	}
+	// fsGroupを適用できないvolume実装でもmanagerが秘密鍵を読めるよう、init container自身が所有権を確定する。
+	if err := os.Chown(directory, 0, managerGroupID); err != nil {
+		return fmt.Errorf("set directory ownership: %w", err)
+	}
+	if err := os.Chmod(directory, 0o750); err != nil {
+		return fmt.Errorf("set directory permissions: %w", err)
+	}
+	return nil
+}
+
+func writeManagerPrivateFile(path string, content []byte) error {
+	if err := os.WriteFile(path, content, 0o440); err != nil {
+		return err
+	}
+	if err := os.Chown(path, 0, managerGroupID); err != nil {
+		return fmt.Errorf("set private file ownership: %w", err)
+	}
+	if err := os.Chmod(path, 0o440); err != nil {
+		return fmt.Errorf("set private file permissions: %w", err)
 	}
 	return nil
 }

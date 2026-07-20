@@ -40,7 +40,7 @@ jobs:
       - name: Setup tools
         uses: ./.github/actions/setup-tools
         with:
-          go-cache: "false"
+          go-cache: "true"
           install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen
 
       - name: Generate manifests and Go code

@@ -456,6 +456,10 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartMachineV1Beta1")
 		os.Exit(1)
 	}
+	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
+		os.Exit(1)
+	}
 	if err := reconcilers.TartHostOperation.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHostOperation")
 		os.Exit(1)

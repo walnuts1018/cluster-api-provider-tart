@@ -22,10 +22,10 @@ func InitializeReconcilers(client0 client.Client, scheme *runtime.Scheme) (Recon
 	cleaningWorkflow := kessoku.Provide(provideCleaningStep).Fn()()
 	adapter := kessoku.Provide(wol.Default).Fn()()
 	adapter0 := kessoku.Provide(redfish.New).Fn()()
-	service := kessoku.Provide(allocation.NewService).Fn()(client0)
+	service := kessoku.Provide(v1beta1host.NewService).Fn()(client0)
+	service0 := kessoku.Provide(drivertarget.NewService).Fn()(client0)
+	service1 := kessoku.Provide(allocation.NewService).Fn()(client0)
 	observer := kessoku.Provide(machinehealth.NewObserver).Fn()(client0)
-	service0 := kessoku.Provide(v1beta1host.NewService).Fn()(client0)
-	service1 := kessoku.Provide(drivertarget.NewService).Fn()(client0)
 	tartClusterReconciler := kessoku.Provide(provideTartClusterReconciler).Fn()(client0, scheme)
 	tartMachineTemplateReconciler := kessoku.Provide(provideTartMachineTemplateReconciler).Fn()(client0, scheme)
 	var err error
@@ -34,12 +34,12 @@ func InitializeReconcilers(client0 client.Client, scheme *runtime.Scheme) (Recon
 		var zero Reconcilers
 		return zero, err
 	}
-	hostReferenceService := kessoku.Provide(provideHostReference).Fn()(service)
+	hostPhaseService := kessoku.Provide(provideHostPhase).Fn()(service)
+	hostCapabilityWriter := kessoku.Provide(provideHostCapabilityWriter).Fn()(service)
+	hostPowerStateWriter := kessoku.Provide(provideHostPowerStateWriter).Fn()(service)
+	driverTargetBuilder := kessoku.Provide(provideDriverTarget).Fn()(service0)
+	hostReferenceService := kessoku.Provide(provideHostReference).Fn()(service1)
 	nodeHealthObserver := kessoku.Provide(provideNodeHealth).Fn()(observer)
-	hostPhaseService := kessoku.Provide(provideHostPhase).Fn()(service0)
-	hostCapabilityWriter := kessoku.Provide(provideHostCapabilityWriter).Fn()(service0)
-	hostPowerStateWriter := kessoku.Provide(provideHostPowerStateWriter).Fn()(service0)
-	driverTargetBuilder := kessoku.Provide(provideDriverTarget).Fn()(service1)
 	var err0 error
 	service2, err0 := kessoku.Provide(driver0.NewService).Fn()(registry)
 	if err0 != nil {
@@ -54,10 +54,11 @@ func InitializeReconcilers(client0 client.Client, scheme *runtime.Scheme) (Recon
 	bootStateObserver := kessoku.Provide(provideBootStateObserver).Fn()(service2)
 	service3 := kessoku.Provide(drivercapability.NewService).Fn()(capabilityDiscoverer, hostCapabilityWriter)
 	service4 := kessoku.Provide(driverstate.NewService).Fn()(powerStateObserver, bootStateObserver, hostPowerStateWriter)
+	tartHostReconciler := kessoku.Provide(provideTartHostReconciler).Fn()(client0, service2, service, service0, service3)
 	driverCapabilityObserver := kessoku.Provide(provideDriverCapability).Fn()(service3)
 	driverPowerStateObserver := kessoku.Provide(provideDriverPowerState).Fn()(service4)
 	driverBootStateObserver := kessoku.Provide(provideDriverBootState).Fn()(service4)
 	tartHostOperationReconciler := kessoku.Provide(provideTartHostOperationReconciler).Fn()(client0, scheme, powerOnService, bootPreparationService, hostPhaseService, driverTargetBuilder, driverCapabilityObserver, driverPowerStateObserver, driverBootStateObserver)
-	reconcilers := kessoku.Provide(provideReconcilers).Fn()(tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostOperationReconciler, service2)
+	reconcilers := kessoku.Provide(provideReconcilers).Fn()(tartClusterReconciler, tartMachineTemplateReconciler, tartMachineV1Beta1Reconciler, tartHostReconciler, tartHostOperationReconciler, service2)
 	return reconcilers, nil
 }

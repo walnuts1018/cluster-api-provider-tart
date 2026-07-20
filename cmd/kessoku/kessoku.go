@@ -45,6 +45,7 @@ type Reconcilers struct {
 	TartCluster         *controller.TartClusterReconciler
 	TartMachineTemplate *controller.TartMachineTemplateReconciler
 	TartMachineV1Beta1  *controller.TartMachineV1Beta1Reconciler
+	TartHost            *controller.TartHostReconciler
 	TartHostOperation   *controller.TartHostOperationReconciler
 	Driver              *applicationdriver.Service
 }
@@ -106,6 +107,22 @@ func provideTartMachineTemplateReconciler(k8sClient client.Client, scheme *runti
 	}
 }
 
+func provideTartHostReconciler(
+	k8sClient client.Client,
+	driverService *applicationdriver.Service,
+	hostService *k8sv1beta1host.Service,
+	targetBuilder *k8sdrivertarget.Service,
+	capability *k8sdrivercapability.Service,
+) *controller.TartHostReconciler {
+	return &controller.TartHostReconciler{
+		Client:        k8sClient,
+		DriverService: driverService,
+		HostService:   hostService,
+		TargetBuilder: targetBuilder,
+		Capability:    capability,
+	}
+}
+
 func provideTartMachineV1Beta1Reconciler(
 	k8sClient client.Client,
 	hostReferences machineexecution.HostReferenceService,
@@ -154,6 +171,7 @@ func provideReconcilers(
 	tartCluster *controller.TartClusterReconciler,
 	tartMachineTemplate *controller.TartMachineTemplateReconciler,
 	tartMachineV1Beta1 *controller.TartMachineV1Beta1Reconciler,
+	tartHost *controller.TartHostReconciler,
 	tartHostOperation *controller.TartHostOperationReconciler,
 	driverService *applicationdriver.Service,
 ) Reconcilers {
@@ -161,6 +179,7 @@ func provideReconcilers(
 		TartCluster:         tartCluster,
 		TartMachineTemplate: tartMachineTemplate,
 		TartMachineV1Beta1:  tartMachineV1Beta1,
+		TartHost:            tartHost,
 		TartHostOperation:   tartHostOperation,
 		Driver:              driverService,
 	}
@@ -252,6 +271,7 @@ var _ = kessokulib.Inject[Reconcilers](
 	kessokulib.Provide(provideTartClusterReconciler),
 	kessokulib.Provide(provideTartMachineTemplateReconciler),
 	kessokulib.Provide(provideTartMachineV1Beta1Reconciler),
+	kessokulib.Provide(provideTartHostReconciler),
 	kessokulib.Provide(provideCleaningStep),
 	kessokulib.Provide(provideTartHostOperationReconciler),
 	kessokulib.Provide(provideReconcilers),

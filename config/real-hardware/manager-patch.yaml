@@ -6,7 +6,7 @@ metadata:
 spec:
   template:
     spec:
-      # fsGroupを適用できるvolumeではmanagerの補助groupにも共有領域を公開する。
+      # init containerとmanagerが共有するemptyDirへ、非rootユーザーのまま書き込めるようにする。
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -88,10 +88,9 @@ spec:
             fieldRef:
               fieldPath: status.hostIP
         securityContext:
-          # volume実装によるfsGroupの反映差異で起動に失敗しないよう、所有権の確定だけをrootで行う。
-          runAsNonRoot: false
-          runAsUser: 0
-          runAsGroup: 0
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
           allowPrivilegeEscalation: false
           capabilities:
             drop:

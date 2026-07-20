@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -413,7 +414,11 @@ func (session *session) authenticate(ctx context.Context, client *http.Client) e
 		session.useBasic = true
 		return nil
 	}
-	status, err := session.postForStatus(ctx, client, root.SessionService.ODataID+"/Sessions", map[string]string{
+	sessionsPath, err := url.JoinPath(root.SessionService.ODataID, "Sessions")
+	if err != nil {
+		return driverdomain.NewError(driverdomain.ErrorTemporary, fmt.Errorf("build sessions path: %w", err))
+	}
+	status, err := session.postForStatus(ctx, client, sessionsPath, map[string]string{
 		"UserName": session.access.Username(),
 		"Password": session.access.Password(),
 	})
@@ -679,7 +684,11 @@ func (session *session) request(ctx context.Context, method string, path string,
 		}
 		reader = bytes.NewReader(payload)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, session.access.Endpoint()+path, reader)
+	fullURL, err := url.JoinPath(session.access.Endpoint(), path)
+	if err != nil {
+		return nil, fmt.Errorf("build Redfish request URL: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, method, fullURL, reader)
 	if err != nil {
 		return nil, fmt.Errorf("build Redfish request: %w", err)
 	}

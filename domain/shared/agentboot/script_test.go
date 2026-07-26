@@ -36,6 +36,12 @@ func TestBuildScriptは検証済みArtifactの固定URLを生成する(t *testin
 		"#!ipxe\n",
 		"kernel https://boot.test/agent/v1/agent-artifacts/sha256/" + strings.Repeat("a", 64) + "/kernel",
 		"initrd=agent-initrd",
+		"console=ttyS0,115200n8",
+		"console=tty0",
+		"loglevel=7",
+		"ignore_loglevel",
+		"printk.time=1",
+		"panic=-1",
 		KernelParameterControllerURL + "=https://agent-api.test:8443",
 		KernelParameterHostUID + "=host-uid",
 		KernelParameterOperationUID + "=operation-uid",
@@ -53,6 +59,35 @@ func TestBuildScriptは検証済みArtifactの固定URLを生成する(t *testin
 			t.Errorf("script contains forbidden secret parameter %q:\n%s", secretName, script)
 		}
 	}
+}
+
+func TestBuildScriptは画面をinitramfsのコンソールにする(t *testing.T) {
+	t.Parallel()
+
+	script, err := BuildScript(ScriptInput{
+		ArtifactBaseURL: "https://boot.test/agent",
+		AgentAPIURL:     "https://agent-api.test:8443",
+		ArtifactDigest:  "sha256:" + strings.Repeat("a", 64),
+		HostUID:         "host-uid",
+		OperationUID:    "operation-uid",
+		BootMACAddress:  "00:00:5e:00:53:01",
+	})
+	if err != nil {
+		t.Fatalf("BuildScript() error = %v", err)
+	}
+
+	for line := range strings.SplitSeq(script, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "kernel" {
+			continue
+		}
+		if fields[4] != "console=tty0" {
+			t.Fatalf("kernel console = %q, want console=tty0", fields[4])
+		}
+		return
+	}
+
+	t.Fatal("kernel line not found")
 }
 
 func TestBuildScriptは危険な入力を拒否する(t *testing.T) {

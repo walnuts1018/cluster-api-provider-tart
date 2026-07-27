@@ -2039,6 +2039,7 @@ func withLoopPartitions(ctx context.Context, imagePath string, fn func([]string)
 
 func waitForLoopPartitions(ctx context.Context, loopDevice string, timeout, pollInterval time.Duration) ([]string, error) {
 	deadline := time.Now().Add(timeout)
+	var previous []string
 	for {
 		partitions, err := filepath.Glob(loopDevice + "p*")
 		if err != nil {
@@ -2046,7 +2047,10 @@ func waitForLoopPartitions(ctx context.Context, loopDevice string, timeout, poll
 		}
 		if len(partitions) > 0 {
 			slices.Sort(partitions)
-			return partitions, nil
+			if slices.Equal(previous, partitions) {
+				return partitions, nil
+			}
+			previous = slices.Clone(partitions)
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("loop device %s has no partitions", loopDevice)

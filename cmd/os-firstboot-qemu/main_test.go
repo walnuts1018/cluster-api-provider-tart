@@ -236,6 +236,48 @@ func TestQEMUFirstBootDropInはReadOnlyRoot向けの一時Stateを使う(t *test
 	}
 }
 
+func TestWaitForLoopPartitionsは遅延作成されたデバイスノードを待機する(t *testing.T) {
+	t.Parallel()
+	tempDir := t.TempDir()
+	loopDevice := filepath.Join(tempDir, "loop0")
+	writeErrCh := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		if err := os.WriteFile(loopDevice+"p2", []byte(""), 0o644); err != nil {
+			writeErrCh <- err
+			return
+		}
+		if err := os.WriteFile(loopDevice+"p1", []byte(""), 0o644); err != nil {
+			writeErrCh <- err
+			return
+		}
+		writeErrCh <- nil
+	}()
+	got, err := waitForLoopPartitions(context.Background(), loopDevice, 2*time.Second, 10*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForLoopPartitions() error = %v", err)
+	}
+	if err := <-writeErrCh; err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	want := []string{loopDevice + "p1", loopDevice + "p2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("waitForLoopPartitions() = %v, want %v", got, want)
+	}
+}
+
+func TestWaitForLoopPartitionsはタイムアウト時に失敗する(t *testing.T) {
+	t.Parallel()
+	loopDevice := filepath.Join(t.TempDir(), "loop0")
+	_, err := waitForLoopPartitions(context.Background(), loopDevice, 50*time.Millisecond, 10*time.Millisecond)
+	if err == nil {
+		t.Fatal("waitForLoopPartitions() = nil, want timeout error")
+	}
+	if !strings.Contains(err.Error(), "has no partitions") {
+		t.Fatalf("waitForLoopPartitions() error = %v, want has no partitions", err)
+	}
+}
+
 func TestVerifyBootReportはReadOnlyRoot起動後の基本状態を受け入れる(t *testing.T) {
 	bootstrapDigest := "sha256:" + strings.Repeat("a", 64)
 

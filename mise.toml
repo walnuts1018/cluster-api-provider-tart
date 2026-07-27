@@ -889,11 +889,11 @@ while IFS= read -r module; do
     ""|\#*) continue ;;
   esac
   if ! dependencies="$(modprobe --show-depends -d "$modules_root" -S "$kernel_release" "$module" 2>&1)"; then
-    printf 'Skipping unavailable Agent module: %s\\n' "$module" >&2
+    printf 'Skipping unavailable Agent module: %s\n' "$module" >&2
     continue
   fi
-  printf '%s\\n' "$module" >> "$work_dir/root/etc/tart/agent-modules"
-  printf '%s\\n' "$dependencies" | while IFS= read -r dependency; do
+  printf '%s\n' "$module" >> "$work_dir/root/etc/tart/agent-modules"
+  printf '%s\n' "$dependencies" | while IFS= read -r dependency; do
     case "$dependency" in
       "insmod "*) module_path="${dependency#insmod }" ;;
       *) continue ;;
@@ -956,7 +956,7 @@ mkdir -p /dev/disk/by-id /etc /run /tmp
 while IFS= read -r module; do
   [ -n "$module" ] || continue
   if ! modprobe "$module"; then
-    printf 'Unable to load Agent hardware module: %s\\n' "$module" >&2
+    printf 'Unable to load Agent hardware module: %s\n' "$module" >&2
   fi
 done < /etc/tart/agent-modules
 sleep 2

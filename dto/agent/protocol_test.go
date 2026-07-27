@@ -121,6 +121,24 @@ func TestValidatePlanRejectsUnsafePlans(t *testing.T) {
 	}
 }
 
+func TestValidatePlanはOCI画像参照の全形式を受け入れる(t *testing.T) {
+	t.Parallel()
+
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, reference := range []string{
+		"oci://registry.test/os",
+		"oci://registry.test/os:v0.1.12",
+		"oci://registry.test/os@" + digest,
+		"oci://registry.test/os:v0.1.12@" + digest,
+	} {
+		plan := validPlan()
+		plan.Artifact.Ref = reference
+		if _, err := ValidatePlan(plan); err != nil {
+			t.Errorf("ValidatePlan() ref %q error = %v", reference, err)
+		}
+	}
+}
+
 func TestValidatePlanAllowsCleaningWithoutArtifact(t *testing.T) {
 	plan := validPlan()
 	plan.OperationType = OperationTypeClean

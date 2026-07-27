@@ -25,6 +25,7 @@ import (
 
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/shared/ocireference"
 )
 
 const (
@@ -40,10 +41,9 @@ const (
 )
 
 var (
-	uidPattern         = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`)
-	artifactRefPattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
-	deviceByIDPattern  = regexp.MustCompile(`^/dev/disk/by-id/.+$`)
-	diskRoleValues     = map[DiskRole]struct{}{
+	uidPattern        = regexp.MustCompile(`^[a-zA-Z0-9][-a-zA-Z0-9_.:]{0,127}$`)
+	deviceByIDPattern = regexp.MustCompile(`^/dev/disk/by-id/.+$`)
+	diskRoleValues    = map[DiskRole]struct{}{
 		DiskRoleBoot:    {},
 		DiskRoleOSA:     {},
 		DiskRoleOSB:     {},
@@ -297,8 +297,8 @@ func validatePlanArtifact(plan Plan) error {
 			return errors.New("artifact is required")
 		}
 		switch {
-		case !artifactRefPattern.MatchString(plan.Artifact.Ref):
-			return errors.New("artifact.ref must be a digest-pinned OCI reference")
+		case !validOCIImageReference(plan.Artifact.Ref):
+			return errors.New("artifact.ref must be a valid OCI image reference")
 		case !validSHA256Digest(plan.Artifact.ManifestDigest):
 			return errors.New("artifact.manifestDigest must be a canonical SHA-256 digest")
 		case plan.Artifact.Generation == 0:
@@ -310,6 +310,11 @@ func validatePlanArtifact(plan Plan) error {
 		}
 	}
 	return nil
+}
+
+func validOCIImageReference(value string) bool {
+	_, err := ocireference.Parse(value)
+	return err == nil
 }
 
 func validatePlanRoles(plan Plan) error {

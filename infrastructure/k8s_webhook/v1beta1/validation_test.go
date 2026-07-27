@@ -15,6 +15,7 @@
 package v1beta1
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -120,9 +121,20 @@ func TestMachineDefaultingAndValidation(t *testing.T) {
 		t.Fatalf("ValidateCreate() error = %v", err)
 	}
 
-	machine.Spec.Image.Ref = "oci://registry.sample.walnuts.dev/tart/ubuntu:latest"
+	for _, reference := range []string{
+		"oci://ghcr.io/walnuts1018/cluster-api-provider-tart-os-ubuntu-26.04-amd64-kubeadm",
+		"oci://ghcr.io/walnuts1018/cluster-api-provider-tart-os-ubuntu-26.04-amd64-kubeadm:v0.1.12",
+		"oci://ghcr.io/walnuts1018/cluster-api-provider-tart-os-ubuntu-26.04-amd64-kubeadm:v0.1.12@sha256:" + strings.Repeat("a", 64),
+	} {
+		machine.Spec.Image.Ref = reference
+		if _, err := (&TartMachineCustomValidator{}).ValidateCreate(t.Context(), machine); err != nil {
+			t.Fatalf("ValidateCreate() ref %q error = %v", reference, err)
+		}
+	}
+
+	machine.Spec.Image.Ref = "oci://registry.sample.walnuts.dev/tart/ubuntu:invalid tag"
 	if _, err := (&TartMachineCustomValidator{}).ValidateCreate(t.Context(), machine); err == nil {
-		t.Fatal("ValidateCreate() error = nil, want mutable tag rejection")
+		t.Fatal("ValidateCreate() error = nil, want invalid reference rejection")
 	}
 }
 

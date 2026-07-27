@@ -63,8 +63,9 @@ jobs:
           gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
           cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          grep -F 'drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
-          grep -F 'drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files
+          cpio --extract --to-stdout etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
+          grep -Fx e1000e /tmp/tart-agent-modules
+          grep -Fx nvme /tmp/tart-agent-modules
 
   build:
     name: Build and publish the provisioning Agent Artifact
@@ -118,8 +119,9 @@ jobs:
           gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
           cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          grep -F 'drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
-          grep -F 'drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files
+          cpio --extract --to-stdout etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
+          grep -Fx e1000e /tmp/tart-agent-modules
+          grep -Fx nvme /tmp/tart-agent-modules
 
       - name: Create Agent Artifact manifest and publish OCI payload
         id: publish

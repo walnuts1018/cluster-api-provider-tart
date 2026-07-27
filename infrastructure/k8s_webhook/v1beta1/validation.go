@@ -24,8 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/shared/ocireference"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/operation"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 )
 
 var (

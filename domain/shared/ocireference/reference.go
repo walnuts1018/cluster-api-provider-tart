@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package ocireference は oci:// スキームを持つ OCI image reference を検証する。
+// Package ocireference は oci:// スキームを持つ OCI image reference を表す。
 package ocireference
 
 import (

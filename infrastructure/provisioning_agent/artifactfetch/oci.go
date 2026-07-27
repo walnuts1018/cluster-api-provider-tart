@@ -24,10 +24,10 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/walnuts1018/cluster-api-provider-tart/artifact"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/shared/ocireference"
 	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
 	artifactoci "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/artifact_oci"
 	ociremote "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/oci_remote"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"

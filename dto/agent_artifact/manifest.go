@@ -24,8 +24,8 @@ import (
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
 	"github.com/walnuts1018/cluster-api-provider-tart/artifact"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/shared/ocireference"
 	platformprofile "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/platformprofile"
-	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 )
 
 const (

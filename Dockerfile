@@ -17,7 +17,6 @@ COPY artifact/ artifact/
 COPY domain/ domain/
 COPY dto/ dto/
 COPY infrastructure/ infrastructure/
-COPY pkg/ pkg/
 COPY utils/ utils/
 COPY go.mod go.sum ./
 

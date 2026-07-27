@@ -977,6 +977,9 @@ INIT
 chmod 0755 "$work_dir/root/init"
 chmod 0755 "$work_dir/root/bin/udhcpc-script"
 (cd "$work_dir/root" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$work_dir/overlay.initrd"
+if [ -n "${AGENT_ARTIFACT_OVERLAY_INITRD:-}" ]; then
+  cp "$work_dir/overlay.initrd" "$AGENT_ARTIFACT_OVERLAY_INITRD"
+fi
 cp "$AGENT_KERNEL" "$output_dir/vmlinuz"
 cat "$AGENT_INITRD" "$work_dir/overlay.initrd" > "$output_dir/initrd"
 '''

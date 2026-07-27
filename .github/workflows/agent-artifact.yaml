@@ -49,6 +49,7 @@ jobs:
         env:
           AGENT_KERNEL: /tmp/tart-agent-vmlinuz
           AGENT_INITRD: /tmp/tart-agent-initrd
+          AGENT_ARTIFACT_OVERLAY_INITRD: /tmp/tart-agent-overlay.initrd
           SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
           AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
         run: |
@@ -59,7 +60,8 @@ jobs:
           sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
           export AGENT_KERNEL_RELEASE="${kernel_path##*/vmlinuz-}"
           mise run agent-artifact-build-real
-          lsinitramfs dist/agent-artifact/initrd > /tmp/tart-agent-initramfs-files
+          gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
+          cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
           grep -F '/drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
           grep -F '/drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files
@@ -99,6 +101,7 @@ jobs:
         env:
           AGENT_KERNEL: /tmp/tart-agent-vmlinuz
           AGENT_INITRD: /tmp/tart-agent-initrd
+          AGENT_ARTIFACT_OVERLAY_INITRD: /tmp/tart-agent-overlay.initrd
           SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
           AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
         run: |
@@ -112,7 +115,8 @@ jobs:
 
       - name: Verify Agent initramfs hardware support
         run: |
-          lsinitramfs dist/agent-artifact/initrd > /tmp/tart-agent-initramfs-files
+          gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
+          cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
           grep -F '/drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
           grep -F '/drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files

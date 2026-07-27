@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	capabilitydomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/capability"
 	driverdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/driver"
@@ -38,17 +39,30 @@ import (
 
 type Adapter struct {
 	baseTransport http.RoundTripper
+	mu            sync.Mutex
+	sessions      map[string]*cachedSession
+}
+
+type cachedSession struct {
+	client  *http.Client
+	session *session
 }
 
 func New() *Adapter {
-	return &Adapter{baseTransport: http.DefaultTransport}
+	return &Adapter{
+		baseTransport: http.DefaultTransport,
+		sessions:      make(map[string]*cachedSession),
+	}
 }
 
 func NewWithTransport(transport http.RoundTripper) *Adapter {
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	return &Adapter{baseTransport: transport}
+	return &Adapter{
+		baseTransport: transport,
+		sessions:      make(map[string]*cachedSession),
+	}
 }
 
 func (adapter *Adapter) DiscoverCapabilities(
@@ -57,27 +71,24 @@ func (adapter *Adapter) DiscoverCapabilities(
 	target driverdomain.HostTarget,
 	_ applicationdriver.Invocation,
 ) (capabilitydomain.Set, error) {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return capabilitydomain.Set{}, err
-	}
+	return executeWithSession(adapter, ctx, target, func(client *http.Client, session *session) (capabilitydomain.Set, error) {
+		system, media, err := session.discover(ctx, client)
+		if err != nil {
+			return capabilitydomain.Set{}, err
+		}
 
-	system, media, err := session.discover(ctx, client)
-	if err != nil {
-		return capabilitydomain.Set{}, err
-	}
-
-	capabilities := []capabilitydomain.Capability{capabilitydomain.ObservePowerState}
-	if system.ResetAction() != "" {
-		capabilities = append(capabilities, capabilitydomain.PowerOn, capabilitydomain.PowerOff)
-	}
-	if system.canSetBoot() {
-		capabilities = append(capabilities, capabilitydomain.SetNextBoot)
-	}
-	if media.InsertAction() != "" && media.EjectAction() != "" {
-		capabilities = append(capabilities, capabilitydomain.VirtualMedia)
-	}
-	return capabilitydomain.NewSet(capabilities...)
+		capabilities := []capabilitydomain.Capability{capabilitydomain.ObservePowerState}
+		if system.ResetAction() != "" {
+			capabilities = append(capabilities, capabilitydomain.PowerOn, capabilitydomain.PowerOff)
+		}
+		if system.canSetBoot() {
+			capabilities = append(capabilities, capabilitydomain.SetNextBoot)
+		}
+		if media.InsertAction() != "" && media.EjectAction() != "" {
+			capabilities = append(capabilities, capabilitydomain.VirtualMedia)
+		}
+		return capabilitydomain.NewSet(capabilities...)
+	})
 }
 
 func (adapter *Adapter) PowerOn(
@@ -100,57 +111,53 @@ func (adapter *Adapter) ObservePowerState(
 	ctx context.Context,
 	target driverdomain.HostTarget,
 ) (driverdomain.PowerState, error) {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return driverdomain.PowerStateUnknown, err
-	}
-	system, _, err := session.discover(ctx, client)
-	if err != nil {
-		return driverdomain.PowerStateUnknown, err
-	}
-	switch strings.ToLower(system.PowerState) {
-	case "on":
-		return driverdomain.PowerStateOn, nil
-	case "off":
-		return driverdomain.PowerStateOff, nil
-	default:
-		return driverdomain.PowerStateUnknown, nil
-	}
+	return executeWithSession(adapter, ctx, target, func(client *http.Client, session *session) (driverdomain.PowerState, error) {
+		system, _, err := session.discover(ctx, client)
+		if err != nil {
+			return driverdomain.PowerStateUnknown, err
+		}
+		switch strings.ToLower(system.PowerState) {
+		case "on":
+			return driverdomain.PowerStateOn, nil
+		case "off":
+			return driverdomain.PowerStateOff, nil
+		default:
+			return driverdomain.PowerStateUnknown, nil
+		}
+	})
 }
 
 func (adapter *Adapter) ObserveBootState(
 	ctx context.Context,
 	target driverdomain.HostTarget,
 ) (driverdomain.BootState, error) {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return driverdomain.BootState{}, err
-	}
-	system, media, err := session.discover(ctx, client)
-	if err != nil {
-		return driverdomain.BootState{}, err
-	}
-
-	state := driverdomain.BootState{
-		OverrideEnabled: strings.EqualFold(system.Boot.OverrideEnabled, "Once") ||
-			strings.EqualFold(system.Boot.OverrideEnabled, "Continuous"),
-	}
-	targetValue, err := bootTargetFromOverride(system.Boot.OverrideTarget)
-	if err != nil {
-		return driverdomain.BootState{}, err
-	}
-	state.OverrideTarget = targetValue
-
-	if media.Path != "" {
-		inserted, err := session.getVirtualMedia(ctx, client, media.Path)
+	return executeWithSession(adapter, ctx, target, func(client *http.Client, session *session) (driverdomain.BootState, error) {
+		system, media, err := session.discover(ctx, client)
 		if err != nil {
 			return driverdomain.BootState{}, err
 		}
-		state.MediaInserted = inserted.Inserted
-		state.MediaImage = inserted.Image
-		state.MediaOperation = inserted.Oem.TART.OperationID
-	}
-	return state, nil
+
+		state := driverdomain.BootState{
+			OverrideEnabled: strings.EqualFold(system.Boot.OverrideEnabled, "Once") ||
+				strings.EqualFold(system.Boot.OverrideEnabled, "Continuous"),
+		}
+		targetValue, err := bootTargetFromOverride(system.Boot.OverrideTarget)
+		if err != nil {
+			return driverdomain.BootState{}, err
+		}
+		state.OverrideTarget = targetValue
+
+		if media.Path != "" {
+			inserted, err := session.getVirtualMedia(ctx, client, media.Path)
+			if err != nil {
+				return driverdomain.BootState{}, err
+			}
+			state.MediaInserted = inserted.Inserted
+			state.MediaImage = inserted.Image
+			state.MediaOperation = inserted.Oem.TART.OperationID
+		}
+		return state, nil
+	})
 }
 
 func (adapter *Adapter) SetNextBoot(
@@ -159,25 +166,23 @@ func (adapter *Adapter) SetNextBoot(
 	bootTarget driverdomain.BootTarget,
 	_ operationdomain.ID,
 ) error {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return err
-	}
-	system, _, err := session.discover(ctx, client)
-	if err != nil {
-		return err
-	}
-	value, err := bootOverrideValue(system, bootTarget)
-	if err != nil {
-		return err
-	}
-	payload := map[string]any{
-		"Boot": map[string]any{
-			"BootSourceOverrideEnabled": "Once",
-			"BootSourceOverrideTarget":  value,
-		},
-	}
-	return session.patch(ctx, client, system.Path, payload, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	return executeWithSessionNoReturn(adapter, ctx, target, func(client *http.Client, session *session) error {
+		system, _, err := session.discover(ctx, client)
+		if err != nil {
+			return err
+		}
+		value, err := bootOverrideValue(system, bootTarget)
+		if err != nil {
+			return err
+		}
+		payload := map[string]any{
+			"Boot": map[string]any{
+				"BootSourceOverrideEnabled": "Once",
+				"BootSourceOverrideTarget":  value,
+			},
+		}
+		return session.patch(ctx, client, system.Path, payload, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	})
 }
 
 func (adapter *Adapter) Mount(
@@ -186,38 +191,36 @@ func (adapter *Adapter) Mount(
 	artifact driverdomain.Artifact,
 	operationID operationdomain.ID,
 ) error {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return err
-	}
-	_, media, err := session.discover(ctx, client)
-	if err != nil {
-		return err
-	}
-	if media.Path == "" || media.InsertAction() == "" || media.EjectAction() == "" {
-		return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("virtual media is not supported"))
-	}
-	inserted, err := session.getVirtualMedia(ctx, client, media.Path)
-	if err != nil {
-		return err
-	}
-	if inserted.Inserted && inserted.Image == artifact.Reference() {
-		if inserted.Oem.TART.OperationID == "" || inserted.Oem.TART.OperationID == operationID.String() {
-			return nil
+	return executeWithSessionNoReturn(adapter, ctx, target, func(client *http.Client, session *session) error {
+		_, media, err := session.discover(ctx, client)
+		if err != nil {
+			return err
 		}
-	}
-	if inserted.Inserted {
-		return driverdomain.NewError(
-			driverdomain.ErrorConflict,
-			fmt.Errorf("virtual media %q is already mounted for operation %s", inserted.Image, inserted.Oem.TART.OperationID),
-		)
-	}
-	return session.post(ctx, client, media.InsertAction(), map[string]any{
-		"Image":          artifact.Reference(),
-		"Inserted":       true,
-		"WriteProtected": true,
-		"Oem":            map[string]any{"TART": map[string]any{"OperationID": operationID.String()}},
-	}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+		if media.Path == "" || media.InsertAction() == "" || media.EjectAction() == "" {
+			return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("virtual media is not supported"))
+		}
+		inserted, err := session.getVirtualMedia(ctx, client, media.Path)
+		if err != nil {
+			return err
+		}
+		if inserted.Inserted && inserted.Image == artifact.Reference() {
+			if inserted.Oem.TART.OperationID == "" || inserted.Oem.TART.OperationID == operationID.String() {
+				return nil
+			}
+		}
+		if inserted.Inserted {
+			return driverdomain.NewError(
+				driverdomain.ErrorConflict,
+				fmt.Errorf("virtual media %q is already mounted for operation %s", inserted.Image, inserted.Oem.TART.OperationID),
+			)
+		}
+		return session.post(ctx, client, media.InsertAction(), map[string]any{
+			"Image":          artifact.Reference(),
+			"Inserted":       true,
+			"WriteProtected": true,
+			"Oem":            map[string]any{"TART": map[string]any{"OperationID": operationID.String()}},
+		}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	})
 }
 
 func (adapter *Adapter) Unmount(
@@ -225,40 +228,36 @@ func (adapter *Adapter) Unmount(
 	target driverdomain.HostTarget,
 	_ operationdomain.ID,
 ) error {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return err
-	}
-	_, media, err := session.discover(ctx, client)
-	if err != nil {
-		return err
-	}
-	if media.Path == "" || media.EjectAction() == "" {
-		return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("virtual media is not supported"))
-	}
-	inserted, err := session.getVirtualMedia(ctx, client, media.Path)
-	if err != nil {
-		return err
-	}
-	if !inserted.Inserted {
-		return nil
-	}
-	return session.post(ctx, client, media.EjectAction(), map[string]any{}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	return executeWithSessionNoReturn(adapter, ctx, target, func(client *http.Client, session *session) error {
+		_, media, err := session.discover(ctx, client)
+		if err != nil {
+			return err
+		}
+		if media.Path == "" || media.EjectAction() == "" {
+			return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("virtual media is not supported"))
+		}
+		inserted, err := session.getVirtualMedia(ctx, client, media.Path)
+		if err != nil {
+			return err
+		}
+		if !inserted.Inserted {
+			return nil
+		}
+		return session.post(ctx, client, media.EjectAction(), map[string]any{}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	})
 }
 
 func (adapter *Adapter) reset(ctx context.Context, target driverdomain.HostTarget, resetType string) error {
-	client, session, err := adapter.newSession(ctx, target)
-	if err != nil {
-		return err
-	}
-	system, _, err := session.discover(ctx, client)
-	if err != nil {
-		return err
-	}
-	if system.ResetAction() == "" {
-		return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("reset action is not supported"))
-	}
-	return session.post(ctx, client, system.ResetAction(), map[string]string{"ResetType": resetType}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	return executeWithSessionNoReturn(adapter, ctx, target, func(client *http.Client, session *session) error {
+		system, _, err := session.discover(ctx, client)
+		if err != nil {
+			return err
+		}
+		if system.ResetAction() == "" {
+			return driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("reset action is not supported"))
+		}
+		return session.post(ctx, client, system.ResetAction(), map[string]string{"ResetType": resetType}, http.StatusOK, http.StatusAccepted, http.StatusNoContent)
+	})
 }
 
 type session struct {
@@ -345,20 +344,84 @@ func (virtualMedia virtualMediaResource) EjectAction() string {
 	return virtualMedia.Actions.EjectMedia.Target
 }
 
-func (adapter *Adapter) newSession(ctx context.Context, target driverdomain.HostTarget) (*http.Client, *session, error) {
+func sessionCacheKey(access driverdomain.RedfishAccess) string {
+	return access.Endpoint() + "|" + access.Username()
+}
+
+func (adapter *Adapter) getSession(ctx context.Context, target driverdomain.HostTarget) (*http.Client, *session, error) {
 	access, ok := target.RedfishAccess()
 	if !ok {
 		return nil, nil, driverdomain.NewError(driverdomain.ErrorUnsupported, errors.New("redfish access is not configured"))
 	}
+	key := sessionCacheKey(access)
+
+	adapter.mu.Lock()
+	if adapter.sessions == nil {
+		adapter.sessions = make(map[string]*cachedSession)
+	}
+	cached, ok := adapter.sessions[key]
+	adapter.mu.Unlock()
+
+	if ok {
+		return cached.client, cached.session, nil
+	}
+
 	client, err := adapter.newHTTPClient(access)
 	if err != nil {
 		return nil, nil, err
 	}
-	session := &session{access: access}
-	if err := session.authenticate(ctx, client); err != nil {
+	sess := &session{access: access}
+	if err := sess.authenticate(ctx, client); err != nil {
 		return nil, nil, err
 	}
-	return client, session, nil
+
+	adapter.mu.Lock()
+	adapter.sessions[key] = &cachedSession{
+		client:  client,
+		session: sess,
+	}
+	adapter.mu.Unlock()
+
+	return client, sess, nil
+}
+
+func (adapter *Adapter) clearSession(target driverdomain.HostTarget) {
+	access, ok := target.RedfishAccess()
+	if !ok {
+		return
+	}
+	key := sessionCacheKey(access)
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if adapter.sessions != nil {
+		delete(adapter.sessions, key)
+	}
+}
+
+func executeWithSession[T any](adapter *Adapter, ctx context.Context, target driverdomain.HostTarget, fn func(*http.Client, *session) (T, error)) (T, error) {
+	client, sess, err := adapter.getSession(ctx, target)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	res, err := fn(client, sess)
+	if err != nil && driverdomain.IsErrorKind(err, driverdomain.ErrorAuthenticationFailed) {
+		adapter.clearSession(target)
+		client, sess, err = adapter.getSession(ctx, target)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return fn(client, sess)
+	}
+	return res, err
+}
+
+func executeWithSessionNoReturn(adapter *Adapter, ctx context.Context, target driverdomain.HostTarget, fn func(*http.Client, *session) error) error {
+	_, err := executeWithSession(adapter, ctx, target, func(client *http.Client, sess *session) (struct{}, error) {
+		return struct{}{}, fn(client, sess)
+	})
+	return err
 }
 
 func (adapter *Adapter) newHTTPClient(access driverdomain.RedfishAccess) (*http.Client, error) {

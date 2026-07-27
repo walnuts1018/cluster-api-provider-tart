@@ -898,6 +898,7 @@ while IFS= read -r module; do
       "insmod "*) module_path="${dependency#insmod }" ;;
       *) continue ;;
     esac
+    module_path="${module_path%% *}"
     install -D -m 0644 "$module_path" "$work_dir/root$module_path"
     modinfo -F firmware "$module_path" 2>/dev/null | while IFS= read -r firmware; do
       [ -n "$firmware" ] || continue

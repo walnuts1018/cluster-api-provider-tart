@@ -11,6 +11,7 @@
 | Driver と Agent protocol | Contract Test / Simulator | CI 必須 |
 | Kubernetes controller | envtest | CI 必須 |
 | Manifest と生成物 | `mise run manifests` / `mise run generate` | CI 必須 |
+| Provisioning Agent initramfs | module・firmware を含む Artifact 組み立て | Agent Artifact PR workflow |
 | 静的解析 | `mise run ci-lint` | CI 必須 |
 | Kind E2E | `mise run test-e2e` | GitHub Actions |
 | Provisioning E2E | `mise run test-provisioning-e2e` | GitHub Actions |

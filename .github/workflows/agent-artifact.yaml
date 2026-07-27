@@ -63,7 +63,7 @@ jobs:
           gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
           cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          cpio --extract --to-stdout etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
+          cpio --extract --to-stdout ./etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
           grep -Fx e1000e /tmp/tart-agent-modules
           grep -Fx nvme /tmp/tart-agent-modules
 
@@ -119,7 +119,7 @@ jobs:
           gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
           cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          cpio --extract --to-stdout etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
+          cpio --extract --to-stdout ./etc/tart/agent-modules < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-modules
           grep -Fx e1000e /tmp/tart-agent-modules
           grep -Fx nvme /tmp/tart-agent-modules
 

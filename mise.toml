@@ -4,7 +4,7 @@
 "go:sigs.k8s.io/kustomize/kustomize/v5" = "5.8.1"
 kind = "0.32.0"
 kubebuilder = "4.15.0"
-kubectl = "1.36.2"
+kubectl = "1.36.3"
 jq = "1.8.2"
 tilt = "0.37.5"
 golangci-lint = "2.12.2"

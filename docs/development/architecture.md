@@ -49,7 +49,7 @@ physical host, disk, and boot firmware
 - Controller は Kubernetes I/O、Condition、Event、Workflow の起動だけを担当し、状態遷移の判断を直接持たない。
 - Workflow は `Command` を受け、`Result[Event, Failure]` を返す。期待される失敗に標準 `error` や nil pointer を使わない。
 - Step は準純粋関数として Workflow から直接呼ぶ。Step に外部 client を注入しない。
-- OS Artifact は digest 固定参照を使用し、可変 tag を受け入れない。
+- OS Artifact は `oci://` 形式の OCI image reference を使用する。タグを指定した場合も、Plan に記録した Artifact Manifest digest と署名で取得内容を固定する。
 - Secret、Bootstrap Data、Session Token、署名鍵を Resource Status、ログ、テスト出力へ出さない。
 - 長時間処理の再開に必要な状態は `TartHostOperation` へ保存し、process 内メモリを正本にしない。
 

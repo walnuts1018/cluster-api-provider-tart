@@ -96,8 +96,7 @@ spec:
                           to install.
                         properties:
                           ref:
-                            description: ref is a digest-pinned OCI artifact reference.
-                            pattern: ^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$
+                            description: ref is an OCI image reference.
                             type: string
                         required:
                         - ref

@@ -21,13 +21,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/walnuts1018/cluster-api-provider-tart/artifact"
 	agentprotocol "github.com/walnuts1018/cluster-api-provider-tart/dto/agent"
 	artifactoci "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/artifact_oci"
 	ociremote "github.com/walnuts1018/cluster-api-provider-tart/infrastructure/service/oci_remote"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
@@ -151,13 +151,13 @@ func (source *OCI) resolve(ctx context.Context, reference string) (resolvedArtif
 	if err != nil {
 		return resolvedArtifact{}, fmt.Errorf("create OCI repository client: %w", err)
 	}
-	descriptor, reader, err := repo.FetchReference(ctx, ref.Reference)
+	descriptor, reader, err := repo.FetchReference(ctx, ref.ReferenceOrDefault())
 	if err != nil {
 		return resolvedArtifact{}, fmt.Errorf("fetch OCI manifest: %w", err)
 	}
-	if descriptor.Digest.String() != ref.Reference {
+	if digest, err := ref.Digest(); err == nil && descriptor.Digest != digest {
 		closeErr := reader.Close()
-		return resolvedArtifact{}, errors.Join(errors.New("OCI manifest digest does not match pinned reference"), closeErr)
+		return resolvedArtifact{}, errors.Join(errors.New("OCI manifest digest does not match reference"), closeErr)
 	}
 	if descriptor.MediaType != ocispec.MediaTypeImageManifest {
 		closeErr := reader.Close()
@@ -301,15 +301,9 @@ func validatePayloadDescriptors(manifest artifact.ValidatedManifest, layers requ
 }
 
 func parseReference(value string) (registry.Reference, error) {
-	if !strings.HasPrefix(value, "oci://") {
-		return registry.Reference{}, errors.New("artifact reference must use oci://")
-	}
-	ref, err := registry.ParseReference(strings.TrimPrefix(value, "oci://"))
+	ref, err := ocireference.Parse(value)
 	if err != nil {
 		return registry.Reference{}, fmt.Errorf("parse OCI artifact reference: %w", err)
-	}
-	if err := ref.ValidateReferenceAsDigest(); err != nil {
-		return registry.Reference{}, fmt.Errorf("validate OCI artifact digest reference: %w", err)
 	}
 	return ref, nil
 }

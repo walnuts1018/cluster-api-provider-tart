@@ -20,12 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 
 	jsoncanonicalizer "github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/opencontainers/go-digest"
 	"github.com/walnuts1018/cluster-api-provider-tart/artifact"
 	platformprofile "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/platformprofile"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 )
 
 const (
@@ -36,8 +36,6 @@ const (
 	PlatformProfileAMD64UEFIABV1 = platformprofile.LegacyProfileAMD64UEFIABV1
 	SignatureAlgorithmEd25519    = "Ed25519"
 )
-
-var referencePattern = regexp.MustCompile(`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`)
 
 type Manifest struct {
 	SchemaVersion   int         `json:"schemaVersion"`
@@ -87,8 +85,8 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact schemaVersion: %d", manifest.SchemaVersion)
 	case manifest.MediaType != MediaType:
 		return ValidatedManifest{}, fmt.Errorf("unsupported Agent Artifact mediaType: %q", manifest.MediaType)
-	case !referencePattern.MatchString(manifest.Reference):
-		return ValidatedManifest{}, errors.New("agent Artifact reference must be a digest-pinned OCI reference")
+	case !validOCIImageReference(manifest.Reference):
+		return ValidatedManifest{}, errors.New("agent Artifact reference must be a valid OCI image reference")
 	}
 	profile, ok := platformprofile.Lookup(manifest.PlatformProfile)
 	switch {
@@ -111,6 +109,11 @@ func Validate(manifest Manifest) (ValidatedManifest, error) {
 		}
 	}
 	return ValidatedManifest{manifest: manifest}, nil
+}
+
+func validOCIImageReference(value string) bool {
+	_, err := ocireference.Parse(value)
+	return err == nil
 }
 
 func validateDescriptor(name string, descriptor Descriptor) error {

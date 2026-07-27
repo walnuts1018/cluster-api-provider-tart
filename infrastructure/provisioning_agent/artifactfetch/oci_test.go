@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
@@ -49,6 +50,24 @@ func TestOCIFetchVerifiesMetadataBeforeReturningPayloads(t *testing.T) {
 	assertPayload(t, fetched.Initrd, []byte("initrd"))
 	if repo.fetchReferenceCount != 1 {
 		t.Fatalf("FetchReference() count = %d, want 1", repo.fetchReferenceCount)
+	}
+}
+
+func TestOCIFetchはタグと名前だけのOCI画像参照を解決する(t *testing.T) {
+	t.Parallel()
+
+	for _, reference := range []string{
+		"oci://registry.test.walnuts.dev/tart/os",
+		"oci://registry.test.walnuts.dev/tart/os:v0.1.12",
+		"oci://registry.test.walnuts.dev/tart/os:v0.1.12@DIGEST",
+	} {
+		t.Run(reference, func(t *testing.T) {
+			source, request, repo, _, _ := newTestSource(t)
+			request.Ref = strings.ReplaceAll(reference, "DIGEST", repo.reference.Digest.String())
+			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"); err != nil {
+				t.Fatalf("Fetch() error = %v", err)
+			}
+		})
 	}
 }
 

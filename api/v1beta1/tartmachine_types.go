@@ -42,7 +42,7 @@ type TartMachineSpec struct {
 	// +kubebuilder:validation:MaxLength=512
 	ProviderID string `json:"providerID,omitempty"`
 
-	// image identifies the digest-pinned OS artifact to install.
+	// image identifies the OCI OS artifact to install.
 	// +required
 	Image ImageSpec `json:"image"`
 
@@ -68,9 +68,8 @@ type TartMachineSpec struct {
 }
 
 type ImageSpec struct {
-	// ref is a digest-pinned OCI artifact reference.
+	// ref is an OCI image reference.
 	// +required
-	// +kubebuilder:validation:Pattern=`^oci://[^@[:space:]]+@sha256:[0-9a-f]{64}$`
 	Ref string `json:"ref"`
 }
 

@@ -85,7 +85,7 @@ func TestValidateは不正なManifestを拒否する(t *testing.T) {
 		name   string
 		mutate func(*Manifest)
 	}{
-		{name: "可変OCI参照", mutate: func(manifest *Manifest) { manifest.Reference = "oci://registry.test/agent:latest" }},
+		{name: "不正なOCI参照", mutate: func(manifest *Manifest) { manifest.Reference = "oci://registry.test/agent:invalid tag" }},
 		{name: "未対応architecture", mutate: func(manifest *Manifest) { manifest.Architecture = "arm64" }},
 		{name: "未対応firmware", mutate: func(manifest *Manifest) { manifest.Firmware = "LegacyBIOS" }},
 		{name: "未対応Profile", mutate: func(manifest *Manifest) { manifest.PlatformProfile = "amd64-uefi-ab/v2" }},
@@ -104,6 +104,24 @@ func TestValidateは不正なManifestを拒否する(t *testing.T) {
 				t.Fatal("Validate() accepted invalid manifest")
 			}
 		})
+	}
+}
+
+func TestValidateはOCI画像参照の全形式を受け入れる(t *testing.T) {
+	t.Parallel()
+
+	digest := "sha256:" + strings.Repeat("a", 64)
+	for _, reference := range []string{
+		"oci://registry.test/agent",
+		"oci://registry.test/agent:v0.1.12",
+		"oci://registry.test/agent@" + digest,
+		"oci://registry.test/agent:v0.1.12@" + digest,
+	} {
+		manifest := validManifest([]byte("kernel"), []byte("initrd"))
+		manifest.Reference = reference
+		if _, err := Validate(manifest); err != nil {
+			t.Errorf("Validate() reference %q error = %v", reference, err)
+		}
 	}
 }
 

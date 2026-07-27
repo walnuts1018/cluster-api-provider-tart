@@ -25,12 +25,12 @@ import (
 
 	infrastructurev1beta1 "github.com/walnuts1018/cluster-api-provider-tart/api/v1beta1"
 	operationdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/shared/operation"
+	"github.com/walnuts1018/cluster-api-provider-tart/pkg/ocireference"
 )
 
 var (
-	digestPattern      = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	artifactRefPattern = regexp.MustCompile(`^oci://[^@\s]+@sha256:[0-9a-f]{64}$`)
-	hostnamePattern    = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
+	digestPattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
 )
 
 func validateArtifactPolicy(policy infrastructurev1beta1.ArtifactPolicy, path *field.Path) field.ErrorList {
@@ -72,8 +72,8 @@ func validateRegistry(registry string) error {
 }
 
 func validateImage(image infrastructurev1beta1.ImageSpec, path *field.Path) field.ErrorList {
-	if !artifactRefPattern.MatchString(image.Ref) {
-		return field.ErrorList{field.Invalid(path.Child("ref"), image.Ref, "must be a digest-pinned OCI reference")}
+	if _, err := ocireference.Parse(image.Ref); err != nil {
+		return field.ErrorList{field.Invalid(path.Child("ref"), image.Ref, "must be a valid OCI image reference")}
 	}
 	return nil
 }

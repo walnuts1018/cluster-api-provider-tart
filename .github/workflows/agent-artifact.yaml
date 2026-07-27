@@ -37,7 +37,7 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
 
       - name: Prepare signing keys
         id: keys
@@ -61,7 +61,14 @@ jobs:
           test -n "$kernel_path" -a -n "$initrd_path"
           sudo install -m 0644 "$kernel_path" /tmp/tart-agent-vmlinuz
           sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
+          export AGENT_KERNEL_RELEASE="${kernel_path##*/vmlinuz-}"
           mise run agent-artifact-build-real
+
+      - name: Verify Agent initramfs hardware support
+        run: |
+          lsinitramfs dist/agent-artifact/initrd | grep -qx 'etc/tart/agent-modules'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/net/ethernet/intel/e1000e/'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/nvme/host/nvme'
 
       - name: Create Agent Artifact manifest and publish OCI payload
         id: publish

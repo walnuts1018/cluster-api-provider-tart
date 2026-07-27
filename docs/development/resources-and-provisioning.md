@@ -68,6 +68,12 @@ Platform Profile と Plan に従い、disk を論理的に Boot、OS-A、Verity-
 役割へ構成する。更新では inactive slot へ書き込み、boot trial と health 確認を通過してから新しい slot を
 確定する。State と Data は OS slot と分離し、Node identity、Kubernetes state、永続データを OS 更新から守る。
 
+実機用 Provisioning Agent Artifact の initramfs は、Ubuntu/Debian installer が初期導入で扱う範囲を基準に、
+一般的な PCI・USB・仮想 NIC、SATA/NVMe/SCSI/RAID/USB/仮想 storage、device mapper、software RAID、
+主要 filesystem の kernel module と依存 firmware を含める。`/init` はその module をロードしてから DHCP を
+実行する。これにより firmware が iPXE で利用できても Linux kernel 側が NIC や storage controller を認識しない
+差異を避ける。特定機種用の out-of-tree driver や無線 LAN の認証は Artifact の責務に含めない。
+
 `UpdateClass` は `OSOnly`、`KubernetesBinary`、`StateMigration` を区別する。Plan を作成する controller が
 更新種別と対象 slot を決め、Agent が推測してはならない。
 

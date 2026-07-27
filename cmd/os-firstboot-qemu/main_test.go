@@ -253,7 +253,7 @@ func TestWaitForLoopPartitionsは遅延作成されたデバイスノードを�
 		}
 		writeErrCh <- nil
 	}()
-	got, err := waitForLoopPartitions(context.Background(), loopDevice, 2*time.Second, 10*time.Millisecond)
+	got, err := waitForLoopPartitions(t.Context(), loopDevice, 2*time.Second, 10*time.Millisecond)
 	if err != nil {
 		t.Fatalf("waitForLoopPartitions() error = %v", err)
 	}
@@ -269,7 +269,7 @@ func TestWaitForLoopPartitionsは遅延作成されたデバイスノードを�
 func TestWaitForLoopPartitionsはタイムアウト時に失敗する(t *testing.T) {
 	t.Parallel()
 	loopDevice := filepath.Join(t.TempDir(), "loop0")
-	_, err := waitForLoopPartitions(context.Background(), loopDevice, 50*time.Millisecond, 10*time.Millisecond)
+	_, err := waitForLoopPartitions(t.Context(), loopDevice, 50*time.Millisecond, 10*time.Millisecond)
 	if err == nil {
 		t.Fatal("waitForLoopPartitions() = nil, want timeout error")
 	}

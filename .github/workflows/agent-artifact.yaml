@@ -3,6 +3,12 @@ name: Provisioning Agent Artifact
 on:
   release:
     types: [published]
+  pull_request:
+    paths:
+      - .github/workflows/agent-artifact.yaml
+      - mise.toml
+      - cmd/efi-commit/**
+      - cmd/provisioning-agent/**
   workflow_dispatch:
     inputs:
       image_tag:
@@ -19,8 +25,47 @@ env:
   IMAGE_NAME: ${{ github.repository }}-provisioning-agent
 
 jobs:
+  verify:
+    name: Verify provisioning Agent initramfs
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+        with:
+          install-args: go
+
+      - name: Install Agent Artifact inputs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
+
+      - name: Build and verify Agent initramfs
+        env:
+          AGENT_KERNEL: /tmp/tart-agent-vmlinuz
+          AGENT_INITRD: /tmp/tart-agent-initrd
+          SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
+          AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
+        run: |
+          kernel_path="$(find /boot -maxdepth 1 -type f -name 'vmlinuz-*' -print | sort | tail -n 1)"
+          initrd_path="$(find /boot -maxdepth 1 -type f -name 'initrd.img-*' -print | sort | tail -n 1)"
+          test -n "$kernel_path" -a -n "$initrd_path"
+          sudo install -m 0644 "$kernel_path" /tmp/tart-agent-vmlinuz
+          sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
+          export AGENT_KERNEL_RELEASE="${kernel_path##*/vmlinuz-}"
+          mise run agent-artifact-build-real
+          lsinitramfs dist/agent-artifact/initrd | grep -qx 'etc/tart/agent-modules'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/net/ethernet/intel/e1000e/'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/nvme/host/nvme'
+
   build:
     name: Build and publish the provisioning Agent Artifact
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -37,7 +82,7 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
 
       - name: Prepare signing keys
         id: keys
@@ -61,7 +106,14 @@ jobs:
           test -n "$kernel_path" -a -n "$initrd_path"
           sudo install -m 0644 "$kernel_path" /tmp/tart-agent-vmlinuz
           sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
+          export AGENT_KERNEL_RELEASE="${kernel_path##*/vmlinuz-}"
           mise run agent-artifact-build-real
+
+      - name: Verify Agent initramfs hardware support
+        run: |
+          lsinitramfs dist/agent-artifact/initrd | grep -qx 'etc/tart/agent-modules'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/net/ethernet/intel/e1000e/'
+          lsinitramfs dist/agent-artifact/initrd | grep -q '/drivers/nvme/host/nvme'
 
       - name: Create Agent Artifact manifest and publish OCI payload
         id: publish

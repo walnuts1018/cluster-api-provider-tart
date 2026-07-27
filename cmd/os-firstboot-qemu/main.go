@@ -51,6 +51,8 @@ const (
 	defaultCPU         = "qemu64"
 	defaultScenario    = scenarioFirstBoot
 	persistentDiskSize = 128 << 20
+	loopPartitionsWait = 5 * time.Second
+	loopPartitionsPoll = 100 * time.Millisecond
 
 	operationUID       = "qemu-firstboot-operation"
 	hostUID            = "qemu-firstboot-host"
@@ -2028,15 +2030,33 @@ func withLoopPartitions(ctx context.Context, imagePath string, fn func([]string)
 			slog.Warn("Failed to detach loop device", "error", err, "loop_device", loopDevice)
 		}
 	}()
-	partitions, err := filepath.Glob(loopDevice + "p*")
+	partitions, err := waitForLoopPartitions(ctx, loopDevice, loopPartitionsWait, loopPartitionsPoll)
 	if err != nil {
-		return fmt.Errorf("resolve loop partitions: %w", err)
+		return err
 	}
-	if len(partitions) == 0 {
-		return fmt.Errorf("loop device %s has no partitions", loopDevice)
-	}
-	slices.Sort(partitions)
 	return fn(partitions)
+}
+
+func waitForLoopPartitions(ctx context.Context, loopDevice string, timeout, pollInterval time.Duration) ([]string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		partitions, err := filepath.Glob(loopDevice + "p*")
+		if err != nil {
+			return nil, fmt.Errorf("resolve loop partitions: %w", err)
+		}
+		if len(partitions) > 0 {
+			slices.Sort(partitions)
+			return partitions, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("loop device %s has no partitions", loopDevice)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("wait for loop partitions: %w", ctx.Err())
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 func withMountedPartition(ctx context.Context, workDir, partitionPath string, fn func(string) error) error {

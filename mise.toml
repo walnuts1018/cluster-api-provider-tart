@@ -1141,6 +1141,11 @@ if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
   mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
   rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
 fi
+cat > /tmp/tftpboot/autoexec.ipxe <<'IPXE'
+#!ipxe
+dhcp
+chain ${filename}
+IPXE
 
 # 4. Start dnsmasq
 if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then

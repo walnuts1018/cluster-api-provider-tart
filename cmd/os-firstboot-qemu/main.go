@@ -1880,10 +1880,12 @@ func bootEntrySelectionFromLog(path string) (bootEntrySelectionObservation, bool
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.Contains(line, serialMarkerBootEntrySelected) {
 			selectedEntry := markerPayload(line, serialMarkerBootEntrySelected)
-			if selectedEntry == "" {
-				return bootEntrySelectionObservation{}, false
+			switch {
+			case strings.HasPrefix(selectedEntry, "target"):
+				return bootEntrySelectionObservation{SelectedEntry: "target"}, true
+			case strings.HasPrefix(selectedEntry, "rollback"):
+				return bootEntrySelectionObservation{SelectedEntry: "rollback"}, true
 			}
-			return bootEntrySelectionObservation{SelectedEntry: selectedEntry}, true
 		}
 	}
 	return bootEntrySelectionObservation{}, false

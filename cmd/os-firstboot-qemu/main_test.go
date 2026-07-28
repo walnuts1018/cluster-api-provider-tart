@@ -165,7 +165,7 @@ func TestParseConfigは未知のScenarioを拒否する(t *testing.T) {
 
 func TestBootEntrySelectionFromLogは選択されたEntryを読む(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "serial.log")
-	if err := os.WriteFile(path, []byte("systemd[1]: "+serialMarkerBootEntrySelected+"rollback\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("systemd[1]: "+serialMarkerBootEntrySelected+"rollback[    6.458996] I/O error\n"), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
 

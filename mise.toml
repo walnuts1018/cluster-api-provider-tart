@@ -1143,7 +1143,8 @@ if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
 fi
 cat > /tmp/tftpboot/autoexec.ipxe <<'IPXE'
 #!ipxe
-chain http://192.168.100.1:8082/ipxe?mac=${net0/mac}
+dhcp || exit
+chain ${filename} || exit
 IPXE
 
 # 4. Start dnsmasq

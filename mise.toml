@@ -481,13 +481,27 @@ fi
 for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_initramfs_dir"/..?*; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   target="$agent_base_initramfs_dir/main/${source##*/}"
-  if [ -L "$target" ] && [ -d "$source" ]; then
-    cp -a "$source/." "$(readlink -f "$target")/"
+  if [ -d "$source" ]; then
+    if [ -L "$target" ]; then
+      cp -a "$source/." "$(readlink -f "$target")/"
+    else
+      mkdir -p "$target"
+      cp -a "$source/." "$target/"
+    fi
   else
-    cp -a "$source" "$agent_base_initramfs_dir/main/"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
+      exit 1
+    fi
+    rm -f "$target"
+    cp -a "$source" "$target"
   fi
 done
 (cd "$agent_base_initramfs_dir/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$agent_artifact_dir/initrd"
+if ! gzip -dc "$agent_artifact_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
+  echo "Provisioning E2E Agent initramfs does not contain the Agent init entrypoint." >&2
+  exit 1
+fi
 
 ARTIFACT_IMAGE="$output_dir/os.img" \
 ARTIFACT_VERITY="$output_dir/os.verity" \
@@ -1011,13 +1025,27 @@ fi
 for source in "$work_dir/root"/* "$work_dir/root"/.[!.]* "$work_dir/root"/..?*; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   target="$work_dir/base-initramfs/main/${source##*/}"
-  if [ -L "$target" ] && [ -d "$source" ]; then
-    cp -a "$source/." "$(readlink -f "$target")/"
+  if [ -d "$source" ]; then
+    if [ -L "$target" ]; then
+      cp -a "$source/." "$(readlink -f "$target")/"
+    else
+      mkdir -p "$target"
+      cp -a "$source/." "$target/"
+    fi
   else
-    cp -a "$source" "$work_dir/base-initramfs/main/"
+    if [ -e "$target" ] && [ ! -L "$target" ]; then
+      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
+      exit 1
+    fi
+    rm -f "$target"
+    cp -a "$source" "$target"
   fi
 done
 (cd "$work_dir/base-initramfs/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$output_dir/initrd"
+if ! gzip -dc "$output_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
+  echo "Agent initramfs does not contain the Provisioning Agent init entrypoint." >&2
+  exit 1
+fi
 '''
 
 [tasks.build-installer]

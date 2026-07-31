@@ -71,6 +71,7 @@ jobs:
           (cd /tmp/tart-agent-final-initramfs && gzip -dc "$GITHUB_WORKSPACE/dist/agent-artifact/initrd" | cpio -idmu)
           grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
           test -x /tmp/tart-agent-final-initramfs/usr/bin/provisioning-agent
+          grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
 
   build:
     name: Build and publish the provisioning Agent Artifact
@@ -132,6 +133,7 @@ jobs:
           (cd /tmp/tart-agent-final-initramfs && gzip -dc "$GITHUB_WORKSPACE/dist/agent-artifact/initrd" | cpio -idmu)
           grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
           test -x /tmp/tart-agent-final-initramfs/usr/bin/provisioning-agent
+          grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
 
       - name: Create Agent Artifact manifest and publish OCI payload
         id: publish

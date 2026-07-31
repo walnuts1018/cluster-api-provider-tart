@@ -43,7 +43,7 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio initramfs-tools-core kmod linux-image-generic systemd-boot
 
       - name: Build and verify Agent initramfs
         env:
@@ -66,6 +66,10 @@ jobs:
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
           grep -Fx e1000e /tmp/tart-agent-modules
           grep -Fx nvme /tmp/tart-agent-modules
+          rm -rf /tmp/tart-agent-final-initramfs
+          mkdir /tmp/tart-agent-final-initramfs
+          (cd /tmp/tart-agent-final-initramfs && gzip -dc "$GITHUB_WORKSPACE/dist/agent-artifact/initrd" | cpio -idmu)
+          grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
 
   build:
     name: Build and publish the provisioning Agent Artifact

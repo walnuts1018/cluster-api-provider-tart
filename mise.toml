@@ -377,6 +377,10 @@ if [ ! -x "$busybox_path" ]; then
   echo "Set PROVISIONING_E2E_BUSYBOX, or install busybox-static." >&2
   exit 1
 fi
+if ! command -v unmkinitramfs >/dev/null 2>&1; then
+  echo "unmkinitramfs is required to merge the Provisioning E2E Agent initramfs." >&2
+  exit 1
+fi
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/efi-commit" ./cmd/efi-commit
@@ -467,8 +471,15 @@ INIT
 chmod 0755 "$agent_initramfs_dir/init"
 chmod 0755 "$agent_initramfs_dir/bin/udhcpc-script"
 sudo cat "$agent_kernel" > "$agent_artifact_dir/vmlinuz"
-sudo cat "$agent_base_initrd" > "$agent_artifact_dir/initrd"
-(cd "$agent_initramfs_dir" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) >> "$agent_artifact_dir/initrd"
+agent_base_initramfs_dir="$output_dir/agent-base-initramfs"
+rm -rf "$agent_base_initramfs_dir"
+unmkinitramfs "$agent_base_initrd" "$agent_base_initramfs_dir"
+if [ ! -d "$agent_base_initramfs_dir/main" ]; then
+  echo "Agent base initramfs does not contain a main filesystem." >&2
+  exit 1
+fi
+cp -a "$agent_initramfs_dir/." "$agent_base_initramfs_dir/main/"
+(cd "$agent_base_initramfs_dir/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$agent_artifact_dir/initrd"
 
 ARTIFACT_IMAGE="$output_dir/os.img" \
 ARTIFACT_VERITY="$output_dir/os.verity" \
@@ -784,7 +795,7 @@ if [ ! -f "$modules_dir/modules.dep" ]; then
   echo "Kernel modules for $kernel_release are required at $modules_dir." >&2
   exit 1
 fi
-for command in modprobe modinfo depmod; do
+for command in modprobe modinfo depmod unmkinitramfs; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "$command is required to build the Agent initramfs." >&2
     exit 1
@@ -984,7 +995,13 @@ if [ -n "${AGENT_ARTIFACT_OVERLAY_INITRD:-}" ]; then
   cp "$work_dir/overlay.initrd" "$AGENT_ARTIFACT_OVERLAY_INITRD"
 fi
 cp "$AGENT_KERNEL" "$output_dir/vmlinuz"
-cat "$AGENT_INITRD" "$work_dir/overlay.initrd" > "$output_dir/initrd"
+unmkinitramfs "$AGENT_INITRD" "$work_dir/base-initramfs"
+if [ ! -d "$work_dir/base-initramfs/main" ]; then
+  echo "Agent base initramfs does not contain a main filesystem." >&2
+  exit 1
+fi
+cp -a "$work_dir/root/." "$work_dir/base-initramfs/main/"
+(cd "$work_dir/base-initramfs/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$output_dir/initrd"
 '''
 
 [tasks.build-installer]
@@ -1184,7 +1201,7 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 1
 fi
 sudo apt-get update
-sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2 tcpdump linux-image-generic cpio ipxe busybox-static
+sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2 tcpdump linux-image-generic initramfs-tools-core cpio ipxe busybox-static
 # The provisioning simulator listens on the real Wake-on-LAN UDP port 9.
 sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
 '''

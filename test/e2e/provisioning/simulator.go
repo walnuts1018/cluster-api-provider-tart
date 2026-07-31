@@ -29,10 +29,13 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+var simulatorLogSequence atomic.Uint64
 
 // SimulatorManager manages multiple HostSimulators and a single UDP listener.
 type SimulatorManager struct {
@@ -119,6 +122,7 @@ type HostSimulator struct {
 	diskPath        string
 	qemuCmd         *exec.Cmd
 	qemuDone        chan struct{}
+	logFile         string
 	stopping        bool
 	mu              sync.Mutex
 }
@@ -134,6 +138,7 @@ func NewHostSimulator(macAddress, bridge, diskSerial string) (*HostSimulator, er
 		macAddressBytes: mac,
 		bridge:          bridge,
 		diskSerial:      diskSerial,
+		logFile:         fmt.Sprintf("qemu-output-%s-%d.log", hex.EncodeToString([]byte(macAddress)), simulatorLogSequence.Add(1)),
 	}, nil
 }
 
@@ -259,7 +264,7 @@ func (s *HostSimulator) LogContainsAll(values ...string) (bool, string, error) {
 }
 
 func (s *HostSimulator) logFilePath() string {
-	return fmt.Sprintf("qemu-output-%s.log", hex.EncodeToString([]byte(s.macAddress)))
+	return s.logFile
 }
 
 func (s *HostSimulator) ensureRootDisk() (string, error) {

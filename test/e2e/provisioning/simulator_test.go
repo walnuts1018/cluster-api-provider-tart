@@ -68,6 +68,20 @@ func TestSimulatorManagerStopsWoLListenerOnContextCancellation(t *testing.T) {
 	defer verificationListener.Close()
 }
 
+func TestNewHostSimulatorKeepsSeparateQEMULogs(t *testing.T) {
+	first, err := NewHostSimulator("00:00:5e:00:53:00", "br0", "tartroot0")
+	if err != nil {
+		t.Fatalf("最初のHostSimulatorを作成できません: %v", err)
+	}
+	second, err := NewHostSimulator("00:00:5e:00:53:00", "br0", "tartroot0")
+	if err != nil {
+		t.Fatalf("2つ目のHostSimulatorを作成できません: %v", err)
+	}
+	if first.logFilePath() == second.logFilePath() {
+		t.Fatalf("QEMUログのパスが重複しています: %q", first.logFilePath())
+	}
+}
+
 func waitForUDPListener(listenAddr *net.UDPAddr, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

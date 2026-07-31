@@ -1144,7 +1144,7 @@ fi
 cat > /tmp/tftpboot/autoexec.ipxe <<'IPXE'
 #!ipxe
 dhcp || exit
-chain ${filename} || exit
+chain --autofree http://${next-server}:8082/ipxe?mac=${net0/mac} || exit
 IPXE
 
 # 4. Start dnsmasq

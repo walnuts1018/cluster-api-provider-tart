@@ -121,7 +121,6 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix:
         include:
           - key: ubuntu-24.04-amd64-kubeadm

@@ -95,6 +95,49 @@ for command in modprobe depmod; do
   fi
 done
 
+copy_module() {
+  source_path="$1"
+  relative_module_path="${source_path#"$modules_dir"/}"
+  if [ "$relative_module_path" = "$source_path" ]; then
+    echo "Agent module dependency is outside $modules_dir: $source_path" >&2
+    return 1
+  fi
+  target_path="$agent_initramfs_dir/lib/modules/$kernel_version/$relative_module_path"
+
+  case "$source_path" in
+    *.ko.zst)
+      command -v zstd >/dev/null 2>&1 || {
+        echo "zstd is required to include $source_path as an uncompressed kernel module." >&2
+        return 1
+      }
+      rm -f "$target_path"
+      mkdir -p "$(dirname "${target_path%.zst}")"
+      zstd -d -q -c "$source_path" > "${target_path%.zst}"
+      chmod 0644 "${target_path%.zst}"
+      ;;
+    *.ko.xz)
+      command -v xz >/dev/null 2>&1 || {
+        echo "xz is required to include $source_path as an uncompressed kernel module." >&2
+        return 1
+      }
+      rm -f "$target_path"
+      mkdir -p "$(dirname "${target_path%.xz}")"
+      xz -d -c "$source_path" > "${target_path%.xz}"
+      chmod 0644 "${target_path%.xz}"
+      ;;
+    *.ko.gz)
+      rm -f "$target_path"
+      mkdir -p "$(dirname "${target_path%.gz}")"
+      gzip -d -c "$source_path" > "${target_path%.gz}"
+      chmod 0644 "${target_path%.gz}"
+      ;;
+    *)
+      mkdir -p "$(dirname "$target_path")"
+      cp "$source_path" "$target_path"
+      ;;
+  esac
+}
+
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/efi-commit" ./cmd/efi-commit
 rm -rf "$agent_initramfs_dir"
@@ -126,13 +169,7 @@ printf '%s\n' "$dependencies" | while IFS= read -r dependency; do
     echo "Agent module dependency is missing: $module_path" >&2
     exit 1
   fi
-  relative_module_path="${module_path#"$modules_dir"/}"
-  if [ "$relative_module_path" = "$module_path" ]; then
-    echo "Agent module dependency is outside $modules_dir: $module_path" >&2
-    exit 1
-  fi
-  mkdir -p "$agent_initramfs_dir/lib/modules/$kernel_version/$(dirname "$relative_module_path")"
-  cp "$module_path" "$agent_initramfs_dir/lib/modules/$kernel_version/$relative_module_path"
+  copy_module "$module_path"
 done
 cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
 cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
@@ -218,6 +255,14 @@ if [ ! -d "$agent_base_initramfs_dir/main" ]; then
   echo "Agent base initramfs does not contain a main filesystem." >&2
   exit 1
 fi
+# BusyBoxのmodprobeはmoduleのbytesを展開せずkernelへ渡すため、base側の圧縮重複を除去し、
+# depmodがvirtio_netをQEMUで使うELF copyへ解決するようにする。
+while IFS= read -r module_path; do
+  relative_module_path="${module_path#"$agent_initramfs_dir/"}"
+  rm -f "$agent_base_initramfs_dir/main/${relative_module_path}.zst" \
+    "$agent_base_initramfs_dir/main/${relative_module_path}.xz" \
+    "$agent_base_initramfs_dir/main/${relative_module_path}.gz"
+done < <(find "$agent_initramfs_dir/lib/modules" -type f -name '*.ko')
 for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_initramfs_dir"/..?*; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   target="$agent_base_initramfs_dir/main/${source##*/}"
@@ -238,6 +283,13 @@ for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_ini
   fi
 done
 depmod -b "$agent_base_initramfs_dir/main" "$kernel_version"
+case "$(modinfo -b "$agent_base_initramfs_dir/main" -k "$kernel_version" -F filename virtio_net)" in
+  *.ko) ;;
+  *)
+    echo "Provisioning E2E Agent module must be stored as an uncompressed ELF module." >&2
+    exit 1
+    ;;
+esac
 (cd "$agent_base_initramfs_dir/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$agent_artifact_dir/initrd"
 if ! gzip -dc "$agent_artifact_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
   echo "Provisioning E2E Agent initramfs does not contain the Agent init entrypoint." >&2

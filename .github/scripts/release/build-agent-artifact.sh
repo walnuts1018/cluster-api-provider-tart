@@ -38,6 +38,16 @@ mkdir /tmp/tart-agent-final-initramfs
 grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
 test -x /tmp/tart-agent-final-initramfs/usr/bin/provisioning-agent
 grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
+while IFS= read -r module; do
+  module_path="$(modinfo -b /tmp/tart-agent-final-initramfs -k "$AGENT_KERNEL_RELEASE" -F filename "$module")"
+  case "$module_path" in
+    *.ko) ;;
+    *)
+      echo "Agent module is not stored as an uncompressed ELF module: $module ($module_path)" >&2
+      exit 1
+      ;;
+  esac
+done < /tmp/tart-agent-modules
 
 payload_digest="$(go run ./cmd/artifacter -dir dist/agent-artifact -repo "${AGENT_REPOSITORY}" -tag "${AGENT_TAG}-payload")"
 reference="oci://${AGENT_REPOSITORY}@${payload_digest}"

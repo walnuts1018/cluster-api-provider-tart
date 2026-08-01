@@ -35,6 +35,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add artifact/mkosi/mkosi.conf artifact/mkosi/mkosi.packages artifact/locks artifact/ipxe.lock.json
+          git add artifact/mkosi/mkosi.conf artifact/locks artifact/ipxe.lock.json
           git commit --signoff -m 'chore: Renovate更新後のArtifact入力を同期'
           git push origin "HEAD:${GITHUB_HEAD_REF}"

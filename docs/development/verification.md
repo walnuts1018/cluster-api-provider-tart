@@ -7,16 +7,22 @@
 
 | 対象 | 主な検証 | 実行場所 |
 |---|---|---|
-| Domain の判断・状態遷移 | Go unit test | CI 必須 |
-| Driver と Agent protocol | Contract Test / Simulator | CI 必須 |
-| Kubernetes controller | envtest | CI 必須 |
-| Manifest と生成物 | `mise run manifests` / `mise run generate` | CI 必須 |
-| Provisioning Agent initramfs | module・firmware を含む Artifact 組み立て | Agent Artifact PR workflow |
-| 静的解析 | `mise run ci-lint` | CI 必須 |
-| Kind E2E | `mise run test-e2e` | GitHub Actions |
-| Provisioning E2E | `mise run test-provisioning-e2e` | GitHub Actions |
-| OS disk / boot | QEMU task | CI を優先 |
+| Domain の判断・状態遷移 | Go unit test | Push / Pull Request CI |
+| Driver と Agent protocol | Contract Test / Simulator | Push / Pull Request CI |
+| Kubernetes controller | envtest | Push / Pull Request CI |
+| Manifest と生成物 | `mise run manifests` / `mise run generate` | Push / Pull Request CI |
+| Provisioning Agent initramfs | module・firmware を含む Artifact 組み立て | Release Artifact workflow |
+| 静的解析 | `mise run ci-lint` | Push / Pull Request CI |
+| Kind E2E | `mise run test-e2e` | 手動Releaseの検証段階 |
+| Provisioning E2E | `mise run test-provisioning-e2e` | 手動Releaseの検証段階 |
+| OS disk / boot | QEMU task | Release Artifact workflow |
 | 実機固有の挙動 | 実機検証 | CI では代替できない部分だけ |
+
+## GitHub Actions の役割分担
+
+- `CI` はPull Requestと`main`へのpushで、生成、lint、Go test、buildだけを実行する。長時間のE2EやArtifact生成は含めない。
+- `Release` は手動実行だけを受け付ける。最初にKind E2EとProvisioning E2Eを並列に実行し、両方が成功した場合だけArtifact生成を開始する。
+- `Release Artifacts` はAgent、OS、iPXE、Provider imageを生成・公開し、最後にProvider manifestを作る。GitHub ReleaseはすべてのArtifact生成が成功してから作成する。
 
 ## 実機検証の扱い
 

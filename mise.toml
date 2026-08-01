@@ -19,10 +19,6 @@ GOCACHE = "{{config_root}}/.cache/go-build"
 GOMODCACHE = "{{config_root}}/.cache/go/pkg/mod"
 GOLANGCI_LINT_CACHE = "{{config_root}}/.cache/golangci-lint"
 
-[tasks.all]
-description = "デフォルトのビルド処理を実行する"
-run = "mise run build"
-
 [tasks.help]
 description = "利用可能な mise task を表示する"
 run = "mise tasks"
@@ -56,13 +52,19 @@ run = "go fmt ./..."
 description = "Go コードを go vet で検証する"
 run = "go vet ./..."
 
-[tasks.test]
-description = "Go テストを実行する（ローカル開発用: manifests/generate/fmt/vet を含む）"
+[tasks.prepare-development]
+description = "ローカル開発用の生成・整形・静的検査を実行する"
 run = '''
 mise run manifests
 mise run generate
 mise run fmt
 mise run vet
+'''
+
+[tasks.test]
+description = "Go テストを実行する（ローカル開発用）"
+depends = ["prepare-development"]
+run = '''
 LOCALBIN="${LOCALBIN:-$PWD/bin}"
 ENVTEST_K8S_VERSION="${ENVTEST_K8S_VERSION:-$(go list -m k8s.io/api | awk '{print $2}' | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')}"
 KUBEBUILDER_ASSETS="$(setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path)" \
@@ -106,16 +108,8 @@ fi
 
 [tasks.test-e2e]
 description = "Kind を使って e2e テストを実行する"
-run = '''
-mise run setup-test-e2e
-mise run manifests
-mise run generate
-mise run fmt
-mise run vet
-KIND_CLUSTER="${KIND_CLUSTER:-cluster-api-provider-tart-test-e2e}"
-KIND=kind KIND_CLUSTER="$KIND_CLUSTER" go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-mise run cleanup-test-e2e
-'''
+depends = ["prepare-development"]
+run = "bash scripts/kind-e2e-run/script.sh"
 
 [tasks.cleanup-test-e2e]
 description = "e2e テスト用の Kind クラスタを削除する"
@@ -137,16 +131,17 @@ run = "./bin/custom-gcl"
 
 [tasks.lint]
 description = "lintを実行する"
-run = '''
-mise run golangci-lint run --fix
-mise run actionlint
-mise run lint-shell
-'''
+depends = ["lint-workspace"]
+run = "mise run golangci-lint run --fix"
 
 [tasks.ci-lint]
 description = "CI 用 lint（--fix なし: 自動修正せず lint エラーを検出のみ）"
+depends = ["lint-workspace"]
+run = "mise run golangci-lint run"
+
+[tasks.lint-workspace]
+description = "WorkflowとShell scriptを検証する"
 run = '''
-mise run golangci-lint run
 mise run actionlint
 mise run lint-shell
 '''
@@ -180,15 +175,13 @@ shellcheck \
   test/fixtures/fake-kubectl \
   test/resource_preservation/verify.sh \
   test/resource_preservation/verify_test.sh
+find scripts .github/scripts -type f -name '*.sh' -print0 | xargs -0 shellcheck
 '''
 
 [tasks.build]
-description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用: manifests/generate/fmt/vet を含む）"
+description = "manager、Provisioning Agent、Node Lifecycle Serviceバイナリをビルドする（ローカル開発用）"
+depends = ["prepare-development"]
 run = '''
-mise run manifests
-mise run generate
-mise run fmt
-mise run vet
 mkdir -p bin
 go build -o bin/manager ./cmd/controller-manager
 go build -o bin/provisioning-agent ./cmd/provisioning-agent
@@ -208,11 +201,8 @@ go build -o bin/node-lifecycle-service ./cmd/node-lifecycle-service
 
 [tasks.run]
 description = "ローカルホストで controller を実行する"
+depends = ["prepare-development"]
 run = '''
-mise run manifests
-mise run generate
-mise run fmt
-mise run vet
 go run ./cmd/controller-manager
 '''
 
@@ -298,247 +288,7 @@ go run ./cmd/artifact-oci \
 
 [tasks.prepare-provisioning-e2e-artifact]
 description = "Provisioning E2E用の署名済みOS Artifactとmanager鍵Secret入力を生成する"
-run = '''
-set -eu
-
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-registry_name="${PROVISIONING_E2E_REGISTRY_NAME:-capt-e2e-registry-55000}"
-registry_host="${PROVISIONING_E2E_REGISTRY_HOST:-127.0.0.1:55000}"
-output_dir="${PROVISIONING_E2E_OUTPUT_DIR:-dist/provisioning-e2e}"
-generated_dir="config/provisioning-e2e/generated"
-artifact_dir="$output_dir/artifact"
-agent_artifact_dir="$generated_dir/agent-artifact"
-agent_initramfs_dir="$output_dir/agent-initramfs"
-
-if ! "$CONTAINER_TOOL" container inspect "$registry_name" >/dev/null 2>&1; then
-  "$CONTAINER_TOOL" run -d -p "${registry_host#*:}:5000" --restart=always --name "$registry_name" registry:2 >/dev/null
-elif ! "$CONTAINER_TOOL" ps --filter "name=$registry_name" --filter "status=running" --quiet | grep -q .; then
-  "$CONTAINER_TOOL" start "$registry_name" >/dev/null
-fi
-
-mkdir -p "$output_dir" "$generated_dir" "$artifact_dir" "$agent_artifact_dir"
-if [ ! -f "$output_dir/os-artifact-private.pem" ]; then
-  openssl genpkey -algorithm Ed25519 -out "$output_dir/os-artifact-private.pem"
-fi
-if [ ! -f "$generated_dir/os-artifact-public.pem" ]; then
-  openssl pkey -in "$output_dir/os-artifact-private.pem" -pubout -out "$generated_dir/os-artifact-public.pem"
-fi
-if [ ! -f "$generated_dir/agent-plan-private.pem" ]; then
-  openssl genpkey -algorithm Ed25519 -out "$generated_dir/agent-plan-private.pem"
-fi
-openssl pkey \
-  -in "$generated_dir/agent-plan-private.pem" \
-  -pubout \
-  -out "$output_dir/agent-plan-public.pem"
-if [ ! -f "$output_dir/agent-artifact-private.pem" ]; then
-  openssl genpkey -algorithm Ed25519 -out "$output_dir/agent-artifact-private.pem"
-fi
-openssl pkey \
-  -in "$output_dir/agent-artifact-private.pem" \
-  -pubout \
-  -out "$generated_dir/agent-artifact-public.pem"
-openssl req \
-  -x509 \
-  -newkey rsa:2048 \
-  -sha256 \
-  -nodes \
-  -days 1 \
-  -subj "/CN=192.168.100.1" \
-  -addext "subjectAltName=IP:192.168.100.1,DNS:hoge.test.walnuts.dev" \
-  -keyout "$generated_dir/agent-tls.key" \
-  -out "$generated_dir/agent-tls.crt"
-
-printf 'provisioning e2e os image\n' > "$output_dir/os.img"
-printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
-printf 'provisioning e2e kernel\n' > "$output_dir/vmlinuz"
-printf 'provisioning e2e initrd\n' > "$output_dir/initrd"
-printf '{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}\n' > "$output_dir/sbom.cdx.json"
-printf '{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}\n' > "$output_dir/provenance.intoto.json"
-
-agent_kernel="${PROVISIONING_E2E_AGENT_KERNEL:-}"
-agent_base_initrd="${PROVISIONING_E2E_AGENT_INITRD:-}"
-if [ -z "$agent_kernel" ]; then
-  agent_kernel="$(ls -1 /boot/vmlinuz-* 2>/dev/null | sort -V | tail -n 1 || true)"
-fi
-if [ -z "$agent_base_initrd" ] && [ -n "$agent_kernel" ]; then
-  kernel_version="${agent_kernel##*/vmlinuz-}"
-  if [ -f "/boot/initrd.img-$kernel_version" ]; then
-    agent_base_initrd="/boot/initrd.img-$kernel_version"
-  fi
-fi
-if [ ! -f "$agent_kernel" ] || [ ! -f "$agent_base_initrd" ]; then
-  echo "Linux kernel and initrd are required for provisioning E2E Agent Artifact." >&2
-  echo "Set PROVISIONING_E2E_AGENT_KERNEL and PROVISIONING_E2E_AGENT_INITRD, or install linux-image-generic." >&2
-  exit 1
-fi
-busybox_path="${PROVISIONING_E2E_BUSYBOX:-$(command -v busybox || true)}"
-if [ ! -x "$busybox_path" ]; then
-  echo "busybox is required for provisioning E2E Agent Artifact initramfs." >&2
-  echo "Set PROVISIONING_E2E_BUSYBOX, or install busybox-static." >&2
-  exit 1
-fi
-if ! command -v unmkinitramfs >/dev/null 2>&1; then
-  echo "unmkinitramfs is required to merge the Provisioning E2E Agent initramfs." >&2
-  exit 1
-fi
-
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/efi-commit" ./cmd/efi-commit
-rm -rf "$agent_initramfs_dir"
-mkdir -p \
-  "$agent_initramfs_dir/bin" \
-  "$agent_initramfs_dir/dev" \
-  "$agent_initramfs_dir/etc/tart" \
-  "$agent_initramfs_dir/proc" \
-  "$agent_initramfs_dir/sys" \
-  "$agent_initramfs_dir/tmp"
-cp "$output_dir/provisioning-agent" "$agent_initramfs_dir/bin/provisioning-agent"
-cp "$output_dir/efi-commit" "$agent_initramfs_dir/bin/efi-commit"
-cp "$busybox_path" "$agent_initramfs_dir/bin/busybox"
-for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc ifconfig route; do
-  ln -sf busybox "$agent_initramfs_dir/bin/$applet"
-done
-cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
-cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
-cat > "$agent_initramfs_dir/bin/udhcpc-script" <<'UDHCPC'
-#!/bin/sh
-set -eu
-
-case "${1:-}" in
-  bound|renew)
-    ifconfig "$interface" "$ip" netmask "$subnet" up
-    if [ -n "${router:-}" ]; then
-      for gateway in $router; do
-        route add default gw "$gateway" dev "$interface" || true
-        break
-      done
-    fi
-    if [ -n "${dns:-}" ]; then
-      : > /etc/resolv.conf
-      for nameserver in $dns; do
-        echo "nameserver $nameserver" >> /etc/resolv.conf
-      done
-    fi
-    ;;
-esac
-UDHCPC
-cat > "$agent_initramfs_dir/init" <<'INIT'
-#!/bin/sh
-set -eu
-
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
-export PATH
-
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev
-mkdir -p /dev/disk/by-id /etc /run /tmp
-
-for iface in /sys/class/net/*; do
-  iface="${iface##*/}"
-  [ "$iface" != "lo" ] || continue
-  ifconfig "$iface" up || true
-  udhcpc -i "$iface" -q -n -t 5 -T 3 -s /bin/udhcpc-script || true
-done
-
-for device in /sys/class/block/*; do
-  name="${device##*/}"
-  serial="$(cat "$device/device/serial" 2>/dev/null || cat "$device/serial" 2>/dev/null || true)"
-  [ -n "$serial" ] || continue
-  ln -sf "../../$name" "/dev/disk/by-id/virtio-$serial"
-done
-
-system_uuid=""
-for arg in $(cat /proc/cmdline); do
-  case "$arg" in
-    tart.agent.host-uid=*)
-      system_uuid="${arg#tart.agent.host-uid=}"
-      ;;
-  esac
-done
-
-echo "tart e2e provisioning-agent preflight starting"
-/bin/provisioning-agent \
-  --preflight-only \
-  --system-uuid="$system_uuid" \
-  --tls-ca-file=/etc/tart/agent-tls.crt \
-  --plan-key-id=e2e-agent-plan \
-  --plan-key-file=/etc/tart/agent-plan-public.pem
-echo "tart e2e provisioning-agent preflight completed"
-
-poweroff -f || halt -f || sh
-INIT
-chmod 0755 "$agent_initramfs_dir/init"
-chmod 0755 "$agent_initramfs_dir/bin/udhcpc-script"
-sudo cat "$agent_kernel" > "$agent_artifact_dir/vmlinuz"
-agent_base_initramfs_dir="$output_dir/agent-base-initramfs"
-rm -rf "$agent_base_initramfs_dir"
-unmkinitramfs "$agent_base_initrd" "$agent_base_initramfs_dir"
-if [ ! -d "$agent_base_initramfs_dir/main" ]; then
-  echo "Agent base initramfs does not contain a main filesystem." >&2
-  exit 1
-fi
-for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_initramfs_dir"/..?*; do
-  [ -e "$source" ] || [ -L "$source" ] || continue
-  target="$agent_base_initramfs_dir/main/${source##*/}"
-  if [ -d "$source" ]; then
-    if [ -L "$target" ]; then
-      cp -a "$source/." "$(readlink -f "$target")/"
-    else
-      mkdir -p "$target"
-      cp -a "$source/." "$target/"
-    fi
-  else
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
-      exit 1
-    fi
-    rm -f "$target"
-    cp -a "$source" "$target"
-  fi
-done
-(cd "$agent_base_initramfs_dir/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$agent_artifact_dir/initrd"
-if ! gzip -dc "$agent_artifact_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
-  echo "Provisioning E2E Agent initramfs does not contain the Agent init entrypoint." >&2
-  exit 1
-fi
-
-ARTIFACT_IMAGE="$output_dir/os.img" \
-ARTIFACT_VERITY="$output_dir/os.verity" \
-ARTIFACT_KERNEL="$output_dir/vmlinuz" \
-ARTIFACT_INITRD="$output_dir/initrd" \
-ARTIFACT_VERITY_ROOT_HASH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
-ARTIFACT_SIGNING_KEY="$output_dir/os-artifact-private.pem" \
-ARTIFACT_SIGNING_KEY_ID="e2e-os-artifact" \
-ARTIFACT_OUTPUT_DIR="$artifact_dir" \
-  mise run artifact-manifest
-
-artifact_ref="$(
-  ARTIFACT_REPOSITORY="$registry_host/tart/ubuntu" \
-  ARTIFACT_TAG="e2e" \
-  ARTIFACT_IMAGE="$output_dir/os.img" \
-  ARTIFACT_VERITY="$output_dir/os.verity" \
-  ARTIFACT_KERNEL="$output_dir/vmlinuz" \
-  ARTIFACT_INITRD="$output_dir/initrd" \
-  ARTIFACT_SBOM="$output_dir/sbom.cdx.json" \
-  ARTIFACT_PROVENANCE="$output_dir/provenance.intoto.json" \
-  ARTIFACT_OUTPUT_DIR="$artifact_dir" \
-    mise run artifact-push | tail -n 1
-)"
-
-AGENT_ARTIFACT_REFERENCE="oci://$registry_host/tart/provisioning-agent@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" \
-AGENT_ARTIFACT_KERNEL="$agent_artifact_dir/vmlinuz" \
-AGENT_ARTIFACT_INITRD="$agent_artifact_dir/initrd" \
-AGENT_ARTIFACT_SIGNING_KEY="$output_dir/agent-artifact-private.pem" \
-AGENT_ARTIFACT_SIGNING_KEY_ID="e2e-agent-artifact" \
-AGENT_ARTIFACT_OUTPUT_DIR="$agent_artifact_dir" \
-  mise run agent-artifact-manifest
-
-{
-  printf 'OS_ARTIFACT_REF=%s\n' "$artifact_ref"
-  printf 'OS_ARTIFACT_REGISTRY=%s\n' "$registry_host"
-} > "$output_dir/env"
-'''
+run = "bash scripts/provisioning-e2e-prepare-artifact/script.sh"
 
 [tasks.artifact-provenance]
 description = "Artifact Manifestとlock fileからSLSA provenanceを生成する"
@@ -575,101 +325,7 @@ go run ./cmd/locked-download \
 [tasks.artifact-build-mkosi]
 description = "Artifact設定に対応するOS/Verity payloadをmkosiで生成する（Linux専用）"
 depends = ["artifact-download-inputs", "artifact-download-runtime-inputs"]
-run = '''
-if [ "$(uname -s)" != Linux ]; then
-  echo "artifact-build-mkosi requires Linux" >&2
-  exit 1
-fi
-config="${ARTIFACT_CONFIG:-artifact/config/ubuntu-24.04-amd64-kubeadm.json}"
-lock="${ARTIFACT_LOCK:-artifact/locks/amd64.json}"
-os_family="$(jq -er '.os.family' "$config")"
-os_version="$(jq -er '.os.version' "$config")"
-architecture="$(jq -er '.architecture' "$config")"
-distribution="$(jq -er '.kubernetes.distribution' "$config")"
-source_date_epoch="$(jq -er '.sourceDateEpoch' "$lock")"
-snapshot="$(jq -er '.snapshot' "$lock")"
-case "$os_family:$os_version" in
-  ubuntu:24.04) mkosi_release="noble" ;;
-  ubuntu:26.04) mkosi_release="resolute" ;;
-  debian:13) mkosi_release="trixie" ;;
-  *)
-    echo "unsupported artifact OS: $os_family $os_version" >&2
-    exit 1
-    ;;
-esac
-case "$architecture" in
-  amd64) mkosi_architecture="x86-64"; go_architecture="amd64" ;;
-  arm64) mkosi_architecture="arm64"; go_architecture="arm64" ;;
-  *)
-    echo "unsupported artifact architecture: $architecture" >&2
-    exit 1
-    ;;
-esac
-case "$distribution" in
-  kubeadm|k0s) ;;
-  *)
-    echo "unsupported artifact Kubernetes distribution: $distribution" >&2
-    exit 1
-    ;;
-esac
-extra_dir="artifact/mkosi/mkosi.extra"
-runtime_input_dir="${ARTIFACT_RUNTIME_INPUT_DIR:-dist/runtime-inputs}"
-runtime_lock="${ETCDCTL_LOCK:-artifact/locks/etcdctl-linux-amd64.json}"
-etcdctl_archive="$(jq -er '.files[0].name' "$runtime_lock")"
-etcdctl_root="${etcdctl_archive%.tar.gz}"
-workspace_dir="${ARTIFACT_MKOSI_WORKSPACE_DIR:-}"
-mkdir -p "$extra_dir/usr/bin"
-CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/provisioning-agent" ./cmd/provisioning-agent
-CGO_ENABLED=0 GOOS=linux GOARCH="$go_architecture" go build -o "$extra_dir/usr/bin/node-lifecycle-service" ./cmd/node-lifecycle-service
-tar \
-  --extract \
-  --gzip \
-  --file "$runtime_input_dir/$etcdctl_archive" \
-  --strip-components=1 \
-  --to-stdout \
-  "$etcdctl_root/etcdctl" >"$extra_dir/usr/bin/etcdctl"
-chmod 0755 "$extra_dir/usr/bin/etcdctl"
-tar \
-  --extract \
-  --gzip \
-  --file "$runtime_input_dir/$etcdctl_archive" \
-  --strip-components=1 \
-  --to-stdout \
-  "$etcdctl_root/etcdutl" >"$extra_dir/usr/bin/etcdutl"
-chmod 0755 "$extra_dir/usr/bin/etcdutl"
-# build contextへ一時配置したbinaryをsource treeへ残さない。
-trap 'rm -f "$extra_dir/usr/bin/provisioning-agent" "$extra_dir/usr/bin/node-lifecycle-service" "$extra_dir/usr/bin/etcdctl" "$extra_dir/usr/bin/etcdutl"' EXIT
-set -- \
-  --directory artifact/mkosi \
-  --distribution "$os_family" \
-  --release "$mkosi_release" \
-  --architecture "$mkosi_architecture" \
-  --output "tart-$os_family-$os_version-$architecture-$distribution" \
-  --snapshot "$snapshot" \
-  --source-date-epoch "$source_date_epoch"
-if [ -n "$workspace_dir" ]; then
-  set -- "$@" --workspace-directory "$workspace_dir"
-fi
-if [ "$distribution" = k0s ]; then
-  set -- "$@" \
-    --remove-package kubeadm \
-    --remove-package kubectl \
-    --remove-package kubelet \
-    --remove-package kubernetes-cni \
-    --remove-package cri-tools
-fi
-if [ "$os_family" = debian ]; then
-	set -- "$@" \
-		--package linux-image-amd64
-fi
-mkosi "$@" build
-bash artifact/mkosi/normalize-output.sh \
-  artifact/mkosi/mkosi.output \
-  "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}"
-go run ./cmd/mkosi-sbom \
-  -input "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/packages.json" \
-  -output "${ARTIFACT_OUTPUT_DIR:-dist/os-artifact}/sbom.cdx.json"
-'''
+run = "bash scripts/os-artifact-build-mkosi/script.sh"
 
 [tasks.artifact-test-firstboot-qemu]
 description = "mkosi成果物をQEMUで起動しfirst-bootのBootReport到達を検証する（Linux専用）"
@@ -800,487 +456,36 @@ go run ./cmd/agent-artifact-manifest \
 
 [tasks.agent-artifact-build-real]
 description = "実機用Provisioning Agent initramfsを生成する"
-run = '''
-set -eu
-: "${AGENT_KERNEL:?AGENT_KERNEL is required}"
-: "${AGENT_INITRD:?AGENT_INITRD is required}"
-: "${SYSTEMD_BOOT_EFI:?SYSTEMD_BOOT_EFI is required}"
-kernel_release="${AGENT_KERNEL_RELEASE:-${AGENT_KERNEL##*/vmlinuz-}}"
-if [ "$kernel_release" = "$AGENT_KERNEL" ]; then
-  echo "AGENT_KERNEL_RELEASE is required when AGENT_KERNEL is not named vmlinuz-<release>." >&2
-  exit 1
-fi
-modules_root="${AGENT_MODULES_ROOT:-/}"
-modules_dir="${modules_root%/}/lib/modules/$kernel_release"
-firmware_dir="${AGENT_FIRMWARE_DIR:-${modules_root%/}/lib/firmware}"
-if [ ! -f "$modules_dir/modules.dep" ]; then
-  echo "Kernel modules for $kernel_release are required at $modules_dir." >&2
-  exit 1
-fi
-for command in modprobe modinfo depmod unmkinitramfs; do
-  if ! command -v "$command" >/dev/null 2>&1; then
-    echo "$command is required to build the Agent initramfs." >&2
-    exit 1
-  fi
-done
-busybox_path="${BUSYBOX_PATH:-$(command -v busybox || true)}"
-: "${busybox_path:?BUSYBOX_PATH or busybox is required}"
-output_dir="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
-work_dir="$(mktemp -d)"
-cleanup() { rm -rf "$work_dir"; }
-trap cleanup EXIT
-mkdir -p "$output_dir" "$work_dir/root"/bin "$work_dir/root"/dev "$work_dir/root"/etc/tart "$work_dir/root"/proc "$work_dir/root"/sys "$work_dir/root"/run "$work_dir/root"/tmp "$work_dir/root"/usr/lib/systemd/boot/efi
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/provisioning-agent" ./cmd/provisioning-agent
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/efi-commit" ./cmd/efi-commit
-cp "$busybox_path" "$work_dir/root/bin/busybox"
-for applet in sh mount umount mkdir cat ln poweroff halt sleep udhcpc ifconfig route modprobe blockdev sfdisk udevadm mkfs.ext4 install sync reboot wget; do ln -sf busybox "$work_dir/root/bin/$applet"; done
-cp "$SYSTEMD_BOOT_EFI" "$work_dir/root/usr/lib/systemd/boot/efi/systemd-bootx64.efi"
-mkdir -p "$work_dir/root/lib/modules/$kernel_release"
-cat > "$work_dir/agent-modules" <<'MODULES'
-# Debian と Ubuntu の installer で一般的な PCI・仮想 NIC。
-e1000
-e1000e
-igb
-igc
-ixgbe
-ixgbevf
-i40e
-iavf
-ice
-bnxt_en
-tg3
-bnx2
-bnx2x
-qede
-be2net
-mlx4_en
-mlx5_core
-r8169
-alx
-atl1c
-atl1e
-atlantic
-sky2
-sis900
-tulip
-via-rhine
-pcnet32
-vmxnet3
-virtio_net
-hv_netvsc
-ena
-# Provisioning で利用する USB Ethernet adapter。
-usbnet
-cdc_ether
-cdc_ncm
-r8152
-asix
-ax88179_178a
-smsc95xx
-# SATA、NVMe、SCSI、RAID、USB、仮想 storage controller。
-ahci
-ata_piix
-nvme
-virtio_blk
-virtio_scsi
-megaraid_sas
-mpt3sas
-hpsa
-smartpqi
-aacraid
-arcmsr
-3w_9xxx
-3w_sas
-aic94xx
-pm80xx
-mvsas
-hisi_sas
-usb-storage
-uas
-sd_mod
-sr_mod
-scsi_mod
-# 一般的な installer layout で必要な device mapper、software RAID、filesystem。
-md_mod
-raid0
-raid1
-raid10
-linear
-dm_mod
-dm_crypt
-ext4
-xfs
-btrfs
-vfat
-fat
-exfat
-ntfs3
-MODULES
-: > "$work_dir/root/etc/tart/agent-modules"
-while IFS= read -r module; do
-  case "$module" in
-    ""|\#*) continue ;;
-  esac
-  if ! dependencies="$(modprobe --show-depends -d "$modules_root" -S "$kernel_release" "$module" 2>&1)"; then
-    printf 'Skipping unavailable Agent module: %s\n' "$module" >&2
-    continue
-  fi
-  printf '%s\n' "$module" >> "$work_dir/root/etc/tart/agent-modules"
-  printf '%s\n' "$dependencies" | while IFS= read -r dependency; do
-    case "$dependency" in
-      "insmod "*) module_path="${dependency#insmod }" ;;
-      *) continue ;;
-    esac
-    module_path="${module_path%% *}"
-    install -D -m 0644 "$module_path" "$work_dir/root$module_path"
-    modinfo -F firmware "$module_path" 2>/dev/null | while IFS= read -r firmware; do
-      [ -n "$firmware" ] || continue
-      if [ -f "$firmware_dir/$firmware" ]; then
-        install -D -m 0644 "$firmware_dir/$firmware" "$work_dir/root/lib/firmware/$firmware"
-      fi
-    done
-  done
-done < "$work_dir/agent-modules"
-depmod -b "$work_dir/root" "$kernel_release"
-if [ ! -s "$work_dir/root/etc/tart/agent-modules" ]; then
-  echo "No supported Agent hardware modules were found for $kernel_release." >&2
-  exit 1
-fi
-if [ -n "${AGENT_ARTIFACT_MODULES_FILE:-}" ]; then
-  cp "$work_dir/root/etc/tart/agent-modules" "$AGENT_ARTIFACT_MODULES_FILE"
-fi
-cat > "$work_dir/root/bin/udhcpc-script" <<'UDHCPC'
-#!/bin/sh
-set -eu
-
-case "${1:-}" in
-  bound|renew)
-    ifconfig "$interface" "$ip" netmask "$subnet" up
-    if [ -n "${router:-}" ]; then
-      for gateway in $router; do
-        route add default gw "$gateway" dev "$interface" || true
-      done
-    fi
-    ;;
-esac
-UDHCPC
-cat > "$work_dir/root/init" <<'INIT'
-#!/bin/sh
-set -eux
-PATH=/bin:/sbin:/usr/bin:/usr/sbin
-export PATH
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev
-exec </dev/console >/dev/console 2>&1
-
-failure_shell() {
-  exit_code=$?
-  trap - EXIT
-  printf '\nTart Provisioning Agent init failed with exit code %s.\n' "$exit_code"
-  printf '%s\n' 'An interactive shell is available for diagnosis. Run poweroff to shut down.'
-  while :; do
-    /bin/sh
-  done
-}
-trap failure_shell EXIT
-
-mkdir -p /dev/disk/by-id /etc /run /tmp
-while IFS= read -r module; do
-  [ -n "$module" ] || continue
-  if ! modprobe "$module"; then
-    printf 'Unable to load Agent hardware module: %s\n' "$module" >&2
-  fi
-done < /etc/tart/agent-modules
-sleep 2
-for iface in /sys/class/net/*; do
-  iface="${iface##*/}"
-  [ "$iface" != lo ] || continue
-  ifconfig "$iface" up || true
-  udhcpc -i "$iface" -q -n -t 5 -T 3 -s /bin/udhcpc-script || true
-done
-system_uuid=""
-trust_url=""
-for arg in $(cat /proc/cmdline); do case "$arg" in tart.agent.host-uid=*) system_uuid="${arg#tart.agent.host-uid=}";; tart.agent.trust-url=*) trust_url="${arg#tart.agent.trust-url=}";; esac; done
-[ -n "$trust_url" ]
-# 初回bootは隔離Provisioning L2だけを前提にし、ここで取得した公開鍵で以後のHTTPS通信とPlanを検証する。
-wget -O /etc/tart/agent-tls.crt "$trust_url/v1/agent-trust/agent-api-ca.pem"
-wget -O /etc/tart/agent-plan-public.pem "$trust_url/v1/agent-trust/agent-plan-public.pem"
-wget -O /etc/tart/os-artifact-public.pem "$trust_url/v1/agent-trust/os-artifact-public.pem"
-/bin/provisioning-agent --provision --system-uuid="$system_uuid" --tls-ca-file=/etc/tart/agent-tls.crt --plan-key-id=install-plan-v1 --plan-key-file=/etc/tart/agent-plan-public.pem --artifact-key-id=release-v1 --artifact-key-file=/etc/tart/os-artifact-public.pem --efi-commit-driver=/bin/efi-commit
-poweroff -f || halt -f
-INIT
-chmod 0755 "$work_dir/root/init"
-chmod 0755 "$work_dir/root/bin/udhcpc-script"
-(cd "$work_dir/root" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$work_dir/overlay.initrd"
-if [ -n "${AGENT_ARTIFACT_OVERLAY_INITRD:-}" ]; then
-  cp "$work_dir/overlay.initrd" "$AGENT_ARTIFACT_OVERLAY_INITRD"
-fi
-cp "$AGENT_KERNEL" "$output_dir/vmlinuz"
-unmkinitramfs "$AGENT_INITRD" "$work_dir/base-initramfs"
-if [ ! -d "$work_dir/base-initramfs/main" ]; then
-  echo "Agent base initramfs does not contain a main filesystem." >&2
-  exit 1
-fi
-for source in "$work_dir/root"/* "$work_dir/root"/.[!.]* "$work_dir/root"/..?*; do
-  [ -e "$source" ] || [ -L "$source" ] || continue
-  target="$work_dir/base-initramfs/main/${source##*/}"
-  if [ -d "$source" ]; then
-    if [ -L "$target" ]; then
-      cp -a "$source/." "$(readlink -f "$target")/"
-    else
-      mkdir -p "$target"
-      cp -a "$source/." "$target/"
-    fi
-  else
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
-      exit 1
-    fi
-    rm -f "$target"
-    cp -a "$source" "$target"
-  fi
-done
-(cd "$work_dir/base-initramfs/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$output_dir/initrd"
-if ! gzip -dc "$output_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
-  echo "Agent initramfs does not contain the Provisioning Agent init entrypoint." >&2
-  exit 1
-fi
-'''
+run = "bash scripts/agent-artifact-build-real/script.sh"
 
 [tasks.build-installer]
 description = "CRD と deployment を含む install.yaml を生成する"
-run = '''
-: "${IMG:?IMG is required}"
-IPXE_IMG="${IPXE_IMG:-ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe}"
-IPXE_TAG="${IPXE_TAG:-}"
-IPXE_REF="${IPXE_REF:-}"
-image_without_digest="${IMG%%@*}"
-last_image_segment="${image_without_digest##*/}"
-if [ -z "$IPXE_REF" ] && [ "$image_without_digest" = "$IMG" ] && [ "${last_image_segment#*:}" != "$last_image_segment" ]; then
-  IPXE_TAG="${last_image_segment##*:}"
-fi
-if [ -z "$IPXE_REF" ]; then
-  : "${IPXE_TAG:?IPXE_REF or IPXE_TAG is required when IMG is digest-pinned}"
-  IPXE_REF="$IPXE_IMG:$IPXE_TAG"
-fi
-mise run manifests
-mise run generate
-manager_kustomization="$(mktemp)"
-cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
-mkdir -p dist
-(cd config/manager && kustomize edit set image controller="$IMG" "ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe=$IPXE_REF")
-kustomize build config/default > dist/install.yaml
-'''
+run = "bash scripts/installer-build/script.sh"
 
 [tasks.build-installer-real-hardware]
 description = "隔離Provisioning L2向けの実機 install-real-hardware.yaml を生成する"
-run = '''
-IMG="${IMG:-controller:latest}"
-: "${AGENT_ARTIFACT_REF:?AGENT_ARTIFACT_REF is required (e.g. ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent:<release-tag>)}"
-: "${AGENT_ARTIFACT_PUBLIC_KEY_PEM:?AGENT_ARTIFACT_PUBLIC_KEY_PEM is required}"
-: "${OS_ARTIFACT_PUBLIC_KEY_PEM:?OS_ARTIFACT_PUBLIC_KEY_PEM is required}"
-agent_artifact_repository="ghcr.io/walnuts1018/cluster-api-provider-tart-provisioning-agent"
-case "$AGENT_ARTIFACT_REF" in
-  "$agent_artifact_repository":*) agent_artifact_tag="${AGENT_ARTIFACT_REF#*:}" ;;
-  *) echo "AGENT_ARTIFACT_REF must use $agent_artifact_repository:<release-tag>" >&2; exit 1 ;;
-esac
-case "$agent_artifact_tag" in
-  ''|dev|latest) echo "AGENT_ARTIFACT_REF must use a GitHub release tag" >&2; exit 1 ;;
-esac
-if ! echo "$agent_artifact_tag" | grep -qE '^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$'; then
-  echo "AGENT_ARTIFACT_REF has an invalid release tag" >&2
-  exit 1
-fi
-mise run manifests
-mise run generate
-manager_kustomization="$(mktemp)"
-cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization" config/real-hardware/generated/agent-artifact-patch.yaml config/real-hardware/generated/agent-artifact-public.pem config/real-hardware/generated/os-artifact-public.pem' EXIT
-mkdir -p dist
-mkdir -p config/real-hardware/generated
-printf '%s' "$AGENT_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/agent-artifact-public.pem
-printf '%s' "$OS_ARTIFACT_PUBLIC_KEY_PEM" > config/real-hardware/generated/os-artifact-public.pem
-printf '%s\n' \
-  'apiVersion: apps/v1' \
-  'kind: Deployment' \
-  'metadata:' \
-  '  name: controller-manager' \
-  '  namespace: system' \
-  'spec:' \
-  '  template:' \
-  '    spec:' \
-  '      containers:' \
-  '      - name: manager' \
-  '        volumeMounts:' \
-  '        - name: agent-artifact' \
-  '          mountPath: /var/lib/tart/agent-artifact' \
-  '          readOnly: true' \
-  '      volumes:' \
-  '      - name: agent-artifact' \
-  '        image:' \
-  "          reference: $AGENT_ARTIFACT_REF" \
-  '          pullPolicy: IfNotPresent' \
-  > config/real-hardware/generated/agent-artifact-patch.yaml
-(cd config/real-hardware && kustomize edit set image controller="$IMG")
-kustomize build config/real-hardware > dist/install-real-hardware.yaml
-'''
+run = "bash scripts/installer-build-real-hardware/script.sh"
 
 [tasks.build-installer-e2e]
 description = "E2E用に HostNetwork を有効化した install-e2e.yaml を生成する"
-run = '''
-IMG="${IMG:-registry.test.walnuts.dev/cluster-api-provider-tart:e2e}"
-mise run prepare-provisioning-e2e-artifact
-agent_hostpath="${PROVISIONING_E2E_AGENT_ARTIFACT_HOSTPATH:-/var/lib/tart-provisioning-e2e/agent-artifact}"
-sudo rm -rf "$agent_hostpath"
-sudo mkdir -p "$agent_hostpath"
-sudo cp -R config/provisioning-e2e/generated/agent-artifact/. "$agent_hostpath/"
-sudo chmod -R a+rX "$agent_hostpath"
-mise run manifests
-mise run generate
-manager_kustomization="$(mktemp)"
-cp config/manager/kustomization.yaml "$manager_kustomization"
-trap 'cp "$manager_kustomization" config/manager/kustomization.yaml; rm -f "$manager_kustomization"' EXIT
-mkdir -p dist
-(cd config/manager && kustomize edit set image controller="$IMG")
-kustomize build config/provisioning-e2e > dist/install-e2e.yaml
-'''
+run = "bash scripts/installer-build-e2e/script.sh"
 
 [tasks.setup-test-provisioning-k3s]
 description = "E2E Provisioning テスト用の k3s マネジメントクラスタとネットワークをセットアップする"
-run = '''
-set -e
-# 1. Install k3s if not present
-if ! command -v k3s &> /dev/null; then
-  echo "Installing k3s..."
-  k3s_lock=artifact/locks/k3s-e2e.json
-  k3s_version=$(jq -er '.version' "$k3s_lock")
-  k3s_installer_url=$(jq -er '.installer.url' "$k3s_lock")
-  k3s_installer_sha256=$(jq -er '.installer.sha256' "$k3s_lock")
-  k3s_installer=$(mktemp)
-  trap 'rm -f "$k3s_installer"' EXIT
-  curl --fail --silent --show-error --location \
-    "$k3s_installer_url" --output "$k3s_installer"
-  echo "$k3s_installer_sha256  $k3s_installer" | sha256sum --check --strict
-  sudo env INSTALL_K3S_VERSION="$k3s_version" sh "$k3s_installer"
-  sleep 10
-else
-  echo "k3s is already installed."
-fi
-mkdir -p ~/.kube
-sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-sudo chown $(id -u):$(id -g) ~/.kube/config
-chmod 600 ~/.kube/config
-
-# 2. Setup Linux Bridge
-if ! ip link show br0 &> /dev/null; then
-  echo "Creating Linux bridge br0..."
-  sudo ip link add br0 type bridge
-  sudo ip addr add 192.168.100.1/24 dev br0
-  sudo ip link set br0 up
-  sudo sysctl -w net.ipv4.ip_forward=1
-  # MASQUERADE might fail if eth0 is not the main interface, but we try standard
-  MAIN_IF=$(ip route | grep default | sed -e "s/^.*dev.//" -e "s/.proto.*//")
-  sudo iptables -t nat -A POSTROUTING -o "$MAIN_IF" -j MASQUERADE || true
-  sudo iptables -A FORWARD -i br0 -j ACCEPT || true
-  sudo iptables -A FORWARD -o br0 -m state --state RELATED,ESTABLISHED -j ACCEPT || true
-  # Ensure QEMU bridge helper can use br0
-  sudo mkdir -p /etc/qemu
-  echo "allow br0" | sudo tee -a /etc/qemu/bridge.conf
-else
-  echo "Bridge br0 already exists."
-fi
-
-# 3. Download iPXE binaries
-mkdir -p /tmp/tftpboot
-if [ ! -f /tmp/tftpboot/ipxe-x86_64.efi ]; then
-  echo "Downloading locked iPXE binaries..."
-  go run ./cmd/locked-download -lock artifact/ipxe.lock.json -output-dir /tmp
-  rm -rf /tmp/ipxeboot
-  tar xzf /tmp/ipxeboot.tar.gz -C /tmp
-  mv /tmp/ipxeboot/x86_64/ipxe.efi /tmp/tftpboot/ipxe-x86_64.efi
-  rm -rf /tmp/ipxeboot /tmp/ipxeboot.tar.gz
-fi
-cat > /tmp/tftpboot/autoexec.ipxe <<'IPXE'
-#!ipxe
-dhcp || exit
-chain --autofree http://${next-server}:8082/ipxe?mac=${net0/mac} || exit
-IPXE
-
-# 4. Start dnsmasq
-if ! pgrep -af "dnsmasq.*br0" &> /dev/null; then
-  echo "Starting dnsmasq on br0..."
-  sudo dnsmasq \
-    --interface=br0 \
-    --bind-interfaces \
-    --port=0 \
-    --dhcp-range=192.168.100.50,192.168.100.200,255.255.255.0,12h \
-    --dhcp-option=option:router,192.168.100.1 \
-    --dhcp-userclass=set:ipxe,iPXE \
-    --dhcp-match=set:ipxe,175 \
-    --dhcp-host=00:00:5e:00:53:00,set:e2ehost0,192.168.100.93 \
-    --dhcp-host=00:00:5e:00:53:01,set:e2ehost1,192.168.100.94 \
-    --dhcp-host=00:00:5e:00:53:02,set:e2ehost2,192.168.100.95 \
-    --enable-tftp \
-    --tftp-root=/tmp/tftpboot \
-    --dhcp-boot=tag:!ipxe,ipxe-x86_64.efi \
-    --dhcp-boot=tag:ipxe,tag:e2ehost0,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:00 \
-    --dhcp-boot=tag:ipxe,tag:e2ehost1,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:01 \
-    --dhcp-boot=tag:ipxe,tag:e2ehost2,http://192.168.100.1:8082/ipxe?mac=00:00:5e:00:53:02 \
-    --dhcp-leasefile=/tmp/dnsmasq.leases \
-    --log-dhcp \
-    --keep-in-foreground &
-  sleep 2
-else
-  echo "dnsmasq is already running on br0."
-fi
-'''
+run = "bash scripts/provisioning-e2e-setup/script.sh"
 
 [tasks.setup-provisioning-e2e-host]
 description = "Provisioning E2Eに必要なLinuxホスト依存パッケージを導入する"
-run = '''
-if ! command -v apt-get >/dev/null 2>&1; then
-  echo "setup-provisioning-e2e-host supports Debian/Ubuntu hosts only" >&2
-  exit 1
-fi
-sudo apt-get update
-sudo apt-get install -y qemu-kvm libvirt-daemon-system libvirt-clients bridge-utils ovmf dnsmasq iproute2 tcpdump linux-image-generic initramfs-tools-core cpio ipxe busybox-static
-# The provisioning simulator listens on the real Wake-on-LAN UDP port 9.
-sudo sysctl -w net.ipv4.ip_unprivileged_port_start=0
-'''
+run = "bash scripts/provisioning-e2e-host-setup/script.sh"
 
 [tasks.test-provisioning-e2e]
 description = "CAPI Test Framework と k3s を使用して Provisioning E2E テストを実行する"
 depends = ["setup-provisioning-e2e-host"]
-run = '''
-IMG="${IMG:-registry.test.walnuts.dev/cluster-api-provider-tart:e2e}"
-CONTAINER_TOOL="${CONTAINER_TOOL:-docker}"
-mise run setup-test-provisioning-k3s
-mise run build-installer-e2e
-set -a
-. "${PROVISIONING_E2E_OUTPUT_DIR:-dist/provisioning-e2e}/env"
-set +a
-"$CONTAINER_TOOL" build -t "$IMG" .
-# Load image into k3s to ensure it's available locally
-if command -v k3s &> /dev/null; then
-  "$CONTAINER_TOOL" save "$IMG" | sudo k3s ctr images import -
-fi
+run = "bash scripts/provisioning-e2e-run/script.sh"
 
-ARTIFACTS="${ARTIFACTS:-${PWD}/_artifacts}"
-mkdir -p "$ARTIFACTS"
-export KUBECONFIG=~/.kube/config
-# Clusterctl does not expand ${PWD} in config file, so we do it here
-CONFIG_TEMP=$(mktemp)
-trap 'rm -f "$CONFIG_TEMP"' EXIT
-export PWD="${PWD}"
-envsubst < "${PWD}/test/e2e/config/tart.yaml" > "$CONFIG_TEMP"
-set -- go test -tags=e2e ./test/e2e/provisioning/... -timeout 30m -v -ginkgo.v -e2e.artifacts-folder="$ARTIFACTS" -e2e.config="$CONFIG_TEMP" -e2e.use-existing-cluster=true
-if [ -n "${PROVISIONING_E2E_GINKGO_FOCUS:-}" ]; then
-  set -- "$@" "-ginkgo.focus=${PROVISIONING_E2E_GINKGO_FOCUS}"
-fi
-"$@"
-'''
+[tasks.collect-provisioning-e2e-evidence]
+description = "Provisioning E2E失敗時の診断情報を収集する"
+run = "bash scripts/provisioning-e2e-collect-evidence/script.sh"
 
 [tasks.install]
 description = "現在の kubeconfig のクラスタへ CRD を install する"
@@ -1330,14 +535,6 @@ IGNORE_NOT_FOUND="${IGNORE_NOT_FOUND:-false}"
 kustomize build config/default | kubectl delete --ignore-not-found="$IGNORE_NOT_FOUND" -f -
 '''
 
-[tasks.kustomize]
-description = "kustomize が mise 経由で利用できることを確認する"
-run = "kustomize version"
-
-[tasks.controller-gen]
-description = "controller-gen が mise 経由で利用できることを確認する"
-run = "controller-gen --version"
-
 [tasks.setup-envtest]
 description = "envtest バイナリを用意する"
 run = '''
@@ -1347,7 +544,3 @@ mkdir -p "$LOCALBIN"
 echo "Setting up envtest binaries for Kubernetes version $ENVTEST_K8S_VERSION..."
 setup-envtest use "$ENVTEST_K8S_VERSION" --bin-dir "$LOCALBIN" -p path
 '''
-
-[tasks.envtest]
-description = "setup-envtest が mise 経由で利用できることを確認する"
-run = "setup-envtest --help"

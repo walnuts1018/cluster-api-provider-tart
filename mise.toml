@@ -179,7 +179,9 @@ shellcheck \
   test/resource_preservation/phase.sh \
   test/fixtures/fake-kubectl \
   test/resource_preservation/verify.sh \
-  test/resource_preservation/verify_test.sh
+  test/resource_preservation/verify_test.sh \
+  hack/collect-provisioning-e2e-evidence.sh \
+  hack/build-release-agent-artifact.sh
 '''
 
 [tasks.build]
@@ -1281,6 +1283,10 @@ if [ -n "${PROVISIONING_E2E_GINKGO_FOCUS:-}" ]; then
 fi
 "$@"
 '''
+
+[tasks.collect-provisioning-e2e-evidence]
+description = "Provisioning E2E失敗時の診断情報を収集する"
+run = "bash hack/collect-provisioning-e2e-evidence.sh"
 
 [tasks.install]
 description = "現在の kubeconfig のクラスタへ CRD を install する"

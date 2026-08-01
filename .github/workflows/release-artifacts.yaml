@@ -100,7 +100,7 @@ jobs:
           AGENT_REPOSITORY: ${{ env.REGISTRY }}/${{ github.repository }}-provisioning-agent
           AGENT_TAG: ${{ inputs.release_tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash hack/build-release-agent-artifact.sh
+        run: bash .github/scripts/release/build-agent-artifact.sh
 
       - name: Prepare Agent release assets
         run: |

@@ -13,6 +13,9 @@ MISE_OFFLINE=1 mise run help
 このリポジトリでは Go の build cache と module cache をリポジトリ配下へ置く。sandbox や CI と
 同じ条件で実行するため、通常の開発では `MISE_OFFLINE=1` を付ける。
 
+ローカルでも実行する処理はmise taskとして公開し、長い実装は `scripts/<task名>/script.sh` に置く。GitHub
+Actionsだけで使う公開・Renovate補助は `.github/scripts/` に置き、ローカルtaskには追加しない。
+
 ## 日常の確認
 
 Go コードを変更したときは、変更内容に応じて次を実行する。

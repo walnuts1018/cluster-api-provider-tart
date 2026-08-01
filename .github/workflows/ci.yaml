@@ -45,10 +45,12 @@ jobs:
           go-cache: "true"
           install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen
 
-      - name: Generate manifests and Go code
-        run: |
-          mise run manifests
-          mise run generate
+      - parallel:
+          - name: Generate manifests
+            run: mise run manifests
+
+          - name: Generate Go code
+            run: mise run generate
 
       - name: 生成物の差分を検出する
         run: git diff --exit-code
@@ -69,16 +71,18 @@ jobs:
           golangci-lint-cache: "true"
           install-args: go golangci-lint actionlint shellcheck
 
-      - name: Build custom golangci-lint
-        run: |
-          if ! test -x bin/custom-gcl; then
-            mise run build-golangci-lint
-          fi
+      - parallel:
+          - name: Build custom golangci-lint
+            run: |
+              if ! test -x bin/custom-gcl; then
+                mise run build-golangci-lint
+              fi
 
-      - name: Run lint
-        run: |
-          mise run lint-workspace
-          ./bin/custom-gcl run
+          - name: Run workflow and shell lint
+            run: mise run lint-workspace
+
+      - name: Run Go lint
+        run: ./bin/custom-gcl run
 
   test:
     name: Go Test
@@ -94,8 +98,12 @@ jobs:
         with:
           install-args: go jq go:sigs.k8s.io/controller-runtime/tools/setup-envtest
 
-      - name: Run tests
-        run: mise run ci-test
+      - parallel:
+          - name: Run resource preservation contract tests
+            run: mise run test-resource-preservation
+
+          - name: Run Go tests
+            run: mise run ci-go-test
 
   build:
     name: Build check
@@ -111,8 +119,21 @@ jobs:
         with:
           install-args: go
 
-      - name: Build binaries
-        run: mise run ci-build
+      - name: Create binary output directory
+        run: mkdir -p bin
+
+      - parallel:
+          - name: Build manager
+            run: mise run ci-build-manager
+
+          - name: Build provisioning agent
+            run: mise run ci-build-provisioning-agent
+
+          - name: Build EFI commit tool
+            run: mise run ci-build-efi-commit
+
+          - name: Build node lifecycle service
+            run: mise run ci-build-node-lifecycle-service
 
   status:
     name: CI status

@@ -68,6 +68,8 @@ func TestSelectPayloadTargets(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			plan := testPlan(t, test.operation, test.active, []agentprotocol.DiskRole{test.os, test.verity})
 			actual, err := selectPayloadTargets(plan)
 			if err != nil {

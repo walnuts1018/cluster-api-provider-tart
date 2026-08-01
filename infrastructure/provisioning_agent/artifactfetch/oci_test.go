@@ -62,6 +62,8 @@ func TestOCIFetchはタグと名前だけのOCI画像参照を解決する(t *te
 		"oci://registry.test.walnuts.dev/tart/os:v0.1.12@DIGEST",
 	} {
 		t.Run(reference, func(t *testing.T) {
+			t.Parallel()
+
 			source, request, repo, _, _ := newTestSource(t)
 			request.Ref = strings.ReplaceAll(reference, "DIGEST", repo.reference.Digest.String())
 			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"); err != nil {
@@ -109,6 +111,8 @@ func TestOCIFetchRejectsPlanIdentityMismatchBeforePayloadFetch(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			source, request, repo, _, _ := newTestSource(t)
 			test.mutate(&request)
 			if _, err := source.Fetch(t.Context(), request, "amd64-uefi-ab-ubuntu-24.04-kubeadm/v1"); err == nil {
@@ -141,6 +145,8 @@ func TestSelectRequiredLayersRejectsMissingAndDuplicateLayers(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			if _, err := selectRequiredLayers(ocispec.Manifest{
 				MediaType:    test.mediaType,
 				ArtifactType: artifactoci.ArtifactType,

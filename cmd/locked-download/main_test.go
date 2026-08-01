@@ -109,6 +109,8 @@ func TestReadLockRejectsAmbiguousInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			path := filepath.Join(root, tt.name+".json")
 			if err := os.WriteFile(path, tt.data, 0o644); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)

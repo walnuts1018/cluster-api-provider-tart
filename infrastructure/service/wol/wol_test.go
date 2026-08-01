@@ -106,6 +106,7 @@ func TestSendHonorsCancellation(t *testing.T) {
 }
 
 func TestMagicPacketRejectsInvalidMACAddress(t *testing.T) {
+	t.Parallel()
 
 	tests := []struct {
 		name       string

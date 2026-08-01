@@ -232,11 +232,11 @@ for source in "$work_dir/root"/* "$work_dir/root"/.[!.]* "$work_dir/root"/..?*; 
       cp -a "$source/." "$target/"
     fi
   else
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
-      exit 1
+    if [ -d "$target" ] && [ ! -L "$target" ]; then
+      rm -rf -- "$target"
+    else
+      rm -f -- "$target"
     fi
-    rm -f "$target"
     cp -a "$source" "$target"
   fi
 done

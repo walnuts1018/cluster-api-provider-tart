@@ -190,11 +190,11 @@ for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_ini
       cp -a "$source/." "$target/"
     fi
   else
-    if [ -e "$target" ] && [ ! -L "$target" ]; then
-      echo "Agent initramfs cannot replace directory $target with ${source##*/}." >&2
-      exit 1
+    if [ -d "$target" ] && [ ! -L "$target" ]; then
+      rm -rf -- "$target"
+    else
+      rm -f -- "$target"
     fi
-    rm -f "$target"
     cp -a "$source" "$target"
   fi
 done

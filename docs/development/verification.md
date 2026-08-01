@@ -24,6 +24,12 @@
 - `Release` は手動実行だけを受け付ける。最初にKind E2EとProvisioning E2Eを並列に実行し、両方が成功した場合だけArtifact生成を開始する。
 - `Release Artifacts` はAgent、OS、iPXE、Provider imageを生成・公開し、最後にProvider manifestを作る。GitHub ReleaseはすべてのArtifact生成が成功してから作成する。
 
+## Runner の選択
+
+- `ubuntu-slim` は、変更ファイルの判定、結果の集約、tag の形式検証、Release asset の公開など、コンパイラ・Docker・追加パッケージを必要としない軽量なJobに限定する。
+- `ubuntu-24.04` は、Goの生成・lint・test・build、Docker/Kind/QEMUを使う検証、Artifact生成と公開に使用する。固定ラベルにより、`*-latest` のOS更新で検証結果が変わることを防ぐ。
+- `ubuntu-24.04-arm` は、ARM64 controller imageをネイティブに生成するJobだけに使用する。
+
 ## 実機検証の扱い
 
 実機が必要な検証では、機種、firmware、NIC、storage controller、使用した Driver、失敗を注入した位置、

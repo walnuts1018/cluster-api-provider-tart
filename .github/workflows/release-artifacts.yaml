@@ -25,7 +25,7 @@ env:
 jobs:
   ipxe:
     name: Build iPXE artifact
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
@@ -274,7 +274,7 @@ jobs:
       matrix:
         include:
           - key: linux-amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
             platform: linux/amd64
           - key: linux-arm64
             runner: ubuntu-24.04-arm
@@ -320,7 +320,7 @@ jobs:
 
   controller-manifest:
     name: Publish multi-architecture controller image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: controller-build
     outputs:
       digest: ${{ steps.manifest.outputs.digest }}
@@ -357,7 +357,7 @@ jobs:
 
   release-manifests:
     name: Build provider release manifests
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     needs: [ipxe, agent-artifact, os-artifact, controller-manifest]
     steps:
       - name: Check out code

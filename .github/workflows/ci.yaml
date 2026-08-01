@@ -32,7 +32,7 @@ jobs:
 
   generate:
     name: 生成物を検証する
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     steps:
@@ -55,7 +55,7 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.lint_config == 'true' || github.event_name == 'workflow_dispatch'
     steps:
@@ -74,7 +74,7 @@ jobs:
 
   test:
     name: Go Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     steps:
@@ -91,7 +91,7 @@ jobs:
 
   build:
     name: Build check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.go == 'true' || github.event_name == 'workflow_dispatch'
     steps:

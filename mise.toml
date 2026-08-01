@@ -166,7 +166,7 @@ run = '''
 [tasks.actionlint]
 description = "GitHub Actions workflow を actionlint で検証する"
 run = '''
-# actionlint v1.7.12 は公式の steps.parallel 構文を未対応の必須 run/uses エラーとして扱う。
+# TODO: actionlint v1.7.12 は公式の steps.parallel 構文を未対応の必須 run/uses エラーとして扱う。
 # CI workflow ではその診断だけを除外し、他の workflow は通常どおり厳密に検証する。
 find .github/workflows -type f \( -name '*.yaml' -o -name '*.yml' \) ! -name 'ci.yaml' -print0 | xargs -0 actionlint
 actionlint -ignore 'step must run script with "run" section or run action with "uses" section' .github/workflows/ci.yaml

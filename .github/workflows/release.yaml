@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 公開する不変のGit tag
+        description: Release Tag (e.g. v1.2.3)
         required: true
         type: string
 

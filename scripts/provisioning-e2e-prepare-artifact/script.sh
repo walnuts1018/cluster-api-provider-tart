@@ -168,7 +168,8 @@ export PATH
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
-exec </dev/console >/dev/console 2>&1
+# QEMUのシリアルログをE2Eの完了証跡に使うため、VGAへ向く可能性がある/dev/consoleではなくttyS0へ出力する。
+exec </dev/ttyS0 >/dev/ttyS0 2>&1
 mkdir -p /dev/disk/by-id /etc /run /tmp
 
 modprobe virtio_net || true

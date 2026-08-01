@@ -41,9 +41,9 @@ grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
 while IFS= read -r module; do
   module_path="$(modinfo -b /tmp/tart-agent-final-initramfs -k "$AGENT_KERNEL_RELEASE" -F filename "$module")"
   case "$module_path" in
-    *.ko) ;;
+    "(builtin)"|*.ko) ;;
     *)
-      echo "Agent module is not stored as an uncompressed ELF module: $module ($module_path)" >&2
+      echo "Agent module is neither built in nor stored as an uncompressed ELF module: $module ($module_path)" >&2
       exit 1
       ;;
   esac

@@ -20,10 +20,10 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up post-upgrade tools
+        uses: ./.github/actions/setup-tools
         with:
-          go-version-file: go.mod
+          install-args: go jq npm:@devcontainers/cli
 
       - name: Refresh locked artifact inputs
         run: bash .github/scripts/renovate/post-upgrade.sh
@@ -35,6 +35,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add artifact/mkosi/mkosi.conf artifact/locks artifact/ipxe.lock.json
+          git add -A .devcontainer/devcontainer-lock.json artifact/mkosi/mkosi.conf artifact/locks artifact/ipxe.lock.json test/envtest/crds/cluster-api test/e2e/provisioning/repository_config_test.go utils/testutils/envtest/assets.go
           git commit --signoff -m 'chore: Renovate更新後のArtifact入力を同期'
           git push origin "HEAD:${GITHUB_HEAD_REF}"

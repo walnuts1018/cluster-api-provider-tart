@@ -7,6 +7,15 @@
   customManagers: [
     {
       customType: 'regex',
+      managerFilePatterns: ['/^\\.custom-gcl\\.yml$/'],
+      matchStrings: [
+        'module: "(?<depName>[^"]+)"\\n\\s+import: [^\\n]+\\n\\s+version: (?<currentValue>v?[^\\s]+)',
+      ],
+      datasourceTemplate: 'go',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
       managerFilePatterns: [
         '/^config/.*/kustomization.yaml$/',
         '/^test/utils/utils.go$/',
@@ -27,8 +36,115 @@
       ],
       versioningTemplate: 'semver-coerced',
     },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^test\\/utils\\/utils\\.go$/'],
+      matchStrings: [
+        'certmanagerVersion = "(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: 'cert-manager/cert-manager',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^test\\/e2e\\/config\\/tart\\.yaml$/'],
+      matchStrings: [
+        '(?<indentation>[ ]*)- name: (?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)\\n\\s+value: "https://github\\.com/kubernetes-sigs/cluster-api/releases/download/v?[0-9]+\\.[0-9]+\\.[0-9]+/(?<asset>[^"]+)"',
+      ],
+      autoReplaceStringTemplate: '{{{indentation}}}- name: {{{newValue}}}\n{{{indentation}}}  value: "https://github.com/kubernetes-sigs/cluster-api/releases/download/{{{newValue}}}/{{{asset}}}"',
+      depNameTemplate: 'kubernetes-sigs/cluster-api',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^utils\\/testutils\\/envtest\\/assets\\.go$/'],
+      matchStrings: [
+        'cluster-api\\/(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)',
+      ],
+      depNameTemplate: 'kubernetes-sigs/cluster-api',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^test\\/e2e\\/config\\/tart\\.yaml$/'],
+      matchStrings: [
+        'KUBERNETES_VERSION: "(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: 'kubernetes/kubernetes',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^config\\/templates\\/cluster-template-kubeadm(?:-ubuntu)?\\.yaml$/',
+      ],
+      matchStrings: [
+        'KUBERNETES_VERSION:=?(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)',
+      ],
+      depNameTemplate: 'kubernetes/kubernetes',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^config\\/samples\\/cluster-kubeadm-ubuntu\\.yaml$/'],
+      matchStrings: [
+        '\\n\\s+version: (?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)',
+      ],
+      depNameTemplate: 'kubernetes/kubernetes',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^artifact\\/config\\/[^/]+\\.json$/'],
+      matchStrings: [
+        '"kubernetes": \\{\\n\\s+"distribution": "[^"]+",\\n\\s+"version": "(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      depNameTemplate: 'kubernetes/kubernetes',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: ['/^docs\\/installation\\/ubuntu-kubeadm\\.md$/'],
+      matchStrings: [
+        'export KUBERNETES_VERSION=(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)',
+      ],
+      depNameTemplate: 'kubernetes/kubernetes',
+      datasourceTemplate: 'github-tags',
+      versioningTemplate: 'semver-coerced',
+    },
   ],
   packageRules: [
+    {
+      description: 'CAPI本体、E2E定義、envtest CRDを同じreleaseへ更新する',
+      matchPackageNames: [
+        'kubernetes-sigs/cluster-api',
+        'sigs.k8s.io/cluster-api',
+        'sigs.k8s.io/cluster-api/test',
+      ],
+      groupName: 'Cluster API',
+    },
+    {
+      description: 'Kubernetes本体、Go module、CLI、Artifact、テンプレートを同じreleaseへ更新する',
+      matchPackageNames: ['kubernetes/kubernetes', 'kubectl'],
+      groupName: 'Kubernetes',
+    },
+    {
+      description: 'Kubernetes Go moduleを本体と同じreleaseへ更新する',
+      matchPackagePrefixes: ['k8s.io/'],
+      groupName: 'Kubernetes',
+    },
+    {
+      description: '開発コンテナ、ビルドimage、Go directiveを同じGo toolchainへ更新する',
+      matchPackageNames: ['go', 'golang'],
+      groupName: 'Go toolchain',
+    },
     {
       description: 'テスト用の存在しないprivate registryを依存関係として扱わない',
       matchDatasources: ['docker'],

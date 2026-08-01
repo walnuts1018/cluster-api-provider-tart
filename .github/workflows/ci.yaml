@@ -69,8 +69,16 @@ jobs:
           golangci-lint-cache: "true"
           install-args: go golangci-lint actionlint shellcheck
 
+      - name: Build custom golangci-lint
+        run: |
+          if ! test -x bin/custom-gcl; then
+            mise run build-golangci-lint
+          fi
+
       - name: Run lint
-        run: mise run ci-lint
+        run: |
+          mise run lint-workspace
+          ./bin/custom-gcl run
 
   test:
     name: Go Test

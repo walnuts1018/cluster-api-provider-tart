@@ -98,6 +98,8 @@ func TestEvaluateNode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := EvaluateNode(tt.observation)
 			if got.Ready != tt.wantReady {
 				t.Fatalf("Ready = %t, want %t", got.Ready, tt.wantReady)

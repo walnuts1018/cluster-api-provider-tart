@@ -18,6 +18,16 @@ for command in curl gzip jq sha256sum stat; do
   }
 done
 
+base_ref="origin/${GITHUB_BASE_REF:-main}"
+if ! git rev-parse --verify --quiet "$base_ref" >/dev/null; then
+  echo "base branch is unavailable: $base_ref" >&2
+  exit 1
+fi
+
+changed_from_base() {
+  ! git diff --quiet "$base_ref"...HEAD -- "$@"
+}
+
 file_size() {
   if stat --version 2>/dev/null | grep -q "GNU"; then
     stat -c '%s' "$1"
@@ -42,6 +52,7 @@ refresh_url_lock() {
   mv "$tmp_dir/$(basename "$lock_file")" "$lock_file"
 }
 
+if changed_from_base artifact/mkosi/mkosi.conf artifact/locks/k3s-e2e.json artifact/locks/etcdctl-linux-amd64.json artifact/ipxe.lock.json; then
 k3s_lock='artifact/locks/k3s-e2e.json'
 k3s_url="$(jq -er '.installer.url' "$k3s_lock")"
 raw_host='raw.githubusercontent.com'
@@ -119,12 +130,59 @@ refresh_url_lock artifact/locks/etcdctl-linux-amd64.json
 refresh_url_lock artifact/ipxe.lock.json
 
 # 取得済みdebもlockから再取得し、古いバージョンのファイルを残さない。
-if command -v go >/dev/null 2>&1; then
-  mkdir -p artifact/mkosi/mkosi.packages
-  find artifact/mkosi/mkosi.packages -type f -name '*.deb' -delete
-  go run ./cmd/locked-download \
-    -lock artifact/locks/amd64.json \
-    -output-dir artifact/mkosi/mkosi.packages
+mkdir -p artifact/mkosi/mkosi.packages
+find artifact/mkosi/mkosi.packages -type f -name '*.deb' -delete
+go run ./cmd/locked-download \
+  -lock artifact/locks/amd64.json \
+  -output-dir artifact/mkosi/mkosi.packages
+fi
+
+if changed_from_base .github/workflows/release-artifacts.yaml; then
+  mkosi_ref="$(sed -nE 's|.*uses: systemd/mkosi@([[:xdigit:]]+).*# v([0-9]+).*|\1 \2|p' .github/workflows/release-artifacts.yaml)"
+  if [ -z "$mkosi_ref" ]; then
+    echo 'systemd/mkosi action pin is missing from release-artifacts workflow' >&2
+    exit 1
+  fi
+  read -r mkosi_commit mkosi_version <<EOF
+$mkosi_ref
+EOF
+  jq --arg version "$mkosi_version" --arg commit "$mkosi_commit" \
+    '.mkosi.version = $version | .mkosi.commit = $commit' artifact/locks/amd64.json >"$tmp_dir/amd64-with-mkosi.json"
+  mv "$tmp_dir/amd64-with-mkosi.json" artifact/locks/amd64.json
+fi
+
+if changed_from_base utils/testutils/envtest/assets.go test/e2e/config/tart.yaml; then
+  capi_version="$(sed -nE 's|.*cluster-api/(v[0-9]+\.[0-9]+\.[0-9]+).*|\1|p' utils/testutils/envtest/assets.go)"
+  if [ -z "$capi_version" ]; then
+    echo 'Cluster API envtest fixture version is missing' >&2
+    exit 1
+  fi
+
+  fixture_dir="test/envtest/crds/cluster-api/$capi_version"
+  if [ ! -f "$fixture_dir/cluster.x-k8s.io_clusters.yaml" ] || [ ! -f "$fixture_dir/cluster.x-k8s.io_machines.yaml" ]; then
+    fixture_download_dir="$tmp_dir/cluster-api-crds"
+    mkdir -p "$fixture_download_dir"
+    for fixture in cluster.x-k8s.io_clusters.yaml cluster.x-k8s.io_machines.yaml; do
+      curl --fail --silent --show-error --location \
+        "https://raw.githubusercontent.com/kubernetes-sigs/cluster-api/$capi_version/config/crd/bases/$fixture" \
+        --output "$fixture_download_dir/$fixture"
+    done
+    rm -rf test/envtest/crds/cluster-api
+    mkdir -p "$fixture_dir"
+    mv "$fixture_download_dir"/* "$fixture_dir/"
+  fi
+
+  test_version="$(sed -nE 's|.*Name:     "(v[0-9]+\.[0-9]+\.[0-9]+)".*|\1|p' test/e2e/provisioning/repository_config_test.go | head -n 1)"
+  if [ -z "$test_version" ]; then
+    echo 'Cluster API version is missing from repository config test' >&2
+    exit 1
+  fi
+  sed -i.bak "s/$test_version/$capi_version/g" test/e2e/provisioning/repository_config_test.go
+  rm -f test/e2e/provisioning/repository_config_test.go.bak
+fi
+
+if changed_from_base .devcontainer/devcontainer.json; then
+  devcontainer upgrade --workspace-folder .
 fi
 
 git --no-pager diff --check

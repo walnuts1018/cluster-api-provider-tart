@@ -43,12 +43,14 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio initramfs-tools-core kmod linux-image-generic systemd-boot
 
       - name: Build and verify Agent initramfs
         env:
           AGENT_KERNEL: /tmp/tart-agent-vmlinuz
           AGENT_INITRD: /tmp/tart-agent-initrd
+          AGENT_ARTIFACT_MODULES_FILE: /tmp/tart-agent-modules
+          AGENT_ARTIFACT_OVERLAY_INITRD: /tmp/tart-agent-overlay.initrd
           SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
           AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
         run: |
@@ -59,10 +61,17 @@ jobs:
           sudo install -m 0644 "$initrd_path" /tmp/tart-agent-initrd
           export AGENT_KERNEL_RELEASE="${kernel_path##*/vmlinuz-}"
           mise run agent-artifact-build-real
-          lsinitramfs dist/agent-artifact/initrd > /tmp/tart-agent-initramfs-files
+          gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
+          cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          grep -F '/drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
-          grep -F '/drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files
+          grep -Fx e1000e /tmp/tart-agent-modules
+          grep -Fx nvme /tmp/tart-agent-modules
+          rm -rf /tmp/tart-agent-final-initramfs
+          mkdir /tmp/tart-agent-final-initramfs
+          (cd /tmp/tart-agent-final-initramfs && gzip -dc "$GITHUB_WORKSPACE/dist/agent-artifact/initrd" | cpio -idmu)
+          grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
+          test -x /tmp/tart-agent-final-initramfs/usr/bin/provisioning-agent
+          grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
 
   build:
     name: Build and publish the provisioning Agent Artifact
@@ -83,7 +92,7 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio kmod linux-image-generic systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio initramfs-tools-core kmod linux-image-generic systemd-boot
 
       - name: Prepare signing keys
         id: keys
@@ -99,6 +108,8 @@ jobs:
         env:
           AGENT_KERNEL: /tmp/tart-agent-vmlinuz
           AGENT_INITRD: /tmp/tart-agent-initrd
+          AGENT_ARTIFACT_MODULES_FILE: /tmp/tart-agent-modules
+          AGENT_ARTIFACT_OVERLAY_INITRD: /tmp/tart-agent-overlay.initrd
           SYSTEMD_BOOT_EFI: /usr/lib/systemd/boot/efi/systemd-bootx64.efi
           AGENT_ARTIFACT_OUTPUT_DIR: dist/agent-artifact
         run: |
@@ -112,10 +123,17 @@ jobs:
 
       - name: Verify Agent initramfs hardware support
         run: |
-          lsinitramfs dist/agent-artifact/initrd > /tmp/tart-agent-initramfs-files
+          gzip -dc /tmp/tart-agent-overlay.initrd > /tmp/tart-agent-overlay.cpio
+          cpio -it < /tmp/tart-agent-overlay.cpio > /tmp/tart-agent-initramfs-files
           grep -Fx 'etc/tart/agent-modules' /tmp/tart-agent-initramfs-files
-          grep -F '/drivers/net/ethernet/intel/e1000e/' /tmp/tart-agent-initramfs-files
-          grep -F '/drivers/nvme/host/nvme' /tmp/tart-agent-initramfs-files
+          grep -Fx e1000e /tmp/tart-agent-modules
+          grep -Fx nvme /tmp/tart-agent-modules
+          rm -rf /tmp/tart-agent-final-initramfs
+          mkdir /tmp/tart-agent-final-initramfs
+          (cd /tmp/tart-agent-final-initramfs && gzip -dc "$GITHUB_WORKSPACE/dist/agent-artifact/initrd" | cpio -idmu)
+          grep -Fx 'exec </dev/console >/dev/console 2>&1' /tmp/tart-agent-final-initramfs/init
+          test -x /tmp/tart-agent-final-initramfs/usr/bin/provisioning-agent
+          grep -Fq '/bin/provisioning-agent' /tmp/tart-agent-final-initramfs/init
 
       - name: Create Agent Artifact manifest and publish OCI payload
         id: publish

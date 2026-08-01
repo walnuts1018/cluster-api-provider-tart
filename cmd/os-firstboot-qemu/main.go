@@ -1880,10 +1880,12 @@ func bootEntrySelectionFromLog(path string) (bootEntrySelectionObservation, bool
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.Contains(line, serialMarkerBootEntrySelected) {
 			selectedEntry := markerPayload(line, serialMarkerBootEntrySelected)
-			if selectedEntry == "" {
-				return bootEntrySelectionObservation{}, false
+			switch {
+			case strings.HasPrefix(selectedEntry, "target"):
+				return bootEntrySelectionObservation{SelectedEntry: "target"}, true
+			case strings.HasPrefix(selectedEntry, "rollback"):
+				return bootEntrySelectionObservation{SelectedEntry: "rollback"}, true
 			}
-			return bootEntrySelectionObservation{SelectedEntry: selectedEntry}, true
 		}
 	}
 	return bootEntrySelectionObservation{}, false
@@ -2039,6 +2041,7 @@ func withLoopPartitions(ctx context.Context, imagePath string, fn func([]string)
 
 func waitForLoopPartitions(ctx context.Context, loopDevice string, timeout, pollInterval time.Duration) ([]string, error) {
 	deadline := time.Now().Add(timeout)
+	var previous []string
 	for {
 		partitions, err := filepath.Glob(loopDevice + "p*")
 		if err != nil {
@@ -2046,7 +2049,10 @@ func waitForLoopPartitions(ctx context.Context, loopDevice string, timeout, poll
 		}
 		if len(partitions) > 0 {
 			slices.Sort(partitions)
-			return partitions, nil
+			if slices.Equal(previous, partitions) {
+				return partitions, nil
+			}
+			previous = slices.Clone(partitions)
 		}
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("loop device %s has no partitions", loopDevice)

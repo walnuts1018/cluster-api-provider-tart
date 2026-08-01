@@ -161,19 +161,15 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the cluster template")
 
 		By("Waiting for the Agent to register and complete preflight")
-		Eventually(func(g Gomega) string {
-			matched, logText, err := simulators[0].LogContainsAll(
-				"http://192.168.100.1:8082/ipxe",
-				"/v1/agent-artifacts/sha256/",
-				"/kernel... ok",
-				"tart e2e provisioning-agent preflight starting",
-				"Provisioning Agent preflight completed",
-				"tart e2e provisioning-agent preflight completed",
-			)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(matched).To(BeTrue())
-			return logText
-		}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("tart e2e provisioning-agent preflight completed"))
+		waitForAgentLog(
+			simulators[0],
+			"http://192.168.100.1:8082/ipxe",
+			"/v1/agent-artifacts/sha256/",
+			"/kernel... ok",
+			"tart e2e provisioning-agent preflight starting",
+			"Provisioning Agent preflight completed",
+			"tart e2e provisioning-agent preflight completed",
+		)
 	})
 
 	It("Should complete provisioning after BootReport and workload Node Ready gates", func() {
@@ -346,16 +342,20 @@ func assertRuntimeExtensionDisabled(ctx context.Context, client crclient.Client)
 }
 
 func waitForAgentPreflight(sim *HostSimulator) {
-	Eventually(func(g Gomega) string {
-		matched, logText, err := sim.LogContainsAll(
-			"tart e2e provisioning-agent preflight starting",
-			"Provisioning Agent preflight completed",
-			"tart e2e provisioning-agent preflight completed",
-		)
+	waitForAgentLog(
+		sim,
+		"tart e2e provisioning-agent preflight starting",
+		"Provisioning Agent preflight completed",
+		"tart e2e provisioning-agent preflight completed",
+	)
+}
+
+func waitForAgentLog(sim *HostSimulator, values ...string) {
+	Eventually(func(g Gomega) {
+		matched, logText, err := sim.LogContainsAll(values...)
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(matched).To(BeTrue())
-		return logText
-	}, 8*time.Minute, 2*time.Second).Should(ContainSubstring("tart e2e provisioning-agent preflight completed"))
+		g.Expect(matched).To(BeTrue(), "Agent boot log:\n%s", logText)
+	}, 8*time.Minute, 2*time.Second).Should(Succeed())
 }
 
 func waitForWorkerMachine(ctx context.Context, client crclient.Client, namespace, excludeName string) *clusterv1.Machine {

@@ -72,6 +72,12 @@ if [ ! -f "$agent_kernel" ] || [ ! -f "$agent_base_initrd" ]; then
   echo "Set PROVISIONING_E2E_AGENT_KERNEL and PROVISIONING_E2E_AGENT_INITRD, or install linux-image-generic." >&2
   exit 1
 fi
+kernel_version="${agent_kernel##*/vmlinuz-}"
+modules_dir="/lib/modules/$kernel_version"
+if [ ! -f "$modules_dir/modules.dep" ]; then
+  echo "Kernel modules for $kernel_version are required at $modules_dir." >&2
+  exit 1
+fi
 busybox_path="${PROVISIONING_E2E_BUSYBOX:-$(command -v busybox || true)}"
 if [ ! -x "$busybox_path" ]; then
   echo "busybox is required for provisioning E2E Agent Artifact initramfs." >&2
@@ -82,6 +88,12 @@ if ! command -v unmkinitramfs >/dev/null 2>&1; then
   echo "unmkinitramfs is required to merge the Provisioning E2E Agent initramfs." >&2
   exit 1
 fi
+for command in modprobe depmod; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "$command is required to build the Provisioning E2E Agent initramfs." >&2
+    exit 1
+  fi
+done
 
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$output_dir/efi-commit" ./cmd/efi-commit
@@ -96,8 +108,31 @@ mkdir -p \
 cp "$output_dir/provisioning-agent" "$agent_initramfs_dir/bin/provisioning-agent"
 cp "$output_dir/efi-commit" "$agent_initramfs_dir/bin/efi-commit"
 cp "$busybox_path" "$agent_initramfs_dir/bin/busybox"
-for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc ifconfig route; do
+for applet in sh mount mkdir cat ln poweroff halt sleep udhcpc ifconfig route modprobe; do
   ln -sf busybox "$agent_initramfs_dir/bin/$applet"
+done
+mkdir -p "$agent_initramfs_dir/lib/modules/$kernel_version"
+if ! dependencies="$(modprobe --show-depends -S "$kernel_version" virtio_net)"; then
+  echo "virtio_net dependencies are required for Provisioning E2E Agent networking." >&2
+  exit 1
+fi
+printf '%s\n' "$dependencies" | while IFS= read -r dependency; do
+  case "$dependency" in
+    "insmod "*) module_path="${dependency#insmod }" ;;
+    *) continue ;;
+  esac
+  module_path="${module_path%% *}"
+  if [ ! -f "$module_path" ]; then
+    echo "Agent module dependency is missing: $module_path" >&2
+    exit 1
+  fi
+  relative_module_path="${module_path#"$modules_dir"/}"
+  if [ "$relative_module_path" = "$module_path" ]; then
+    echo "Agent module dependency is outside $modules_dir: $module_path" >&2
+    exit 1
+  fi
+  mkdir -p "$agent_initramfs_dir/lib/modules/$kernel_version/$(dirname "$relative_module_path")"
+  cp "$module_path" "$agent_initramfs_dir/lib/modules/$kernel_version/$relative_module_path"
 done
 cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
 cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
@@ -133,7 +168,10 @@ export PATH
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+exec </dev/console >/dev/console 2>&1
 mkdir -p /dev/disk/by-id /etc /run /tmp
+
+modprobe virtio_net || true
 
 for iface in /sys/class/net/*; do
   iface="${iface##*/}"
@@ -198,6 +236,7 @@ for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_ini
     cp -a "$source" "$target"
   fi
 done
+depmod -b "$agent_base_initramfs_dir/main" "$kernel_version"
 (cd "$agent_base_initramfs_dir/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$agent_artifact_dir/initrd"
 if ! gzip -dc "$agent_artifact_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
   echo "Provisioning E2E Agent initramfs does not contain the Agent init entrypoint." >&2

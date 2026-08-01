@@ -66,4 +66,5 @@ capture "${cluster_log_dir}/iptables-filter.txt" sudo iptables -L -n -v
 capture "${cluster_log_dir}/qemu-status.txt" pgrep -af qemu
 capture "${cluster_log_dir}/network-interfaces.txt" ip addr
 
-find . -maxdepth 1 -type f \( -name 'qemu-output-*.log' -o -name '*.pcap' \) -exec cp {} "${cluster_log_dir}/" \; 2>/dev/null || true
+# go testはProvisioning packageのディレクトリで実行するため、QEMUログはリポジトリ直下に作成されるとは限らない。
+find . -type f \( -name 'qemu-output-*.log' -o -name '*.pcap' \) -exec cp {} "${cluster_log_dir}/" \; 2>/dev/null || true

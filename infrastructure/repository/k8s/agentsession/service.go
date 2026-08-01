@@ -36,11 +36,15 @@ var (
 
 type Service struct {
 	client client.Client
+	reader client.Reader
 	ttl    time.Duration
 }
 
-func NewService(k8sClient client.Client, ttl time.Duration) *Service {
-	return &Service{client: k8sClient, ttl: ttl}
+func NewService(k8sClient client.Client, reader client.Reader, ttl time.Duration) *Service {
+	if reader == nil {
+		reader = k8sClient
+	}
+	return &Service{client: k8sClient, reader: reader, ttl: ttl}
 }
 
 func (service *Service) Issue(
@@ -56,7 +60,7 @@ func (service *Service) Issue(
 
 	err = retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		operation := &infrastructurev1beta1.TartHostOperation{}
-		if getErr := service.client.Get(ctx, key, operation); getErr != nil {
+		if getErr := service.reader.Get(ctx, key, operation); getErr != nil {
 			if apierrors.IsNotFound(getErr) {
 				return ErrOperationNotFound
 			}
@@ -107,7 +111,7 @@ func (service *Service) authenticate(
 ) error {
 	return retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		operation := &infrastructurev1beta1.TartHostOperation{}
-		if err := service.client.Get(ctx, key, operation); err != nil {
+		if err := service.reader.Get(ctx, key, operation); err != nil {
 			if apierrors.IsNotFound(err) {
 				return ErrUnauthorized
 			}

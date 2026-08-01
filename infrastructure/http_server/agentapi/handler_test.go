@@ -1067,7 +1067,7 @@ func TestHandlerBootstrapStaysSingleShotAfterSessionReissue(t *testing.T) {
 		t.Fatalf("first status = %d, want %d; body=%s", first.Code, http.StatusOK, first.Body.String())
 	}
 
-	sessions := k8sagentsession.NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	sessions := k8sagentsession.NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	second, _, err := sessions.Issue(
 		t.Context(),
 		client.ObjectKey{Namespace: "default", Name: "operation"},
@@ -1239,7 +1239,7 @@ func newAuthenticatedHandlerState(
 		WithObjects(operation).
 		Build()
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	sessions := k8sagentsession.NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	sessions := k8sagentsession.NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	token, _, err := sessions.Issue(t.Context(), key, "host-uid", testOperationUID, now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
@@ -1257,7 +1257,7 @@ func newAuthenticatedHandlerState(
 }
 
 func (state authenticatedHandlerState) newHandler() *Handler {
-	sessions := k8sagentsession.NewService(state.k8sClient, agentsessiondomain.DefaultTTL)
+	sessions := k8sagentsession.NewService(state.k8sClient, state.k8sClient, agentsessiondomain.DefaultTTL)
 	return NewHandler(Config{
 		Operations:           staticResolver{key: state.key, operation: state.operation},
 		RegistrationVerifier: allowRegistration{},

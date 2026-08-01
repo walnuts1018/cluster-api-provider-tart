@@ -589,6 +589,7 @@ func main() {
 			RegistrationVerifier: agentapi.IsolatedL2RegistrationVerifier{},
 			Sessions: k8sagentsession.NewService(
 				mgr.GetClient(),
+				mgr.GetAPIReader(),
 				agentsessiondomain.DefaultTTL,
 			),
 			Progress: k8sagentprogress.NewService(mgr.GetClient()),

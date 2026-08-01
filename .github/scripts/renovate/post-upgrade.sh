@@ -120,6 +120,7 @@ refresh_url_lock artifact/ipxe.lock.json
 
 # 取得済みdebもlockから再取得し、古いバージョンのファイルを残さない。
 if command -v go >/dev/null 2>&1; then
+  mkdir -p artifact/mkosi/mkosi.packages
   find artifact/mkosi/mkosi.packages -type f -name '*.deb' -delete
   go run ./cmd/locked-download \
     -lock artifact/locks/amd64.json \

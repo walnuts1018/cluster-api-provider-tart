@@ -284,6 +284,9 @@ for source in "$work_dir/root"/* "$work_dir/root"/.[!.]* "$work_dir/root"/..?*; 
     cp -a "$source" "$target"
   fi
 done
+# Overlay の module は base initramfs のファイルを置き換えるため、
+# 結合後の filesystem に対してのみ索引を再生成する。
+depmod -b "$work_dir/base-initramfs/main" "$kernel_release"
 (cd "$work_dir/base-initramfs/main" && find . -print0 | cpio --null -ov --format=newc 2>/dev/null | gzip -9) > "$output_dir/initrd"
 if ! gzip -dc "$output_dir/initrd" | cpio -i --to-stdout init 2>/dev/null | grep -Fq '/bin/provisioning-agent'; then
   echo "Agent initramfs does not contain the Provisioning Agent init entrypoint." >&2

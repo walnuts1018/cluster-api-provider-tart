@@ -10,7 +10,7 @@ require (
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467
 	github.com/go-logr/logr v1.4.4
 	github.com/google/uuid v1.6.0
-	github.com/insomniacslk/dhcp v0.0.0-20260603135910-a415979eb11e
+	github.com/insomniacslk/dhcp v0.0.0-20260728151720-c308df0fdcef
 	github.com/mazrean/kessoku v1.1.1
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1

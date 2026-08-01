@@ -39,7 +39,7 @@ providers:
 
 variables:
   KUBERNETES_VERSION: "v1.35.4"
-  CNI: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.0/manifests/calico.yaml"
+  CNI: "https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml"
   CONTROL_PLANE_ENDPOINT_HOST: "192.168.100.100"
   CLUSTER_NAME: "tart-test"
   CONTROL_PLANE_MACHINE_COUNT: "1"

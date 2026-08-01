@@ -12,7 +12,7 @@ actionlint = "1.7.12"
 go = "1.26.5"
 k9s = "0.51.0"
 shellcheck = "0.11.0"
-gh = "2.96.0"
+gh = "2.97.0"
 "npm:@devcontainers/cli" = "0.88.0"
 
 [env]

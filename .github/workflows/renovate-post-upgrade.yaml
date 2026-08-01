@@ -26,7 +26,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Refresh locked artifact inputs
-        run: bash hack/renovate/post-upgrade.sh
+        run: bash .github/scripts/renovate/post-upgrade.sh
 
       - name: Commit refreshed artifact inputs
         run: |

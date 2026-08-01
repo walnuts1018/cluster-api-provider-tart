@@ -19,6 +19,8 @@ go:
   - "Makefile"
   - "hack/boilerplate.go.txt"
   - "artifact/**"
+  - "scripts/**"
+  - ".github/scripts/**"
   - ".github/workflows/**"
   - ".github/filters.yml"
   - "renovate.json5"

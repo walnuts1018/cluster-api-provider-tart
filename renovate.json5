@@ -3,7 +3,7 @@
   extends: [
     'github>walnuts1018/renovate-config',
   ],
-  ignorePaths: ['hack/renovate/**'],
+  ignorePaths: ['.github/scripts/renovate/**'],
   customManagers: [
     {
       customType: 'regex',

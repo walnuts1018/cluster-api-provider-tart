@@ -45,6 +45,9 @@ jobs:
         with:
           install-args: go go:sigs.k8s.io/controller-tools/cmd/controller-gen go:sigs.k8s.io/kustomize/kustomize/v5 kubectl jq
 
+      - name: Install Agent initramfs inputs
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends xz-utils zstd
+
       - name: Run Provisioning E2E
         run: mise run test-provisioning-e2e
 

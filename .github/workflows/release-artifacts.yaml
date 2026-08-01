@@ -82,7 +82,7 @@ jobs:
       - name: Install Agent Artifact inputs
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends busybox-static cpio initramfs-tools-core kmod linux-image-generic systemd-boot
+          sudo apt-get install -y --no-install-recommends busybox-static cpio initramfs-tools-core kmod linux-image-generic systemd-boot xz-utils zstd
 
       - name: Prepare signing keys
         env:

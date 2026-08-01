@@ -28,6 +28,42 @@ output_dir="${AGENT_ARTIFACT_OUTPUT_DIR:-dist/agent-artifact}"
 work_dir="$(mktemp -d)"
 cleanup() { rm -rf "$work_dir"; }
 trap cleanup EXIT
+
+copy_module() {
+  source_path="$1"
+  compressed_target="$work_dir/root$source_path"
+
+  case "$source_path" in
+    *.ko.zst)
+      command -v zstd >/dev/null 2>&1 || {
+        echo "zstd is required to include $source_path as an uncompressed kernel module." >&2
+        return 1
+      }
+      rm -f "$compressed_target"
+      mkdir -p "$(dirname "${compressed_target%.zst}")"
+      zstd -d -q -c "$source_path" > "${compressed_target%.zst}"
+      chmod 0644 "${compressed_target%.zst}"
+      ;;
+    *.ko.xz)
+      command -v xz >/dev/null 2>&1 || {
+        echo "xz is required to include $source_path as an uncompressed kernel module." >&2
+        return 1
+      }
+      rm -f "$compressed_target"
+      mkdir -p "$(dirname "${compressed_target%.xz}")"
+      xz -d -c "$source_path" > "${compressed_target%.xz}"
+      chmod 0644 "${compressed_target%.xz}"
+      ;;
+    *.ko.gz)
+      rm -f "$compressed_target"
+      mkdir -p "$(dirname "${compressed_target%.gz}")"
+      gzip -d -c "$source_path" > "${compressed_target%.gz}"
+      chmod 0644 "${compressed_target%.gz}"
+      ;;
+    *) install -D -m 0644 "$source_path" "$compressed_target" ;;
+  esac
+}
+
 mkdir -p "$output_dir" "$work_dir/root"/bin "$work_dir/root"/dev "$work_dir/root"/etc/tart "$work_dir/root"/proc "$work_dir/root"/sys "$work_dir/root"/run "$work_dir/root"/tmp "$work_dir/root"/usr/lib/systemd/boot/efi
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/provisioning-agent" ./cmd/provisioning-agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$work_dir/root/bin/efi-commit" ./cmd/efi-commit
@@ -131,7 +167,7 @@ while IFS= read -r module; do
       *) continue ;;
     esac
     module_path="${module_path%% *}"
-    install -D -m 0644 "$module_path" "$work_dir/root$module_path"
+    copy_module "$module_path"
     modinfo -F firmware "$module_path" 2>/dev/null | while IFS= read -r firmware; do
       [ -n "$firmware" ] || continue
       if [ -f "$firmware_dir/$firmware" ]; then
@@ -221,6 +257,14 @@ if [ ! -d "$work_dir/base-initramfs/main" ]; then
   echo "Agent base initramfs does not contain a main filesystem." >&2
   exit 1
 fi
+# BusyBoxのmodprobeはmoduleのbytesを展開せずkernelへ渡すため、base側の圧縮重複を除去し、
+# depmodが選択済みのすべてのmoduleをELF copyへ解決するようにする。
+while IFS= read -r module_path; do
+  relative_module_path="${module_path#"$work_dir/root/"}"
+  rm -f "$work_dir/base-initramfs/main/${relative_module_path}.zst" \
+    "$work_dir/base-initramfs/main/${relative_module_path}.xz" \
+    "$work_dir/base-initramfs/main/${relative_module_path}.gz"
+done < <(find "$work_dir/root/lib/modules" -type f -name '*.ko')
 for source in "$work_dir/root"/* "$work_dir/root"/.[!.]* "$work_dir/root"/..?*; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   target="$work_dir/base-initramfs/main/${source##*/}"

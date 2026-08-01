@@ -15,6 +15,7 @@
 package agentsession
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -39,7 +40,7 @@ func TestServicePersistsAndRestoresSession(t *testing.T) {
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
 
-	token, expiresAt, err := NewService(k8sClient, agentsessiondomain.DefaultTTL).
+	token, expiresAt, err := NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL).
 		Issue(ctx, key, "host-uid", "operation-uid", now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
@@ -60,9 +61,26 @@ func TestServicePersistsAndRestoresSession(t *testing.T) {
 	}
 
 	// 新しいService instanceでもKubernetes Statusから認証状態を復元できる。
-	restarted := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	restarted := NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	if err := restarted.Authenticate(ctx, key, token.BearerValue(), "host-uid", "operation-uid", now); err != nil {
 		t.Fatalf("Authenticate() after restart error = %v", err)
+	}
+}
+
+func TestServiceReadsNewSessionFromAPIServer(t *testing.T) {
+	ctx := t.Context()
+	key := client.ObjectKey{Namespace: "default", Name: "operation"}
+	apiServer := newFakeClient(t, testOperation(key))
+	staleCache := testOperation(key)
+	service := NewService(staleReaderClient{Client: apiServer, operation: staleCache}, apiServer, agentsessiondomain.DefaultTTL)
+	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
+
+	token, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	if err := service.Authenticate(ctx, key, token.BearerValue(), "host-uid", "operation-uid", now); err != nil {
+		t.Fatalf("Authenticate() immediately after Issue error = %v", err)
 	}
 }
 
@@ -71,7 +89,7 @@ func TestServiceLocksAfterFiveFailures(t *testing.T) {
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	service := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	service := NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	token, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
@@ -91,7 +109,7 @@ func TestServiceAllowsOneOfOneHundredConcurrentBootstrapClaims(t *testing.T) {
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	service := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	service := NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	token, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
@@ -126,7 +144,7 @@ func TestServiceAllowsNewSessionWithoutReplayingBootstrap(t *testing.T) {
 	key := client.ObjectKey{Namespace: "default", Name: "operation"}
 	k8sClient := newFakeClient(t, testOperation(key))
 	now := time.Date(2026, 7, 5, 12, 0, 0, 0, time.UTC)
-	service := NewService(k8sClient, agentsessiondomain.DefaultTTL)
+	service := NewService(k8sClient, k8sClient, agentsessiondomain.DefaultTTL)
 	first, _, err := service.Issue(ctx, key, "host-uid", "operation-uid", now)
 	if err != nil {
 		t.Fatalf("Issue(first) error = %v", err)
@@ -172,6 +190,26 @@ func newFakeClient(t *testing.T, objects ...client.Object) client.Client {
 		WithStatusSubresource(&infrastructurev1beta1.TartHostOperation{}).
 		WithObjects(objects...).
 		Build()
+}
+
+// staleReaderClientはcacheがStatus更新をまだ観測していない状態を再現する。
+type staleReaderClient struct {
+	client.Client
+	operation *infrastructurev1beta1.TartHostOperation
+}
+
+func (stale staleReaderClient) Get(
+	ctx context.Context,
+	key client.ObjectKey,
+	object client.Object,
+	options ...client.GetOption,
+) error {
+	if operation, ok := object.(*infrastructurev1beta1.TartHostOperation); ok &&
+		key == client.ObjectKeyFromObject(stale.operation) {
+		stale.operation.DeepCopyInto(operation)
+		return nil
+	}
+	return stale.Client.Get(ctx, key, object, options...)
 }
 
 func testOperation(key client.ObjectKey) *infrastructurev1beta1.TartHostOperation {

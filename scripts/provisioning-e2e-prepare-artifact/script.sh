@@ -284,9 +284,9 @@ for source in "$agent_initramfs_dir"/* "$agent_initramfs_dir"/.[!.]* "$agent_ini
 done
 depmod -b "$agent_base_initramfs_dir/main" "$kernel_version"
 case "$(modinfo -b "$agent_base_initramfs_dir/main" -k "$kernel_version" -F filename virtio_net)" in
-  *.ko) ;;
+  "(builtin)"|*.ko) ;;
   *)
-    echo "Provisioning E2E Agent module must be stored as an uncompressed ELF module." >&2
+    echo "Provisioning E2E Agent module must be built in or stored as an uncompressed ELF module." >&2
     exit 1
     ;;
 esac

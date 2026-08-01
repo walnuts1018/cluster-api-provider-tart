@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://golangci-lint.run/jsonschema/golangci.jsonschema.json
 version: "2"
 run:
   allow-parallel-runners: true
@@ -42,6 +43,7 @@ linters:
     - staticcheck
     - testableexamples
     - thelper
+    - tparallel
     - unconvert
     - unparam
     - unused
@@ -56,6 +58,7 @@ linters:
         - switch
         - map
     usetesting:
+      os-chdir: true
       context-background: true
       context-todo: true
     custom:
@@ -78,12 +81,20 @@ linters:
             limitations under the License.
   exclusions:
     generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
       - linters:
           - dupl
         path: infrastructure/*
       - linters:
+          - contextcheck
           - errcheck
+          - nilnil
+          - noctx
         path: _test\.go
     paths:
       - third_party$
@@ -99,3 +110,6 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

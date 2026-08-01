@@ -14,22 +14,22 @@
       "sha256": "8cff9279de7767239e11bf9c21016579a4246e04e7da0c500c7a3f8491db986a"
     },
     {
-      "name": "kubeadm_1.36.2-2.1_amd64.deb",
-      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubeadm_1.36.2-2.1_amd64.deb",
-      "sizeBytes": 12555712,
-      "sha256": "f08a258812d5c0a3f4828b048576310432b3bedb7cea293f793c606f017a445a"
+      "name": "kubeadm_1.36.3-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubeadm_1.36.3-1.1_amd64.deb",
+      "sizeBytes": 12558824,
+      "sha256": "7225b4b7928de8bb9b7a69b75524c2df1a6f78fcbb40724f7e5b49926119c2af"
     },
     {
-      "name": "kubectl_1.36.2-2.1_amd64.deb",
-      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubectl_1.36.2-2.1_amd64.deb",
-      "sizeBytes": 11766248,
-      "sha256": "e678e88e6e65fb49f54985994eacaa5555574f0ceb01772208f328037878b58c"
+      "name": "kubectl_1.36.3-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubectl_1.36.3-1.1_amd64.deb",
+      "sizeBytes": 11766348,
+      "sha256": "22c1bbcecfdee50ad013ab7ab9e90ea9d3aaa01d3ac38ac578534976f856c330"
     },
     {
-      "name": "kubelet_1.36.2-2.1_amd64.deb",
-      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubelet_1.36.2-2.1_amd64.deb",
-      "sizeBytes": 13384912,
-      "sha256": "e60c79fa93b6538d3bae79cb325beafe08bc084f8501fe16a3f203af598f6f50"
+      "name": "kubelet_1.36.3-1.1_amd64.deb",
+      "url": "https://pkgs.k8s.io/core:/stable:/v1.36/deb/amd64/kubelet_1.36.3-1.1_amd64.deb",
+      "sizeBytes": 13386608,
+      "sha256": "99c77d7c814ac0b0f1f346c11074160fbbab8243c27ba4236f84f2e536c8eaca"
     },
     {
       "name": "kubernetes-cni_1.9.1-1.1_amd64.deb",

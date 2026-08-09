@@ -148,7 +148,8 @@ jobs:
 
       - name: Run Provisioning E2E
         run: |
-          export PROVISIONING_E2E_OS_VERITY_ROOT_HASH="$(tr -d '\n' < dist/os-artifact/verity-root-hash)"
+          PROVISIONING_E2E_OS_VERITY_ROOT_HASH="$(tr -d '\n' < dist/os-artifact/verity-root-hash)"
+          export PROVISIONING_E2E_OS_VERITY_ROOT_HASH
           mise run test-provisioning-e2e
 
       - name: Collect diagnostic evidence

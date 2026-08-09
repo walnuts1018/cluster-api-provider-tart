@@ -56,6 +56,10 @@ else
 fi
 
 if [ -n "${PROVISIONING_E2E_OS_VERITY_PATH:-}" ]; then
+  if [ -z "${PROVISIONING_E2E_OS_VERITY_ROOT_HASH:-}" ]; then
+    echo "PROVISIONING_E2E_OS_VERITY_ROOT_HASH must be set when PROVISIONING_E2E_OS_VERITY_PATH is set" >&2
+    exit 1
+  fi
   cp "$PROVISIONING_E2E_OS_VERITY_PATH" "$output_dir/os.verity"
 else
   printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
@@ -256,7 +260,7 @@ echo "tart e2e provisioning-agent preflight starting"
   --plan-key-file=/etc/tart/agent-plan-public.pem
 echo "tart e2e provisioning-agent preflight completed"
 
-poweroff -f || halt -f || sh
+busybox poweroff -f || halt -f || sh
 INIT
 
 cat > "$agent_initramfs_dir/init-provision" <<'INIT_PROV'
@@ -318,7 +322,7 @@ echo "tart e2e provisioning-agent provision starting"
   --artifact-key-file=/etc/tart/os-artifact-public.pem
 echo "tart e2e provisioning-agent provision completed"
 
-reboot -f || halt -f || sh
+busybox reboot -f || halt -f || sh
 INIT_PROV
 
 if [ -n "${PROVISIONING_E2E_OS_ARTIFACT_PATH:-}" ]; then

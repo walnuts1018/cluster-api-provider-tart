@@ -208,7 +208,16 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 
 		By("Applying the workload cluster template with real KubeadmControlPlane")
 		// 最初のノード (simulators[0]) に割り当てられるIPをコントロールプレーンのエンドポイントとする
+		originalEndpoint := e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"]
 		e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"] = "192.168.100.93"
+		defer func() {
+			e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"] = originalEndpoint
+		}()
+		
+		// エージェントがOSのプロビジョニング後にrebootを発行した際、自動的に再起動してBootReportへ進むようにする
+		simulators[0].mu.Lock()
+		simulators[0].AutoRestartOnExit = true
+		simulators[0].mu.Unlock()
 		
 		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
 			LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),

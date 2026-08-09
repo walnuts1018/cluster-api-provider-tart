@@ -124,6 +124,7 @@ type HostSimulator struct {
 	qemuDone        chan struct{}
 	logFile         string
 	stopping        bool
+	AutoRestartOnExit bool
 	mu              sync.Mutex
 }
 
@@ -233,7 +234,7 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		if s.qemuCmd == cmd {
 			s.qemuCmd = nil
 			s.qemuDone = nil
-			if !s.stopping && err == nil { // clean exit on no-reboot
+			if !s.stopping && err == nil && s.AutoRestartOnExit { // clean exit on no-reboot
 				shouldRestart = true
 			}
 		}
@@ -247,7 +248,9 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		
 		if shouldRestart {
 			logger.Info("Restarting QEMU (reboot detected)")
-			_ = s.Restart(context.Background())
+			if rErr := s.Restart(ctx); rErr != nil {
+				logger.Error(rErr, "Failed to restart QEMU")
+			}
 		}
 	}()
 

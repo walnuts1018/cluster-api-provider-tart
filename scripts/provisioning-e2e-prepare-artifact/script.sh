@@ -49,8 +49,18 @@ openssl req \
   -keyout "$generated_dir/agent-tls.key" \
   -out "$generated_dir/agent-tls.crt"
 
-printf 'provisioning e2e os image\n' > "$output_dir/os.img"
-printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
+if [ -n "${PROVISIONING_E2E_OS_ARTIFACT_PATH:-}" ]; then
+  cp "$PROVISIONING_E2E_OS_ARTIFACT_PATH" "$output_dir/os.img"
+else
+  printf 'provisioning e2e os image\n' > "$output_dir/os.img"
+fi
+
+if [ -n "${PROVISIONING_E2E_OS_VERITY_PATH:-}" ]; then
+  cp "$PROVISIONING_E2E_OS_VERITY_PATH" "$output_dir/os.verity"
+else
+  printf 'provisioning e2e verity\n' > "$output_dir/os.verity"
+fi
+
 printf 'provisioning e2e kernel\n' > "$output_dir/vmlinuz"
 printf 'provisioning e2e initrd\n' > "$output_dir/initrd"
 printf '{"bomFormat":"CycloneDX","specVersion":"1.6","version":1,"components":[]}\n' > "$output_dir/sbom.cdx.json"
@@ -173,6 +183,9 @@ printf '%s\n' "$dependencies" | while IFS= read -r dependency; do
 done
 cp "$output_dir/agent-plan-public.pem" "$agent_initramfs_dir/etc/tart/agent-plan-public.pem"
 cp "$generated_dir/agent-tls.crt" "$agent_initramfs_dir/etc/tart/agent-tls.crt"
+if [ -n "${PROVISIONING_E2E_OS_ARTIFACT_PATH:-}" ]; then
+  cp "$generated_dir/os-artifact-public.pem" "$agent_initramfs_dir/etc/tart/os-artifact-public.pem"
+fi
 cat > "$agent_initramfs_dir/bin/udhcpc-script" <<'UDHCPC'
 #!/bin/sh
 set -eu
@@ -245,6 +258,75 @@ echo "tart e2e provisioning-agent preflight completed"
 
 poweroff -f || halt -f || sh
 INIT
+
+cat > "$agent_initramfs_dir/init-provision" <<'INIT_PROV'
+#!/bin/sh
+set -eu
+
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export PATH
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+exec </dev/ttyS0 >/dev/ttyS0 2>&1
+mkdir -p /dev/disk/by-id /etc /run /tmp
+
+modprobe virtio_net || true
+
+for iface in /sys/class/net/*; do
+  iface="${iface##*/}"
+  [ "$iface" != "lo" ] || continue
+  ifconfig "$iface" up || true
+  udhcpc -i "$iface" -q -n -t 5 -T 3 -s /bin/udhcpc-script || true
+done
+
+for device in /sys/class/block/*; do
+  name="${device##*/}"
+  serial="$(cat "$device/device/serial" 2>/dev/null || cat "$device/serial" 2>/dev/null || true)"
+  [ -n "$serial" ] || continue
+  ln -sf "../../$name" "/dev/disk/by-id/virtio-$serial"
+done
+
+system_uuid=""
+for arg in $(cat /proc/cmdline); do
+  case "$arg" in
+    tart.agent.host-uid=*)
+      system_uuid="${arg#tart.agent.host-uid=}"
+      ;;
+  esac
+done
+
+echo "tart e2e provisioning-agent preflight starting"
+/bin/provisioning-agent \
+  --preflight-only \
+  --system-uuid="$system_uuid" \
+  --tls-ca-file=/etc/tart/agent-tls.crt \
+  --plan-key-id=e2e-agent-plan \
+  --plan-key-file=/etc/tart/agent-plan-public.pem
+echo "tart e2e provisioning-agent preflight completed"
+
+echo "tart e2e provisioning-agent provision starting"
+/bin/provisioning-agent \
+  --provision \
+  --system-uuid="$system_uuid" \
+  --tls-ca-file=/etc/tart/agent-tls.crt \
+  --plan-key-id=e2e-agent-plan \
+  --plan-key-file=/etc/tart/agent-plan-public.pem \
+  --efi-commit-driver=/bin/efi-commit \
+  --artifact-key-id=e2e-os-artifact \
+  --artifact-key-file=/etc/tart/os-artifact-public.pem
+echo "tart e2e provisioning-agent provision completed"
+
+reboot -f || halt -f || sh
+INIT_PROV
+
+if [ -n "${PROVISIONING_E2E_OS_ARTIFACT_PATH:-}" ]; then
+  mv "$agent_initramfs_dir/init-provision" "$agent_initramfs_dir/init"
+else
+  rm "$agent_initramfs_dir/init-provision"
+fi
+
 chmod 0755 "$agent_initramfs_dir/init"
 chmod 0755 "$agent_initramfs_dir/bin/udhcpc-script"
 sudo install -m 0644 "$agent_kernel" "$agent_artifact_dir/vmlinuz"
@@ -300,7 +382,7 @@ ARTIFACT_IMAGE="$output_dir/os.img" \
 ARTIFACT_VERITY="$output_dir/os.verity" \
 ARTIFACT_KERNEL="$output_dir/vmlinuz" \
 ARTIFACT_INITRD="$output_dir/initrd" \
-ARTIFACT_VERITY_ROOT_HASH="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
+ARTIFACT_VERITY_ROOT_HASH="${PROVISIONING_E2E_OS_VERITY_ROOT_HASH:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}" \
 ARTIFACT_SIGNING_KEY="$output_dir/os-artifact-private.pem" \
 ARTIFACT_SIGNING_KEY_ID="e2e-os-artifact" \
 ARTIFACT_OUTPUT_DIR="$artifact_dir" \

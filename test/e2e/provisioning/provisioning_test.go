@@ -201,6 +201,60 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseProvisioned)
 	})
 
+	It("Should complete full OS provisioning through Writing, BootTrial, and BootReport", func() {
+		if e2eConfig.Variables["FULL_PROVISIONING_E2E_ENABLED"] != "true" {
+			Skip("FULL_PROVISIONING_E2E_ENABLED is not true, skipping full provisioning test")
+		}
+
+		By("Applying a MachineDeployment template with fixed bootstrap data")
+		workloadClusterTemplate := replacementClusterTemplate(namespace.Name, clusterName, e2eConfig.Variables["KUBERNETES_VERSION"])
+		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the cluster template")
+
+		By("Waiting for the Agent to register and the Provision operation to exist")
+		machine := waitForProvisioningTartMachine(ctx, bootstrapClusterProxy.GetClient(), namespace.Name)
+		operation := waitForMachineOperation(ctx, bootstrapClusterProxy.GetClient(), machine)
+		
+		// preflight と provision のログ確認 (--provision は reboot -f で終了するため
+		// "provision completed" は出力されず、代わりにフェーズ遷移で進捗を確認する)
+		waitForAgentLog(
+			simulators[0],
+			"tart e2e provisioning-agent preflight starting",
+			"tart e2e provisioning-agent preflight completed",
+			"tart e2e provisioning-agent provision starting",
+		)
+
+		By("Waiting for Operation to progress through Writing, Verifying, BootTrial")
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseWriting)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseVerifying)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseBootTrial)
+		
+		By("Waiting for QEMU restart (boot from disk) and BootReport")
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth)
+		
+		By("Preparing a reachable workload kubeconfig for the controller health observer")
+		ensureWorkloadKubeconfigToManagementCluster(ctx, bootstrapClusterProxy, namespace.Name, clusterName)
+
+		By("Publishing the workload Node Ready state")
+		owner := waitForOwnerMachine(ctx, bootstrapClusterProxy.GetClient(), machine)
+		nodeName := clusterName + "-node-ready"
+		
+		currentOp := &infrastructurev1beta1.TartHostOperation{}
+		Eventually(func(g Gomega) {
+			g.Expect(bootstrapClusterProxy.GetClient().Get(ctx, crclient.ObjectKeyFromObject(operation), currentOp)).To(Succeed())
+			g.Expect(currentOp.Status.LastBootReport).NotTo(BeNil())
+		}, 3*time.Minute, 2*time.Second).Should(Succeed())
+
+		createReadyWorkloadNode(ctx, bootstrapClusterProxy.GetClient(), nodeName, machine.Spec.ProviderID, currentOp.Status.LastBootReport.MachineID, owner.Spec.Version)
+		setOwnerMachineNodeRef(ctx, bootstrapClusterProxy.GetClient(), owner, nodeName)
+
+		By("Waiting for TartMachine, Host, and Operation to converge to Provisioned")
+		requeueTartMachine(ctx, bootstrapClusterProxy.GetClient(), machine)
+		waitForTartMachineProvisioned(ctx, bootstrapClusterProxy.GetClient(), machine, owner.Spec.Version)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
+		host := waitForHostByMAC(ctx, bootstrapClusterProxy.GetClient(), namespace.Name, simulators[0].macAddress)
+		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseProvisioned)
+	})
+
 	It("Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension", func() {
 		By("Confirming Runtime Extension is not registered")
 		assertRuntimeExtensionDisabled(ctx, bootstrapClusterProxy.GetClient())

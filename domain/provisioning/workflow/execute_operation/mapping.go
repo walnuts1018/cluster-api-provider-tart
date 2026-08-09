@@ -58,7 +58,6 @@ func mapCleaningPolicy(
 	reader ResourceReader,
 	operation *infrastructurev1beta1.TartHostOperation,
 ) (operationdomain.CleaningPolicy, error) {
-	//nolint:exhaustive // Cleaning policy解決が必要なOperation種別だけを特別扱いする。
 	switch operation.Spec.Type {
 	case infrastructurev1beta1.OperationTypeWipeAll:
 		return operationdomain.CleaningPolicyWipeAll, nil
@@ -71,6 +70,11 @@ func mapCleaningPolicy(
 			return operationdomain.CleaningPolicyUnspecified, err
 		}
 		return domainCleaningPolicy(machine.Spec.DeletionPolicy), nil
+	case infrastructurev1beta1.OperationTypeProvision,
+		infrastructurev1beta1.OperationTypeUpdate,
+		infrastructurev1beta1.OperationTypeRollback,
+		infrastructurev1beta1.OperationTypeRecovery:
+		return operationdomain.CleaningPolicyUnspecified, nil
 	default:
 		return operationdomain.CleaningPolicyUnspecified, nil
 	}
@@ -90,7 +94,6 @@ func domainCleaningPolicy(policy infrastructurev1beta1.DeletionPolicy) operation
 }
 
 func apiCleaningPolicy(policy operationdomain.CleaningPolicy) infrastructurev1beta1.DeletionPolicy {
-	//nolint:exhaustive // Unspecifiedは空文字へ写像する境界値としてdefaultで扱う。
 	switch policy {
 	case operationdomain.CleaningPolicyRetainData:
 		return infrastructurev1beta1.DeletionPolicyRetainData
@@ -98,6 +101,8 @@ func apiCleaningPolicy(policy operationdomain.CleaningPolicy) infrastructurev1be
 		return infrastructurev1beta1.DeletionPolicyRetainState
 	case operationdomain.CleaningPolicyWipeAll:
 		return infrastructurev1beta1.DeletionPolicyWipeAll
+	case operationdomain.CleaningPolicyUnspecified:
+		return ""
 	default:
 		return ""
 	}

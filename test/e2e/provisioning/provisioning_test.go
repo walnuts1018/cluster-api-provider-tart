@@ -201,6 +201,78 @@ var _ = Describe("Provisioning E2E tests", Label("Provisioning"), func() {
 		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseProvisioned)
 	})
 
+	It("Should complete full OS provisioning through Writing, BootTrial, BootReport, and kubeadm initialization", func() {
+		if e2eConfig.Variables["FULL_PROVISIONING_E2E_ENABLED"] != "true" {
+			Skip("FULL_PROVISIONING_E2E_ENABLED is not true, skipping full provisioning test")
+		}
+
+		By("Applying the workload cluster template with real KubeadmControlPlane")
+		// 最初のノード (simulators[0]) に割り当てられるIPをコントロールプレーンのエンドポイントとする
+		originalEndpoint := e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"]
+		e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"] = "192.168.100.93"
+		defer func() {
+			e2eConfig.Variables["CONTROL_PLANE_ENDPOINT_HOST"] = originalEndpoint
+		}()
+		
+		// エージェントがOSのプロビジョニング後にrebootを発行した際、自動的に再起動してBootReportへ進むようにする
+		simulators[0].mu.Lock()
+		simulators[0].AutoRestartOnExit = true
+		simulators[0].mu.Unlock()
+		
+		workloadClusterTemplate := clusterctl.ConfigCluster(ctx, clusterctl.ConfigClusterInput{
+			LogFolder:                filepath.Join(artifactsFolder, "clusters", bootstrapClusterProxy.GetName()),
+			ClusterctlConfigPath:     clusterctlConfig,
+			KubeconfigPath:           bootstrapClusterProxy.GetKubeconfigPath(),
+			InfrastructureProvider:   e2eConfig.InfrastructureProviders()[0],
+			Flavor:                   clusterctl.DefaultFlavor,
+			Namespace:                namespace.Name,
+			ClusterName:              clusterName,
+			KubernetesVersion:        e2eConfig.Variables["KUBERNETES_VERSION"],
+			ControlPlaneMachineCount: ptr.To[int64](1),
+			WorkerMachineCount:       ptr.To[int64](0),
+		})
+		Expect(workloadClusterTemplate).NotTo(BeEmpty(), "Failed to get the cluster template")
+		Expect(bootstrapClusterProxy.Create(ctx, workloadClusterTemplate, framework.CreateWithPolling(1*time.Minute, 250*time.Millisecond))).To(Succeed(), "Failed to apply the cluster template")
+
+		By("Waiting for the Agent to register and the Provision operation to exist")
+		machine := waitForProvisioningTartMachine(ctx, bootstrapClusterProxy.GetClient(), namespace.Name)
+		operation := waitForMachineOperation(ctx, bootstrapClusterProxy.GetClient(), machine)
+		
+		// preflight と provision のログ確認 (--provision は reboot -f で終了するため
+		// "provision completed" は出力されず、代わりにフェーズ遷移で進捗を確認する)
+		waitForAgentLog(
+			simulators[0],
+			"tart e2e provisioning-agent preflight starting",
+			"tart e2e provisioning-agent preflight completed",
+			"tart e2e provisioning-agent provision starting",
+		)
+
+		By("Waiting for Operation to progress through Writing, Verifying, BootTrial")
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseWriting)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseVerifying)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseBootTrial)
+		
+		By("Waiting for QEMU restart (boot from disk) and BootReport")
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseAwaitingHealth)
+		
+		By("Waiting for kubeadm initialization and Control Plane to become Ready")
+		owner := waitForOwnerMachine(ctx, bootstrapClusterProxy.GetClient(), machine)
+		
+		// Wait for CAPI to consider the Control Plane ready (Kubeadm init finished, Node Ready, etc.)
+		framework.WaitForControlPlaneAndMachinesReady(ctx, framework.WaitForControlPlaneAndMachinesReadyInput{
+			GetLister:            bootstrapClusterProxy.GetClient(),
+			Getter:               bootstrapClusterProxy.GetClient(),
+			Cluster:              &clusterv1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: clusterName, Namespace: namespace.Name}},
+			ControlPlaneWaitInterval: e2eConfig.GetIntervals(bootstrapClusterProxy.GetName(), "wait-control-plane"),
+		})
+
+		By("Waiting for TartMachine, Host, and Operation to converge to Provisioned")
+		waitForTartMachineProvisioned(ctx, bootstrapClusterProxy.GetClient(), machine, owner.Spec.Version)
+		waitForOperationPhase(ctx, bootstrapClusterProxy.GetClient(), operation, infrastructurev1beta1.TartHostOperationPhaseSucceeded)
+		host := waitForHostByMAC(ctx, bootstrapClusterProxy.GetClient(), namespace.Name, simulators[0].macAddress)
+		waitForHostPhase(ctx, bootstrapClusterProxy.GetClient(), host, infrastructurev1beta1.TartHostPhaseProvisioned)
+	})
+
 	It("Should replace a Machine through the default CAPI MachineDeployment path without Runtime Extension", func() {
 		By("Confirming Runtime Extension is not registered")
 		assertRuntimeExtensionDisabled(ctx, bootstrapClusterProxy.GetClient())

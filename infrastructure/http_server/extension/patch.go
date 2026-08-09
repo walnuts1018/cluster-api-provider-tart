@@ -226,12 +226,19 @@ func osOnlySpecPatch(
 ) map[string]any {
 	spec := map[string]any{}
 	for _, path := range classification.Allowed {
-		//nolint:exhaustive // This patch only emits fields currently allowed for OS-only in-place updates.
 		switch path {
 		case domain.FieldTartMachineImageRef:
 			spec["image"] = map[string]any{"ref": image.Ref}
 		case domain.FieldTartMachineUpdatePolicy:
 			spec["updatePolicy"] = map[string]any{"mode": updatePolicy.Mode}
+		case domain.FieldMachineVersion,
+			domain.FieldMachineSpec,
+			domain.FieldBootstrapConfig,
+			domain.FieldTartMachinePlatformProfile,
+			domain.FieldTartMachineHostSelector,
+			domain.FieldTartMachineProviderID,
+			domain.FieldTartMachineDeletionPolicy:
+			// No action needed for these fields in OS-only spec patch.
 		}
 	}
 	return spec

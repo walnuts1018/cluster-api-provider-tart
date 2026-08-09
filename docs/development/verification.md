@@ -14,7 +14,7 @@
 | Provisioning Agent initramfs | module・firmware を含む Artifact 組み立て | Release Artifact workflow |
 | 静的解析 | `mise run ci-lint` | Push / Pull Request CI |
 | Kind E2E | `mise run test-e2e` | 手動Releaseの検証段階 |
-| Provisioning E2E | `mise run test-provisioning-e2e` | 手動Releaseの検証段階 |
+| Provisioning E2E | `mise run test-provisioning-e2e` | 手動Releaseの検証段階 (実際のOS artifactを用いたフルプロビジョニング含む) |
 | OS disk / boot | QEMU task | Release Artifact workflow |
 | 実機固有の挙動 | 実機検証 | CI では代替できない部分だけ |
 

@@ -124,6 +124,7 @@ type HostSimulator struct {
 	qemuDone        chan struct{}
 	logFile         string
 	stopping        bool
+	AutoRestartOnExit bool
 	mu              sync.Mutex
 }
 
@@ -203,12 +204,13 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		"-nographic",
 		"-serial", fmt.Sprintf("file:%s", logFile),
 		"-display", "none",
+		"-no-reboot",
 	}
 
 	cmd := exec.Command("sudo", append([]string{"qemu-system-x86_64"}, args...)...)
 
-	// Create qemu log file and ensure we can write to it
-	if f, err := os.Create(logFile); err == nil {
+	// Create qemu log file and ensure we can write to it if it doesn't exist
+	if f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
 		_ = f.Close()
 	}
 
@@ -228,9 +230,13 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 	go func() {
 		err := cmd.Wait()
 		s.mu.Lock()
+		shouldRestart := false
 		if s.qemuCmd == cmd {
 			s.qemuCmd = nil
 			s.qemuDone = nil
+			if !s.stopping && err == nil && s.AutoRestartOnExit { // clean exit on no-reboot
+				shouldRestart = true
+			}
 		}
 		s.mu.Unlock()
 		close(done)
@@ -239,9 +245,20 @@ func (s *HostSimulator) Start(ctx context.Context) error {
 		} else {
 			logger.Info("QEMU process exited cleanly")
 		}
+		
+		if shouldRestart {
+			logger.Info("Restarting QEMU (reboot detected)")
+			if rErr := s.Restart(ctx); rErr != nil {
+				logger.Error(rErr, "Failed to restart QEMU")
+			}
+		}
 	}()
 
 	return nil
+}
+
+func (s *HostSimulator) Restart(ctx context.Context) error {
+	return s.Start(ctx)
 }
 
 func (s *HostSimulator) LogContainsAll(values ...string) (bool, string, error) {

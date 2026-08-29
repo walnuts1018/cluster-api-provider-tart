@@ -57,7 +57,7 @@ spec:
     - systemctl enable --now containerd
     - sysctl --system
     postKubeadmCommands:
-    - kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side -f ${CNI_URL:=https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml}
+    - kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side -f ${CNI_URL:=https://raw.githubusercontent.com/projectcalico/calico/v3.32.2/manifests/calico.yaml}
   machineTemplate:
     spec:
       infrastructureRef:

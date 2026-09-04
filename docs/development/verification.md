@@ -1,54 +1,72 @@
 # 検証方針
 
-変更は可能な限り GitHub Actions で再現できる形で検証する。ローカル環境や実機で一度成功したことだけを
-完了の根拠にしない。
+この文書は、新しいTalos専用Providerの設計・実装を検証するための正本である。検証はCIで再現できる静的確認と、実際のKubernetes/Talos/Hostが必要な受け入れ確認を分けて記録する。
 
-## 検証レイヤー
+## 現在の方針
 
-| 対象 | 主な検証 | 実行場所 |
-|---|---|---|
-| Domain の判断・状態遷移 | Go unit test | Push / Pull Request CI |
-| Driver と Agent protocol | Contract Test / Simulator | Push / Pull Request CI |
-| Kubernetes controller | envtest | Push / Pull Request CI |
-| Manifest と生成物 | `mise run manifests` / `mise run generate` | Push / Pull Request CI |
-| Provisioning Agent initramfs | module・firmware を含む Artifact 組み立て | Release Artifact workflow |
-| 静的解析 | `mise run ci-lint` | Push / Pull Request CI |
-| Kind E2E | `mise run test-e2e` | 手動Releaseの検証段階 |
-| Provisioning E2E | `mise run test-provisioning-e2e` | 手動Releaseの検証段階 (実際のOS artifactを用いたフルプロビジョニング含む) |
-| OS disk / boot | QEMU task | Release Artifact workflow |
-| 実機固有の挙動 | 実機検証 | CI では代替できない部分だけ |
+新設計を一気に組み立てる期間は、開発速度を優先して新しいGo testを追加せず、Go testも実行しない。既存コードを削除・置換する際に、旧テストを実行して互換性を確認することもしない。test taskやCIのdefault taskへGo testを暗黙に含めない。
 
-## GitHub Actions の役割分担
+この方針はテスト不要という意味ではない。実装が固まり、方針を解除するときに、外部contract、Host claimの競合、in-place updateのfail closed、controller再起動後の再計算など、保守価値が高い境界へ対象を限定して追加する。
 
-- `CI` はPull Requestと`main`へのpushで、生成、lint、Go test、buildだけを実行する。長時間のE2EやArtifact生成は含めない。
-- `Release` は手動実行だけを受け付ける。最初にKind E2EとProvisioning E2Eを並列に実行し、両方が成功した場合だけArtifact生成を開始する。
-- `Release Artifacts` はAgent、OS、iPXE、Provider imageを生成・公開し、最後にProvider manifestを作る。GitHub ReleaseはすべてのArtifact生成が成功してから作成する。
+## 静的検証
 
-## Runner の選択
+Go testを使わず、次の確認をCIとローカルで共通化する。
 
-- `ubuntu-slim` は、変更ファイルの判定、結果の集約、tag の形式検証、Release asset の公開など、コンパイラ・Docker・追加パッケージを必要としない軽量なJobに限定する。
-- `ubuntu-24.04` は、Goの生成・lint・test・build、Docker/Kind/QEMUを使う検証、Artifact生成と公開に使用する。固定ラベルにより、`*-latest` のOS更新で検証結果が変わることを防ぐ。
-- `ubuntu-24.04-arm` は、ARM64 controller imageをネイティブに生成するJobだけに使用する。
+| 対象 | 確認 |
+|---|---|
+| format | `mise run fmt`または同等の`gofmt` |
+| 生成 | `mise run generate`でDeepCopyなどを再生成 |
+| CRD/RBAC | `mise run manifests`でcontroller-genとkustomizeの結果を確認 |
+| compile | `mise run build`または`go build ./...` |
+| 静的解析 | `mise run lint`、`go vet ./...`、必要なlint task |
+| 差分 | `git --no-pager diff --check` |
+| 旧設計の残存 | `rg`で`v1beta1`、`TartHostOperation`、agent、workflow、旧artifact、`internal`、`pkg`を確認 |
+| secret境界 | log、Event、Status、metrics label、manifestへcredentialが含まれないことを目視確認 |
 
-## 実機検証の扱い
+生成物の検証でcontroller-genやkustomizeが必要な場合は、miseで管理したversionを使用する。toolの出力を手で修正して検証を通してはならない。
 
-実機が必要な検証では、機種、firmware、NIC、storage controller、使用した Driver、失敗を注入した位置、
-合格条件を記録する。同時に、protocol、状態遷移、失敗分類など実機に依存しない部分は Contract Test または
-Simulator Test で CI に固定する。
+## 実装後の受け入れ確認
 
-## E2E と artifact
+Go testを追加・実行しない期間でも、次の確認項目を実機またはkindとTalosの検証環境で別途実施する。未実施の項目は完了扱いにせず、実行環境、入力、観測結果、未検証の境界を記録する。
 
-E2E の失敗時には、対象 Resource の Condition、Event、構造化 log、QEMU log など原因を判別するための
-artifact を保存する。credential、Bootstrap Data、Secret の値、PVC payload 自体は保存してはならない。
+### Fresh machine
 
-更新機能を検証する場合は、更新前後の Resource UID と PVC payload digest を比較する。Pod 名、
-`resourceVersion`、Node 名は更新で変化し得るため、同一性の判定に使用しない。
+- 最小限のHost登録からmaintenance Talos boot、hardware discovery、machine configuration delivery、Talos installation、authenticated API recoveryまで進む。
+- `TartHost.status`へMAC以外のsystem UUID、architecture、address、disk inventoryを観測できる。
+- `TartMachine`がCAPI Infrastructure Machine contractのProviderID、addresses、provisioned、Conditionsを満たす。
 
-## 確認の基準
+### Cluster lifecycle
 
-新しい変更では、最小限でも次を満たす。
+- single node control planeを作成し、Talos OSとKubernetesを同じMachine上で更新できる。
+- HA control planeを作成し、quorumを維持したscale up/downと一台ずつのupdateを確認する。
+- MachineDeploymentからworkerを作成し、既存Hostを削除せずin-place updateできる。
+- CAPI ClusterClassからTartCluster、TartControlPlane、template resourceを通常のreferenceで利用できる。
 
-1. 重要な Domain 判断または外部契約を検証するテストがある。
-2. 生成物を変更した場合は生成 task を実行している。
-3. CI で実行できない検証には、その理由と実機での合格条件が記録されている。
-4. ログや artifact に機密情報が含まれない。
+### Storageと安全性
+
+- 複数diskのHostで、Talos-native disk selector、volume、encryptionを含むconfigurationをそのまま適用できる。
+- disk UUIDやLinux device pathを事前登録しなくても、maintenance Talos inventoryからselectionを組み立てられる。
+- Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用Tart APIなしでTalos configurationとKubernetes manifestを利用できる。
+- 通常のTalos/Kubernetes updateでCAPI Machine replacement、Host cleaning、disk wipeが起きない。
+- unsafe change、identity mismatch、quorumを守れない操作が副作用なしでblockedになる。
+
+### Recovery
+
+- provisioning、reboot、upgrade、bootstrap API呼び出し直後にcontroller-managerを停止・再起動する。
+- Resourceを手動修復せず、外部のobserved stateからreconcileが継続する。
+- API callの直後に停止しても、再起動後に完了済みoperationを危険に再初期化しない。
+
+## 証跡と機密情報
+
+受け入れ確認の証跡にはResourceのUID、Conditions、Events、safeなstructured log、Talos version、health、configuration digestだけを含める。Secretの値、Talos client key、Kubernetes PKI private key、Bootstrap Data、kubeconfig、BMC password、PVC payloadを保存しない。
+
+更新による同一性はCAPI Machine UID、TartMachine UID、TartHost UID、stable disk identityで確認する。Pod名、Node名、resourceVersion、DHCP addressだけで同一性を判定しない。
+
+## 検証方針の解除条件
+
+Go testを再開する場合は、実装と同じ変更で次を更新する。
+
+1. この文書の現在の方針から対象と実行コマンドを分離する。
+2. `gotest` skillを保留状態から有効な規約へ戻す。
+3. テスト追加の対象を重要な純粋判断または外部contractへ限定する。
+4. CIで再現できるtaskを定義し、ローカルだけの成功を完了根拠にしない。

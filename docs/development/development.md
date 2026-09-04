@@ -2,57 +2,61 @@
 
 ## 開発環境
 
-必要な Go、Kubebuilder、controller-gen、kustomize、lint ツールは `mise.toml` で管理する。個別に
-ツールを導入せず、まず次を実行する。
+Go、Kubebuilder、controller-gen、kustomize、lint toolのversionは`mise.toml`で管理する。個別にtoolを導入せず、リポジトリのtaskを入口にする。
 
 ```bash
 mise install
 MISE_OFFLINE=1 mise run help
 ```
 
-このリポジトリでは Go の build cache と module cache をリポジトリ配下へ置く。sandbox や CI と
-同じ条件で実行するため、通常の開発では `MISE_OFFLINE=1` を付ける。
+Goのmodule cacheやbuild cacheをリポジトリ配下へ置く場合も、環境変数名をtask内で明示し、開発者の既存環境を変更しない。新しいtaskを追加する場合は、CIでも同じtaskまたは同じ引数で再現できるようにする。
 
-ローカルでも実行する処理はmise taskとして公開し、長い実装は `scripts/<task名>/script.sh` に置く。GitHub
-Actionsだけで使う公開・Renovate補助は `.github/scripts/` に置き、ローカルtaskには追加しない。
+## 実装の開始点
 
-## 日常の確認
+実装前に次を読む。
 
-Go コードを変更したときは、変更内容に応じて次を実行する。
+1. [アーキテクチャ](architecture.md)
+2. [API contract](api-contract.md)
+3. [Machine lifecycle](lifecycle.md)
+4. [Talos連携](talos.md)
+5. [Cluster API skill](../../.agents/skills/cluster-api/SKILL.md)
+6. [Reconcile skill](../../.agents/skills/reconcile/SKILL.md)
+7. [Talos skill](../../.agents/skills/talos/SKILL.md)
+
+Provider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へ新規に定義する。CAPI coreの現行v1beta2 contract、Talos machineryの型とsemantics、controller-genの生成物を確認し、旧`v1beta1`実装を温存するためのcompatibility layerを作らない。
+
+## 生成と静的確認
+
+CRD、RBAC、DeepCopy、manifestsを変更した場合は、実装で使用するcontroller-genとkustomizeのtaskを実行する。生成物は手編集せず、入力の型またはmarkerを修正して再生成する。
+
+通常のコード変更では、次の順で確認する。
 
 ```bash
+MISE_OFFLINE=1 mise run fmt
+MISE_OFFLINE=1 mise run generate
+MISE_OFFLINE=1 mise run manifests
 MISE_OFFLINE=1 mise run build
 MISE_OFFLINE=1 mise run lint
-MISE_OFFLINE=1 mise run test
+git --no-pager diff --check
 ```
 
-`build` と `test` は CRD、RBAC、DeepCopy、Kessoku の生成も確認する。CI と同じ、ファイルを変更しない
-検査には `mise run ci-build`、`mise run ci-lint`、`mise run ci-test` を使用する。
+実際のtask名が変更された場合は、この文書とCI workflowを同じ変更で更新する。生成、build、lintが旧`domain`、`infrastructure`、agent、artifact packageを参照しないことを確認する。
 
-CRD、Webhook、RBAC、API 型を変更した場合は、必ず次を実行して生成物を含める。
+## Go testの扱い
 
-```bash
-MISE_OFFLINE=1 mise run manifests
-MISE_OFFLINE=1 mise run generate
-```
+新設計を組み立てる現在の作業では、新しいGo testを追加せず、`go test`も実行しない。`mise`のdefault task、build task、lint task、CI workflowへGo testを暗黙に含めない。
 
-## テストの選び方
+この方針を解除するときは、先に[検証方針](verification.md)と[gotest skill](../../.agents/skills/gotest/SKILL.md)を更新し、対象を外部契約や破壊的変更を防ぐ重要な判断へ限定する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
 
-- Domain の状態遷移や入力検証には、外部 I/O を使わない単体テストを追加する。
-- Driver や Agent protocol の契約には、Simulator または Contract Test を使う。
-- Kubernetes API との統合は envtest を使う。初回は `mise run setup-envtest` を実行する。
-- Kind E2E と Provisioning E2E は、手動実行する Release workflow の検証段階で実行する。通常のローカル開発では実行しない。
-- OS Artifact と bootloader の変更は、Release workflow の Artifact 組み立てで該当する QEMU task を実行し、CI artifact を確認する。
+## 実装のルール
 
-テストは重要な判断または外部契約を固定するために追加する。設定ファイルの存在確認や、mock の呼出し順だけを
-なぞるテストは追加しない。
+- `internal`と`pkg`を作らず、責務を直接表すルート直下のpackageへ置く。
+- controllerにTalos version比較、Host allocation、quorum計算、update safetyなどのdomain判断を詰め込まない。
+- Talos API、power、boot、Kubernetes APIの副作用はadapterまたはcontrollerの明確な境界へ閉じ込める。
+- Statusをworkflowのstep番号にせず、observed stateとConditionをserver-side applyで更新する。
+- Talosが安全に扱えない差分はMachine replacementやdisk wipeへfallbackせず、blocked Conditionで停止する。
+- secret、credential、private key、Bootstrap Dataをlog、Event、Status、metrics label、build artifactへ出力しない。
 
-## 変更の単位
+## 変更とコミット
 
-1. 変更する API、Domain、Infrastructure の責務を決める。
-2. 必要な生成・テストを実行する。
-3. `git --no-pager diff --check` で差分を確認する。
-4. 同じ目的の変更だけを 1 コミットにまとめ、`--signoff` を付ける。
-
-利用者に見えるログ、Condition、Status message は英語で書く。credential、Bootstrap Data、署名鍵、
-payload をログやテスト artifact に出力してはならない。
+API型、controller、adapter、manifest、docs、skillなど同じ設計目的の変更を一つのまとまりとして扱う。変更後は[検証方針](verification.md)の静的検証を行い、差分に旧設計の参照が残っていないことを確認する。コミットメッセージは日本語で書き、`--signoff`を付ける。

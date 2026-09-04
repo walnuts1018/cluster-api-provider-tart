@@ -1,13 +1,20 @@
-# Tart ドキュメント
+# Tartドキュメント
 
-このディレクトリには、Tart を導入・運用する担当者向けの情報を置きます。
-
-## 導入
-
-- [Ubuntu 24.04 と kubeadm の実機導入](installation/ubuntu-kubeadm.md)
-  - 隔離した Provisioning L2 上で実機を導入するための手順です。
-  - Tart Release を使うため、Provider image、iPXE、OS Artifact を利用者がビルドする必要はありません。
+TartはTalos Linux専用のCluster API Providerです。現在は新アーキテクチャの再実装中であり、利用者向けの導入手順は実用可能なE2Eが成立した時点で追加します。
 
 ## 開発者向け
 
-設計、実装計画、ADR、CI 検証の資料は [development/](development/README.md) に分離しています。
+- [開発者向けドキュメント](development/README.md)
+- [アーキテクチャ](development/architecture.md)
+- [API contract](development/api-contract.md)
+- [Machine lifecycle](development/lifecycle.md)
+- [Talos連携](development/talos.md)
+- [セキュリティと観測性](development/security.md)
+- [設計判断と完成条件](development/decisions.md)
+- [Release方針](development/release.md)
+- [リソースとProvisioningの流れ](development/resources-and-provisioning.md)
+- [検証方針](development/verification.md)
+
+## APIとライフサイクル
+
+Provider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`です。CAPIの現行v1beta2 contractへ適合させます。通常のTalos/Kubernetes updateは、同じCAPI Machine、`TartMachine`、`TartHost`、diskを維持するin-place updateを第一選択とし、安全に実行できない変更は明示的にblockedとします。

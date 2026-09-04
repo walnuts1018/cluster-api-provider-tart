@@ -1,13 +1,5 @@
-# 実機 Provisioning overlay
+# 実機設定
 
-このoverlayは、隔離したProvisioning L2へ接続された管理クラスタnode上でcontrollerを実行する。
-適用前に[Ubuntu 24.04 kubeadm実機導入](../../docs/installation/ubuntu-kubeadm.md)のConfigMapと
-Agent Artifact配置手順を完了する。Agent Plan署名鍵とAgent API証明書はProvider Podの起動時に自動生成する。
+TartはTalos Linux専用Providerとして再実装中です。旧Provisioning Agent、Ubuntu/kubeadm、独自OS artifactを前提にしたこのoverlayの導入手順は廃止しました。
 
-Agent Artifactのimage volumeは、GitHub Releaseの`infrastructure-components.yaml`だけに含める。release workflowは
-`github.ref_name`をArtifactタグとして埋め込む。`config/real-hardware`を直接`kustomize build`して導入することはできない。
-`mise run build-installer-real-hardware`を使う場合も、同じrelease tagを`AGENT_ARTIFACT_REF`へ指定する。
-
-`hostPath`はnode固有であるため、`tart.walnuts.dev/provisioning-network=true`を付けたnodeへ
-Agent Artifactを配置する。Deploymentを別nodeへ移動させる場合は、先に同じ検証済みArtifactを
-配置してからnode labelを移す。
+実機で検証する場合は、まず[Machine lifecycle](../../docs/development/lifecycle.md)、[Talos連携](../../docs/development/talos.md)、[セキュリティと観測性](../../docs/development/security.md)、[検証方針](../../docs/development/verification.md)を確認してください。実用可能なmanifestが成立した時点で、このoverlayを新しいProviderのpower/boot backendに合わせて再構成します。

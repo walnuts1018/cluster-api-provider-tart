@@ -1,92 +1,120 @@
-# リソースと Provisioning の流れ
+# リソースとProvisioningの流れ
 
-この文書は、Tart の実装を読むときに、Kubernetes Resource と対象 Host 側の処理がどのように結び付くかを
-説明する。パッケージの責務は [アーキテクチャ](architecture.md) を参照する。
+この文書は、TartのResource Modelを、Cluster APIのreference、所有関係、観測結果、外部副作用へ対応付ける。処理の進捗を保存するOperation Resourceは存在しない。
 
-## Resource の役割
+## Resourceの責務
 
-| Resource | 所有する情報 | 主な実装箇所 |
+| Resource | 寿命 | Specの正本 | Statusに保存する観測 |
+|---|---|---|---|
+| `TartHost` | 物理/仮想Hostの寿命 | Host identity、power/boot capability、選択用label | inventory、addresses、reachability、claim、Conditions |
+| `TartCluster` | CAPI `Cluster`の寿命 | control plane endpointとcluster-level infrastructure | endpoint反映、provisioned、failure domains、Conditions |
+| `TartMachine` | CAPI `Machine`の寿命 | Host selection、desired Talos image、machine infrastructure identity | Host binding、Talos version、addresses、ProviderID反映、provisioned、Conditions |
+| `TartMachineTemplate` | templateの寿命 | `TartMachine`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
+| `TartBootstrapConfig` | CAPI Machineのbootstrap dataの寿命 | machine role、Kubernetes version、Talos-native config patches、cluster secret reference | Secret生成、configuration digest、Conditions |
+| `TartBootstrapConfigTemplate` | templateの寿命 | `TartBootstrapConfig`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
+| `TartControlPlane` | CAPI Clusterのcontrol planeの寿命 | version、replicas、machine template | replica counts、version、control plane initialized、selector、Conditions |
+| `TartControlPlaneTemplate` | templateの寿命 | `TartControlPlane`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
+
+`TartMachine`はCAPI `Machine`と1対1で対応し、通常はCAPI `Machine`がownerとなる。`TartHost`はMachineより長寿命なのでMachineのOwnerReferenceを設定しない。Machine削除時にはHostのclaimだけを解除し、Host resourceと物理disk上のdataを保持する。
+
+`TartBootstrapConfig`が作成するSecretはbootstrap dataの配布物であり、Statusへ内容を複製しない。Secret名はCAPI Bootstrap contractの`status.dataSecretName`から参照できるようにする。SecretのdataにはTalos configurationと、必要なcluster secret materialを格納するが、log、Event、Condition messageへ値を出力しない。
+
+## 正本とcache
+
+| 情報 | 正本 | Statusに置けるもの |
 |---|---|---|
-| `TartHost` | 物理 Host の識別子、boot・power driver、割当、観測状態 | `api/v1beta1/tarthost_types.go`、`domain/provisioning` |
-| `TartMachine` | CAPI Machine に対応する希望状態と Host 参照 | `api/v1beta1/tartmachine_types.go`、`infrastructure/k8s_controller` |
-| `TartHostOperation` | Provisioning、更新、cleaning の入力、進捗、再開位置 | `api/v1beta1/tarthostoperation_types.go`、`domain/provisioning/workflow` |
+| Cluster topology、replica、Kubernetes desired version | Cluster API | 現在の観測値 |
+| Host inventory、allocation | `TartHost` | controllerが取得した最新inventory |
+| Machineのdesired infrastructure | `TartMachine` | Talos version、ProviderID、addressesの観測 |
+| Talos desired configuration | `TartBootstrapConfig`とCAPI desired state | configuration digest、生成済みSecret名 |
+| Talos actual configuration、version、disk | Talos API | observed version、reachability、inventory |
+| Kubernetes actual health | workload Kubernetes APIとTalos API | ready/available counts、Conditions |
 
-`TartHost` は物理資産の inventory であり、Machine を削除しても自動で消えない。`TartMachine` は CAPI の
-Infrastructure Machine として Machine ごとの希望状態を表す。副作用を伴う処理の詳細は `TartHostOperation`
-だけに保存し、Host と Machine には参照と要約状態だけを保持する。
+同じdesired stateを複数Resourceへコピーして正本にしない。Statusのdigestやversionはcacheであり、次回reconcileでは外部APIとdesired stateを再確認する。
 
-## Host と Operation の状態
+## Host claim
 
-`TartHost.status.phase` は Host の利用状態を示す。主な安定状態は `Available`、`Provisioned`、`Retained`、
-`Detached` であり、処理中には `Reserved`、`Provisioning`、`Updating`、`Cleaning` になる。自動処理を
-継続できない場合は `RecoveryRequired` または `Error` を使用する。
+Host選択は、明示的な`hostRef`があればそれを優先し、なければarchitecture、labels、hardware capability、availabilityを満たすHostからdeterministicに選択する。選択結果は`TartHost.status.claimedBy`と`TartMachine.status.hostRef`に観測として反映する。
 
-`TartHostOperation.status.phase` は再開可能な副作用の位置を示す。通常の流れは次のとおりである。
+claimは同じHostを複数Machineが利用しないよう、取得直後のresourceVersionとUIDを検証してserver-side applyする。競合した場合は別Hostを再選択する。既存claimが別Machineを指している場合に強制的に上書きしてはならない。
 
-```text
-Pending
-  -> PreparingBoot
-  -> WaitingForAgent
-  -> Writing
-  -> Verifying
-  -> BootTrial
-  -> AwaitingHealth
-  -> Succeeded
-```
+claim解除、Hostの再利用、物理dataの破棄は別の意味を持つ。通常のMachine削除ではclaimだけを解除し、Hostを再利用可能と表示する場合も、前回のTalos installationやdisk dataが残っていることをStatusとドキュメントで明示する。
 
-更新で Node Lifecycle Service が必要な場合は `AwaitingHealth` と `BootTrial` の間に
-`DistributionUpdating` が入る。失敗は `Failed`、手動復旧が必要な場合は `RecoveryRequired`、
-旧 slot へ戻す処理は `RollingBack` として記録する。これらの Phase、完了済み Step、Agent report の
-sequence は `TartHostOperation.status` に保存されるため、controller の再起動後も同じ Operation を再開できる。
-
-## 初期 Provisioning のデータフロー
+## Fresh Machine
 
 ```text
-TartMachine Reconcile
-  -> Host の割当と TartHostOperation の作成
-  -> Power / Boot Driver で対象 Host を起動
-  -> ProxyDHCP と TFTP が iPXE を配信
-  -> HTTPS が Provisioning Agent を起動する情報を配信
-  -> Agent が登録し、署名済み Plan を取得
-  -> Agent が disk 書込みと検証を実行し、progress を報告
-  -> boot report と Kubernetes の health を確認
-  -> Operation と Host の Status を更新
+CAPI Machine / TartMachine作成
+        ↓
+Hostをdeterministicに選択してclaim
+        ↓
+power onまたはboot backendへmaintenance bootを要求
+        ↓
+maintenance Talos APIからidentity、address、hardware inventoryを取得
+        ↓
+TartHost.statusへinventoryを反映
+        ↓
+Bootstrap Providerが生成したSecretからmachine configurationを取得
+        ↓
+Talos APIへconfigurationをapply
+        ↓
+Talos installerがinstallationを実行
+        ↓
+再起動後にauthenticated Talos APIへ接続
+        ↓
+version、health、ProviderID、addressを観測
+        ↓
+TartMachineのInfrastructureReadyを反映
 ```
 
-controller-manager に組み込まれた ProxyDHCP、TFTP、HTTPS server は boot 経路を提供する。
-Provisioning Agent は対象 Host の一時環境で実行され、disk layout、payload 書込み、read-back 検証、
-boot trial を担当する。Agent が Kubernetes API を直接操作することはない。
+Tartはblock deviceへimageを書き込まず、partition tableを直接編集しない。installer disk、volume、encryption、system extension、kernel module、extra manifestなどはBootstrap ConfigのTalos-native configurationとして指定する。
 
-Agent API は `infrastructure/http_server/agentapi` にあり、登録、Plan 取得、progress、boot report、
-Bootstrap Data、Node Lifecycle Plan の endpoint を扱う。入力 DTO は `dto/agent`、署名済み Plan の
-検証と状態遷移は Domain Workflow と Kubernetes repository を経由して行う。
+maintenance modeからauthenticated APIへの切り替えは、固定のstep番号ではなく、到達可能なendpoint、identity、Talos version、configurationの観測結果で判断する。controller再起動後も同じ観測から継続できる。
 
-## Artifact、disk、更新
+## Control Planeの初回bootstrapとscale
 
-OS Artifact は OCI Artifact として扱い、可変 tag ではなく digest 固定参照を使用する。Provisioning Agent は
-Platform Profile と Plan に従い、disk を論理的に Boot、OS-A、Verity-A、OS-B、Verity-B、State、Data の
-役割へ構成する。更新では inactive slot へ書き込み、boot trial と health 確認を通過してから新しい slot を
-確定する。State と Data は OS slot と分離し、Node identity、Kubernetes state、永続データを OS 更新から守る。
+Control Plane Providerは最初のcontrol plane Machineを選び、Talos APIのbootstrapを一度だけ要求する。要求後にcontrollerが停止しても、次回はTalosのetcd/Kubernetes healthとCluster APIの初期化状態を先に確認し、bootstrap済みのclusterへ再初期化を送らない。
 
-実機用 Provisioning Agent Artifact の initramfs は、Ubuntu/Debian installer が初期導入で扱う範囲を基準に、
-一般的な PCI・USB・仮想 NIC、SATA/NVMe/SCSI/RAID/USB/仮想 storage、device mapper、software RAID、
-主要 filesystem の kernel module と依存 firmware を含める。`/init` はその module をロードしてから DHCP を
-実行する。これにより firmware が iPXE で利用できても Linux kernel 側が NIC や storage controller を認識しない
-差異を避ける。特定機種用の out-of-tree driver や無線 LAN の認証は Artifact の責務に含めない。
+HA構成のscale upでは、既存clusterがhealthyであることを確認してから新しいMachineを作成し、Talos configurationを適用する。scale downでは、対象memberがetcd quorumを壊さず、Talosがmember removalを安全に完了できることを観測してからMachine削除へ進む。安全性を判定できない場合は削除せず、`Blocked`または`UnsafeControlPlaneOperation`をConditionへ設定する。
 
-`UpdateClass` は `OSOnly`、`KubernetesBinary`、`StateMigration` を区別する。Plan を作成する controller が
-更新種別と対象 slot を決め、Agent が推測してはならない。
+## Update
 
-## セキュリティ境界
+更新は次の4種類を別々に扱う。
 
-- Bootstrap Data は Bootstrap Provider が作成する。Tart は配送に必要な format と digest を扱うが、内容を
-  Domain の設定として解釈しない。
-- Agent の Session Token は operation と Host に結び付ける。Kubernetes には平文ではなく hash と期限だけを
-  保存する。
-- Bootstrap Data は single-shot 配信であり、受領済みの operation へ再配信しない。
-- Agent の progress と boot report は operation と Plan digest に照合する。Plan にない Step や古い sequence の
-  report は状態遷移に使用しない。
-- Secret、Session Token、Bootstrap Data、署名鍵、payload は CR Status、log、テスト artifact に出力しない。
+| 変更 | 原則 | 完了の観測 |
+|---|---|---|
+| Talos OS version/image | 既存Machine上でTalos upgrade APIを呼ぶ | desired version、reboot後のreachability、health |
+| Talos machine configuration | Talos APIが許可する場合だけapplyする | Talosのactual configurationとdigest、health |
+| Kubernetes version | CAPI desired versionを正本にControl Plane Providerがsequenceする | control plane/workerのversionとCAPI Conditions |
+| Host identity、破壊的disk topology | 自動更新しない | `UnsafeChange`または`RequiresExplicitReprovision` |
 
-認証・配信を変更する場合は、`domain/agentdelivery`、`infrastructure/http_server/agentapi`、
-`infrastructure/repository/k8s` の実装と Contract Test を同時に確認する。
+通常更新では同じCAPI Machine、`TartMachine`、`TartHost`、diskを維持する。CAPIのrolloutがimmutable差分からreplacementを提案する可能性がある場合も、Tartが保護対象Machineについて安全なin-place更新不能を明示し、破壊的fallbackを暗黙に開始しない。
+
+複数Machineのrolling update順序と停止数はCAPIのrollout policyに従う。Tartは独自の`maxUnavailable`やrollout controllerを複製しない。single nodeではdowntimeを許容するが、同一Machineを維持したままupgradeとrebootを行う。
+
+## Deletion
+
+```text
+CAPI Machine削除
+        ↓
+TartMachineのfinalization
+        ↓
+Host claim解除
+        ↓
+物理dataは保持
+        ↓
+Hostは明示的な再利用またはreprovisioningを待つ
+```
+
+削除はupdateと異なり、ユーザーが明示的に要求したlifecycleである。それでも`TartMachine`削除をdisk wipeの合図にはしない。cleaningやreprovisioningを将来追加する場合は、通常updateから呼び出せない明示的な操作、権限、Condition、監査記録を設ける。
+
+## Conditionsとエラー
+
+Statusには`Ready`、`Claimed`、`TalosReachable`、`Provisioned`、`UpToDate`、`Updating`、`Healthy`、`Blocked`など外部から意味を理解できるConditionだけを置く。`PreparingBoot`、`Writing`、`Verifying`のようなworkflowのprogram counterは保存しない。
+
+電源投入待ち、DHCP address待ち、maintenance API待ち、reboot中、Kubernetes APIの一時的なunavailableは、再試行可能なConditionとrequeueとして扱う。identity mismatch、無効なdisk selector、destructive change、quorumを守れないscale down、対応していないupdate pathは、retryを続けず明確なblocked Conditionへ遷移させる。
+
+## Secretとnetwork boot
+
+初期boot assetはsecret-freeを基本とする。bootstrap dataはfirmwareのboot protocolや公開HTTPへ埋め込まず、maintenance Talos APIへ認証済みconfigurationを送る経路でdeliveryする。外部network boot、Wake-on-LAN、Redfish、VM API、手動起動は`boot`のbackendとして差し替え可能にするが、Tart独自のAgent protocolや長寿命credentialをHostへ要求しない。
+
+秘密情報を扱う処理では、Secretの値、Talos client key、Kubernetes PKI private key、kubeconfig、BMC passwordをStatus、Event、通常log、metrics labelへ含めない。metricsやEventにはresource name、reason、safeなerror分類だけを出す。

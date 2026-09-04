@@ -41,7 +41,7 @@ metadata:
   name: ${CLUSTER_NAME}-control-plane
 spec:
   replicas: ${CONTROL_PLANE_MACHINE_COUNT:=1}
-  version: ${KUBERNETES_VERSION:=v1.36.2}
+  version: ${KUBERNETES_VERSION:=v1.37.0}
   kubeadmConfigSpec:
     clusterConfiguration:
       apiServer:
@@ -94,7 +94,7 @@ spec:
   template:
     spec:
       clusterName: ${CLUSTER_NAME}
-      version: ${KUBERNETES_VERSION:=v1.36.2}
+      version: ${KUBERNETES_VERSION:=v1.37.0}
       bootstrap:
         configRef:
           apiGroup: bootstrap.cluster.x-k8s.io

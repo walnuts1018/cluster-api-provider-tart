@@ -173,7 +173,7 @@ export CLUSTER_NAME=ubuntu-kubeadm
 export CONTROL_PLANE_ENDPOINT_HOST=192.168.100.100
 export CONTROL_PLANE_MACHINE_COUNT=1
 export WORKER_MACHINE_COUNT=1
-export KUBERNETES_VERSION=v1.36.2
+export KUBERNETES_VERSION=v1.37.0
 
 envsubst < cluster-template-kubeadm-ubuntu.yaml | kubectl apply -f -
 ```

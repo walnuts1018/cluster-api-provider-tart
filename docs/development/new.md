@@ -1490,3 +1490,33 @@ in-place で安全に収束できない変更は明示的に停止する。
 破壊的な reprovisioning は、通常 update の fallback ではなく、ユーザーが意図して開始する別の lifecycle operation として扱う。
 
 この原則を Infrastructure Provider、Bootstrap Provider、Control Plane Provider のすべてで一貫して維持すること。
+
+---
+
+# 44. このリポジトリでの実装上の確定事項
+
+この設計書の責務境界をコードへ反映する際、Tartでは次の実装方針を採用する。
+
+## APIとパッケージ
+
+TartのProvider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へリセットする。過去の`v1beta1` API、conversion、旧resourceとの互換層は作らない。CAPI coreの現行v1beta2 contractへ適合させるが、Tart API versionとCAPI contract versionは別の概念として扱う。
+
+ルート直下に`internal`または`pkg`という名前のディレクトリを作らない。`api/v1alpha1`、`controller`、`host`、`talos`、`bootstrap`、`controlplane`、`boot`、`extensions`など、現在存在する責務を直接表すパッケージへ配置する。`domain`、`infrastructure`、`workflow`のような複数責務を隠す大分類も新設しない。
+
+## Statusと副作用
+
+Statusには観測結果、Conditions、`observedGeneration`だけを保存する。`Pending`、`Writing`、`Verifying`、`BootTrial`などのstep番号、retry counter、operation IDをlifecycleの正本にしない。
+
+Kubernetes resourceの作成とStatus反映はserver-side applyまたはpatchを使用する。Talos、power、boot、workload Kubernetes APIの呼び出しは副作用の境界へ閉じ込め、controller再起動後に外部の観測結果から処理を再計算する。
+
+## 更新と削除
+
+Talos image、machine configuration、Kubernetes versionの更新は、それぞれのdesired stateとして分離する。通常更新は同じCAPI Machine、`TartMachine`、`TartHost`、disk上でTalosのin-place APIへ委譲する。
+
+安全にin-place updateできない差分はMachine replacementへfallbackせず、`Blocked`、`UnsafeChange`、`RequiresExplicitReprovision`などのConditionとして停止する。Machine削除ではHost claimだけを解除し、物理dataを保持する。cleaning、reprovisioning、disk wipeは通常updateや削除から開始しない。
+
+## テストの一時方針
+
+この再設計を組み立てる間は、新しいGo testを追加せず、Go testも実行しない。format、生成、build、vet、lint、manifest検証を中心に進める。Go testを再開する場合は、先に検証方針とskillを更新し、外部contractと破壊的変更を防ぐ重要な判断へ対象を限定する。
+
+具体的なAPI field、package境界、reconcileの入力と副作用、Talos adapterの責務は[実装設計](implementation-design.md)へ記載する。開発taskと静的検証は[開発ガイド](development.md)と[検証方針](verification.md)を参照する。

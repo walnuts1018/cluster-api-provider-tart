@@ -6,16 +6,22 @@
 - 変更はこまめにコミットしてください。一つのコミットは同じ内容に関する変更でまとめるようにしてください。
 - コミット時には、`--signoff`オプションを使用して、コミットメッセージの末尾に署名を追加してください。ただし、Co-AuthorとしてAI Agentsを追加することはしないでください。そのコミットの内容については最終的には人間のAuthorのみが責任を負うので、Authorのみ書いてください。
 - コミットメッセージは、変更内容を簡潔に説明するものにしてください。
-- 機能ごとにブランチを切って開発を行い、機能が完成したらghコマンドを利用してプルリクエストを作成してください。
-- gitコマンドを利用する際は、`--no-pager`を必ずつけてください。ghコマンドには`--no-pager`オプションがありません。ghコマンドでは`--no-pager`オプションを利用しないでください。
-  - 例外: `git status`には`--no-pager`オプションがありません。`--no-pager`オプションを利用しないでください。
-- ツールをインストールする際は、必ずmise経由でインストールしてください。
+- ブランチを切らずmainブランチへ直接コミットしてOKです。コミットも適当な粒度でどんどん行ってください。
+- ツールをインストールする際は、なるべくmise経由でインストールしてください。どうしてもmiseが使えないツールを使う場合は、適切にバージョン管理&renovateで更新ができるようにしてください。
 - 定期的に実行するコマンドはmiseのtaskとして定義してください。
 - Kubernetesコントローラの実装、Custom ResourceやWebHookの追加には必ずcontroller-genやkubebuilderを用いてください。
 - テスト用のドメインが必要な場合は、`hoge.test.walnuts.dev`や`hoge.sample.walnuts.dev`を利用して下さい。
 - 開発時の検証は、可能な限りCIで再現できる形へ寄せてください。詳細は `docs/development/verification.md` を正本とし、ローカル手順だけを完了証跡にしないでください。
 - 現状まだ開発中で未リリースなので、破壊的変更はどのようなものでも自由に行ってください。変更を最小にすることよりも、実装の美しさや使いやすさなどを優先してください。v1alpha1は廃止済みなので、互換性を保ったり考慮したりする必要はありません。
-- Antigravity CLI経由で`Gemini 3.1 Pro (High)`を利用することができます。メインで用いるコーディングエージェントの利用量を節約するために活用してください。`agy -p  <指示>`で起動することができます。
+- コメントを書くとき、英字と日本語の間にスペース入れないでください。また、文の途中で改行しないでください。VSCodeの設定で折り返し設定を入れているので、1行が長くなるからという理由だけで改行するのは避けてください。
+- sub-agentを積極的に活用してください。ただし、毎回親と同じモデルを使うのではなく、基本的にはgpt-5.6-luna (high, extra high, max)やSonnet 5 low などを活用し、なるべく低コストで済むようにしてください。重たいモデルで複数のSubAgentを使うのはなるべく避けてください。
+  - When using subagents:
+    - Do not repeatedly poll or wait for subagents.
+    - While subagents are running, continue any useful non-overlapping work.
+    - Call wait_agent only when the main task is genuinely blocked on a subagent result.
+    - Prefer the longest practical wait timeout rather than frequent short polling.
+    - If a wait times out and the agent is still running, do not immediately enter a repeated wait loop unless there is no other productive work available.
+    - Collect and integrate completed subagent results in batches where possible.
 
 ### 開発再開
 
@@ -97,7 +103,3 @@
 ## Cluster API
 
 - 詳細なCluster APIの実装ルールについては、`cluster-api` スキルを参照してください。
-
-## 　実装のフェーズ分け
-
-段階的な開発を推奨する。詳細は `architecture` および `tasks` スキルを参照してください。

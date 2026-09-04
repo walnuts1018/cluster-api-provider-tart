@@ -95,3 +95,10 @@
 ## Cluster API
 
 - 詳細なCluster APIの実装ルールについては、`cluster-api` スキルを参照してください。
+
+## Talos
+
+必要なら以下のディレクトリを参考にすること。ただし、これらの実装に影響を受けすぎず、理想的な実装を自分で考えて適切に修正すること。
+
+- ~/ghq/github.com/siderolabs/cluster-api-control-plane-provider-talos
+- ~/ghq/github.com/siderolabs/cluster-api-bootstrap-provider-talos

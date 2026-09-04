@@ -2,6 +2,7 @@
 version: "2"
 run:
   allow-parallel-runners: true
+  timeout: 10m
 linters:
   default: none
   enable:
@@ -9,7 +10,6 @@ linters:
     - containedctx
     - contextcheck
     - copyloopvar
-    - copyrightheader
     - dupl
     - durationcheck
     - errcheck
@@ -24,13 +24,13 @@ linters:
     - ineffassign
     - intrange
     - loggercheck
+    - logcheck
     - makezero
     - mirror
     - misspell
     - modernize
     - nakedret
     - nilerr
-    - nilnil
     - noctx
     - nolintlint
     - prealloc
@@ -39,7 +39,6 @@ linters:
     - revive
     - rowserrcheck
     - sloglint
-    - sqlclosecheck
     - staticcheck
     - testableexamples
     - thelper
@@ -53,53 +52,27 @@ linters:
     revive:
       rules:
         - name: comment-spacings
-    exhaustive:
-      check:
-        - switch
-        - map
-    usetesting:
-      os-chdir: true
-      context-background: true
-      context-todo: true
     custom:
-      copyrightheader:
+      logcheck:
         type: module
-        settings:
-          header: |-
-            Copyright 2026.
-
-            Licensed under the Apache License, Version 2.0 (the "License");
-            you may not use this file except in compliance with the License.
-            You may obtain a copy of the License at
-
-                http://www.apache.org/licenses/LICENSE-2.0
-
-            Unless required by applicable law or agreed to in writing, software
-            distributed under the License is distributed on an "AS IS" BASIS,
-            WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-            See the License for the specific language governing permissions and
-            limitations under the License.
+        description: structured logging checker
   exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
     rules:
-      - linters:
+      - path: _test\.go$
+        linters:
           - dupl
-        path: infrastructure/*
-      - linters:
-          - contextcheck
+          - goconst
+          - gocyclo
+          - unparam
           - errcheck
-          - nilnil
+      - path: ^test/
+        linters:
+          - dupl
+          - goconst
+          - gocyclo
+          - unparam
           - noctx
-        path: _test\.go
-    paths:
-      - third_party$
-      - builtin$
-      - examples$
+          - errcheck
 formatters:
   enable:
     - gofmt

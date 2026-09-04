@@ -130,18 +130,6 @@
       datasourceTemplate: 'github-tags',
       versioningTemplate: 'semver-coerced',
     },
-    {
-      customType: 'regex',
-      managerFilePatterns: [
-        '/^docs\\/installation\\/ubuntu-kubeadm\\.md$/',
-      ],
-      matchStrings: [
-        'export KUBERNETES_VERSION=(?<currentValue>v?[0-9]+\\.[0-9]+\\.[0-9]+)',
-      ],
-      depNameTemplate: 'kubernetes/kubernetes',
-      datasourceTemplate: 'github-tags',
-      versioningTemplate: 'semver-coerced',
-    },
   ],
   packageRules: [
     {

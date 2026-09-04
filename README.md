@@ -1,17 +1,20 @@
-# cluster-api-provider-tart
+# Cluster API Provider Tart
 
-Tart は、一般的な物理 PC を Cluster API で管理するための Infrastructure Provider です。PXE と
-Provisioning Agent を使い、管理クラスタから物理 Host の初期導入を行います。
+Tartは、Talos Linuxを実行する物理または仮想HostをCluster APIへ統合するProviderです。Infrastructure Provider、Bootstrap Provider、Control Plane Providerを提供し、Host allocation、boot、Talos configuration delivery、control plane lifecycle、安全なin-place updateを担当します。
 
-> [!WARNING]
-> このプロジェクトは開発中であり、現時点では本番利用をサポートしていません。操作によって対象 Host の
-> ディスクが消去されるため、検証専用の隔離ネットワークと再利用してよいディスクだけを使用してください。
+TartはTalos専用です。TalosのOS installation、disk/volume、machine configuration、upgrade、rollback、etcd bootstrap、Kubernetes runtimeを再実装せず、Talos APIとmachine configurationへ委譲します。Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用APIは提供しません。
 
-## はじめに
+現在は新アーキテクチャの再実装中です。APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へリセットしており、過去の`v1beta1` APIやProvisioning Agentとの互換性はありません。
 
-- [ドキュメント](docs/README.md): 導入手順
-- [Ubuntu 24.04 と kubeadm の実機導入](docs/installation/ubuntu-kubeadm.md): 現在提供している検証用導入手順
+## ドキュメント
 
-## 開発への参加
+- [利用者向けドキュメント](docs/README.md): 利用前提と提供状況
+- [開発者向けドキュメント](docs/development/README.md): 設計、実装、生成、検証
+- [アーキテクチャ](docs/development/architecture.md): Provider、package、依存方向、副作用境界
+- [API contract](docs/development/api-contract.md): ResourceとCAPI contract
+- [Machine lifecycle](docs/development/lifecycle.md): provisioning、update、deletion、recovery
+- [Talos連携](docs/development/talos.md): configuration、storage、upgrade、add-on
 
-設計方針、開発手順、CI 検証は [開発者向けドキュメント](docs/development/README.md) にまとめています。
+## 開発
+
+開発環境と検証コマンドは[開発ガイド](docs/development/development.md)を参照してください。新設計を組み立てる間は、新しいGo testを追加せず、Go testも実行しません。生成、build、lint、manifestなどのテスト以外の静的確認を行います。

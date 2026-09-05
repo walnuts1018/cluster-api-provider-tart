@@ -20,7 +20,9 @@ const (
 
 // Tart関連Resourceで安全停止に共通利用する既知のReadyおよびAvailable reasonを定義する。
 const (
-	ReasonIdentityConflict         = "IdentityConflict"
+	ReasonIdentityConflict = "IdentityConflict"
+	// ReasonDiskIdentityConflictはIdentityConflictのうち、disk identity(WWIDまたはserial)の重複が原因であることを明示するreasonである。MAC addressやsystem UUIDの重複を含む他のIdentityConflictと区別してEventおよびlogから原因を追いやすくする。
+	ReasonDiskIdentityConflict     = "DiskIdentityConflict"
 	ReasonShutdownUnconfirmed      = "ShutdownUnconfirmed"
 	ReasonUnsafeUpdate             = "UnsafeUpdate"
 	ReasonSecretBundleUnavailable  = "SecretBundleUnavailable"

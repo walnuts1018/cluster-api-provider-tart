@@ -8,8 +8,10 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -28,6 +30,8 @@ type TartHostReconciler struct {
 	client.Client
 	// ManagementNamespaceはRedfish credential Secretを解決するprovider管理namespaceである。TartHostのSpecからnamespaceを受け取らない。
 	ManagementNamespace string
+	// RecorderはIdentity Conflictなど利用者へ通知すべき事象をKubernetes Eventとして記録する。SetupWithManagerで未設定の場合はmanagerから解決する。
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
@@ -319,11 +323,21 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 			continue
 		}
 
+		reason := infrav1alpha1.ReasonIdentityConflict
+		message := "Stable Host identity (MAC address or system UUID) is duplicated; allocation and maintenance configuration are stopped."
+		if host.HasDiskIdentityConflict(*candidate, hosts) {
+			reason = infrav1alpha1.ReasonDiskIdentityConflict
+			message = "This Host reports a disk identity (WWID or serial) that is already reported by another Host; allocation and maintenance configuration are stopped until the conflict is resolved."
+		}
+
 		original := candidate.DeepCopy()
-		setCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation and maintenance configuration are stopped.", candidate.Generation)
+		setCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, candidate.Generation)
 		candidate.Status.ObservedGeneration = candidate.Generation
 		if err := r.Status().Patch(ctx, candidate, client.MergeFrom(original)); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
+		}
+		if r.Recorder != nil {
+			r.Recorder.Event(candidate, corev1.EventTypeWarning, reason, message)
 		}
 	}
 
@@ -331,6 +345,9 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 }
 
 func (r *TartHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("tarthost-controller")
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.TartHost{}).
 		Named("tarthost").

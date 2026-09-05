@@ -42,6 +42,23 @@ func HasIdentityConflict(host infrav1alpha1.TartHost, hosts []infrav1alpha1.Tart
 	return false
 }
 
+// HasDiskIdentityConflictはこのHostが他のHostまたは自身のinventory内でdisk identity(WWIDまたはserial)を重複して報告しているかだけを判定する。MAC addressやsystem UUIDの重複は対象外である。
+func HasDiskIdentityConflict(host infrav1alpha1.TartHost, hosts []infrav1alpha1.TartHost) bool {
+	if host.Status.Inventory != nil && diskIdentityConflictWithin(host.Status.Inventory.Disks) {
+		return true
+	}
+	for _, other := range hosts {
+		if other.Name == host.Name && other.Namespace == host.Namespace {
+			continue
+		}
+		if host.Status.Inventory != nil && other.Status.Inventory != nil &&
+			diskIdentityConflict(host.Status.Inventory.Disks, other.Status.Inventory.Disks) {
+			return true
+		}
+	}
+	return false
+}
+
 // HasIdentityConflictForAnyはinventory全体で重複したstable identityが存在するかを判定する。重複したHostを一台だけ除外すると誤ったHostへのconfiguration applyを許すため、全体を停止する。
 func HasIdentityConflictForAny(hosts []infrav1alpha1.TartHost) bool {
 	for index, candidate := range hosts {

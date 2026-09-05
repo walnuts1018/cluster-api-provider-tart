@@ -2,19 +2,22 @@
 
 TartはTalos Linux専用のCluster API Providerです。現在は新アーキテクチャの再実装中であり、利用者向けの導入手順は実用可能なE2Eが成立した時点で追加します。
 
-## 開発者向け
+## 開発者向けドキュメント
 
-- [開発者向けドキュメント](development/README.md)
-- [アーキテクチャ](development/architecture.md)
-- [API contract](development/api-contract.md)
-- [Machine lifecycle](development/lifecycle.md)
-- [Talos連携](development/talos.md)
-- [セキュリティと観測性](development/security.md)
-- [設計判断と完成条件](development/decisions.md)
-- [Release方針](development/release.md)
-- [リソースとProvisioningの流れ](development/resources-and-provisioning.md)
-- [検証方針](development/verification.md)
+開発・設計に関するドキュメントは [開発者向けドキュメント目次](development/README.md) を参照してください。
 
-## APIとライフサイクル
+- [アーキテクチャ](development/architecture.md): Provider全体の構成、依存関係、責務境界
+- [API contract](development/api-contract.md): CAPI v1beta2 contractとの統合仕様、不変条件
+- [Machine lifecycle](development/lifecycle.md): Provisioning、更新、削除、Host retentionの状態遷移
+- [実装タスク一覧](development/tasks.md): **未実装・仮実装機能の要件と解消条件**
+- [Talos連携](development/talos.md): Talos Linuxへの委譲方針、Configuration合成
+- [セキュリティと観測性](development/security.md): Secret保護規約、RBAC権限境界、観測性
+- [設計判断と非目標](development/decisions.md): アーキテクチャ上の設計判断（ADR）と非目標
+- [リソースとProvisioningの流れ](development/resources-and-provisioning.md): リソース参照構造と全体フロー
+- [検証方針](development/verification.md): 静的検証、単体テスト、将来の受け入れ条件
 
-Provider APIは`v1alpha1`へリセットし、Infrastructure、Bootstrap、Control Planeをそれぞれ`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io`へ分けます。CAPIの現行v1beta2 contractへ適合させます。通常のTalos/Kubernetes updateは、同じCAPI Machine、`TartMachine`、`TartHost`、diskを維持するin-place updateを第一選択とし、安全に実行できない変更は`Ready=False`と具体的なreasonで停止します。`TartHost.spec.id`と`TartCluster.spec.id`はmetadata UIDから独立した永続identityであり、TemplateやSSA dry-runでは生成せず、concrete Resourceのnon-dry-run CREATE後に一度だけ確定します。通常CREATEのpreset IDは拒否し、DR復元では承認済みannotationとinfra administratorの権限境界を要求します。ProviderIDを`tart://host/<TartHost.spec.id>`から決定します。DiscoveryはBootstrap Secretなしのsecret-free maintenance bootとしてprovisioningから分離し、Machine削除後のHostは`Retained`として保持します。明示的に`Reusable`へ変更するまで自動allocationせず、cluster secret bundleはCluster ID付きgeneration単位でimmutableに管理します。CA rotationではrotation対象のCAだけを更新したPending generationをTalos公式semanticsのreconcile開始前に永続化し、正常完了を観測してからactive generationを切り替えます。node-disruptive updateのavailability緩和は`TartCluster.spec.updatePolicy.allowDowntime: true`を正本とし、data、identity、etcd、quorum安全性は緩和しません。
+## 基本アーキテクチャ
+
+Provider APIは`v1alpha1`へリセットし、Infrastructure、Bootstrap、Control Planeを分離してCAPIの現行v1beta2 contractへ適合させています。
+CAPI Machineを使い捨てと仮定せず、同一Machine/Host/Disk上でのin-place updateを優先し、安全に実行できない変更はMachine replacementへ暗黙にフォールバックせず安全停止（Fail-Closed）します。
+詳細な仕様や未実装タスクについては上記の各ドキュメントを参照してください。

@@ -4,50 +4,46 @@ description: TartHostのallocation、identity、power、boot、data保持を確�
 when_to_use: TartHost、TartMachineのclaim、hardware discovery、power/boot backend、deletionを実装・レビューする時
 ---
 
-# Host lifecycle方針
+# Host Lifecycle ガイドライン
 
-## Hostの寿命
+`TartHost` の登録、アロケーション、電源制御、ライフサイクル完了、およびデータ保持（Retention）を実装・レビューする際のガイドラインである。
+詳細な仕様は [Machine lifecycle](../../../docs/development/lifecycle.md) および [API contract](../../../docs/development/api-contract.md) を参照すること。
 
-`TartHost`はCAPI Machineより長く存続するmanagement cluster全体で一意なcluster-scoped inventoryである。Kubernetes metadata UIDとは別にimmutableな`spec.id`を持ち、通常CREATEでは空値をconcrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化する。TemplateやSSA dry-runのdefaultingでrandom IDを生成せず、presetされたIDは通常CREATEで拒否する。DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけバックアップ済みの値を保持する。MAC address、system UUIDなどのstable identityは一意であることを期待する。Workload cluster側の永続identityには`TartCluster.spec.id`を使い、CAPI `Cluster.metadata.uid`へ依存しない。ただしadmission webhookの全体list検査をatomic uniquenessの根拠にせず、重複を観測した場合は関係するHostをfail closedにする。Machineの削除やscale downでHost resourceを削除せず、Host上のTalos installation、disk、local persistent dataを保持する。
+---
 
-## registrationとdiscovery
+## 4つのアロケーション状態
 
-初期登録はMAC addressと必要なpower/boot設定から開始できるようにする。disk UUID、Linux device path、NIC名、system UUIDを事前入力必須にしない。Enrollment/DiscoveryはCAPI MachineやBootstrapConfigから独立したsecret-free maintenance bootとして実行し、maintenance Talos APIからhardware inventoryを取得してstable identityとdisk selectorをStatusへ反映する。inventory未観測でもDiscovery以外のprovisioningを開始せず、Bootstrap Secret待ちでDiscoveryを止めない。
+Hostの適格性分類（実装は [`host/eligibility.go`](../../../host/eligibility.go)）:
+1. **`Available`**: `consumerRef` も `retainedFrom` もなく、自動割り当て可能。
+2. **`Claimed`**: `consumerRef` で特定の `TartMachine` に割り当て済み。
+3. **`Retained`**: Machine削除後に `retainedFrom` が記録され、データ保護のため自動割り当て停止。
+4. **`Reusable`**: `spec.reusePolicy: Reusable`、一致する `spec.reuseApproval.retainedFromUID`、および `spec.reuseMode`（`Adopt` または `Reprovision`）が揃った状態。
 
-inventoryはobserved stateであり、ユーザーが編集するdesired storage modelではない。`/dev/sda`など不安定なdevice nameを基本identityや永続的なselection keyにしない。
+---
 
-## claimとeligibility
+## 実装チェックリスト
 
-明示的なHost referenceを優先し、未指定ならarchitecture、label、capability、failure domain、availabilityを満たすHostからdeterministicに選択する。`Machine.spec.failureDomain`が指定されていれば一致するHostだけを候補にする。
+### 1. Identity と Claim
+- [ ] `TartHost.spec.id` をTemplateやSSA dry-runで生成せず、non-dry-run CREATE後にコントローラーが一度だけ確定しているか
+- [ ] claim処理（[`host/claim.go`](../../../host/claim.go)）でSSAではなく、resourceVersion付きUpdateまたはJSON Patchの `test` によるatomic CASを使用しているか
+- [ ] MACアドレスやSystem UUIDの重複を観測した際、関係する全Hostを `Ready=False`、`Reason=IdentityConflict` で安全停止しているか
 
-排他claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで管理する。`GET`でresourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認してresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、既存claimが別Machineを指すHostは上書きしない。`TartHost.status`をlockの正本にせず、Statusには`Claimed` Conditionと観測結果を置く。
+### 2. 電源制御とDiscovery
+- [ ] 電源操作（[`boot/`](../../../boot)）の成功をTalosインストール完了とみなさず、APIの接続性とバージョンを独立して検証しているか
+- [ ] Discovery bootをBootstrap Secret待ちにせず、secret-freeに実行しているか
+- [ ] Talos maintenance APIの自己署名TLSに対し、物理MACとclaimed HostのMACが一致することを確認してからconfigurationを適用しているか
 
-Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable`を区別する。freshなHostは`consumerRef`と`retainedFrom`がなく`Available`である。`Retained`はworkflow phaseではなく、前回のMachineのdataやTalos identityが残るため自動allocation不可である。Machine削除時はcontroller-managedな`TartHost.spec.retainedFrom`へ直前のconsumer UID、namespace、name、`TartCluster.spec.id`由来のcluster IDを記録する。`TartHost.spec.reusePolicy: Reusable`、現在の`retainedFrom`に一致する`spec.reuseApproval.retainedFromUID`、`spec.reuseMode: Adopt|Reprovision`がそろい、安全条件を再確認できた場合だけ`Reusable`にする。承認はSpecから消費せず、次の`retainedFrom.uid`が変わることで無効化する。`Adopt`にはsame cluster ID、same secret generation、same Host identity、same ProviderID、compatible role/version、expected disk identityを要求し、control-plane Adoptではetcd membershipも検証する。Claim中やfreshな時点の指定を将来の削除承認として扱わない。Cluster secret bundleが失われた後のRetained Hostは`Adopt`不可、`Reprovision`専用である。
+### 3. Deletion と Retention
+- [ ] Machine削除時に、authenticated Talos APIへのshutdown要求と停止確認を行うまでclaimを解除しないようになっているか
+- [ ] 停止確認が取れない場合、claimとfinalizerを保持して `ShutdownUnconfirmed` を設定しているか
+- [ ] claim解除時に直前のconsumer UIDとCluster IDを `spec.retainedFrom` へ記録し、Hostを `Retained` として保持しているか
+- [ ] `TartHost` の直接削除（forget）時に、一致する `spec.forgetApproval` を要求し、物理的なdisk wipeを行わないようになっているか
 
-## powerとboot
+---
 
-powerとbootはcapabilityとして扱い、Wake-on-LAN、Redfish、VM API、manual、external network bootを同じResource semanticsへ接続する。具体的なDHCP、TFTP、PXE方式をCRDやdomain modelへ固定しない。
+## 参照ドキュメント・コード
 
-power onの成功はTalos installationの成功を意味しない。maintenance endpoint、expected Hostとのidentity binding、MAC/DHCP、system UUID、inventory、authenticated Talos API、healthを観測するまでprovisionedと判定しない。初期boot assetはsecret-freeを基本とする。
-
-maintenance Talos APIはTLSで暗号化されるが認証済みではない。Hostとendpointのbindingが曖昧ならconfigurationをapplyせず`Ready=False`と`Reason=IdentityConflict`にする。installation後はauthenticated Talos APIへ切り替える。
-
-自動Reprovisionを許可するHostは、installed OSからremoteにmaintenance environmentへ戻せるboot strategyをcapabilityとして持つ。Fresh machineのnetwork boot capabilityだけでは自動Reprovisionを許可しない。
-
-stable identityの重複はadmission webhookの全体list検査で排他的に防止しようとしない。同時createで検査がraceするため、controllerが重複を観測したら関係する全Hostを`Ready=False`、`Reason=IdentityConflict`としてallocationとmaintenance configuration applyを停止する。誤Hostへconfigurationを送らないことを安全性の正本とする。
-
-## Management cluster DR
-
-management clusterのバックアップには、`TartHost.spec.id`、stable hardware identity、`consumerRef`、`retainedFrom`、CAPI Machineとprovider resource、全secret bundle generationのSecret、power/boot backend設定を同じ整合点から含める。復元後はprovider resource、Host、CAPI Machine、cluster secretの関係を観測してから副作用を再開し、objectのmetadata UID変更を物理Host identityの変更と解釈しない。bundleが欠落または世代不明なら既存Hostへ`Adopt`せず、`Reprovision`または明示的な管理者復旧を要求する。`clusterctl move`でこの復元契約を代用しない。
-
-## deletionと再利用
-
-`TartMachine`削除では、CAPI Machine controllerのdrainとvolume detachが先に完了し、scale-downのcontrol planeではControl Plane Providerのpre-terminate delete hookがetcd member removalを完了していることを前提にする。その後、authenticated Talos APIへshutdown/quiesceを要求する。Hostが停止したことを確認するまでclaimとfinalizerを保持する。APIへ到達できない、停止を確認できない、またはHostが稼働し続けている場合はclaimを解放せず`Ready=False`、`Reason=ShutdownUnconfirmed`にする。
-
-停止確認後にclaimを解除してもHostは`Retained`としてdataを保持する。`Adopt`は既存installation、same cluster ID、same secret generation、same Host identity、same ProviderID、compatible role/version、expected disk identity、desired configurationが一致する場合だけdataを保持してclaimする。control-plane Adoptではetcd membershipとNode identityも検証する。`Reprovision`はdata破棄を明示承認する別lifecycleであり、Talos reset/installerへ委譲する。cleaning、reprovisioning、disk wipe、force releaseは通常updateや通常deleteの副作用にせず、別の明示的な操作、権限、監査、確認を必要とする。
-
-`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを現在のbindingまたはretained recordに一致する`spec.forgetApproval`なしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
-
-## MHC
-
-すべてのTart-managed MachineでMachineHealthCheckのdelete-and-recreate remediationを安全な既定値とみなさない。初期運用ではMachineSetまたはControl PlaneのMachine templateへ生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。将来のexternal remediationは同じMachineとHostを維持するpower cycle/Talos recovery方式とする。MHC、rollout、手動削除の全経路でRetained gateとshutdown確認を通す。
+- ライフサイクルと状態遷移: [`docs/development/lifecycle.md`](../../../docs/development/lifecycle.md)
+- API契約: [`docs/development/api-contract.md`](../../../docs/development/api-contract.md)
+- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
+- 実装コード: [`host/`](../../../host), [`boot/`](../../../boot)

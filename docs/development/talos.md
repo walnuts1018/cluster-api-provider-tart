@@ -2,115 +2,94 @@
 
 TartはTalos Linux専用であり、Talosが提供するOS、storage、configuration、upgrade、rollback、etcd bootstrap、Kubernetes runtimeを再実装しない。Tartの責務はCAPIのdesired stateとTalos APIを安全に接続することである。
 
-## Machine configurationの合成
+---
 
-Bootstrap ProviderはTalos machineryのversion contract、active secret bundle generation、cluster endpoint、CAPIから導出したmachine role、Kubernetes version、`TartMachine.spec.talosImage`、Secret-backed raw configuration patch modelを利用する。Talos secretsは`TartCluster.spec.id`を含むgeneration単位のimmutable bundleを参照し、BootstrapConfigごとにgenerateしない。CA rotationではgeneration Nを基にrotation対象のTalos/Kubernetes CAだけを更新した完全なgeneration N+1 bundleを`Pending` Secretとして先に永続化する。その後、Talos公式のaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除のsemanticsをTalos machine configuration/APIでreconcileする。自動`rotate-ca`をブラックボックスとして完了後にmaterialを回収せず、Pending bundleとTalosのobserved accepted/issuing CAから再開する。generation N+1でrotation対象外のetcd CA、service account keyなどを意図せず変更しない。正常完了を観測してから新generationへ切り替え、rotation中は新しいMachineのprovisioningとAdoptを開始しない。
+## Machine Configuration の合成パイプライン
 
-configurationは次の順序で決定的に合成する。
+Bootstrap Providerは、以下の順序で決定論的にmachine configurationを合成する。
 
 ```text
-cluster secret bundleとCAPI/Tartのcontextからbase configurationを生成
+cluster secret bundleとCAPI/Tartコンテキストからbase configurationを生成
         ↓
-user-owned Talos patchを適用
+user-owned Talos patchを適用（configSecretRef経由）
         ↓
-Provider-owned invariantを適用
+Provider-owned invariantを適用（上書き不可）
         ↓
-effective configurationをserializeし、digestを計算
+effective configurationをシリアライズし、SHA-256 digestを計算
 ```
 
-ユーザーはTalosのraw patchを通じてTartが個別にschema化していないTalos featureも利用できる。ただし、user patchがProvider-owned fieldへ触れた場合はProviderの値で黙って上書きせず、`Ready=False`と`Reason=ConfigurationConflict`にする。
-
-Provider-owned invariantは少なくとも次を含む。
-
+### Provider-Owned Invariants（保護対象）
+以下の項目はProviderが整合性を所有するため、user patchによって変更することはできない。user patchがこれらのfieldと競合した場合は上書きせず、`Ready=False`、`Reason=ConfigurationConflict` として安全停止する。
 - `TartCluster.spec.id`、Talos PKI、machine token
 - cluster endpoint
-- CAPI `Machine`から導出したmachine role
-- CAPI `Machine.spec.version`から導出したKubernetes version-managed field
-- Tartが生成したProviderID
-- `TartMachine.spec.talosImage`のinstaller image identity
+- CAPI Machineから導出されたmachine role（controlplane / worker）
+- CAPI Machineから導出されたKubernetes component version
+- Tartが生成したProviderID（`tart://host/<ID>`）
+- `TartMachine.spec.talosImage` のinstaller image identity
 
-「Talosの全機能を使えること」と「Providerが所有するidentityを任意にoverrideできること」は別である。Provider-owned fieldをuser patchで別値へ変更できると、CAPI desired state、Node identity、cluster secret、Talos configurationが矛盾するためである。
+※raw patchの動的合成エンジンの実装タスクは[実装タスク一覧 (タスク5)](tasks.md)を参照。
 
-## ProviderID bridge
+---
 
-ProviderIDはHost allocation後にimmutableな`TartHost.spec.id`から`tart://host/<TartHost.spec.id>`として決定し、Infrastructure ProviderとBootstrap Providerが同じ決定論的な関数で算出する。Host allocationとDiscovery bootはbootstrap dataを待たずにconsumerRef、ProviderID、inventoryを確立できるが、Talosへのconfiguration apply、install、provisioning用power操作はbootstrap dataが存在するまで開始しない。ProviderIDをKubernetes metadata UIDから分離することで、management cluster復元後も同じHost identityとProviderIDを維持する。
+## Talos Image と System Extension
 
-```text
-TartMachine.spec.providerID
-        ↓
-Bootstrap rendererのmachine.kubelet.extraArgs.provider-id
-        ↓
-kubelet --provider-id=<same value>
-        ↓
-Node.spec.providerID
-```
+- **正本の管理**: desired imageの正本は `TartMachine.spec.talosImage` の `{version, schematicID}` である。
+- **System Extension**: 必要なsystem extension（各種ドライバ、ツール等）はImage Factoryのschematicへ組み込み、BootstrapConfigのpatchと二重に所有しない。
+- **boot assetとinstaller**: PXE/ISOなどのboot assetとTalos installer imageには同じversionとschematicを使用する。
 
-Node `spec.providerID`、CAPI InfraMachine `spec.providerID`、TartMachineの値は完全一致させる。不一致を観測した場合はNodeやHostを別identityとして自動修復せず、`Ready=False`と`Reason=IdentityConflict`へ反映する。ProviderIDは`TartHost.spec.id`に結び付くため、Host bindingの変更、Host IDの変更、既存Nodeへの別Host割り当ては通常updateではなくIdentity変更である。
+---
 
-## Talos-native configuration
+## ストレージとボリュームの扱い
 
-ユーザー設定はTartが知っているsubsetへ制限せず、Talosのraw patchとして渡す。raw patchは全てimmutableなSecret-backed inputへ格納し、CRD Specへinline保存しない。Secretには非機密configurationを含めてもよい。次のような機能もTart専用fieldを作らず、Talos-native configurationで利用可能にする。
+- **Talos-native セマンティクス**: Tart独自のpartition DSLやdisk writerを作らず、Talosのsystem volume、user volume、raw volume、disk selector、encryption、installer diskの仕組みをそのまま利用する。
+- **安定したディスク識別子**: Linuxの `/dev/sda` や `/dev/nvme0n1` などのデバイス名は起動順序で変わり得る一時的な観測値とし、serial、WWID、model、transport、bus情報などのstable attributeを識別・セレクターの基盤とする。
+- **永続データの分離**: `EPHEMERAL` パーティションはOSアップグレードや再インストールで揮発し得るため永続データの保持先として扱わない。Longhorn、TopoLVM、アプリケーション永続データはUser VolumeまたはRaw Volumeへ明示的に分離する。
 
-- system volume、user volume、raw volume
-- disk selector、encryption、installer disk
-- kernel parameter、kernel module、mount
-- kubelet configuration、extra manifest
-- kube-proxy設定などTalosが提供するKubernetes設定
+---
 
-複数diskのOS、EPHEMERAL、IMAGECACHE、Longhorn、TopoLVM、application local storageなどの用途は、Talosが提供するvolumeとselectorの組み合わせで表現する。EPHEMERALは永続データの保持先として扱わず、Longhorn、TopoLVM、application dataなどの永続用途はUser VolumeまたはRaw Volumeへ明示的に分離する。Linuxの`/dev/sda`や`/dev/nvme0n1`をstable identityにせず、Tart独自のpartition DSLやdisk writerを作らない。
+## ハードウェア探索 (Hardware Discovery)
 
-## Talos imageとsystem extension
+- ユーザーにinstall前の `/dev/sda`、`/dev/nvme0n1`、NIC名、disk UUID等の事前調査を要求しない。
+- Bootstrap SecretなしのDiscovery bootにより、maintenance Talos APIからCPUアーキテクチャ、system UUID、NIC、アドレス、disk詳細を取得し、`TartHost.status.inventory` へ観測として保存する。
+- disk identityの重複を観測した場合は、関係するHostをallocationとconfiguration applyから除外する。
 
-desired imageの正本は`TartMachine.spec.talosImage`の`{version, schematicID}`である。system extension setはImage Factoryのschematicへ組み込み、BootstrapConfigのconfiguration patchと二重に所有しない。PXE/ISOなどのboot assetとTalos installer imageには同じversionとschematicを使う。
+---
 
-可変tagだけに依存せず、可能な範囲でdigestなど再現可能なartifact identityも観測・検証する。schematicやextension setの変更は別Machineの作成理由ではなく、Talos OS/imageのin-place upgrade理由として扱う。Talos image取得、boot asset生成、installerへのimage指定はTalos/Image Factoryへ委譲し、独自Tart image formatを導入しない。
+## Maintenance API の Trust Model
 
-## Hardware discoveryとstorage
-
-ユーザーにinstall前の`/dev/sda`、`/dev/nvme0n1`、NIC名、disk UUIDの調査を要求しない。Bootstrap SecretなしのDiscovery bootでmaintenance Talos APIからarchitecture、system UUID、NIC、address、disk model、serial、WWID、size、rotational、transport、bus情報、firmwareを取得し、`TartHost.status`へ観測として保存する。disk identityの重複を観測したら関係するHostをallocationとconfiguration applyから除外する。
-
-disk selectionの基本identityはserial、WWID、model、transport、size、rotational、busなどstable attributeとする。Linux device pathは一時的な観測値として扱う。TartはTalosのsystem volume、user volume、raw volume、disk selector、encryption、installer disk semanticsをそのまま利用する。
-
-## Maintenance APIのtrust model
-
-未構成Talosのmaintenance APIはTLSで暗号化されるが認証済みではない。self-signed certificateが使われ、client certificateがなく、clientもserverも相手のidentityを検証できない。machine configurationを送った後はauthenticated Talos APIの相互TLSへ移行する。
-
-したがってconfigurationをapplyする前に、次の情報を一つのboot attemptへ結び付ける。
+未構成（未インストール）のTalosが提供するmaintenance APIは、TLSで暗号化されているものの自己署名証明書であり、クライアント認証のない状態である。
+誤ったHostへのconfiguration適用や誤接続を防ぐため、configurationをapplyする前に以下の情報を単一のboot attemptへ結びつけて検証する。
 
 ```text
 expected TartHost
         ↔ boot attempt
         ↔ MAC / DHCP lease / network endpoint
-        ↔ observed system UUID and hardware inventory
-        ↔ maintenance endpoint fingerprint when available
+        ↔ 観測されたsystem UUIDおよびhardware inventory
 ```
 
-このbindingが曖昧、競合、または期待したHostと一致しない場合はconfigurationをapplyせず`Ready=False`、`Reason=IdentityConflict`にする。`TartHost.spec.talosEndpoint`は到達先のhintとして利用できるが、maintenance APIから観測した物理MACがclaimed Hostの`spec.macAddress`と一致することを確認してからconfigurationをapplyする。普通のPCでは初回に暗号学的なhardware identityを完全に証明できないため、provisioning network自体をtrusted infrastructureのsecurity boundaryとして扱うが、network trustだけでHostとendpointの論理的なbindingを省略しない。
+- claimed Hostの `spec.macAddress` とmaintenance APIから観測された物理MACが一致する場合のみconfigurationを適用する。
+- 曖昧さや不一致がある場合は適用を停止し、`Ready=False`、`Reason=IdentityConflict` を設定する。
+- configuration適用・再起動後は、相互TLSで保護された認証済みTalos APIへ移行する。
 
-## Installationとupgrade
+---
 
-Tartはblock deviceへimageを書き込まず、partition tableを編集せず、独自OS image format、A/B partition、boot trial、rollback partition managerを実装しない。Talos installerへeffective configurationを渡し、Talos upgrade APIとrollback機構へ委譲する。
+## Installation と Upgrade の委譲
 
-Talos APIのupgrade、configuration apply、shutdown、reboot、etcd member operationの結果を即座に成功とみなさず、次のreconcileでversion、reachability、configuration digest、health、etcd membershipを再取得する。Talos APIが判断できない差分はMachine replacementへfallbackせず、`Ready=False`と安全なreasonで停止する。desired versionより古いversionへrollbackされた場合はdesired Specを戻さず、`UpdateMachine`を`Failure`、`Reason=RolledBack`として後続のControl Plane updateを停止する。
+- **OSインストール**: Tart自身はブロックデバイスへのimage書き込みやパーティション分割を行わず、Talos installerへconfigurationを渡して委譲する。
+- **In-place Upgrade**: Talos upgrade APIを呼び出してOSアップデートを行う。Talosが古いバージョンへロールバックした場合はdesired Specを追従させず、`UpdateMachine` を `Failure`、`Reason=RolledBack` として安全停止する。
+- **Kubernetes Upgrade**: Talosのcluster-wide `upgrade-k8s` を利用する。古いconfigurationの再applyによってKubernetesコンポーネントがダウングレードされないよう、CAPI desired versionを常に反映する。
 
-Talosの`upgrade-k8s`がlive machine configuration内のKubernetes component image versionを書き換えるため、古いfull configurationを後から再applyしてdowngradeを発生させてはならない。rendererは常にcurrent CAPI `Machine.spec.version`をversion-managed fieldへ反映し、generic user patchから分離する。
+---
 
-## API adapter
+## Kubernetes Add-on との境界
 
-`talos` packageはTalos client、context、credential、gRPC option、maintenance/authenticated modeをcontrollerから隠す。controllerが必要とする観測はReachable、Architecture、SystemUUID、Version、SchematicID、Addresses、Disks、ConfigurationDigest、Healthy、ShutdownConfirmedなどの小さな型へ変換する。Schematic IDは必要に応じてTalosのvirtual `schematic` extension（`talosctl get extensions`）から観測する。
+- Cilium、Longhorn、TopoLVM、kube-vip、CoreDNS customization、metrics-server、ingress、observability stackなどをTart専用のAPIとしてリポジトリ内に組み込まない。
+- 必要なTalos設定はBootstrapConfigのraw patchまたはimage schematicで指定し、Kubernetesリソースの配布はClusterResourceSet、Addon Provider、GitOpsなどへ委譲する。
 
-操作はApplyConfiguration、Upgrade、UpgradeKubernetes、Bootstrap、Shutdown、必要なetcd member operationに限定する。operationの送信事実をStatusへ保存せず、外部観測から未開始・実行中・完了済み・失敗を判断できるようにする。
+---
 
-configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化し、secret-bearing valueをredaction markerへ置換したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。更新安全性はStatus digestではなく、old/new Secretを解決したsemantic diffで判定する。digestはsecret値を再現できない形だけをStatusへ公開する。
+## API アダプター境界 (`talos` パッケージ)
 
-configuration applyやOS upgradeがrebootを要求する場合、Update Extensionは先にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainを試す。drain失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合はgraceful shutdown/rebootを許可し、未指定または`false`ならavailability理由でも安全停止する。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは`allowDowntime`で緩和しない。具体的な強制drain flagをAPI contractへ固定しない。
-
-## Bootとpower
-
-`boot`はHost identityを受けてmaintenance environmentへ到達させる最小のbackend境界である。Wake-on-LAN、BMC/Redfish、VM API、manual、external network bootを追加できるが、PXE、DHCP、TFTP、iPXEの具体方式をTartのCRDやdomain modelへ固定しない。自動Reprovisionを提供するbackendは、installed OSからmaintenance environmentへ戻すboot strategyを持つことをcapabilityとして宣言する。Fresh machineのnetwork bootだけではReprovisionを自動許可しない。
-
-初期boot assetはsecret-freeとする。boot authorization/correlation identityはprocess memoryやOperation CRDへ置かず、対象TartHost、consumerRef、`TartHost.spec.id`、TartMachine UID、desired image identityから決定的に再構成できるResource metadataと観測値で管理する。同じboot要求を再concileしても、対象Hostが変わったり異なるendpointへconfigurationを送ったりしない。power onの成功はTalos起動やinstallation完了を意味しないため、Talos endpoint、identity、inventory、authenticated API、healthを観測してからProvisionedへ進める。
-
-## Kubernetes add-on
-
-Cilium、Longhorn、TopoLVM、kube-vip、CoreDNS customization、metrics-server、ingress、observability stackをTartの専用APIへ組み込まない。必要なTalos configurationはBootstrapConfigのraw patchまたはTalos image schematicで指定し、Kubernetes Resourceの配布はClusterResourceSet、Addon Provider、GitOpsなどへ委譲する。
+[`talos/`](../../talos) パッケージは、Talos gRPCクライアント、認証情報、maintenance/authenticatedモードの切り替えをカプセル化する。
+コントローラーはTalosの内部gRPC型に直接依存せず、アダプターが提供する小さなドメイン観測型（Reachable, Version, Healthy, Disks等）を通じて状態を判断する。
+安全な接続判定ロジックのタスクは[実装タスク一覧 (タスク4)](tasks.md)を参照。

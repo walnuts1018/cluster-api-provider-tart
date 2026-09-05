@@ -1,99 +1,74 @@
-# 設計判断と完成条件
+# 設計判断と非目標
 
-この文書は、Tartを一度に新実装へ置き換えるために確定した判断と、実用可能とみなす境界をまとめる。過去実装との互換性を維持するための制約はない。
+この文書は、Tartにおいて確定した設計判断の根拠（ADR的背景）、非目標（作らないもの）、および完成条件をまとめる。過去実装（旧v1beta1）との互換性を維持するための制約は存在しない。
 
-## 採用する判断
+---
 
-1. Tart独自APIは`v1alpha1`へリセットする。Infrastructure、Bootstrap、Control PlaneのAPI groupは`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io`へ分ける。
-2. CAPI coreの現行`v1beta2` contractへ適合し、CAPIの標準lifecycle、Conditions、references、ClusterClass、Runtime Extensionを利用する。
-3. Talosのinstaller、configuration、storage、upgrade、rollback、etcd bootstrapを再実装しない。
-4. HostはMachineより長寿命のcluster-scoped inventoryとし、Kubernetes metadata UIDから独立したimmutableな`TartHost.spec.id`を持つ。Workload clusterの永続identityにはCAPI `Cluster.metadata.uid`ではなくimmutableな`TartCluster.spec.id`を使う。MAC address、system UUIDなどのstable identityが重複した場合は関係するHostを`Ready=False`、`Reason=IdentityConflict`としてallocationとmaintenance configuration applyを停止する。controller-managedな`TartHost.spec.consumerRef`でclaimをatomic CASにより排他管理する。Machine削除時は`spec.retainedFrom`へ直前のconsumer UIDとcluster IDを残し、freshなHostとretained Hostを再起動後も区別する。`Status`は観測だけを持つ。
-4の補足: `TartHost.spec.id`と`TartCluster.spec.id`はTemplateやSSA dry-runのdefaultingで生成せず、通常CREATEでは空値をconcrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化する。通常CREATEで指定されたIDは拒否し、DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ既存値を保持する。ID確定前にbundle生成、Host claim、provisioningを開始しない。同名Clusterの再作成では新しいCluster IDを使う。
-5. `Retained` Hostは`Available`へ自動復帰させない。現在の`retainedFrom`に一致する`reuseApproval`、`reusePolicy: Reusable`、`reuseMode: Adopt|Reprovision`が明示された場合だけ`Reusable`にし、`Adopt`とdata破棄を伴う`Reprovision`を別のlifecycleとして扱う。
-6. Machine deletionのdrainとvolume detachはCAPI Machine controller、scale-down時のetcd detachはControl Plane Providerのpre-terminate delete hook、Talos shutdownと停止確認・retention・claim処理はTartMachine finalizerが担当する。Cluster全体の削除ではetcd quorum維持を必須にしない。node-disruptive updateではdrainを試し、失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合はgraceful shutdown/rebootを許可する。未指定または`false`ならavailability理由でも停止し、destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。cluster secret bundleはCluster IDを含むgeneration単位でimmutableにし、generation Nを基にrotation対象のCAだけを更新した完全なgeneration N+1を`Pending`として先に永続化する。自動`rotate-ca`をブラックボックスとして扱わず、Talos公式のaccepted/issuing CAとcertificate refreshのsemanticsをmachine configuration/APIでreconcileし、正常完了後にactive generationを切り替える。rotation対象外のetcd CA、service account keyなどは変更しない。Cluster存続中は過去generationをGCせず、bundle消失後のRetained Hostは`Adopt`不可、`Reprovision`専用とする。
-7. Tart-managed Machineはlocal stateの有無を判定せず、MHCのdelete-and-recreate remediationを既定で許可しない。初期運用はMachineSetまたはControl PlaneのMachine templateへMachine生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
-8. ProviderIDはHost allocation後に`TartHost.spec.id`から`tart://host/<TartHost.spec.id>`として決定し、Infrastructure ProviderとBootstrap Providerで同じ決定論的な生成規則を共有する。Host allocationとDiscovery bootはbootstrap dataを待たず、Talos provisioningだけがbootstrap dataを待つ。Kubernetes objectを復元してmetadata UIDが変わってもProviderIDを変えない。
-9. in-place updateできない変更はMachine replacementへ暗黙にfallbackせず、`Ready=False`と安全なreasonによる明示的な安全停止にする。`CanUpdateMachineSet`/`CanUpdateMachine`はold/new双方の`configSecretRef`をresolveしてeffective configurationをrenderし、Secret参照名ではなくdesired diff全体をcoverできる安全な差分だけを`Success`と完全なpatchで返す。missing、unreadable、generation不明を含むunsafe、unknown、partial diffはpatchなしの`Failure`とする。
-10. 初回provisioning後のmutableなTalos OS/config変更を実行できるのはUpdate Extensionだけとし、Infrastructure/Bootstrapの通常reconcileは観測とStatus反映だけを行う。Control Plane Providerは`CanUpdateMachine`成功後にMachine、InfraMachine、BootstrapConfigをannotation付きで更新し、Machineへ`UpdateMachine` hook pendingを設定する。
-11. Talos configurationの全機能をraw patchで利用可能にするが、ユーザーのraw patchは全てimmutable Secret-backed inputから読み込み、CRD Specへinline保存しない。Provider-owned invariantとの競合は黙って上書きせず`Ready=False`、`Reason=ConfigurationConflict`にする。
-12. cluster-level Talos/Kubernetes secret bundleは`TartCluster.spec.id`を含むgeneration単位でimmutableに生成し、active generationの観測を`TartCluster.status.activeSecretGeneration`へ反映する。CA rotationはgeneration Nを基にrotation対象のCAだけを更新した完全なgeneration N+1を`Pending`として先に永続化し、Talos公式のaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除のsemanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`を完了後のmaterial回収として扱わず、Pending bundleとobserved stateから再開する。rotation対象外のetcd CA、service account keyなどは変更しない。正常完了を観測してから新generationをactiveに確定し、Cluster存続中は過去generationをGCしない。Bootstrap Providerはread-onlyで参照し、Bootstrap Secretとworkload kubeconfigはCAPIのSecret contractに従う。
-13. `TartMachine.spec.talosImage`の`{version, schematicID}`をTalos imageとsystem extensionの単一の正本にする。boot assetとinstaller imageには同じschematicを使う。
-14. Kubernetes desired versionはCAPI `Machine.spec.version`とControl Plane resourceを正本とし、BootstrapConfigへ重複させない。Talosのcluster-wide `upgrade-k8s`とCAPI worker version propagationを、Topology managedとdirectly managedの両方で明示的な収束規則に接続する。
-15. Resource Statusはobserved stateとConditionsだけを持ち、Operationやworkflowのprogram counterを保存しない。
-16. `internal`と`pkg`を作らない。
-17. Go testを全面禁止せず、実装と同時に破壊的な判断、外部contract、controller再起動後の再計算を検証する最小限のtable test、fuzz test、契約テストを追加する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
+## 主な設計判断
 
-## Rolloutの標準方針
+1. **Talos Linux専用設計**:
+   - Kubeadm、Ubuntu、汎用OSプロビジョニングフレームワークへの互換層は作らない。
+   - Talos公式のOSインストーラ、machine configuration、storage、upgrade、rollback、etcd bootstrapへ全面的に委譲する。
+2. **Provider API groupの分割**:
+   - CAPIの責務分割に合わせ、`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io` へ分離して `v1alpha1` へリセットする。
+3. **長寿命Host Inventoryと永続Identity**:
+   - `TartHost` はmanagement cluster全体で一意なcluster-scoped inventoryとし、Kubernetes metadata UIDから独立したimmutableな `spec.id` を持つ。
+   - workload clusterの永続identityとして、CAPI metadata UIDとは独立した `TartCluster.spec.id` を持つ。
+   - ProviderIDは `TartHost.spec.id` から決定論的に生成する（`tart://host/<TartHost.spec.id>`）。
+4. **In-place Updateの優先とFail-Closed安全停止**:
+   - CAPI Machineを使い捨てと仮定せず、同一Machine/Host/Disk上での更新を第一選択とする。
+   - 安全にin-place updateできない変更をMachine replacementへ暗黙にフォールバックせず、`Ready=False` で安全停止する。
+5. **Host Retentionとデータ保護**:
+   - Machine削除後もHostは `Retained` として保持され、明示的な再利用承認（`Adopt` または `Reprovision`）なしに自動割り当てされない。
+   - MHCのdelete-and-recreate remediationを既定で抑止するため、Machine生成前から `cluster.x-k8s.io/skip-remediation: "true"` を設定する。
+6. **Immutable Secret Input**:
+   - ユーザーのraw patchは全て `configSecretRef` のimmutableなSecretから読み込み、CRD Specへのinline保存を行わない。
+7. **Stateless Reconcile**:
+   - Resource Statusは外部から観測された状態とConditionsのみを保持し、workflowのステップ番号やプログラムカウンタとして利用しない。
 
-Workerの対応するCAPI `RollingUpdate`設定では`maxSurge: 0`、`maxUnavailable: 1`を標準profileとする。`OnDelete` strategyは自動worker in-place update lifecycleとしてサポートしない。これはCAPIのrollout controllerを置き換えるものではなく、追加Hostなしに既存Machineを一台ずつin-place updateするための推奨設定である。`maxUnavailable: 0`ではCAPIがbufferのためsurge Machineを作成し得るため、local persistent Hostを守る既定値にしない。Control Planeのin-place updateはTartControlPlaneが一台ずつに固定する。drain失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されていればgraceful shutdown/rebootを許容し、未指定または`false`ならavailability理由でも安全停止する。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。
+各仕様の詳細は、[アーキテクチャ](architecture.md)、[API contract](api-contract.md)、[Machine lifecycle](lifecycle.md)を参照すること。
 
-## Kubernetes upgradeの収束
+---
 
-Topology managed clusterではCAPI upgrade planのcontrol-plane/worker stepとversion skewが目標versionに整合していれば、現在のworker desired versionが旧versionでもTalos `upgrade-k8s`を開始できる。directly managed clusterでは`TartControlPlane.spec.version`の変更をtriggerにし、worker desired versionが目標versionと矛盾する場合だけ開始前に`Ready=False`、`Reason=VersionSkew`にする。Talos `upgrade-k8s`はcluster-wide operationなのでMachineDeploymentの`maxUnavailable`でavailability sequencingを制御しない。開始後はcluster単位で一度だけ要求し、API server、全Nodeのkubelet、control plane actual versionが目標versionへ収束したことを観測してからControl Planeの`status.versions`を更新する。Topologyではその後CAPIがworkerの`Machine.spec.version`を伝播させ、directly managedでは利用者がworker desired versionを更新する。workerはactual versionが既に目標versionなら重複upgradeなしで完了する。
+## 運用境界と特殊ケースの判断
 
-full machine configurationの再applyで古いKubernetes component imageへdowngradeしないよう、CAPI versionから導出するversion-managed fieldをgeneric user patchから分離する。
+### 1. `clusterctl move` の非サポート
+- `clusterctl move` によるclaimedな `TartHost` の他management clusterへの移動は、Tart v1alpha1の対応範囲外とする。
+- `TartHost` はCAPI Machineに所有されない長寿命インベントリであり、物理データ、consumer binding、Talos認証情報の自動移動・再接続契約が別途必要なためである。
+- management clusterの復元には、`TartHost.spec.id`、CAPI Resource、consumer/retention binding、全secret bundle generation、電源設定を同一整合点からバックアップ・復元するDR手順を用いる。
 
-## 作らないもの
+### 2. `cluster.x-k8s.io/paused` への対応
+- ClusterまたはProvider resourceに `cluster.x-k8s.io/paused` が付与された場合、コントローラーは外部副作用を即座に停止し、既存のHost claim、Retained記録、Talosインストール、データをそのまま維持する。
+- pause解除後は、外部観測状態から安全にreconcileを再開する。pauseをshutdownやrelease、cleanの指示として解釈しない。
+
+### 3. Control Plane Endpoint VIPの非所有
+- Tart自身はVIPの割り当て（IPAM）やkube-vip等の管理を行わない。
+- 利用者、外部IPAM、または他Providerが設定する `Cluster.spec.controlPlaneEndpoint` をそのまま利用し、未設定の場合は設定されるまでreconcileを進めない。
+
+### 4. 将来拡張における早期抽象化の回避
+- Proxmox VM、ARM64、Raspberry Pi、Secure Boot、TPM、アテステーション等の拡張性を考慮した責務境界を維持するが、具体的ユースケースが確立するまで共通の巨大な抽象化インターフェースを作らない。物理HostとVMの差を不必要な単一インターフェースで隠蔽しない。
+
+---
+
+## 作らないもの（非目標）
+
+以下のコンポーネントや仕組みは、Tartの責務外であり作成しない。
 
 ```text
 TartHostOperation
 Operation CRD
-Workflow engine
+Workflow engine / Step executor
 Provisioning Plan
 独自Provisioning Agent / Node Lifecycle Agent
 独自OS image format / disk writer / partition DSL
 独自A/B updater / rollback manager
-Cilium / Longhorn / TopoLVM / kube-vip専用API
+Cilium / Longhorn / TopoLVM / kube-vip等のadd-on専用API
 ```
 
-DHCP、TFTP、PXE、BMC、VM APIは必要なbackendとして統合できるが、TartのResource semanticsやTalos domain modelの中心へ固定しない。
+- DHCP、TFTP、PXE、BMC、VM APIは必要に応じてアダプターとして統合できるが、TartのResource modelの中心へ固定しない。
 
-## Cluster移動とpause
+---
 
-`clusterctl move`でclaimedな`TartHost`を別management clusterへ移動することは、Tart v1alpha1の対応範囲外とする。`TartHost`はCAPI Machineにownerされない長寿命inventoryであり、Hostの物理data、consumer binding、Talos credentialsを自動移動・再接続する契約が別途必要なためである。代わりにmanagement cluster DRでは`TartHost.spec.id`、CAPI Resource、consumer/retention binding、全secret bundle generation、power/boot設定を同じ整合点からバックアップし、復元後にobserved stateを再確認する。対応していない移動は事前に`Ready=False`と安全なreasonで報告し、Host claimを解除して移動を成立させるfallbackを行わない。
+## 完成条件と未実装タスク
 
-`cluster.x-k8s.io/paused`がClusterまたは対象provider resourceに設定された場合、Tart controllerは外部副作用を開始せず、既存のHost claim、Retained記録、Talos installation、dataをそのまま保持する。pause解除後はKubernetes、Host、Talosのobserved stateからreconcileを再開する。pauseをshutdown、release、cleanの指示として解釈しない。
-
-Control plane endpointはTartがVIPをallocateせず、利用者、IPAM、または別Infrastructure ProviderがCAPI `Cluster.spec.controlPlaneEndpoint`へ設定する。TartControlPlaneはendpointが設定されるまでreconcileを進めず、kube-vipなどの実装を専用APIとして所有しない。
-
-対応versionはTart releaseごとにCAPI minor、Talos minor、Kubernetes version rangeのtested matrixを公開する。Runtime SDKとInPlaceUpdatesがexperimentalな間は、matrixにない組み合わせでin-place updateを安全とみなさず、明示的な`UnsupportedVersionCombination`として拒否する。`latest`同士を暗黙に対応範囲へ含めない。
-
-## 将来拡張
-
-Proxmox VM、ARM64、Raspberry Pi、Secure Boot、TPM、attestationを追加できるよう、Host lifecycleの責務境界とTalos image選択の境界を維持する。ただし、現在必要な複数の具体的ユースケースが確認できるまで共通抽象化を作らない。物理HostとVMの差を一つの巨大なinterfaceで隠さない。
-
-## 完成条件
-
-実用可能な最初の実装は、次の受け入れ確認を満たす。
-
-### Enrollment / Discovery
-
-Hostをsecret-freeなmaintenance Talosで起動し、disk UUIDやLinux device pathを事前入力せずhardware inventory、stable identity、disk selectorを`TartHost.status`へ反映する。Discovery bootはBootstrap Secretを待たず、machine configuration applyとinstallはBootstrap Secretを待つ。
-
-### Fresh machine
-
-最小限のHost登録とCAPI Resource作成から、maintenance Talos boot、Hostとのidentity binding、hardware discovery、configuration delivery、Talos installation、authenticated API recovery、Cluster Readyまで進む。install前にdisk UUIDやLinux device pathを要求しない。
-
-### Single node
-
-1 control plane Machineを作成し、Talos OSとKubernetesを同じMachine、Host、diskのまま更新できる。rebootを伴うupdateではTalosの安全なdrainまたはworkload cluster側のcordon/drainを試す。drain失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されていればgraceful shutdown/rebootを許可し、未指定または`false`なら開始しない。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。Machine delete、Host clean、recreateへfallbackせず、Machine削除時には停止確認後に`Retained`となる。
-
-### HAとworker
-
-複数control planeの作成、quorumを守るscale up/down、一台ずつのTalos update、MachineDeploymentからのworker作成、既存Machineを保持したworker updateを確認する。`Machine.spec.failureDomain`を設定した場合は対応するfailure domainのHostへ割り当てられる。
-
-### Storageとadd-on
-
-複数diskについてTalos-native selector、volume、encryptionを利用できる。永続データはUser VolumeまたはRaw Volumeへ配置し、EPHEMERALを保持性の証拠や永続用途として扱わない。Cilium、Longhorn、TopoLVM、kube-vipをTart専用APIなしでTalos configurationとKubernetes manifestから利用できる。
-
-### Recoveryとsafety
-
-provisioning、reboot、upgrade、bootstrap API call直後にcontroller-managerを再起動してもResourceを手動修復せずreconcileが継続する。通常updateでMachine replacement、Host cleaning、disk wipeが起きず、unsafe change、identity mismatch、停止未確認のdeletionが副作用なしで`Ready=False`と安全なreasonになる。drain失敗がavailability、PDB、capacityだけの場合は`allowDowntime: true`でgraceful shutdown/rebootを許容し、それ以外のdata、identity、etcd、quorum安全性は緩和しない。Talos rollback後はdesiredを自動修正せず後続Control Plane updateを停止する。storage E2Eでは永続volume上のsentinel payloadを更新前後で検証する。
-
-### Contract
-
-Bootstrap Secret、Secret-backed raw configuration、Cluster ID付きgeneration単位のcluster secret bundleとTalos CA rotation、workload kubeconfig、ProviderIDとNodeの一致、`controlPlaneInitialized`とNode Readyの分離、ResourceごとのCondition、ClusterClass SSA dry-run、Runtime ExtensionのTLS接続を受け入れ確認する。
-
-## 現在のテスト方針
-
-Go testは、Host claim race、`Retained` Hostの自動allocation防止、unsafe diffのreplacement防止、reuse approval世代不一致、quorum判定、configuration invariant conflict、semantic digest、Bootstrap Secret contract、bootstrap idempotencyなど、失敗時の影響が大きい境界へ限定する。実機依存のTalos、storage、reboot、rollback、drain、CAPI minorごとのreplacement不発はE2Eで補完する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
+実用可能なプロバイダーとしての完成条件、および現在残っている未実装・仮実装機能の詳細な要件は、[実装タスク一覧](tasks.md)および[検証方針](verification.md)を参照すること。

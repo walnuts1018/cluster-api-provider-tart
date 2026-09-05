@@ -20,6 +20,7 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/boot"
 	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -97,14 +98,14 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
 	}
 
-	if selected.Spec.HostID == "" {
+	if selected.Spec.HostID.IsZero() {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
 	providerID, err := host.ProviderID(selected.Spec.HostID)
 	if err != nil {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
-	if machine.Spec.ProviderID != "" && machine.Spec.ProviderID != providerID {
+	if !machine.Spec.ProviderID.IsZero() && machine.Spec.ProviderID != providerID {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The existing ProviderID does not match the allocated TartHost identity.")
 	}
 
@@ -122,7 +123,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if machine.Spec.ProviderID == "" {
+	if machine.Spec.ProviderID.IsZero() {
 		original := machine.DeepCopy()
 		machine.Spec.ProviderID = providerID
 		if err := r.Patch(ctx, &machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
@@ -163,7 +164,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return r.reconcileTalos(ctx, &machine, selected, configuration)
 }
 
-func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID string) error {
+func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID hostdomain.ProviderID) error {
 	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if errors.Is(err, errCAPIMachineIdentityMismatch) {
 		return errCAPIProviderIDMismatch
@@ -175,13 +176,13 @@ func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine 
 		return err
 	}
 	if clusterMachine.Spec.ProviderID != "" {
-		if clusterMachine.Spec.ProviderID != providerID {
+		if clusterMachine.Spec.ProviderID != providerID.String() {
 			return errCAPIProviderIDMismatch
 		}
 		return nil
 	}
 	original := clusterMachine.DeepCopy()
-	clusterMachine.Spec.ProviderID = providerID
+	clusterMachine.Spec.ProviderID = providerID.String()
 	return r.Patch(ctx, clusterMachine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
@@ -344,7 +345,7 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 			"ConfigurationInvalid", "The desired Talos installer image could not be applied to the machine configuration.",
 			talosRequeue)
 	}
-	effectiveConfiguration, err = talos.SetProviderID(effectiveConfiguration, machine.Spec.ProviderID)
+	effectiveConfiguration, err = talos.SetProviderID(effectiveConfiguration, machine.Spec.ProviderID.String())
 	if err != nil {
 		reason := "ConfigurationInvalid"
 		message := "The Talos machine configuration could not be prepared with the allocated ProviderID."
@@ -385,7 +386,7 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 }
 
 func hostTalosEndpoint(host *infrav1alpha1.TartHost) string {
-	if endpoint := strings.TrimSpace(host.Spec.TalosAPIAddress); endpoint != "" {
+	if endpoint := host.Spec.TalosAPIAddress.String(); endpoint != "" {
 		return endpoint
 	}
 	for _, addressType := range []clusterv1.MachineAddressType{clusterv1.MachineInternalIP, clusterv1.MachineExternalIP, clusterv1.MachineHostName} {
@@ -402,7 +403,10 @@ func powerOnHost(ctx context.Context, host *infrav1alpha1.TartHost) error {
 	if host.Spec.Power.Backend != infrav1alpha1.PowerBackendWakeOnLAN || host.Spec.Power.WakeOnLAN == nil {
 		return fmt.Errorf("host power backend %q cannot power on through the normal path", host.Spec.Power.Backend)
 	}
-	backend := boot.NewWakeOnLAN(host.Spec.MACAddress, host.Spec.Power.WakeOnLAN.BroadcastAddress)
+	backend, err := boot.NewWakeOnLAN(host.Spec.MACAddress, host.Spec.Power.WakeOnLAN.BroadcastAddress)
+	if err != nil {
+		return err
+	}
 	return backend.PowerOn(ctx)
 }
 

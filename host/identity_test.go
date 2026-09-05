@@ -7,6 +7,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
 func TestProviderID(t *testing.T) {
@@ -26,18 +28,23 @@ func TestProviderID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := ProviderID(tt.id)
 			if tt.err {
+				_, err := ProviderID(hostdomain.HostID{})
 				if !errors.Is(err, ErrInvalidHostID) {
 					t.Fatalf("ProviderID() error = %v, want ErrInvalidHostID", err)
 				}
 				return
 			}
+			id, parseErr := hostdomain.ParseHostID(tt.id)
+			if parseErr != nil {
+				t.Fatalf("ParseHostID() error = %v", parseErr)
+			}
+			got, err := ProviderID(id)
 			if err != nil {
 				t.Fatalf("ProviderID() error = %v", err)
 			}
-			if got != tt.want {
-				t.Errorf("ProviderID() = %q, want %q", got, tt.want)
+			if got.String() != tt.want {
+				t.Errorf("ProviderID() = %q, want %q", got.String(), tt.want)
 			}
 		})
 	}
@@ -49,16 +56,15 @@ func TestHasIdentityConflict(t *testing.T) {
 	base := infrav1alpha1.TartHost{
 		Name: "host-a",
 		UID:  types.UID("a"),
-		Spec: infrav1alpha1.TartHostSpec{MACAddress: "AA:BB:CC:DD:EE:FF"},
+		Spec: infrav1alpha1.TartHostSpec{MACAddress: mustMACAddress(t, "00:00:5e:00:53:02")},
 	}
 	tests := []struct {
 		name  string
 		other infrav1alpha1.TartHost
 		want  bool
 	}{
-		{name: "同じMACは競合", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "aa:bb:cc:dd:ee:ff"}}, want: true},
-		{name: "MACの区切り文字が異なっても競合", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "aa-bb-cc-dd-ee-ff"}}, want: true},
-		{name: "異なるMACは競合しない", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "00:11:22:33:44:55"}}, want: false},
+		{name: "同じMACは競合", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: mustMACAddress(t, "00-00-5E-00-53-02")}}, want: true},
+		{name: "異なるMACは競合しない", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: mustMACAddress(t, "00:00:5e:00:53:03")}}, want: false},
 		{name: "空のMACは競合しない", other: infrav1alpha1.TartHost{Name: "host-b"}, want: false},
 	}
 
@@ -70,4 +76,13 @@ func TestHasIdentityConflict(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustMACAddress(t *testing.T, value string) network.MACAddress {
+	t.Helper()
+	address, err := network.ParseMACAddress(value)
+	if err != nil {
+		t.Fatalf("ParseMACAddress() error = %v", err)
+	}
+	return address
 }

@@ -15,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
 func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
@@ -28,8 +30,8 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 		Name: "host-a",
 		UID:  types.UID("host-a"),
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
-			MACAddress: "02:00:00:00:00:01",
+			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
 	machine := &infrav1alpha1.TartMachine{
@@ -60,8 +62,8 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 	if err := fakeClient.Get(t.Context(), client.ObjectKey{Namespace: machine.Namespace, Name: machine.Name}, observed); err != nil {
 		t.Fatalf("Get(TartMachine) error = %v", err)
 	}
-	if observed.Spec.ProviderID != "tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789abc" {
-		t.Errorf("ProviderID = %q, want deterministic Host-based value", observed.Spec.ProviderID)
+	if observed.Spec.ProviderID.String() != "tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789abc" {
+		t.Errorf("ProviderID = %q, want deterministic Host-based value", observed.Spec.ProviderID.String())
 	}
 	if observed.Status.HostRef == nil || observed.Status.HostRef.Name != host.Name {
 		t.Errorf("status.hostRef = %#v, want %q", observed.Status.HostRef, host.Name)
@@ -78,8 +80,8 @@ func TestTartMachineReconcilerDoesNotMutatePausedMachine(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
-			MACAddress: "02:00:00:00:00:01",
+			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
 	machine := &infrav1alpha1.TartMachine{
@@ -112,7 +114,7 @@ func TestTartMachineReconcilerDoesNotMutatePausedMachine(t *testing.T) {
 	if len(observed.Finalizers) != 0 {
 		t.Errorf("paused Machine finalizers = %v, want none", observed.Finalizers)
 	}
-	if observed.Spec.ProviderID != "" {
+	if !observed.Spec.ProviderID.IsZero() {
 		t.Errorf("paused Machine ProviderID = %q, want empty", observed.Spec.ProviderID)
 	}
 }
@@ -127,8 +129,8 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
-			MACAddress: "02:00:00:00:00:01",
+			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
 	machine := &infrav1alpha1.TartMachine{
@@ -136,7 +138,7 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 		Name:      "machine-a",
 		UID:       types.UID("machine-a"),
 		Spec: infrav1alpha1.TartMachineSpec{
-			ProviderID: "tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789def",
+			ProviderID: mustProviderID(t, "tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789def"),
 			Image:      infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
@@ -185,7 +187,7 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID: "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
+			HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
 				Kind:       tartMachineKind,
@@ -217,4 +219,31 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	if condition == nil || condition.Reason != infrav1alpha1.ReasonShutdownUnconfirmed {
 		t.Fatalf("Ready condition = %#v, want ShutdownUnconfirmed", condition)
 	}
+}
+
+func mustHostID(t *testing.T, value string) hostdomain.HostID {
+	t.Helper()
+	id, err := hostdomain.ParseHostID(value)
+	if err != nil {
+		t.Fatalf("ParseHostID() error = %v", err)
+	}
+	return id
+}
+
+func mustMACAddress(t *testing.T, value string) network.MACAddress {
+	t.Helper()
+	address, err := network.ParseMACAddress(value)
+	if err != nil {
+		t.Fatalf("ParseMACAddress() error = %v", err)
+	}
+	return address
+}
+
+func mustProviderID(t *testing.T, value string) hostdomain.ProviderID {
+	t.Helper()
+	providerID, err := hostdomain.ParseProviderID(value)
+	if err != nil {
+		t.Fatalf("ParseProviderID() error = %v", err)
+	}
+	return providerID
 }

@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 )
 
 func TestBundleNameAndPendingSecret(t *testing.T) {
@@ -23,7 +24,8 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 		UID:        types.UID("control-plane-uid"),
 	}
 	data := map[string][]byte{"talos.ca": []byte("ca"), "kubernetes.ca": []byte("kube-ca")}
-	secret, err := BuildPendingSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, owner, data)
+	clusterID := mustClusterID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc")
+	secret, err := BuildPendingSecret("cluster-a", "cluster-a", clusterID, 2, owner, data)
 	if err != nil {
 		t.Fatalf("BuildPendingSecret() error = %v", err)
 	}
@@ -36,7 +38,7 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 	if secret.Labels[BundleStateLabel] != BundleStatePending {
 		t.Errorf("bundle state = %q, want %q", secret.Labels[BundleStateLabel], BundleStatePending)
 	}
-	active, err := BuildActiveSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, owner, data)
+	active, err := BuildActiveSecret("cluster-a", "cluster-a", clusterID, 2, owner, data)
 	if err != nil {
 		t.Fatalf("BuildActiveSecret() error = %v", err)
 	}
@@ -45,7 +47,7 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 	}
 	wrongOwner := owner
 	wrongOwner.Kind = "TartControlPlane"
-	if _, err := BuildPendingSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, wrongOwner, data); !errors.Is(err, ErrBundleOwnerInvalid) {
+	if _, err := BuildPendingSecret("cluster-a", "cluster-a", clusterID, 2, wrongOwner, data); !errors.Is(err, ErrBundleOwnerInvalid) {
 		t.Fatalf("BuildPendingSecret() error = %v, want ErrBundleOwnerInvalid", err)
 	}
 	data["talos.ca"][0] = 'X'
@@ -114,12 +116,13 @@ func TestValidateBundleSecretContract(t *testing.T) {
 		Name:       "cluster-a",
 		UID:        types.UID("cluster-uid"),
 	}
-	secret, err := BuildPendingSecret("ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, owner, map[string][]byte{"talos.ca": []byte("ca")})
+	clusterID := mustClusterID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc")
+	secret, err := BuildPendingSecret("ns", "cluster-a", clusterID, 2, owner, map[string][]byte{"talos.ca": []byte("ca")})
 	if err != nil {
 		t.Fatalf("BuildPendingSecret() error = %v", err)
 	}
 
-	if err := ValidateBundleSecretContract(secret, "ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, BundleStatePending, owner.UID); err != nil {
+	if err := ValidateBundleSecretContract(secret, "ns", "cluster-a", clusterID, 2, BundleStatePending, owner.UID); err != nil {
 		t.Fatalf("ValidateBundleSecretContract() error = %v", err)
 	}
 
@@ -143,7 +146,7 @@ func TestValidateBundleSecretContract(t *testing.T) {
 
 			invalid := secret.DeepCopy()
 			mutate(invalid)
-			if err := ValidateBundleSecretContract(invalid, "ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, BundleStatePending, owner.UID); !errors.Is(err, ErrBundleSecretInvalid) {
+			if err := ValidateBundleSecretContract(invalid, "ns", "cluster-a", clusterID, 2, BundleStatePending, owner.UID); !errors.Is(err, ErrBundleSecretInvalid) {
 				t.Fatalf("ValidateBundleSecretContract() error = %v, want ErrBundleSecretInvalid", err)
 			}
 		})
@@ -154,7 +157,16 @@ func TestBundleNameRejectsNameThatExceedsDNSLimit(t *testing.T) {
 	t.Parallel()
 
 	clusterName := strings.Repeat("a", 240)
-	if _, err := BundleName(clusterName, "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 1); !errors.Is(err, ErrInvalidClusterIdentity) {
+	if _, err := BundleName(clusterName, mustClusterID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"), 1); !errors.Is(err, ErrInvalidClusterIdentity) {
 		t.Fatalf("BundleName() error = %v, want ErrInvalidClusterIdentity", err)
 	}
+}
+
+func mustClusterID(t *testing.T, value string) clusterdomain.ClusterID {
+	t.Helper()
+	id, err := clusterdomain.ParseClusterID(value)
+	if err != nil {
+		t.Fatalf("ParseClusterID() error = %v", err)
+	}
+	return id
 }

@@ -1,10 +1,17 @@
 package v1alpha1
 
 import (
+	"uuid"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
 // TartHost Condition types. See docs/development/api-contract.md.
@@ -80,7 +87,8 @@ type ManagementNamespaceSecretReference struct {
 // RedfishPowerConfig configures out-of-band power control and stop confirmation via Redfish.
 type RedfishPowerConfig struct {
 	// address is the Redfish service root base URL.
-	Address string `json:"address"`
+	// +kubebuilder:validation:Type=string
+	Address endpoint.HTTPSURL `json:"address"`
 	// systemID is the Redfish ComputerSystem identifier. If empty, the first system is used.
 	// +optional
 	SystemID string `json:"systemID,omitempty"`
@@ -104,8 +112,9 @@ type RedfishPowerConfig struct {
 // RPC is accepted, which is not proof of physical power-off.
 type WakeOnLANPowerConfig struct {
 	// broadcastAddress is the network broadcast address used to send the magic packet.
+	// +kubebuilder:validation:Type=string
 	// +optional
-	BroadcastAddress string `json:"broadcastAddress,omitempty"`
+	BroadcastAddress network.UDPAddress `json:"broadcastAddress,omitempty,omitzero"`
 }
 
 // PowerSpec describes the Host's power capability.
@@ -126,7 +135,7 @@ type PreviousConsumerRef struct {
 	Name      string    `json:"name"`
 	UID       types.UID `json:"uid"`
 	// clusterID is the TartCluster.spec.clusterID the previous consumer belonged to.
-	ClusterID string `json:"clusterID"`
+	ClusterID cluster.ClusterID `json:"clusterID"`
 }
 
 // ReuseApproval is an explicit, user-provided approval to reuse a Retained Host. It is
@@ -148,22 +157,25 @@ type TartHostSpec struct {
 	// hostID is an immutable random UUID that identifies this Host independently of
 	// metadata.uid, so backups of the management cluster can recreate the same
 	// physical Host identity and ProviderID. This is a controller-owned spec field.
+	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="hostID may only be initialized once and is immutable afterwards"
 	// +optional
-	HostID string `json:"hostID,omitempty"`
+	HostID hostdomain.HostID `json:"hostID,omitempty,omitzero"`
 
 	// macAddress is the primary enrollment identity used to bind an observed boot
 	// attempt to this Host before any other inventory is known.
+	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$"
-	MACAddress string `json:"macAddress"`
+	MACAddress network.MACAddress `json:"macAddress"`
 
 	// talosAPIAddress is an optional address or DNS name where the Talos API for this
 	// Host can be reached. It is a reachability hint / override only; the controller
 	// still verifies the observed MAC address before applying configuration.
+	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
-	TalosAPIAddress string `json:"talosAPIAddress,omitempty"`
+	TalosAPIAddress network.Endpoint `json:"talosAPIAddress,omitempty"`
 
 	// architecture is a Host selector criterion.
 	// +optional
@@ -226,19 +238,22 @@ type DiskInventory struct {
 
 // NetworkInterfaceInventory is an observed network interface on the Host.
 type NetworkInterfaceInventory struct {
-	Name       string   `json:"name,omitempty"`
-	MACAddress string   `json:"macAddress,omitempty"`
-	LinkState  string   `json:"linkState,omitempty"`
-	Driver     string   `json:"driver,omitempty"`
-	BusPath    string   `json:"busPath,omitempty"`
-	Addresses  []string `json:"addresses,omitempty"`
+	Name string `json:"name,omitempty"`
+	// +kubebuilder:validation:Type=string
+	MACAddress network.MACAddress `json:"macAddress,omitempty,omitzero"`
+	LinkState  string             `json:"linkState,omitempty"`
+	Driver     string             `json:"driver,omitempty"`
+	BusPath    string             `json:"busPath,omitempty"`
+	Addresses  []string           `json:"addresses,omitempty"`
 }
 
 // HostInventory is the hardware inventory observed via maintenance Talos discovery.
 // Note that systemUUID is treated as one piece of identity evidence and is not solely
 // relied upon due to potential BIOS omissions, all-zero values, or duplicates in DIY hardware.
 type HostInventory struct {
-	SystemUUID        string                      `json:"systemUUID,omitempty"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+	SystemUUID        uuid.UUID                   `json:"systemUUID,omitempty,omitzero"`
 	Architecture      string                      `json:"architecture,omitempty"`
 	Disks             []DiskInventory             `json:"disks,omitempty"`
 	NetworkInterfaces []NetworkInterfaceInventory `json:"networkInterfaces,omitempty"`

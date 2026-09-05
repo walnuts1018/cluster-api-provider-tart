@@ -4,6 +4,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 )
 
 // TartMachine Condition types.
@@ -59,7 +61,8 @@ type TartMachineSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
-	ProviderID string `json:"providerID,omitempty"`
+	// +kubebuilder:validation:Type=string
+	ProviderID hostdomain.ProviderID `json:"providerID,omitempty,omitzero"`
 }
 
 // HostSelector narrows Host allocation to Hosts matching all given criteria.

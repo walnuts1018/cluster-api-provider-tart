@@ -2,22 +2,22 @@ package host
 
 import (
 	"errors"
-	"net"
-	"strings"
 	"uuid"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
 var ErrInvalidHostID = errors.New("invalid host id")
 
 // ProviderIDはTartHost.spec.idから決定論的に生成する。metadata.uidやHost名には依存しない。
-func ProviderID(id string) (string, error) {
-	parsed, err := uuid.Parse(id)
-	if err != nil || parsed == uuid.Nil() {
-		return "", ErrInvalidHostID
+func ProviderID(id hostdomain.HostID) (hostdomain.ProviderID, error) {
+	providerID, err := hostdomain.NewProviderID(id)
+	if err != nil {
+		return hostdomain.ProviderID(""), ErrInvalidHostID
 	}
-	return "tart://host/" + parsed.String(), nil
+	return providerID, nil
 }
 
 // HasIdentityConflictはMAC addressまたはmaintenance Talosが観測したsystem UUIDが
@@ -49,17 +49,10 @@ func HasIdentityConflictForAny(hosts []infrav1alpha1.TartHost) bool {
 	return false
 }
 
-func sameIdentity(left, right string) bool {
-	left = strings.TrimSpace(left)
-	right = strings.TrimSpace(right)
-	return left != "" && right != "" && strings.EqualFold(left, right)
+func sameIdentity(left, right uuid.UUID) bool {
+	return left != uuid.Nil() && right != uuid.Nil() && left == right
 }
 
-func sameMACAddress(left, right string) bool {
-	leftMAC, leftErr := net.ParseMAC(strings.TrimSpace(left))
-	rightMAC, rightErr := net.ParseMAC(strings.TrimSpace(right))
-	if leftErr == nil && rightErr == nil {
-		return leftMAC.String() == rightMAC.String()
-	}
-	return sameIdentity(left, right)
+func sameMACAddress(left, right network.MACAddress) bool {
+	return !left.IsZero() && !right.IsZero() && left == right
 }

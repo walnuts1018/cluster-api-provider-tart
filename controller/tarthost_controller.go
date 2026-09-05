@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"uuid"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -17,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -48,9 +47,9 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !current.DeletionTimestamp.IsZero() {
 		return r.reconcileDeletion(ctx, &current)
 	}
-	if current.Spec.HostID == "" {
+	if current.Spec.HostID.IsZero() {
 		original := current.DeepCopy()
-		current.Spec.HostID = uuid.NewV4().String()
+		current.Spec.HostID = hostdomain.NewHostID()
 		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}

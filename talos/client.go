@@ -12,6 +12,7 @@ import (
 	"net"
 	"slices"
 	"strings"
+	"uuid"
 
 	"github.com/cosi-project/runtime/pkg/safe"
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
@@ -25,6 +26,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/resources/block"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
@@ -163,13 +165,13 @@ func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
 		if config.MachineConfig == nil {
 			config.MachineConfig = &v1alpha1config.MachineConfig{}
 		}
-		if config.MachineConfig.MachineKubelet == nil {
-			config.MachineConfig.MachineKubelet = &v1alpha1config.KubeletConfig{}
+		if config.MachineConfig.MachineKubelet == nil { //nolint:staticcheck // 旧Talos設定形式を扱うため。
+			config.MachineConfig.MachineKubelet = &v1alpha1config.KubeletConfig{} //nolint:staticcheck // 旧Talos設定形式を扱うため。
 		}
-		if config.MachineConfig.MachineKubelet.KubeletExtraArgs == nil {
-			config.MachineConfig.MachineKubelet.KubeletExtraArgs = configmeta.Args{}
+		if config.MachineConfig.MachineKubelet.KubeletExtraArgs == nil { //nolint:staticcheck // 旧Talos設定形式を扱うため。
+			config.MachineConfig.MachineKubelet.KubeletExtraArgs = configmeta.Args{} //nolint:staticcheck // 旧Talos設定形式を扱うため。
 		}
-		config.MachineConfig.MachineKubelet.KubeletExtraArgs["provider-id"] = configmeta.NewArgValue(providerID, nil)
+		config.MachineConfig.MachineKubelet.KubeletExtraArgs["provider-id"] = configmeta.NewArgValue(providerID, nil) //nolint:staticcheck // 旧Talos設定形式を扱うため。
 
 		return nil
 	})
@@ -310,9 +312,9 @@ func (c *Client) Kubeconfig(ctx context.Context) ([]byte, error) {
 // Inventory contains the stable hardware identity observed through the Talos
 // maintenance API. It deliberately hides Talos resource types from callers.
 type Inventory struct {
-	SystemUUID        string
+	SystemUUID        uuid.UUID
 	Architecture      string
-	MACAddresses      []string
+	MACAddresses      []network.MACAddress
 	Disks             []DiskInventory
 	NetworkInterfaces []NetworkInterfaceInventory
 }
@@ -334,7 +336,7 @@ type DiskInventory struct {
 // NetworkInterfaceInventoryはTalosから観測した非機密の物理NIC情報である。
 type NetworkInterfaceInventory struct {
 	Name       string
-	MACAddress string
+	MACAddress network.MACAddress
 	LinkState  string
 	Driver     string
 	BusPath    string
@@ -343,18 +345,11 @@ type NetworkInterfaceInventory struct {
 
 // HasMAC reports whether the observed physical links contain the expected Host
 // enrollment identity.
-func (i Inventory) HasMAC(expected string) bool {
-	want, err := net.ParseMAC(strings.TrimSpace(expected))
-	if err != nil {
+func (i Inventory) HasMAC(expected network.MACAddress) bool {
+	if expected.IsZero() {
 		return false
 	}
-	for _, observed := range i.MACAddresses {
-		got, err := net.ParseMAC(strings.TrimSpace(observed))
-		if err == nil && got.String() == want.String() {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(i.MACAddresses, expected)
 }
 
 // Inventory reads the hardware identity available before authentication. The MAC
@@ -389,22 +384,32 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 			net.HardwareAddr(spec.PermanentAddr),
 		} {
 			if len(address) != 0 {
-				observed.MACAddresses = append(observed.MACAddresses, address.String())
+				macAddress, parseErr := network.ParseMACAddress(address.String())
+				if parseErr != nil {
+					return Inventory{}, fmt.Errorf("parse Talos network MAC address: %w", parseErr)
+				}
+				observed.MACAddresses = append(observed.MACAddresses, macAddress)
 			}
 		}
 
-		linkName := string(link.Metadata().ID())
+		linkName := link.Metadata().ID()
 		linkState := "down"
 		if spec.LinkState {
 			linkState = "up"
 		}
-		macAddress := net.HardwareAddr(spec.HardwareAddr)
-		if len(macAddress) == 0 {
-			macAddress = net.HardwareAddr(spec.PermanentAddr)
+		macAddress, parseErr := parseHardwareAddress(spec.HardwareAddr)
+		if parseErr != nil {
+			return Inventory{}, fmt.Errorf("parse Talos network interface MAC address: %w", parseErr)
+		}
+		if macAddress.IsZero() {
+			macAddress, parseErr = parseHardwareAddress(spec.PermanentAddr)
+			if parseErr != nil {
+				return Inventory{}, fmt.Errorf("parse Talos permanent MAC address: %w", parseErr)
+			}
 		}
 		observed.NetworkInterfaces = append(observed.NetworkInterfaces, NetworkInterfaceInventory{
 			Name:       linkName,
-			MACAddress: macAddress.String(),
+			MACAddress: macAddress,
 			LinkState:  linkState,
 			Driver:     spec.Driver,
 			BusPath:    spec.BusPath,
@@ -418,8 +423,12 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	systems, err := safe.ReaderListAll[*machineryhardware.SystemInformation](ctx, c.raw.COSI)
 	if err == nil {
 		for system := range systems.All() {
-			if uuid := strings.TrimSpace(system.TypedSpec().UUID); uuid != "" {
-				observed.SystemUUID = uuid
+			if uuidValue := strings.TrimSpace(system.TypedSpec().UUID); uuidValue != "" {
+				systemUUID, parseErr := uuid.Parse(uuidValue)
+				if parseErr != nil {
+					return Inventory{}, fmt.Errorf("parse Talos system UUID: %w", parseErr)
+				}
+				observed.SystemUUID = systemUUID
 				break
 			}
 		}
@@ -445,8 +454,10 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 		}
 	}
 
-	slices.Sort(observed.MACAddresses)
-	observed.MACAddresses = uniqueStrings(observed.MACAddresses)
+	slices.SortFunc(observed.MACAddresses, func(left, right network.MACAddress) int {
+		return strings.Compare(left.String(), right.String())
+	})
+	observed.MACAddresses = uniqueMACAddresses(observed.MACAddresses)
 	slices.SortFunc(observed.NetworkInterfaces, func(left, right NetworkInterfaceInventory) int {
 		return strings.Compare(left.Name, right.Name)
 	})
@@ -465,6 +476,26 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	})
 
 	return observed, nil
+}
+
+func parseHardwareAddress(value []byte) (network.MACAddress, error) {
+	if len(value) == 0 {
+		return network.MACAddress(""), nil
+	}
+	return network.ParseMACAddress(net.HardwareAddr(value).String())
+}
+
+func uniqueMACAddresses(values []network.MACAddress) []network.MACAddress {
+	if len(values) < 2 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if value != result[len(result)-1] {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 func uniqueStrings(values []string) []string {

@@ -164,7 +164,7 @@ func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, confi
 		}
 		return nil, err
 	}
-	if providerCluster.Spec.ClusterID == "" || providerCluster.Status.ActiveSecretGeneration < 1 {
+	if providerCluster.Spec.ClusterID.IsZero() || providerCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, errBootstrapContextUnavailable
 	}
 	if !cluster.Spec.ControlPlaneEndpoint.IsValid() || clusterMachine.Spec.Version == "" {

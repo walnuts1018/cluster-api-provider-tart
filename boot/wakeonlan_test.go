@@ -1,26 +1,26 @@
 package boot
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
+)
 
 func TestMagicPacket(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		macAddress string
+		macAddress network.MACAddress
 		wantErr    bool
 		wantLen    int
 	}{
 		{
 			name:       "有効なMACアドレス",
-			macAddress: "00:11:22:33:44:55",
+			macAddress: mustMACAddress(t, "00:00:5e:00:53:02"),
 			wantLen:    magicPacketHeaderSize + 6*magicPacketRepeatCount,
 		},
-		{
-			name:       "不正なMACアドレスはエラー",
-			macAddress: "not-a-mac",
-			wantErr:    true,
-		},
+		{name: "未設定のMACアドレスはエラー", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -38,4 +38,13 @@ func TestMagicPacket(t *testing.T) {
 			}
 		})
 	}
+}
+
+func mustMACAddress(t *testing.T, value string) network.MACAddress {
+	t.Helper()
+	address, err := network.ParseMACAddress(value)
+	if err != nil {
+		t.Fatalf("ParseMACAddress() error = %v", err)
+	}
+	return address
 }

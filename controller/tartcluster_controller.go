@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"time"
-	"uuid"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -15,6 +14,7 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 )
 
 // TartClusterReconciler reconciles a TartCluster object.
@@ -44,9 +44,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// TartCluster.spec.id must be generated exactly once, after the concrete
 	// (non-dry-run) Resource is created, and must never be regenerated. Secret bundle
 	// generation, Host claim and provisioning must not start before it is set.
-	if cluster.Spec.ClusterID == "" {
+	if cluster.Spec.ClusterID.IsZero() {
 		original := cluster.DeepCopy()
-		cluster.Spec.ClusterID = uuid.NewV4().String()
+		cluster.Spec.ClusterID = clusterdomain.NewClusterID()
 		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}

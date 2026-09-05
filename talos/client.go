@@ -4,6 +4,7 @@
 package talos
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -13,6 +14,11 @@ import (
 
 	"github.com/cosi-project/runtime/pkg/safe"
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
+	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
+	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
+	"github.com/siderolabs/talos/pkg/machinery/config/container"
+	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
+	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
 
@@ -21,6 +27,82 @@ import (
 
 // ErrClientUnavailableは接続済みのclientなしでTalos operationが要求されたことを示す。
 var ErrClientUnavailable = errors.New("talos client is unavailable")
+
+// InstallerImage returns the Image Factory installer reference for a desired
+// Talos image identity.
+func InstallerImage(version, schematicID string) (string, error) {
+	version = strings.TrimSpace(version)
+	schematicID = strings.TrimSpace(schematicID)
+	if version == "" {
+		return "", errors.New("talos image version is empty")
+	}
+	if schematicID == "" {
+		return "", errors.New("talos image schematic ID is empty")
+	}
+
+	return fmt.Sprintf("factory.talos.dev/metal-installer/%s:%s", schematicID, version), nil
+}
+
+// SetInstallerImage updates only the Talos installer image in a complete
+// machine configuration. Talos machinery owns the document merge and
+// serialization so existing disk, PKI, and machine settings remain intact.
+func SetInstallerImage(configuration []byte, version, schematicID string) ([]byte, error) {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+	image, err := InstallerImage(version, schematicID)
+	if err != nil {
+		return nil, err
+	}
+
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	if provider.UnattendedInstallConfig() != nil {
+		patch := runtimeconfig.NewUnattendedInstallConfigV1Alpha1()
+		patch.Installer.Image = image
+		patchProvider, err := container.New(patch)
+		if err != nil {
+			return nil, fmt.Errorf("build talos unattended install patch: %w", err)
+		}
+		output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{
+			configpatcher.NewStrategicMergePatch(patchProvider),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("patch talos unattended install image: %w", err)
+		}
+		result, err := output.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+		}
+		return result, nil
+	}
+	if provider.Machine() == nil {
+		return nil, errors.New("talos machine configuration has no install configuration")
+	}
+
+	patched, err := provider.PatchV1Alpha1(func(config *v1alpha1config.Config) error {
+		if config.MachineConfig == nil {
+			config.MachineConfig = &v1alpha1config.MachineConfig{}
+		}
+		if config.MachineConfig.MachineInstall == nil { //nolint:staticcheck // 旧Talos設定形式を扱うため。
+			config.MachineConfig.MachineInstall = &v1alpha1config.InstallConfig{} //nolint:staticcheck // 旧Talos設定形式を扱うため。
+		}
+		config.MachineConfig.MachineInstall.InstallImage = image //nolint:staticcheck // 旧Talos設定形式を扱うため。
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("patch talos install image: %w", err)
+	}
+	result, err := patched.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+	}
+
+	return result, nil
+}
 
 // Client is a thin wrapper around the Talos machinery gRPC client. It exposes only the
 // observations and operations Tart's reconcile and policy packages need.

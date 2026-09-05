@@ -350,7 +350,19 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 			0)
 	}
 
-	if err := maintenance.ApplyConfiguration(ctx, configuration); err != nil {
+	effectiveConfiguration, err := talos.SetInstallerImage(configuration, machine.Spec.TalosImage.Version, machine.Spec.TalosImage.SchematicID)
+	if err != nil {
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "ConfigurationInvalid", "The Talos machine configuration could not be prepared for the desired installer image.",
+			metav1.ConditionFalse, "ConfigurationInvalid", "Talos installation has not been confirmed.",
+			"ConfigurationInvalid", "Talos version cannot be verified before installation.",
+			"ConfigurationInvalid", "The desired Talos installer image could not be applied to the machine configuration.",
+			talosRequeue)
+	}
+	if err := maintenance.ApplyConfiguration(ctx, effectiveConfiguration); err != nil {
 		if closeErr := maintenance.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 		}

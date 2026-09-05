@@ -51,6 +51,14 @@ spec:
               endpointについて、Tartはcontrol plane endpoint(VIPやload balancer)をprovisionしないため、ユーザー、ClusterClass、または周辺TopologyがCluster.spec.controlPlaneEndpointを通じて供給する。Tart
               reconcilerはendpointが利用可能になるまで待機する。
             properties:
+              caRotationRequestedGeneration:
+                description: |-
+                  caRotationRequestedGenerationは利用者が要求するCA rotation後のactive secret bundle generationである。
+                  status.activeSecretGeneration + 1と一致する場合だけ新しいrotationの対象として扱い、それ以外の値は無視する。
+                  rotation完了後、この値をさらにactiveSecretGeneration + 2以上へ進めることで次のrotationを要求できる。
+                format: int32
+                minimum: 1
+                type: integer
               clusterID:
                 description: clusterIDはCluster.metadata.uidとは独立してworkload clusterを識別するimmutableなrandom
                   UUIDである。controllerが最初のnon-dry-run作成時に一度だけ生成し、同じobjectに対して再生成しない。同じ名前で再作成したclusterには新しいclusterIDを割り当て、古いsecret

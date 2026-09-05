@@ -50,9 +50,6 @@ func DialAuthenticated(ctx context.Context, endpoint string, clientCertPEM, clie
 
 // DialAuthenticatedFromConfigurationはimmutableなcomplete machine configurationから短命なadmin client certificateを導出してauthenticated Talos APIへ接続する。configurationと生成したcredentialはdial中だけメモリに保持する。
 func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, configuration []byte) (*Client, error) {
-	if err := validateEndpoint(endpoint); err != nil {
-		return nil, err
-	}
 	if len(configuration) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
 	}
@@ -65,8 +62,16 @@ func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, co
 	if err != nil {
 		return nil, fmt.Errorf("derive talos credentials from machine configuration: %w", err)
 	}
-	if bundle.Certs == nil || bundle.Certs.OS == nil {
-		return nil, errors.New("talos machine configuration has no OS certificate authority")
+	return DialAuthenticatedFromBundle(ctx, endpoint, bundle)
+}
+
+// DialAuthenticatedFromBundleはTalos secrets bundleのOS certificate authorityから短命なadmin client certificateを導出してauthenticated Talos APIへ接続する。CA rotation中は、nodeが現在どのgenerationのCAを提示しているか分からないため、呼び出し側はactiveとpending双方のbundleで順に接続を試みて、実際に検証できたgenerationを判定する。
+func DialAuthenticatedFromBundle(ctx context.Context, endpoint string, bundle *secrets.Bundle) (*Client, error) {
+	if err := validateEndpoint(endpoint); err != nil {
+		return nil, err
+	}
+	if bundle == nil || bundle.Certs == nil || bundle.Certs.OS == nil {
+		return nil, errors.New("talos secrets bundle has no OS certificate authority")
 	}
 	certificate, err := bundle.GenerateTalosAPIClientCertificate(role.MakeSet(role.Admin))
 	if err != nil {

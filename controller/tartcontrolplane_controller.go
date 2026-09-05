@@ -29,10 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
@@ -73,6 +75,7 @@ func (f *controlPlaneFailure) Error() string {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachinetemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigtemplates,verbs=get;list;watch
@@ -148,17 +151,25 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if err != nil {
 		return ctrl.Result{}, err
 	}
+	caRotationState, err := r.reconcileCARotation(ctx, tartCluster, machines, scaleDownPending)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	original := cp.DeepCopy()
-	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState)
+	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState, caRotationState)
 	if err := r.Status().Patch(ctx, &cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if scaleDownPending && bootstrapState.requeueAfter == 0 {
-		bootstrapState.requeueAfter = controlPlaneScaleDownRequeue
+	requeueAfter := bootstrapState.requeueAfter
+	if caRotationState.requeueAfter > 0 && (requeueAfter == 0 || caRotationState.requeueAfter < requeueAfter) {
+		requeueAfter = caRotationState.requeueAfter
 	}
-	return ctrl.Result{RequeueAfter: bootstrapState.requeueAfter}, nil
+	if scaleDownPending && requeueAfter == 0 {
+		requeueAfter = controlPlaneScaleDownRequeue
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 func (r *TartControlPlaneReconciler) reconcilePaused(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane) (ctrl.Result, error) {
@@ -1250,7 +1261,7 @@ func bootstrapConfigName(controlPlaneName string, ordinal int32) (string, error)
 	return controlPlaneChildName(controlPlaneName, ordinal, "bootstrap")
 }
 
-func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine, bootstrapState controlPlaneBootstrapState) {
+func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine, bootstrapState controlPlaneBootstrapState, caRotationState controlPlaneCARotationState) {
 	actual := int32(len(machines))
 	ready := countMachineCondition(machines, clusterv1.MachineReadyCondition)
 	available := countMachineCondition(machines, clusterv1.MachineAvailableCondition)
@@ -1298,6 +1309,7 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneCARotatingCondition, conditionStatus(caRotationState.active), caRotationState.reason, caRotationState.message, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
@@ -1380,6 +1392,285 @@ func machineUpToDateMessage(upToDate bool) string {
 		return "All desired control-plane Machines report UpToDate."
 	}
 	return "Not all desired control-plane Machines report UpToDate."
+}
+
+// controlPlaneCARotationStateはCA rotationの現在の観測結果を保持する。program counterではなく、reconcileのたびにTalosと bundle Secretの観測から再計算した値を運ぶだけの一時変数である。
+type controlPlaneCARotationState struct {
+	active       bool
+	reason       string
+	message      string
+	requeueAfter time.Duration
+}
+
+// controlPlaneCARotationObservationは単一control-plane Machineについて観測したCA rotationの進行段階である。
+type controlPlaneCARotationObservation struct {
+	host        *infrav1alpha1.TartHost
+	endpoint    string
+	usedPending bool
+	stage       controlplane.CATrustStage
+}
+
+// reconcileCARotationはTartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationを、Talos公式の段階的CA更新手順(accepted CA追加→issuing CA切替→旧CA削除)に沿って進める。
+// 進行段階はStatusのstep番号ではなく、毎回Pending/Active bundle Secretと各control-plane Machineの実際のTalos machine configurationから再計算するため、controller再起動後も安全に継続できる。
+func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, machines []clusterv1.Machine, scaleDownPending bool) (controlPlaneCARotationState, error) {
+	notRequested := controlPlaneCARotationState{reason: "NotRequested", message: "No CA rotation has been requested."}
+	if cluster == nil || cluster.Spec.CARotationRequestedGeneration == nil {
+		return notRequested, nil
+	}
+	if scaleDownPending {
+		return controlPlaneCARotationState{active: true, reason: "ScaleDownInProgress", message: "CA rotation is paused while a control-plane scale-down is in progress.", requeueAfter: controlPlaneScaleDownRequeue}, nil
+	}
+	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	if err != nil {
+		return notRequested, nil //nolint:nilerr // cluster identityが未確定な段階はgetTartClusterで既に停止しているため、ここでは静かに何もしない。
+	}
+	target, err := controlplane.NextGeneration(cluster.Status.ActiveSecretGeneration)
+	if err != nil {
+		return controlPlaneCARotationState{active: true, reason: "RotationGenerationInvalid", message: "The next CA rotation secret bundle generation is invalid."}, err
+	}
+	if *cluster.Spec.CARotationRequestedGeneration != target {
+		return notRequested, nil
+	}
+
+	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive)
+	if err != nil {
+		return controlPlaneCARotationState{active: true, reason: "ActiveBundleUnavailable", message: "The active cluster secret bundle could not be observed for CA rotation.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
+	}
+	pendingBundle, pendingCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, target, controlplane.BundleStatePending)
+	if err != nil {
+		return controlPlaneCARotationState{active: true, reason: "PendingBundleUnavailable", message: "The next-generation Pending cluster secret bundle is not available yet.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
+	}
+
+	observations := make([]controlPlaneCARotationObservation, 0, len(machines))
+	for index := range machines {
+		machine := &machines[index]
+		if !machine.DeletionTimestamp.IsZero() {
+			continue
+		}
+		hostObject, _, err := r.observeMachineIdentity(ctx, machine)
+		if err != nil {
+			return controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "A control-plane Machine could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
+		}
+		endpoint := hostTalosEndpoint(hostObject)
+		talosClient, usedPending, err := r.dialForRotation(ctx, endpoint, activeBundle, pendingBundle)
+		if err != nil {
+			return controlPlaneCARotationState{active: true, reason: "MachineUnreachable", message: "A control-plane Machine Talos API could not be reached; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
+		}
+		configuration, configErr := talosClient.ActiveMachineConfiguration(ctx)
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		if configErr != nil {
+			return controlPlaneCARotationState{active: true, reason: "MachineConfigurationUnavailable", message: "A control-plane Machine active configuration could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
+		}
+		stage, stageErr := controlplane.ObserveCATrustStage(configuration, activeCAs, pendingCAs)
+		if stageErr != nil || stage == controlplane.CATrustStageUnknown {
+			return controlPlaneCARotationState{active: true, reason: "CAConfigurationUnrecognized", message: "A control-plane Machine reports a CA trust configuration that cannot be safely classified; CA rotation is stopped."}, nil //nolint:nilerr
+		}
+		observations = append(observations, controlPlaneCARotationObservation{host: hostObject, endpoint: endpoint, usedPending: usedPending, stage: stage})
+	}
+	if len(observations) == 0 {
+		return controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "No control-plane Machine is available yet for CA rotation.", requeueAfter: 30 * time.Second}, nil
+	}
+
+	minStage := observations[0].stage
+	for _, observation := range observations[1:] {
+		if observation.stage < minStage {
+			minStage = observation.stage
+		}
+	}
+
+	switch minStage {
+	case controlplane.CATrustStageStable:
+		for _, observation := range observations {
+			if observation.stage != controlplane.CATrustStageStable {
+				continue
+			}
+			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, false); err != nil {
+				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Adding the next-generation certificate authorities to a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+			}
+		}
+		return controlPlaneCARotationState{active: true, reason: "AddingAcceptedCA", message: "CA rotation is adding the next-generation certificate authorities as accepted CAs on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
+	case controlplane.CATrustStageDualTrust:
+		for _, observation := range observations {
+			if observation.stage != controlplane.CATrustStageDualTrust {
+				continue
+			}
+			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, true); err != nil {
+				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Switching the issuing certificate authority on a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+			}
+		}
+		return controlPlaneCARotationState{active: true, reason: "SwitchingIssuingCA", message: "CA rotation is switching the issuing certificate authority to the next generation on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
+	case controlplane.CATrustStageCutover:
+		for _, observation := range observations {
+			if observation.stage != controlplane.CATrustStageCutover {
+				continue
+			}
+			if err := r.finalizeCATrust(ctx, observation, activeBundle, pendingBundle, pendingCAs); err != nil {
+				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Removing the previous-generation certificate authority from a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+			}
+		}
+		return controlPlaneCARotationState{active: true, reason: "RemovingAcceptedCA", message: "CA rotation is removing the previous-generation certificate authority from every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
+	case controlplane.CATrustStageRotated:
+		if err := r.promoteCARotation(ctx, cluster, clusterID, target); err != nil {
+			return controlPlaneCARotationState{active: true, reason: "CARotationPromotionFailed", message: "CA rotation completed on every control-plane Machine, but promoting the active secret bundle generation failed.", requeueAfter: 15 * time.Second}, err
+		}
+		return controlPlaneCARotationState{reason: "Completed", message: "CA rotation completed; the active cluster secret bundle generation was promoted."}, nil
+	default:
+		return controlPlaneCARotationState{active: true, reason: "CAConfigurationUnrecognized", message: "A control-plane Machine reports a CA trust configuration that cannot be safely classified; CA rotation is stopped."}, nil
+	}
+}
+
+// observeRotationBundleは指定したgenerationとstateのbundle Secretを取得し、契約を検証してrotation対象CAを取り出す。
+func (r *TartControlPlaneReconciler) observeRotationBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32, state string) (*secrets.Bundle, controlplane.RotationCertificateAuthorities, error) {
+	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
+	if err != nil {
+		return nil, controlplane.RotationCertificateAuthorities{}, err
+	}
+	var secret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, &secret); err != nil {
+		return nil, controlplane.RotationCertificateAuthorities{}, err
+	}
+	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, state, cluster.UID); err != nil {
+		return nil, controlplane.RotationCertificateAuthorities{}, err
+	}
+	bundle, err := controlplane.DecodeBundleData(secret.Data, clusterID)
+	if err != nil {
+		return nil, controlplane.RotationCertificateAuthorities{}, err
+	}
+	cas, err := controlplane.ExtractRotationCertificateAuthorities(bundle)
+	if err != nil {
+		return nil, controlplane.RotationCertificateAuthorities{}, err
+	}
+	return bundle, cas, nil
+}
+
+// dialForRotationはactive bundleの信頼情報から先に接続を試み、失敗した場合はpending bundleで再試行する。どちらのgenerationがnodeの現在のissuing CAとして実際に検証できたかを呼び出し側へ返す。
+func (r *TartControlPlaneReconciler) dialForRotation(ctx context.Context, endpoint string, active, pending *secrets.Bundle) (*talos.Client, bool, error) {
+	if talosClient, err := r.dialRotationBundle(ctx, endpoint, active); err == nil {
+		return talosClient, false, nil
+	}
+	talosClient, err := r.dialRotationBundle(ctx, endpoint, pending)
+	if err != nil {
+		return nil, false, err
+	}
+	return talosClient, true, nil
+}
+
+func (r *TartControlPlaneReconciler) dialRotationBundle(ctx context.Context, endpoint string, bundle *secrets.Bundle) (*talos.Client, error) {
+	connectionContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return talos.DialAuthenticatedFromBundle(connectionContext, endpoint, bundle)
+}
+
+func (r *TartControlPlaneReconciler) dialObservedRotationBundle(ctx context.Context, observation controlPlaneCARotationObservation, activeBundle, pendingBundle *secrets.Bundle) (*talos.Client, error) {
+	bundle := activeBundle
+	if observation.usedPending {
+		bundle = pendingBundle
+	}
+	return r.dialRotationBundle(ctx, observation.endpoint, bundle)
+}
+
+// advanceCATrustはstage Stableのnodeへ次generationのCAをaccepted CAとして追加し(cutover=false)、stage DualTrustのnodeへissuing CAを次generationへ切替える(cutover=true)。いずれもTalosのconfig applyへ委譲し、再起動なしでcertificateだけを更新する。
+func (r *TartControlPlaneReconciler) advanceCATrust(ctx context.Context, observation controlPlaneCARotationObservation, active, pending controlplane.RotationCertificateAuthorities, activeBundle, pendingBundle *secrets.Bundle, cutover bool) error {
+	talosClient, err := r.dialObservedRotationBundle(ctx, observation, activeBundle, pendingBundle)
+	if err != nil {
+		return err
+	}
+	configuration, err := talosClient.ActiveMachineConfiguration(ctx)
+	if err != nil {
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return err
+	}
+
+	issuingMachine, issuingAPI, issuingAggregator := active.Machine, active.KubernetesAPI, active.KubernetesAggregator
+	acceptedMachine, acceptedAPI, acceptedAggregator := pending.Machine, pending.KubernetesAPI, pending.KubernetesAggregator
+	if cutover {
+		issuingMachine, issuingAPI, issuingAggregator = pending.Machine, pending.KubernetesAPI, pending.KubernetesAggregator
+		acceptedMachine, acceptedAPI, acceptedAggregator = active.Machine, active.KubernetesAPI, active.KubernetesAggregator
+	}
+
+	updated, err := talos.SetMachineCertificateAuthority(configuration, issuingMachine, acceptedMachine)
+	if err == nil {
+		updated, err = talos.SetKubernetesAPICertificateAuthority(updated, issuingAPI, acceptedAPI)
+	}
+	if err == nil {
+		updated, err = talos.SetKubernetesAggregatorCertificateAuthority(updated, issuingAggregator, acceptedAggregator)
+	}
+	if err != nil {
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return err
+	}
+	applyErr := talosClient.ApplyConfiguration(ctx, updated)
+	if closeErr := talosClient.Close(); closeErr != nil && applyErr == nil {
+		return closeErr
+	}
+	return applyErr
+}
+
+// finalizeCATrustはstage Cutoverのnodeから旧generationのCAをaccepted CAから外し、issuing CAだけを信頼する最終状態にする。Talos公式のCA rotation手順の最終段階(旧CA削除)にあたる。
+func (r *TartControlPlaneReconciler) finalizeCATrust(ctx context.Context, observation controlPlaneCARotationObservation, activeBundle, pendingBundle *secrets.Bundle, pending controlplane.RotationCertificateAuthorities) error {
+	talosClient, err := r.dialObservedRotationBundle(ctx, observation, activeBundle, pendingBundle)
+	if err != nil {
+		return err
+	}
+	configuration, err := talosClient.ActiveMachineConfiguration(ctx)
+	if err != nil {
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return err
+	}
+	updated, err := talos.SetMachineCertificateAuthority(configuration, pending.Machine)
+	if err == nil {
+		updated, err = talos.SetKubernetesAPICertificateAuthority(updated, pending.KubernetesAPI)
+	}
+	if err == nil {
+		updated, err = talos.SetKubernetesAggregatorCertificateAuthority(updated, pending.KubernetesAggregator)
+	}
+	if err != nil {
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return err
+	}
+	applyErr := talosClient.ApplyConfiguration(ctx, updated)
+	if closeErr := talosClient.Close(); closeErr != nil && applyErr == nil {
+		return closeErr
+	}
+	return applyErr
+}
+
+// promoteCARotationはPending bundle Secretのlabelをactiveへ書き換え(dataはimmutableなまま維持する)、TartCluster.status.activeSecretGenerationを新generationへ進める。この呼び出しの直前に全control-plane Machineが新generationのCAだけを信頼していることを確認済みである。
+func (r *TartControlPlaneReconciler) promoteCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, target int32) error {
+	name, err := controlplane.BundleName(cluster.Name, clusterID, target)
+	if err != nil {
+		return err
+	}
+	var secret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, &secret); err != nil {
+		return err
+	}
+	if secret.Labels[controlplane.BundleStateLabel] == controlplane.BundleStateActive {
+		// 既に他のreconcileで昇格済みである。
+	} else {
+		original := secret.DeepCopy()
+		secret.Labels = maps.Clone(secret.Labels)
+		secret.Labels[controlplane.BundleStateLabel] = controlplane.BundleStateActive
+		if err := r.Patch(ctx, &secret, client.MergeFrom(original)); err != nil {
+			return err
+		}
+	}
+	if cluster.Status.ActiveSecretGeneration == target {
+		return nil
+	}
+	original := cluster.DeepCopy()
+	cluster.Status.ActiveSecretGeneration = target
+	return r.Status().Patch(ctx, cluster, client.MergeFrom(original))
 }
 
 func (r *TartControlPlaneReconciler) enqueueAllControlPlanes(ctx context.Context, _ client.Object) []reconcile.Request {

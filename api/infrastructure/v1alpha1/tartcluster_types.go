@@ -33,6 +33,13 @@ type TartClusterSpec struct {
 	// updatePolicyはnode-disruptive updateでavailabilityだけを理由とするdrain failureを緩和できるか制御する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。
 	// +optional
 	UpdatePolicy TartUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
+
+	// caRotationRequestedGenerationは利用者が要求するCA rotation後のactive secret bundle generationである。
+	// status.activeSecretGeneration + 1と一致する場合だけ新しいrotationの対象として扱い、それ以外の値は無視する。
+	// rotation完了後、この値をさらにactiveSecretGeneration + 2以上へ進めることで次のrotationを要求できる。
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	CARotationRequestedGeneration *int32 `json:"caRotationRequestedGeneration,omitempty"`
 }
 
 // TartUpdatePolicyはnode-disruptive updateのavailability policyを定義する。

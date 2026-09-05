@@ -65,6 +65,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.ensureBundle(ctx, &cluster, clusterID, generation); err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
 	}
+	if err := r.ensureCARotationBundle(ctx, &cluster, clusterID, generation); err != nil {
+		return r.reportBundleError(ctx, &cluster, err)
+	}
 	failureDomains, err := r.observeFailureDomains(ctx)
 	if err != nil {
 		return r.reportFailureDomainError(ctx, &cluster, err)
@@ -132,6 +135,71 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	}
 
 	return nil
+}
+
+// ensureCARotationBundleはTartCluster.spec.caRotationRequestedGenerationがactive generationの次世代を指している場合に、そのgenerationのPending bundle Secretを先行生成する。
+// Talos公式の段階的CA更新は、この不変なPending bundleとactive bundleを比較してTartControlPlaneがreconcileする。ここではSecretの先行生成だけを担い、実際のTalos側切替やactive generationの昇格はTartControlPlaneの責務とする。
+func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, activeGeneration int32) error {
+	requested := cluster.Spec.CARotationRequestedGeneration
+	if requested == nil {
+		return nil
+	}
+	target, err := controlplane.NextGeneration(activeGeneration)
+	if err != nil {
+		return err
+	}
+	if *requested != target {
+		// 要求されたgenerationが次世代と一致しない場合は無視する。既に昇格済み、または無効な要求である。
+		return nil
+	}
+
+	name, err := controlplane.BundleName(cluster.Name, clusterID, target)
+	if err != nil {
+		return err
+	}
+	secret := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
+	if apierrors.IsNotFound(err) {
+		activeName, activeErr := controlplane.BundleName(cluster.Name, clusterID, activeGeneration)
+		if activeErr != nil {
+			return activeErr
+		}
+		activeSecret := &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: activeName}, activeSecret); err != nil {
+			return err
+		}
+		if err := controlplane.ValidateBundleSecretContract(activeSecret, cluster.Namespace, cluster.Name, clusterID, activeGeneration, controlplane.BundleStateActive, cluster.UID); err != nil {
+			return err
+		}
+		activeBundle, err := controlplane.DecodeBundleData(activeSecret.Data, clusterID)
+		if err != nil {
+			return err
+		}
+		data, err := controlplane.GenerateRotatedBundleData(clusterID, activeBundle)
+		if err != nil {
+			return err
+		}
+		expected, err := controlplane.BuildPendingSecret(cluster.Namespace, cluster.Name, clusterID, target, metav1.OwnerReference{
+			APIVersion: infrav1alpha1.GroupVersion.String(),
+			Kind:       tartClusterKind,
+			Name:       cluster.Name,
+			UID:        cluster.UID,
+		}, data)
+		if err != nil {
+			return err
+		}
+		if err := r.Create(ctx, expected); err != nil && !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, target, controlplane.BundleStatePending, cluster.UID); err != nil {
+		return err
+	}
+	return controlplane.ValidateBundleData(secret.Data, clusterID)
 }
 
 func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *infrav1alpha1.TartCluster, bundleErr error) (ctrl.Result, error) {

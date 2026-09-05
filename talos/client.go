@@ -15,6 +15,7 @@ import (
 
 	"github.com/blang/semver/v4"
 	"github.com/cosi-project/runtime/pkg/safe"
+	"github.com/siderolabs/crypto/x509"
 	common "github.com/siderolabs/talos/pkg/machinery/api/common"
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/compatibility"
@@ -26,6 +27,7 @@ import (
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
 	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
 	"github.com/siderolabs/talos/pkg/machinery/resources/block"
+	configresource "github.com/siderolabs/talos/pkg/machinery/resources/config"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
 	machineryruntime "github.com/siderolabs/talos/pkg/machinery/resources/runtime"
@@ -198,7 +200,110 @@ func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
 	return result, nil
 }
 
-// ClientはTalos machineryのgRPC clientを薄くwrapする。Tartのreconcileとpolicy packageが必要とする観測と操作だけを公開する。
+// SetMachineCertificateAuthorityはTalos公式のCA rotation手順のうち、machine(OS/apid)のissuing CAとaccepted CA setをTalos machine configuration上で更新する。issuingは常にaccepted集合へ暗黙的に追加されるため、呼び出し側はrotation中に追加で信頼させたい他generationのCAだけをacceptedへ渡す。空のacceptedはissuing以外のCAを信頼しないことを意味し、旧CA削除(rotationの最終段階)に使う。
+func SetMachineCertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+	if issuing == nil {
+		return nil, errors.New("talos machine issuing certificate authority is empty")
+	}
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	acceptedCAs := make([]*x509.PEMEncodedCertificate, 0, len(accepted))
+	for _, ca := range accepted {
+		if ca == nil {
+			continue
+		}
+		acceptedCAs = append(acceptedCAs, &x509.PEMEncodedCertificate{Crt: bytes.Clone(ca.Crt)})
+	}
+	patched, err := provider.PatchV1Alpha1(func(config *v1alpha1config.Config) error {
+		if config.MachineConfig == nil {
+			config.MachineConfig = &v1alpha1config.MachineConfig{}
+		}
+		config.MachineConfig.MachineCA = &x509.PEMEncodedCertificateAndKey{Crt: bytes.Clone(issuing.Crt), Key: bytes.Clone(issuing.Key)}
+		config.MachineConfig.MachineAcceptedCAs = acceptedCAs
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("patch talos machine certificate authority: %w", err)
+	}
+	result, err := patched.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+	}
+	return result, nil
+}
+
+// SetKubernetesAPICertificateAuthorityはKubeAPIServerCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API serverのCA rotationに使う。
+func SetKubernetesAPICertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+	if issuing == nil {
+		return nil, errors.New("talos Kubernetes API server issuing certificate authority is empty")
+	}
+	patch := k8sconfig.NewKubeAPIServerCAConfigV1Alpha1()
+	patch.APIIssuingCA = &configmeta.CertificateAndKey{Cert: string(issuing.Crt), Key: string(issuing.Key)}
+	for _, ca := range accepted {
+		if ca == nil {
+			continue
+		}
+		patch.APIAcceptedCAs = append(patch.APIAcceptedCAs, string(ca.Crt))
+	}
+	patchProvider, err := container.New(patch)
+	if err != nil {
+		return nil, fmt.Errorf("build talos Kubernetes API server CA patch: %w", err)
+	}
+	output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{
+		configpatcher.NewStrategicMergePatch(patchProvider),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("patch talos Kubernetes API server certificate authority: %w", err)
+	}
+	result, err := output.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+	}
+	return result, nil
+}
+
+// SetKubernetesAggregatorCertificateAuthorityはKubeAggregatorCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API aggregator flowのCA rotationに使う。
+func SetKubernetesAggregatorCertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+	if issuing == nil {
+		return nil, errors.New("talos Kubernetes aggregator issuing certificate authority is empty")
+	}
+	patch := k8sconfig.NewKubeAggregatorCAConfigV1Alpha1()
+	patch.AggregatorIssuingCA = &configmeta.CertificateAndKey{Cert: string(issuing.Crt), Key: string(issuing.Key)}
+	for _, ca := range accepted {
+		if ca == nil {
+			continue
+		}
+		patch.AggregatorAcceptedCAs = append(patch.AggregatorAcceptedCAs, string(ca.Crt))
+	}
+	patchProvider, err := container.New(patch)
+	if err != nil {
+		return nil, fmt.Errorf("build talos Kubernetes aggregator CA patch: %w", err)
+	}
+	output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{
+		configpatcher.NewStrategicMergePatch(patchProvider),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("patch talos Kubernetes aggregator certificate authority: %w", err)
+	}
+	result, err := output.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+	}
+	return result, nil
+}
+
+// Clientはtalos machineryのgRPC clientを薄くwrapする。Tartのreconcileとpolicy packageが必要とする観測と操作だけを公開する。
 type Client struct {
 	raw *talosclient.Client
 }
@@ -620,6 +725,26 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	})
 
 	return observed, nil
+}
+
+// ActiveMachineConfigurationはauthenticated Talos APIを通じて、稼働中nodeへ現在適用されているmachine configurationを観測する。CA rotationの進行段階判定やin-place updateの安全な差分評価は、この観測値をprovider-owned desired configurationの基準とする。
+func (c *Client) ActiveMachineConfiguration(ctx context.Context) ([]byte, error) {
+	if c == nil || c.raw == nil {
+		return nil, ErrClientUnavailable
+	}
+	resource, err := safe.ReaderGetByID[*configresource.MachineConfig](ctx, c.raw.COSI, configresource.ActiveID)
+	if err != nil {
+		return nil, fmt.Errorf("get talos active machine configuration: %w", err)
+	}
+	provider := resource.Provider()
+	if provider == nil {
+		return nil, errors.New("get talos active machine configuration: provider is unavailable")
+	}
+	data, err := provider.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode talos active machine configuration: %w", err)
+	}
+	return data, nil
 }
 
 // SchematicIDはImage Factoryがnodeへ注入したsystem extension setのidentityを観測する。観測できない場合はdesired schematicとの一致を証明できないためerrorを返す。

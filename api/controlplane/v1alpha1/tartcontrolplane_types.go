@@ -17,6 +17,9 @@ const (
 	TartControlPlaneEtcdClusterAvailableCondition = "EtcdClusterAvailable"
 	TartControlPlaneDeletingCondition             = "Deleting"
 	TartControlPlanePausedCondition               = "Paused"
+	// TartControlPlaneCARotatingConditionは、TartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationの進行状況を示す。
+	// Trueはgeneration N+1のPending bundleへ向けた段階的なCA切替が進行中であることを示し、program counterではなく毎回Talosとbundle Secretの観測から再計算する。
+	TartControlPlaneCARotatingCondition = "CARotating"
 )
 
 // TartControlPlaneMachineTemplateDeletionSpecはnode-disruptiveな削除timeoutを保持する。rolloutを発生させないfieldとは分離する。

@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 
+	"github.com/siderolabs/crypto/x509"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -31,14 +32,15 @@ const (
 )
 
 var (
-	ErrInvalidClusterIdentity  = errors.New("invalid cluster identity")
-	ErrInvalidBundleGeneration = errors.New("invalid bundle generation")
-	ErrBundleDataIncomplete    = errors.New("bundle data is incomplete")
-	ErrRotationTargetMismatch  = errors.New("rotation target mismatch")
-	ErrBundleOwnerIncomplete   = errors.New("bundle owner reference is incomplete")
-	ErrBundleOwnerInvalid      = errors.New("bundle owner reference is invalid")
-	ErrBundleSecretInvalid     = errors.New("bundle Secret does not satisfy its contract")
-	ErrBundleIdentityMismatch  = errors.New("bundle cluster identity does not match")
+	ErrInvalidClusterIdentity      = errors.New("invalid cluster identity")
+	ErrInvalidBundleGeneration     = errors.New("invalid bundle generation")
+	ErrBundleDataIncomplete        = errors.New("bundle data is incomplete")
+	ErrRotationTargetMismatch      = errors.New("rotation target mismatch")
+	ErrBundleOwnerIncomplete       = errors.New("bundle owner reference is incomplete")
+	ErrBundleOwnerInvalid          = errors.New("bundle owner reference is invalid")
+	ErrBundleSecretInvalid         = errors.New("bundle Secret does not satisfy its contract")
+	ErrBundleIdentityMismatch      = errors.New("bundle cluster identity does not match")
+	ErrCertificateAuthorityMissing = errors.New("secret bundle is missing a rotation certificate authority")
 )
 
 // NextGenerationはactive generationから単調増加する次世代番号を返す。
@@ -235,6 +237,55 @@ func RotateData(previous, replacements map[string][]byte, rotationKeys []string)
 		cloned[key] = bytes.Clone(value)
 	}
 	return cloned, nil
+}
+
+// RotationCertificateAuthoritiesはCA rotationで切り替える対象の各CA(machine/OS、Kubernetes API server、Kubernetes aggregator)を保持する。
+// etcd CAはTalosが accepted-CAによる二重信頼をサポートしないため、rotation対象に含めない。
+type RotationCertificateAuthorities struct {
+	Machine              *x509.PEMEncodedCertificateAndKey
+	KubernetesAPI        *x509.PEMEncodedCertificateAndKey
+	KubernetesAggregator *x509.PEMEncodedCertificateAndKey
+}
+
+// ExtractRotationCertificateAuthoritiesはTalos secrets bundleからrotation対象のCAを取り出す。
+func ExtractRotationCertificateAuthorities(bundle *secrets.Bundle) (RotationCertificateAuthorities, error) {
+	if bundle == nil || bundle.Certs == nil || bundle.Certs.OS == nil || bundle.Certs.K8s == nil || bundle.Certs.K8sAggregator == nil {
+		return RotationCertificateAuthorities{}, ErrCertificateAuthorityMissing
+	}
+	return RotationCertificateAuthorities{
+		Machine:              bundle.Certs.OS,
+		KubernetesAPI:        bundle.Certs.K8s,
+		KubernetesAggregator: bundle.Certs.K8sAggregator,
+	}, nil
+}
+
+// GenerateRotatedBundleDataは既存bundleのcluster identity、token、TrustdInfoを保持したまま、CA rotation用に新しいmachine/Kubernetes API/aggregator CAだけを生成した次世代bundleを返す。
+// etcd CAとjoin tokenは維持するため、既存clusterのmembershipやbootstrapに影響しない。
+func GenerateRotatedBundleData(clusterID clusterdomain.ClusterID, previous *secrets.Bundle) (map[string][]byte, error) {
+	if clusterID.IsZero() || previous == nil || previous.Cluster == nil || previous.Secrets == nil || previous.TrustdInfo == nil || previous.Certs == nil {
+		return nil, fmt.Errorf("%w: cluster id", ErrInvalidClusterIdentity)
+	}
+
+	rotated, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		return nil, fmt.Errorf("generate rotated Talos secret bundle: %w", err)
+	}
+	// Cluster identity、bootstrap token、trustd tokenは維持し、CA(Certs)だけを新しく生成した値へ差し替える。
+	// etcd CAは維持し、rotation対象外とする。
+	rotated.Cluster = previous.Cluster
+	rotated.Cluster.ID = clusterID.String()
+	rotated.Secrets = previous.Secrets
+	rotated.TrustdInfo = previous.TrustdInfo
+	rotated.Certs.Etcd = previous.Certs.Etcd
+	if err := rotated.Validate(talosconfig.TalosVersionCurrent); err != nil {
+		return nil, fmt.Errorf("validate rotated Talos secret bundle: %w", err)
+	}
+	encoded, err := yaml.Marshal(rotated)
+	if err != nil {
+		return nil, fmt.Errorf("marshal rotated Talos secret bundle: %w", err)
+	}
+
+	return map[string][]byte{BundleDataKey: encoded}, nil
 }
 
 func cloneCompleteData(data map[string][]byte) (map[string][]byte, error) {

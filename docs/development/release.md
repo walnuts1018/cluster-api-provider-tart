@@ -10,6 +10,7 @@ Tartは新しいTalos専用Providerへ再実装中です。旧Provisioning Agent
 - `infrastructure.cluster.x-k8s.io/v1alpha1`、`bootstrap.cluster.x-k8s.io/v1alpha1`、`controlplane.cluster.x-k8s.io/v1alpha1`のCRD、RBAC、manager manifest
 - CAPI contractへ対応したmetadataとprovider manifest
 - Talos image identity、対応architecture、boot backendの前提条件
+- [対応version matrix](compatibility.md)に記載した、tested CAPI minor、Talos minor、Kubernetes version range、in-place updateの範囲
 - Fresh machine、single node、HA control plane、worker、storage、recovery、safetyの受け入れ結果
 
 Talos installerやboot assetはTalosの配布方式とidentityを使用し、Tart独自OS image formatを公開しない。Cilium、Longhorn、TopoLVM、kube-vipのadd-on manifestはTartのreleaseへ同梱せず、利用者が選択したKubernetes addon layerへ委譲する。

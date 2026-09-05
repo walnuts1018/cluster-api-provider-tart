@@ -33,7 +33,7 @@ Provider-owned invariantは少なくとも次を含む。
 
 ## ProviderID bridge
 
-Infrastructure ProviderがHost bindingごとに決定論的なProviderIDを生成し、`TartMachine.spec.providerID`へ設定する。ProviderIDはsecretではなく、同じMachineのeffective configurationへ次の経路で注入する。
+ProviderIDはHost allocation後にTartHost UIDから`tart://host/<TartHost UID>`として決定し、Infrastructure ProviderとBootstrap Providerが同じ決定論的な関数で算出する。Host allocationはbootstrap dataを待たずにconsumerRefとProviderIDを確立できるが、Talosへのpower、boot、installはbootstrap dataが存在するまで開始しない。ProviderIDをHost identityへ寄せることで、Machine削除後のAdoptでも物理Nodeのidentityを維持する。
 
 ```text
 TartMachine.spec.providerID
@@ -45,7 +45,7 @@ kubelet --provider-id=<same value>
 Node.spec.providerID
 ```
 
-Node `spec.providerID`、CAPI InfraMachine `spec.providerID`、TartMachineの値は完全一致させる。不一致を観測した場合はNodeやHostを別identityとして自動修復せず、`Blocked`へ反映する。ProviderIDの変更は通常updateではなくIdentity変更である。
+Node `spec.providerID`、CAPI InfraMachine `spec.providerID`、TartMachineの値は完全一致させる。不一致を観測した場合はNodeやHostを別identityとして自動修復せず、`Blocked`へ反映する。ProviderIDはHost UIDに結び付くため、Host bindingの変更、Host UIDの変更、既存Nodeへの別Host割り当ては通常updateではなくIdentity変更である。
 
 ## Talos-native configuration
 
@@ -53,7 +53,7 @@ Node `spec.providerID`、CAPI InfraMachine `spec.providerID`、TartMachineの値
 
 - system volume、user volume、raw volume
 - disk selector、encryption、installer disk
-- kernel parameter、system extension、kernel module、mount
+- kernel parameter、kernel module、mount
 - kubelet configuration、extra manifest
 - kube-proxy設定などTalosが提供するKubernetes設定
 
@@ -97,15 +97,15 @@ Talosの`upgrade-k8s`がlive machine configuration内のKubernetes component ima
 
 ## API adapter
 
-`talos` packageはTalos client、context、credential、gRPC option、maintenance/authenticated modeをcontrollerから隠す。controllerが必要とする観測はReachable、Architecture、SystemUUID、Version、SchematicID、Addresses、Disks、ConfigurationDigest、Healthy、ShutdownConfirmedなどの小さな型へ変換する。
+`talos` packageはTalos client、context、credential、gRPC option、maintenance/authenticated modeをcontrollerから隠す。controllerが必要とする観測はReachable、Architecture、SystemUUID、Version、SchematicID、Addresses、Disks、ConfigurationDigest、Healthy、ShutdownConfirmedなどの小さな型へ変換する。Schematic IDは必要に応じてTalosのvirtual `schematic` extension（`talosctl get extensions`）から観測する。
 
 操作はApplyConfiguration、Upgrade、UpgradeKubernetes、Bootstrap、Shutdown、必要なetcd member operationに限定する。operationの送信事実をStatusへ保存せず、外部観測から未開始・実行中・完了済み・失敗を判断できるようにする。
 
 ## Bootとpower
 
-`boot`はHost identityを受けてmaintenance environmentへ到達させる最小のbackend境界である。Wake-on-LAN、BMC/Redfish、VM API、manual、external network bootを追加できるが、PXE、DHCP、TFTP、iPXEの具体方式をTartのCRDやdomain modelへ固定しない。
+`boot`はHost identityを受けてmaintenance environmentへ到達させる最小のbackend境界である。Wake-on-LAN、BMC/Redfish、VM API、manual、external network bootを追加できるが、PXE、DHCP、TFTP、iPXEの具体方式をTartのCRDやdomain modelへ固定しない。自動Reprovisionを提供するbackendは、installed OSからmaintenance environmentへ戻すboot strategyを持つことをcapabilityとして宣言する。Fresh machineのnetwork bootだけではReprovisionを自動許可しない。
 
-初期boot assetはsecret-freeとする。power onの成功はTalos起動やinstallation完了を意味しないため、Talos endpoint、identity、inventory、authenticated API、healthを観測してからProvisionedへ進める。
+初期boot assetはsecret-freeとする。boot authorization/correlation identityはprocess memoryやOperation CRDへ置かず、対象TartHost、consumerRef、Host UID、TartMachine UID、desired image identityから決定的に再構成できるResource metadataと観測値で管理する。同じboot要求を再concileしても、対象Hostが変わったり異なるendpointへconfigurationを送ったりしない。power onの成功はTalos起動やinstallation完了を意味しないため、Talos endpoint、identity、inventory、authenticated API、healthを観測してからProvisionedへ進める。
 
 ## Kubernetes add-on
 

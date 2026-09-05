@@ -8,7 +8,7 @@ when_to_use: TartHost、TartMachineのclaim、hardware discovery、power/boot ba
 
 ## Hostの寿命
 
-`TartHost`はCAPI Machineより長く存続するinventoryである。Machineの削除やscale downでHost resourceを削除せず、Host上のTalos installation、disk、local persistent dataを保持する。
+`TartHost`はCAPI Machineより長く存続するmanagement cluster全体で一意なcluster-scoped inventoryである。MAC address、system UUIDなどのstable identityをHost間で重複させない。Machineの削除やscale downでHost resourceを削除せず、Host上のTalos installation、disk、local persistent dataを保持する。
 
 ## registrationとdiscovery
 
@@ -20,9 +20,9 @@ inventoryはobserved stateであり、ユーザーが編集するdesired storage
 
 明示的なHost referenceを優先し、未指定ならarchitecture、label、capability、failure domain、availabilityを満たすHostからdeterministicに選択する。`Machine.spec.failureDomain`が指定されていれば一致するHostだけを候補にする。
 
-排他claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてserver-side applyで管理する。namespace、name、UID、resourceVersionを確認し、既存claimが別Machineを指すHostは上書きしない。`TartHost.status.claimedBy`をlockの正本にせず、Statusには`Claimed` Conditionと観測結果を置く。
+排他claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで管理する。`GET`でresourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認してresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、既存claimが別Machineを指すHostは上書きしない。`TartHost.status.claimedBy`をlockの正本にせず、Statusには`Claimed` Conditionと観測結果を置く。
 
-Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable`を区別する。`Retained`はworkflow phaseではなく、前回のMachineのdataやTalos identityが残るため自動allocation不可である。`TartHost.spec.reusePolicy`の既定値は`Retain`とし、Machine削除後はclaim解除後も`Retained`にする。ユーザーが`spec.reusePolicy: Reusable`を明示し、安全条件を再確認できるまでselector候補に戻さない。destructiveなreprovision、clean、既存installationのadoptは通常allocationに含めない。
+Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable`を区別する。freshなHostは`consumerRef`と`retainedFrom`がなく`Available`である。`Retained`はworkflow phaseではなく、前回のMachineのdataやTalos identityが残るため自動allocation不可である。Machine削除時はcontroller-managedな`TartHost.spec.retainedFrom`へ直前のconsumer UID、namespace、name、cluster UIDを記録する。`TartHost.spec.reusePolicy: Reusable`、現在の`retainedFrom`に一致する`spec.reuseApproval.retainedFromUID`、`spec.reuseMode: Adopt|Reprovision`がそろい、安全条件を再確認できた場合だけ`Reusable`にする。Claim中やfreshな時点の指定を将来の削除承認として扱わない。Cluster secret bundleが失われた後のRetained Hostは`Adopt`不可、`Reprovision`専用である。
 
 ## powerとboot
 
@@ -32,12 +32,16 @@ power onの成功はTalos installationの成功を意味しない。maintenance 
 
 maintenance Talos APIはTLSで暗号化されるが認証済みではない。Hostとendpointのbindingが曖昧ならconfigurationをapplyせずblockedにする。installation後はauthenticated Talos APIへ切り替える。
 
+自動Reprovisionを許可するHostは、installed OSからremoteにmaintenance environmentへ戻せるboot strategyをcapabilityとして持つ。Fresh machineのnetwork boot capabilityだけでは自動Reprovisionを許可しない。
+
 ## deletionと再利用
 
-`TartMachine`削除では、まずCAPIのdrainとcontrol planeのetcd detachを確認し、authenticated Talos APIへshutdown/quiesceを要求する。Hostが停止したことを確認するまでclaimとfinalizerを保持する。APIへ到達できない、停止を確認できない、またはHostが稼働し続けている場合はclaimを解放せず`Blocked`にする。
+`TartMachine`削除では、CAPI Machine controllerのdrainとvolume detachが先に完了し、scale-downのcontrol planeではControl Plane Providerのpre-terminate delete hookがetcd member removalを完了していることを前提にする。その後、authenticated Talos APIへshutdown/quiesceを要求する。Hostが停止したことを確認するまでclaimとfinalizerを保持する。APIへ到達できない、停止を確認できない、またはHostが稼働し続けている場合はclaimを解放せず`Blocked`にする。
 
-停止確認後にclaimを解除してもHostは`Retained`としてdataを保持する。cleaning、reprovisioning、disk wipe、force releaseは通常updateや通常deleteの副作用にせず、別の明示的な操作、権限、監査、確認を必要とする。
+停止確認後にclaimを解除してもHostは`Retained`としてdataを保持する。`Adopt`は既存installation、cluster identity、desired configurationが一致する場合だけdataを保持してclaimする。`Reprovision`はdata破棄を明示承認する別lifecycleであり、Talos reset/installerへ委譲する。cleaning、reprovisioning、disk wipe、force releaseは通常updateや通常deleteの副作用にせず、別の明示的な操作、権限、監査、確認を必要とする。
+
+`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを`tart.cluster.x-k8s.io/forget-approved: "true"` annotationなしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。
 
 ## MHC
 
-local persistent stateを持つMachineではMachineHealthCheckのdelete-and-recreate remediationを安全な既定値とみなさない。初期運用では対象Machineへ`cluster.x-k8s.io/skip-remediation`を設定し、将来のexternal remediationは同じMachineとHostを維持するpower cycle/Talos recovery方式とする。MHC、rollout、手動削除の全経路でRetained gateとshutdown確認を通す。
+すべてのTart-managed MachineでMachineHealthCheckのdelete-and-recreate remediationを安全な既定値とみなさない。初期運用では対象Machineへ`cluster.x-k8s.io/skip-remediation`を設定し、明示的なreplacement opt-inなしにMachineを削除しない。将来のexternal remediationは同じMachineとHostを維持するpower cycle/Talos recovery方式とする。MHC、rollout、手動削除の全経路でRetained gateとshutdown確認を通す。

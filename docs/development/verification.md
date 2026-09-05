@@ -23,7 +23,7 @@ Go testを使わず、次の確認をCIとローカルで共通化する。
 | 旧設計の残存 | `rg`で`v1beta1`、`TartHostOperation`、agent、workflow、旧artifact、`internal`、`pkg`を確認 |
 | secret境界 | log、Event、Status、metrics label、manifestへcredentialが含まれないことを目視確認 |
 
-API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、reference、aggregated RBACが一致していることを確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、cluster secret bundleの一度だけの生成、workload kubeconfig Secretの維持も契約確認の対象とする。
+API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、scope、reference、aggregated RBACが一致していることを確認する。CAPI contractへ参加するCRDの`cluster.x-k8s.io/v1beta2: v1alpha1` label、Control Planeの`spec.machineTemplate.spec.infrastructureRef`、`spec.machineTemplate.spec.deletion`、`status.versions`、scale subresource、Bootstrap Config templateの入力元も確認する。`TartHost`がcluster-scopedでstable identityを重複させず、claimがSSAではなくatomic CASであることも確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、cluster secret bundleの一度だけの生成とGC境界、workload kubeconfig Secretの維持も契約確認の対象とする。
 
 生成物の検証でcontroller-genやkustomizeが必要な場合は、miseで管理したversionを使用する。toolの出力を手で修正して検証を通してはならない。
 
@@ -52,16 +52,22 @@ Go testを追加・実行しない期間でも、次の確認項目を実機ま�
 - 通常のTalos/Kubernetes updateでCAPI Machine replacement、Host cleaning、disk wipeが起きない。
 - unsafe change、identity mismatch、quorumを守れない操作が副作用なしでblockedになる。
 - Machine削除時にshutdownと停止確認を行い、確認不能ならclaimを保持してblockedになり、確認後もHostが`Retained`として自動allocationされない。
-- MHCのdelete-and-recreate remediationがlocal persistent Machineへ既定で適用されず、`cluster.x-k8s.io/skip-remediation`の運用方針が守られる。
-- `TartMachine.spec.providerID`、CAPI InfraMachine、Talos kubelet、Node `spec.providerID`が一致する。
+- MHCのdelete-and-recreate remediationがすべてのTart-managed Machineへ既定で適用されず、`cluster.x-k8s.io/skip-remediation`の運用方針が守られる。replacementは明示的なopt-inなしに開始されない。
+- Host UIDからallocation後に決定した`tart://host/<TartHost UID>`が、`TartMachine.spec.providerID`、CAPI InfraMachine、Talos kubelet、Node `spec.providerID`で一致する。Host allocationはbootstrap dataを待たず、Talos provisioningはbootstrap dataを待つため循環依存がない。Machine削除後のAdoptで同じHost-based ProviderIDを維持する。
+- Machine deletionではCAPI Machine controllerのdrain/volume detach、Control Planeのscale-down用pre-terminate delete hook、TartMachine finalizerのshutdown/停止確認/retainedFrom/claim処理が責務どおりに分離される。WoL-onlyではTalos Shutdown受理後のendpoint消失を確認し、物理電源OFFの証明と混同しない。
 - CNI未導入でもAPI serverがrequestを受け付けた時点で`controlPlaneInitialized`となり、Node Readyと混同しない。
-- `maxSurge: 0`、`maxUnavailable: 1`のrolloutで追加Hostを要求せず、一台ずつin-place updateできる。
+- `CanUpdateMachineSet`、`CanUpdateMachine`、`UpdateMachine`が安全なin-place updateだけを扱い、`maxSurge: 0`、`maxUnavailable: 1`のWorker rolloutで追加Hostを要求せず、一台ずつin-place updateできる。Control Planeも一台ずつ更新する。
+- Topology managed clusterとdirectly managed clusterの両方で、Talos `upgrade-k8s`が一度だけ実行される。Topologyではupgrade planとversion skewが整合していれば旧worker desired versionでも開始でき、directly managedではworker desired versionとの矛盾時にblockedになる。Kubernetes upgradeのavailability sequencingをMachineDeploymentの`maxUnavailable`へ誤って依存しない。
+- `CanUpdateMachineSet`/`CanUpdateMachine`がsafe full coverageだけをSuccess + complete patchで返し、unsafe/unknown/partial diffをpatchなしのFailureで停止する。初回provisioning後のmutable Talos OS/config operationがUpdate Extension以外から実行されない。
+- Control Plane Providerが`CanUpdateMachine`からMachine、InfraMachine、BootstrapConfigのannotation付きspec update、Machineの`UpdateMachine` hook pendingまでをrace-free、re-entrantに遷移させる。`status.versions`、replica counts、selector、scale subresource、metadata/minReadySeconds/UpToDate propagationを確認する。
+- cluster secret bundleがControl Plane Providerにより一度だけ作成され、Managed Machineのretention前にGCされない。bundle消失後のRetained HostがAdoptではなくReprovision専用になる。
 
 ### Recovery
 
 - provisioning、reboot、upgrade、bootstrap API呼び出し直後にcontroller-managerを停止・再起動する。
 - Resourceを手動修復せず、外部のobserved stateからreconcileが継続する。
 - API callの直後に停止しても、再起動後に完了済みoperationを危険に再初期化しない。
+- `clusterctl move`でclaimed Hostを暗黙に移動・解放せず、未対応としてblockedにする。`cluster.x-k8s.io/paused`中はshutdown、release、cleanを開始せず、解除後にobserved stateから再開する。
 
 ## 証跡と機密情報
 

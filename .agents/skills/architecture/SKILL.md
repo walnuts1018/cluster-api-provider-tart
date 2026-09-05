@@ -52,12 +52,13 @@ cmd/controller-manager       process wiringとHTTPS endpoint
 
 ## 安全性の不変条件
 
-- `TartHost.spec.consumerRef`がallocation bindingの正本であり、`status.claimedBy`をlockの正本にしない。
-- Machine削除後のHostは`Retained`であり、明示的に`Reusable`へ変更されるまで自動allocationしない。
+- `TartHost`はmanagement cluster全体で一意なcluster-scoped inventoryであり、`TartHost.spec.consumerRef`がallocation bindingの正本である。claimはSSAをlockとして使わず、resourceVersion付きUpdateまたはJSON Patchの`test`によるatomic CASで確立し、`status.claimedBy`をlockの正本にしない。
+- Machine削除後のHostは`spec.retainedFrom`を持つ`Retained`であり、現在のretained UIDに一致する明示的な`Adopt`または`Reprovision`承認なしに自動allocationしない。`Reusable`はwipeの同義語ではない。
 - claim解放前にauthenticated Talos shutdownと停止確認を行い、確認不能ならclaimとfinalizerを保持してblockedにする。
-- local persistent stateを持つMachineのMHC delete-and-recreate remediationを既定で許可せず、初期運用では`cluster.x-k8s.io/skip-remediation`を使う。
+- Tart-managed Machineはlocal persistent stateの有無を判定せず、MHC delete-and-recreate remediationを既定で許可しない。初期運用では`cluster.x-k8s.io/skip-remediation`を使い、replacementは明示的なopt-inに限定する。
 - `TartMachine.spec.talosImage`の`{version, schematicID}`をTalos image/system extensionの単一の正本にする。
-- ProviderIDをTalos kubeletへ注入し、CAPI InfraMachine、TartMachine、Nodeの`spec.providerID`を一致させる。
+- ProviderIDをHost UIDから`tart://host/<TartHost UID>`としてHost allocation後に生成し、Talos kubeletへ注入してCAPI InfraMachine、TartMachine、Nodeの`spec.providerID`を一致させる。allocationはbootstrap dataを待たず、Talos provisioningはbootstrap dataを待つ。
+- 初回provisioning後のmutableなTalos OS/config updateはUpdate Extensionだけが実行し、通常のInfrastructure/Bootstrap reconcileは観測とStatus反映だけを行う。Control Plane Providerは`CanUpdateMachine`成功後にMachine、InfraMachine、BootstrapConfigをannotation付きで更新し、Machineへ`UpdateMachine` hook pendingを設定する。
 - `controlPlaneInitialized`はAPI serverがrequestを受け付ける状態であり、全Node ReadyやCNI導入を待たない。
 - cluster secret bundleをClusterごとに一度だけ生成し、Bootstrap SecretとkubeconfigをCAPI Secret contractに合わせる。
 

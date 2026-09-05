@@ -18,9 +18,9 @@ Bootstrap ProviderはTalos machineryが提供するcluster secret bundle、clust
 
 configurationの合成順序はbase、user-owned patch、Provider-owned invariantである。user patchがcluster identity、Talos PKI/token、cluster endpoint、machine role、CAPI version-managed field、ProviderID、installer image identityへ触れた場合は黙って上書きせずblockedにする。
 
-ユーザーが指定するTalos configurationを、Tartが知っているsubsetだけへ制限しない。disk selector、system volume、user/raw volume、encryption、kernel parameter、system extension、kernel module、mount、kubelet設定、extra manifestなどはTalos-native configurationまたはImage Factory schematicとして利用可能にする。Longhorn、TopoLVM、Cilium、kube-vipなどのadd-on専用fieldは作らない。
+ユーザーが指定するTalos configurationを、Tartが知っているsubsetだけへ制限しない。disk selector、system volume、user/raw volume、encryption、kernel parameter、kernel module、mount、kubelet設定、extra manifestなどはTalos-native configurationとして利用可能にする。system extension setはImage Factory schematicの所有とし、BootstrapConfigへ重複して持たせない。Longhorn、TopoLVM、Cilium、kube-vipなどのadd-on専用fieldは作らない。
 
-ProviderIDは`TartMachine.spec.providerID`からmachine kubeletの`extraArgs.provider-id`へ注入し、Node `spec.providerID`とCAPI InfraMachineの値を一致させる。不一致は自動修復せずblockedにする。
+ProviderIDはHost allocation後にTartHost UIDから`tart://host/<TartHost UID>`として決定し、同じ決定論的な関数をInfrastructure ProviderとBootstrap Providerで共有する。Host allocationはbootstrap dataを待たずにconsumerRefとProviderIDを確立できるが、Talos provisioningはbootstrap dataを待つ。effective configurationではmachine kubeletの`extraArgs.provider-id`へ注入し、Node `spec.providerID`とCAPI InfraMachineの値を一致させる。不一致は自動修復せずblockedにする。これによりMachine削除後のAdoptでも物理HostのNode identityを維持する。
 
 ## Maintenance API
 
@@ -44,4 +44,4 @@ Talosのsystem volume、user/raw volume、disk selector、encryption、installer
 
 controllerにはTalos generated API型を漏らさない。`talos`パッケージでclient生成、context、credential、gRPC、Close、maintenance/authenticated modeの違いを吸収し、controllerへ小さな観測型と操作interfaceだけを渡す。
 
-操作はconfiguration apply、OS upgrade、Kubernetes upgrade、bootstrap、shutdown、必要なetcd member operationに限定する。Talos client errorがtransientかunsafeかを分類し、transientならrequeue、identity mismatchや破壊的storage差分ならfail closedとする。credential、machine secret、PKI private keyはStatus、Event、log、metrics labelへ出さない。
+操作は初回provisioning中のconfiguration apply、OS upgrade、Kubernetes upgrade、bootstrap、shutdown、必要なetcd member operationに限定する。初回provisioning後のmutableなOS/config updateはUpdate Extensionだけが呼び出し、通常のInfrastructure/Bootstrap reconcileはTalos observed stateを反映するだけにする。Talos client errorがtransientかunsafeかを分類し、transientならrequeue、identity mismatchや破壊的storage差分ならfail closedとする。credential、machine secret、PKI private keyはStatus、Event、log、metrics labelへ出さない。

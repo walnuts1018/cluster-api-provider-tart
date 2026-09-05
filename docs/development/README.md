@@ -9,6 +9,7 @@
 - [セキュリティと観測性](security.md): maintenance trust、Secret、MHC、Runtime Extension、log、Event、metrics、retry
 - [設計判断と完成条件](decisions.md): 非目標、将来拡張、受け入れ条件、現在のテスト方針
 - [Release方針](release.md): 現在のrelease停止理由と再開条件
+- [対応version matrix](compatibility.md): CAPI、Talos、KubernetesとRuntime Extensionの検証済み組み合わせ
 - [リソースとProvisioningの流れ](resources-and-provisioning.md): Resourceの正本、Host claim、更新、削除、secret境界
 - [開発ガイド](development.md): ツール、生成、静的確認、変更手順
 - [検証方針](verification.md): 現在の静的検証と将来のE2E受け入れ条件

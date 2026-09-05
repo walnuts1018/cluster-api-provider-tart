@@ -4,7 +4,7 @@
 
 一般的なPCではTPM attestationやBMC identityを利用できない場合がある。初回provisioning networkはtrusted infrastructureとして明示的なsecurity boundaryに含め、MAC、DHCP情報、system UUID、Talos hardware inventoryなど利用可能なidentityを組み合わせる。完全なhardware identity証明を初回から必須条件にしないが、期待したHostとmaintenance endpointの論理的なbindingは必須とする。
 
-未構成Talosのmaintenance APIはTLSで暗号化されるが認証済みではない。self-signed certificate、client certificateなし、相互のidentity検証なしというtrust modelである。machine configurationを送る前に、`TartHost`、boot attempt、MAC/DHCP、endpoint、observed system UUID/inventory、利用可能ならcertificate fingerprintを結び付ける。一つでも曖昧、競合、identity mismatchがあればconfigurationをapplyせず`Blocked`にする。
+未構成Talosのmaintenance APIはTLSで暗号化されるが認証済みではない。self-signed certificate、client certificateなし、相互のidentity検証なしというtrust modelである。machine configurationを送る前に、`TartHost`、決定的に再構成できるboot authorization/correlation identity、MAC/DHCP、endpoint、observed system UUID/inventory、利用可能ならcertificate fingerprintを結び付ける。一つでも曖昧、競合、identity mismatchがあればconfigurationをapplyせず`Blocked`にする。MAC、system UUID、inventoryは誤接続防止の照合材料であってactive attackerに対する暗号学的認証ではなく、provisioning networkをactive attackerから信頼することがsecurity assumptionである。
 
 installation後はauthenticated Talos APIの相互TLSへ移行する。maintenance modeの暗号化をauthenticated APIの認証として扱わない。firmware boot protocolや公開HTTPへcluster credentialを埋め込まず、初期boot assetはsecret-freeとする。
 
@@ -20,7 +20,7 @@ installation後はauthenticated Talos APIの相互TLSへ移行する。maintenan
 - BMC password
 - private signing material
 
-Talos/Kubernetesのcluster-level PKIとsecret materialはClusterごとに一度だけ生成する。BootstrapConfigごとにgenerateせず、Cluster namespaceの決定論的な`<cluster-name>-talos-secrets` Secretを正本として全Machineで共有する。Secretは初期化前に作成し、immutableとして扱う。初期化後に欠落した場合は自動再生成せず、cluster identityを守るため`Blocked`とする。
+Talos/Kubernetesのcluster-level PKIとsecret materialはClusterごとに一度だけ生成する。Control Plane Providerがcontrol-plane MachineとBootstrap Secretより先に作成し、Bootstrap Providerはread-onlyで参照する。BootstrapConfigごとにgenerateせず、Cluster namespaceの決定論的な`<cluster-name>-talos-secrets` Secretを正本として全Machineで共有する。Secretは初期化前に作成し、immutableとして扱う。Cluster deletionではManaged Machineのshutdownとretentionが完了するまでOwnerReferenceによるGCを許可しない。初期化後に欠落した場合は自動再生成せず、cluster identityを守るため`Blocked`とする。Cluster削除後に残るRetained Hostはこのcredentialを使った`Adopt`を許可せず、`Reprovision`だけを許可する。
 
 Bootstrap SecretはCAPI contractに合わせ、type `cluster.x-k8s.io/secret`、単一の`value` key、決定論的なSecret名、cluster label、対応するBootstrapConfigのcontroller OwnerReferenceを持つ。`value`には対象Machine向けのcomplete Talos machine configurationを格納し、cluster bundleを独自keyへ分解しない。
 
@@ -30,9 +30,9 @@ Secretの値をStatusへ複製せず、StatusにはSecret名、生成済みか�
 
 ## Host retentionとdeletion safety
 
-Machine削除時はCAPIのdrain、control planeのetcd detach、安全なTalos shutdown、停止確認の順で処理し、停止を確認するまで`TartHost.spec.consumerRef`を解除しない。確認不能ならfinalizerとclaimを保持し、`Blocked`へ反映する。claim解除後のHostはdataを保持した`Retained`であり、明示的に`Reusable`へ変更されるまで自動allocation対象に戻さない。
+Machine削除時はCAPI Machine controllerのdrain/volume detach、scale-down時のControl Plane Providerによるpre-terminate delete hookのetcd member removal、安全なTalos shutdown、停止確認の順で処理し、停止を確認するまで`TartHost.spec.consumerRef`を解除しない。確認不能ならfinalizerとclaimを保持し、`Blocked`へ反映する。claim解除時は`spec.retainedFrom`へ直前のconsumerを記録する。Hostはdataを保持した`Retained`であり、現在のretained UIDに一致する明示的な`Adopt`または`Reprovision`承認がそろうまで自動allocation対象に戻さない。Cluster全体のdeletionではetcd quorum維持を必須にしない。
 
-MHCやCAPI rolloutによるdelete-and-recreateも同じ保護境界に含める。local persistent stateを持つMachineでは、初期運用として`cluster.x-k8s.io/skip-remediation`を使用し、MHCのreplacement remediationを既定で許可しない。force release、clean、reprovisioningは通常updateやdeleteの暗黙の副作用にしない。
+MHCやCAPI rolloutによるdelete-and-recreateも同じ保護境界に含める。Tartはlocal persistent stateの有無を判定しないため、初期運用ではすべてのTart-managed Machineへ`cluster.x-k8s.io/skip-remediation`を設定し、MHCのreplacement remediationを既定で許可しない。replacementの明示的opt-inなしにMachineを削除しない。force release、clean、reprovisioningは通常updateやdeleteの暗黙の副作用にしない。`TartHost`の直接削除も同様に、Claim中またはRetainedのHostは`tart.cluster.x-k8s.io/forget-approved: "true"` annotationなしに削除せず、forget承認後もpower off、reset、disk wipeを行わない。
 
 ## Least privilege
 
@@ -44,7 +44,7 @@ controllerは必要なnamespace、Resource、Status、Secretへの最小権限�
 
 in-place updateを使用するmanagement clusterでは、CAPIの`RuntimeSDK=true`と`InPlaceUpdates=true` feature gateを有効にする。TartのHTTPS endpointを`ExtensionConfig`へ登録し、server certificate、TLS Secret、必要なCA trustを明示的に管理する。現行CAPIではin-place update hookへ登録できるextensionは1つに制限されるため、Tart以外のhookを同時に登録しない。
 
-Runtime Extensionが未登録、TLS検証に失敗、またはhookが対象差分を扱えない場合、CAPIがimmutable rolloutへfallbackし得る。したがってRuntime Extensionを安全性の唯一の防波堤にせず、TartMachineのblocked判定、Hostの`Retained` gate、rollout profile、MHC policyを併用する。
+Runtime Extensionが未登録またはTLS検証に失敗した場合はin-place updateを有効にしない。`CanUpdateMachineSet`/`CanUpdateMachine`が対象差分を全てcoverできない場合はpatchなしの`Failure`を返し、Successの部分patchでCAPIにimmutable rolloutを選ばせない。TartMachineのblocked判定、Hostの`Retained` gate、rollout profile、MHC policyは追加の安全境界として併用する。
 
 ## Log、Event、metrics
 

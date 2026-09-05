@@ -23,7 +23,7 @@ read desired state
 
 ## Patch
 
-Resourceの作成とSpecの管理はserver-side applyを使う。既存objectを取得して全面的に`Update`または`Create`する実装は禁止する。apply objectにはcontrollerが所有するfieldだけを含め、固定したfield managerを指定する。既存objectのユーザーfieldや別controllerのfieldをforceで奪わない。
+Resourceの作成と通常のSpec管理はserver-side applyを使う。既存objectを取得して全面的に`Update`または`Create`する実装は禁止する。apply objectにはcontrollerが所有するfieldだけを含め、固定したfield managerを指定する。既存objectのユーザーfieldや別controllerのfieldをforceで奪わない。ただし`TartHost.spec.consumerRef`はSSAをlockとして使わず、resourceVersion付きUpdateまたはJSON Patchの`test`によるatomic CASでclaimする。
 
 StatusはStatus subresourceへserver-side applyまたはpatchする。Condition、observedGeneration、observed valuesだけを変更し、desired SpecをStatusへコピーしない。Statusの更新に失敗した場合はreconcile errorとして返し、秘密情報をerror messageへ含めない。
 
@@ -39,7 +39,7 @@ CAPI Machineとprovider resourceの対応にはOwnerReference、CAPI label、ref
 
 ## Finalizer
 
-Finalizerを使う場合は、削除時に必要な安全な解放処理だけを担当させる。`TartMachine`のfinalizerは、CAPIのdrain、control planeのetcd detach、authenticated Talos shutdown、停止確認、Host claim解除、`Retained`化の順序を守る。Talos APIに到達できない、停止を確認できない、またはHostが稼働している場合はclaimとfinalizerを保持して`Blocked`にする。OS再インストール、cleaning、partition変更、disk wipeを開始してはならない。
+Finalizerを使う場合は、削除時に必要な安全な解放処理だけを担当させる。CAPI Machine controllerがdrainとvolume detachを行い、Control Plane Providerがscale-down用pre-terminate delete hookでetcd member removalを行う。`TartMachine`のfinalizerはauthenticated Talos shutdown、停止確認、`TartHost.spec.retainedFrom`の記録、Host claim解除、`Retained`化を担当する。Talos APIに到達できない、停止を確認できない、またはHostが稼働している場合はclaimとfinalizerを保持して`Blocked`にする。Cluster全体の削除ではetcd member removalを必須にしない。cluster secret bundleのGCはManaged Machineのretention完了後に行う。OS再インストール、cleaning、partition変更、disk wipeを開始してはならない。
 
 ## 外部API
 
@@ -47,7 +47,7 @@ Talos、power、boot、workload Kubernetes APIのclientはcontrollerの外側の
 
 ## Runtime Extension
 
-CAPIの`CanUpdateMachine`と`UpdateMachine`を使う場合、`CanUpdateMachine`は安全なin-place差分だけを許可する。CAPIがhook未対応差分をimmutable rolloutへfallbackし得るため、hookがfalseを返すことだけでreplacementを禁止したとみなさない。`TartMachine`のblocked判定、Hostの`Retained` gate、MHCの`cluster.x-k8s.io/skip-remediation`、`maxSurge: 0`/`maxUnavailable: 1`のrollout profileを併用する。
+CAPIの`CanUpdateMachineSet`、`CanUpdateMachine`、`UpdateMachine`を一体で実装する。`CanUpdate*`はdesired diff全体をcoverできる安全な差分だけを`Success`と完全なpatchで返し、unsafe、unknown、partial diffはpatchなしの`Failure`として停止する。`UpdateMachine`だけがTalos operationを実行し、通常のInfrastructure/Bootstrap reconcileは初回provisioning後のmutable diffを観測してもoperationやBootstrap Secret再生成を開始しない。Control Plane Providerが遷移を開始する場合は`CanUpdateMachine`成功後にMachine、InfraMachine、BootstrapConfigをannotation付きで更新し、Machineへ`UpdateMachine` hook pendingを設定する。この遷移はrace-free、re-entrantに観測から再開できるようにする。`TartMachine`のblocked判定、Hostの`Retained` gate、MHCの`cluster.x-k8s.io/skip-remediation`、`maxSurge: 0`/`maxUnavailable: 1`のrollout profileを併用する。
 
 ## 再試行
 

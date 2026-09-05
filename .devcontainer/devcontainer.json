@@ -27,7 +27,6 @@
         "golang.go",
         "kennylong.kubernetes-yaml-formatter",
         "github.vscode-github-actions",
-        "ms-vscode.makefile-tools",
         "tim-koehler.helm-intellisense"
       ]
     }

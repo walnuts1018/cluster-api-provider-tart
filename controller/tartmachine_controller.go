@@ -165,6 +165,9 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID string) error {
 	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if errors.Is(err, errCAPIMachineIdentityMismatch) {
+		return errCAPIProviderIDMismatch
+	}
 	if errors.Is(err, errCAPIMachineUnavailable) {
 		return nil
 	}

@@ -13,7 +13,10 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-var errCAPIMachineUnavailable = errors.New("CAPI Machine for provider resource is unavailable")
+var (
+	errCAPIMachineUnavailable      = errors.New("CAPI Machine for provider resource is unavailable")
+	errCAPIMachineIdentityMismatch = errors.New("CAPI Machine identity does not match provider resource")
+)
 
 func findCAPIMachineForInfrastructure(ctx context.Context, c client.Client, object client.Object) (*clusterv1.Machine, error) {
 	return findCAPIMachine(ctx, c, object, func(machine *clusterv1.Machine) bool {
@@ -43,7 +46,7 @@ func findCAPIMachine(ctx context.Context, c client.Client, object client.Object,
 			return nil, err
 		}
 		if owner.UID != "" && machine.UID != owner.UID {
-			return nil, errCAPIMachineUnavailable
+			return nil, errCAPIMachineIdentityMismatch
 		}
 		if !matches(machine) {
 			return nil, errors.New("CAPI Machine reference does not match provider resource")

@@ -29,7 +29,8 @@ Tartのアーキテクチャ設計・実装・レビューを行う際のガイ�
 - [ ] Bootstrap ProviderがOSインストールやHost電源制御を行っていないか
 - [ ] Control Plane ProviderがHost inventoryやCNI/CSI add-onを直接管理していないか
 - [ ] 純粋なドメイン/ポリシーパッケージ（`host/`, `controlplane/`, `bootstrap/`）がKubernetes clientやTalos内部gRPC型に直接依存していないか
-- [ ] 外部副作用（Talos API、電源操作）がアダプター層（`talos/`, `boot/`）に隔離されているか
+- [ ] 外部副作用（Talos API、電源操作、network boot）がアダプター層（`talos/`, `boot/`, `netboot/`）に隔離されているか
+- [ ] `netboot/`・`cmd/netboot-server`がKubernetes APIをread-only（TartHost/TartMachineのget/list/watchのみ）で参照するだけに留まり、Secretアクセスやcontroller-manager同等の権限を持っていないか
 
 ---
 

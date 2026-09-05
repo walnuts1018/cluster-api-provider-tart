@@ -79,7 +79,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 	if host.HasIdentityConflictForAny(hosts.Items) {
-		return r.report(ctx, &current, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation and maintenance configuration are stopped.")
+		return r.reportIdentityConflicts(ctx, hosts.Items)
 	}
 
 	eligibility := host.Classify(current.Spec)
@@ -163,6 +163,24 @@ func (r *TartHostReconciler) report(ctx context.Context, current *infrav1alpha1.
 	if err := r.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
+	return ctrl.Result{}, nil
+}
+
+func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts []infrav1alpha1.TartHost) (ctrl.Result, error) {
+	for index := range hosts {
+		candidate := &hosts[index]
+		if isPaused(candidate) || !host.HasIdentityConflict(*candidate, hosts) {
+			continue
+		}
+
+		original := candidate.DeepCopy()
+		setCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation and maintenance configuration are stopped.", candidate.Generation)
+		candidate.Status.ObservedGeneration = candidate.Generation
+		if err := r.Status().Patch(ctx, candidate, client.MergeFrom(original)); err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 

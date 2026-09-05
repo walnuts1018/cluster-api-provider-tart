@@ -15,10 +15,16 @@
 package controller
 
 import (
+	"fmt"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
@@ -68,5 +74,43 @@ func TestForgetApproved(t *testing.T) {
 				t.Errorf("forgetApproved() = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTartHostReconcilerReportsIdentityConflictForEveryRelatedHost(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	hosts := make([]*infrav1alpha1.TartHost, 3)
+	for index := range hosts {
+		hosts[index] = &infrav1alpha1.TartHost{
+			Name: fmt.Sprintf("host-%d", index),
+			Spec: infrav1alpha1.TartHostSpec{
+				ID:         fmt.Sprintf("018f3c5e-5f8a-7c1b-9a2d-123456789ab%d", index),
+				MACAddress: "02:00:00:00:00:01",
+			},
+		}
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}).WithObjects(hosts[0], hosts[1], hosts[2]).Build()
+	reconciler := &TartHostReconciler{Client: fakeClient}
+
+	for range 2 {
+		if _, err := reconciler.Reconcile(t.Context(), ctrl.Request{Name: hosts[0].Name}); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+	}
+
+	for index := range hosts {
+		observed := &infrav1alpha1.TartHost{}
+		if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: hosts[index].Name}, observed); err != nil {
+			t.Fatalf("Get(TartHost) error = %v", err)
+		}
+		condition := meta.FindStatusCondition(observed.Status.Conditions, infrav1alpha1.TartHostReadyCondition)
+		if condition == nil || condition.Reason != infrav1alpha1.ReasonIdentityConflict {
+			t.Errorf("%s Ready condition = %#v, want IdentityConflict", observed.Name, condition)
+		}
 	}
 }

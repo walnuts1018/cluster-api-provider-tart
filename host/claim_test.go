@@ -36,7 +36,7 @@ func TestClaimUsesResourceVersionAndDoesNotOverwrite(t *testing.T) {
 	}
 	host := &infrav1alpha1.TartHost{Name: "host-a", ResourceVersion: "1"}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(host).Build()
-	consumer := corev1.ObjectReference{Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
+	consumer := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
 
 	if err := Claim(t.Context(), fakeClient, host, consumer); err != nil {
 		t.Fatalf("Claim() error = %v", err)
@@ -49,8 +49,81 @@ func TestClaimUsesResourceVersionAndDoesNotOverwrite(t *testing.T) {
 	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: "host-a"}, stored); err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}
-	other := corev1.ObjectReference{Kind: "TartMachine", Namespace: "ns", Name: "machine-b", UID: types.UID("machine-b")}
+	other := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-b", UID: types.UID("machine-b")}
 	if err := Claim(t.Context(), fakeClient, stored, other); !errors.Is(err, ErrClaimConflict) {
 		t.Errorf("Claim() error = %v, want ErrClaimConflict", err)
+	}
+}
+
+func TestClaimRejectsUnidentifiableConsumer(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	host := &infrav1alpha1.TartHost{}
+	validConsumer := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
+
+	tests := map[string]struct {
+		client   client.Client
+		host     *infrav1alpha1.TartHost
+		consumer corev1.ObjectReference
+	}{
+		"nil client": {
+			host:     &infrav1alpha1.TartHost{Name: "host-a"},
+			consumer: validConsumer,
+		},
+		"nil host": {
+			client:   fakeClient,
+			consumer: validConsumer,
+		},
+		"empty host name": {
+			client:   fakeClient,
+			host:     host,
+			consumer: validConsumer,
+		},
+		"empty consumer UID": {
+			client: fakeClient,
+			host:   &infrav1alpha1.TartHost{Name: "host-a"},
+			consumer: corev1.ObjectReference{
+				APIVersion: validConsumer.APIVersion,
+				Kind:       validConsumer.Kind,
+				Namespace:  validConsumer.Namespace,
+				Name:       validConsumer.Name,
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if err := Claim(t.Context(), tt.client, tt.host, tt.consumer); !errors.Is(err, ErrInvalidClaim) {
+				t.Errorf("Claim() error = %v, want ErrInvalidClaim", err)
+			}
+		})
+	}
+}
+
+func TestClaimRejectsMismatchedExistingReference(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	existing := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "old-name", UID: types.UID("machine-a")}
+	host := &infrav1alpha1.TartHost{
+		Name: "host-a",
+		Spec: infrav1alpha1.TartHostSpec{ConsumerRef: &existing},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(host).Build()
+	wanted := existing
+	wanted.Name = "new-name"
+
+	if err := Claim(t.Context(), fakeClient, host, wanted); !errors.Is(err, ErrClaimConflict) {
+		t.Fatalf("Claim() error = %v, want ErrClaimConflict", err)
 	}
 }

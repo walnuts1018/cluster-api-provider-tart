@@ -20,10 +20,14 @@ package talos
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
+
+// ErrClientUnavailable indicates that a Talos operation was requested without a connected client.
+var ErrClientUnavailable = errors.New("talos client is unavailable")
 
 // Client is a thin wrapper around the Talos machinery gRPC client. It exposes only the
 // observations and operations Tart's reconcile and policy packages need.
@@ -52,6 +56,10 @@ type Version struct {
 // TODO: 深い安全ロジック(schematic比較、health判定、reboot後の再接続判断)は次セッションで
 // host/controlplane側のpolicyへ実装する。ここではTalos APIから値を取得するだけに留める。
 func (c *Client) Version(ctx context.Context) (Version, error) {
+	if c == nil || c.raw == nil {
+		return Version{}, ErrClientUnavailable
+	}
+
 	resp, err := c.raw.Version(ctx)
 	if err != nil {
 		return Version{}, fmt.Errorf("get talos version: %w", err)

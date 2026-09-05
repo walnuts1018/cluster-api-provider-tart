@@ -29,10 +29,16 @@ import (
 // ErrClaimConflictは取得後にconsumerRefが変化した場合の競合を表す。
 var ErrClaimConflict = errors.New("host claim conflict")
 
+// ErrInvalidClaim indicates that a claim cannot identify a namespaced consumer safely.
+var ErrInvalidClaim = errors.New("invalid host claim")
+
 // ClaimはresourceVersion付きUpdateでhost.spec.consumerRefをatomicに確立する。
 // 既存claimが別consumerを指す場合は上書きせず、呼び出し側が再選択できる競合として返す。
 func Claim(ctx context.Context, c client.Client, host *infrav1alpha1.TartHost, consumer corev1.ObjectReference) error {
-	if host.Spec.ConsumerRef != nil && host.Spec.ConsumerRef.UID != consumer.UID {
+	if c == nil || host == nil || host.Name == "" || !validConsumerReference(consumer) {
+		return ErrInvalidClaim
+	}
+	if host.Spec.ConsumerRef != nil && *host.Spec.ConsumerRef != consumer {
 		return fmt.Errorf("%w: host %s is already claimed by %s/%s", ErrClaimConflict, host.Name, host.Spec.ConsumerRef.Namespace, host.Spec.ConsumerRef.Name)
 	}
 	if host.Spec.ConsumerRef != nil {
@@ -49,4 +55,8 @@ func Claim(ctx context.Context, c client.Client, host *infrav1alpha1.TartHost, c
 	}
 	*host = *claimed
 	return nil
+}
+
+func validConsumerReference(consumer corev1.ObjectReference) bool {
+	return consumer.APIVersion != "" && consumer.Kind != "" && consumer.Namespace != "" && consumer.Name != "" && consumer.UID != ""
 }

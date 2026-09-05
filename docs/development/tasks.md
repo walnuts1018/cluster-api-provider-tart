@@ -163,3 +163,23 @@
   - `TartControlPlane.spec.version`の変更が、cluster-wide `upgrade-k8s`の一度だけの実行とKubernetes API/Node/control planeの完了観測を経て`status.versions`へ安全に反映されること。
   - version skewが不正な場合に`Ready=False`、`Reason=VersionSkew`で安全停止すること。
   - Topology managed clusterでの`upgrade-k8s`開始条件と、worker Machineへの伝播が矛盾なく動作すること(実機でのみ検証可能な部分はE2Eへ委ねる)。
+
+### タスク9: node-disruptiveなin-place update前のcordon/drainと`allowDowntime`policyの実装
+
+- **重要度**: 高
+- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Downtime許容ポリシー(`allowDowntime`)」節、[`docs/development/verification.md`](verification.md)の受け入れ確認項目3に定義済みの契約はあるが未実装。`TartCluster.spec.updatePolicy`(`api/infrastructure/v1alpha1/tartcluster_types.go`)というAPI型は既に存在するが、`extensions/handlers.go`の`updateMachineAtTalos`はcordon/drainを一切行わずTalos `Upgrade` APIを直接呼び出しており、control planeについては`controlPlaneUpgradeSafe`でetcd quorumのみ確認している。workload Nodeで稼働しているPodへの影響(availability、PDB)を考慮したcordon/drainが存在しないため、in-place updateのたびにTalos rebootでPodが強制終了され得る。
+- **実装内容**:
+  1. **Workload cluster Kubernetes clientの取得**:
+     - `controller/tartcontrolplane_controller.go`の`ensureKubeconfigSecret`が生成する`<cluster-name>-kubeconfig` Secretを、Update Extension(`extensions/handlers.go`)からも読み出し、workload clusterのNode/Podへアクセスするclient-goクライアントを構築する。
+  2. **対象NodeのCordon**:
+     - Talos Upgrade実行前に、更新対象MachineへbindされたKubernetes Node(`TartMachine.spec.providerID`または`status.nodeRef`相当から特定する。既存の`spec.providerID`同期ロジックを確認する)を`unschedulable`にする。
+  3. **Drainとeviction**:
+     - client-goの`policy/v1` Eviction APIを使い、PodDisruptionBudgetを尊重したdrainを試みる。DaemonSet管理下のPod、mirror Pod等はスキップする(標準的なkubectl drain相当のロジック)。
+  4. **`allowDowntime` policyの適用**:
+     - drainが成功した場合はTalos Upgradeを進める。
+     - drainが失敗し、かつ失敗理由がavailability/PDB/capacityだけに起因する場合、`TartCluster.spec.updatePolicy.allowDowntime`(または相当のfield名。既存API型を確認する)が`true`の場合のみgraceful rebootを許容し、`false`(既定)の場合は更新を安全に中断する(`Ready=False`にはせず、`RetryAfterSeconds`で待機し続けるのが望ましい。既存の`updateRetryError`パターンを参考にする)。
+     - 破壊的disk変更、identity不一致、etcd membership違反、quorum違反はこのpolicyで緩和しない(既存のcontrol plane quorum判定はそのまま維持する)。
+- **解消条件**:
+  - `allowDowntime: false`(既定)において、drain失敗時に更新が安全に中断されること(verification.mdの受け入れ確認項目3)。
+  - `allowDowntime: true`の場合のみ、availability/PDB/capacity起因のdrain失敗を許容してgraceful rebootが行われること。
+  - 破壊的変更やquorum違反がこのpolicyで緩和されないこと。

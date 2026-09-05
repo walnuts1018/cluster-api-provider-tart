@@ -100,7 +100,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
 	}
 
-	if selected.Spec.HostID.IsZero() {
+	if selected.Spec.HostID == "" {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
 	hostID, err := parseHostID(selected.Spec.HostID)

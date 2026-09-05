@@ -89,7 +89,7 @@ func TestTartHostReconcilerReportsIdentityConflictForEveryRelatedHost(t *testing
 		hosts[index] = &infrav1alpha1.TartHost{
 			Name: fmt.Sprintf("host-%d", index),
 			Spec: infrav1alpha1.TartHostSpec{
-				HostID:     infrav1alpha1.HostID(mustHostID(t, fmt.Sprintf("018f3c5e-5f8a-7c1b-9a2d-123456789ab%d", index)).String()),
+				HostID:     mustHostID(t, fmt.Sprintf("018f3c5e-5f8a-7c1b-9a2d-123456789ab%d", index)).String(),
 				MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 			},
 		}

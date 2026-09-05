@@ -47,7 +47,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !current.DeletionTimestamp.IsZero() {
 		return r.reconcileDeletion(ctx, &current)
 	}
-	if current.Spec.HostID.IsZero() {
+	if current.Spec.HostID == "" {
 		original := current.DeepCopy()
 		current.Spec.HostID = hostdomain.NewHostID().String()
 		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {

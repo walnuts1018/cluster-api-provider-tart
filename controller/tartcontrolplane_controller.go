@@ -239,7 +239,7 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 		}
 		return nil, err
 	}
-	if tartCluster.Spec.ClusterID.IsZero() || tartCluster.Status.ActiveSecretGeneration < 1 {
+	if tartCluster.Spec.ClusterID == "" || tartCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The TartCluster identity and active secret bundle are not ready yet.",

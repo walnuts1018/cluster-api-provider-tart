@@ -15,7 +15,7 @@ var ErrNoEligibleHost = errors.New("no eligible host")
 func SelectFresh(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector) (*infrav1alpha1.TartHost, error) {
 	candidates := make([]infrav1alpha1.TartHost, 0, len(hosts))
 	for _, candidate := range hosts {
-		if Classify(candidate.Spec) != Available || candidate.Spec.HostID.IsZero() {
+		if Classify(candidate.Spec) != Available || candidate.Spec.HostID == "" {
 			continue
 		}
 		if _, err := hostdomain.ParseHostID(candidate.Spec.HostID); err != nil {

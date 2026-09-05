@@ -55,6 +55,8 @@ type TartMachineSpec struct {
 
 	// providerID is derived deterministically from the claimed TartHost.spec.id as
 	// tart://host/<TartHost.spec.id> once Host allocation succeeds.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=512
 	// +optional
 	ProviderID string `json:"providerID,omitempty"`
 }
@@ -64,7 +66,7 @@ type HostSelector struct {
 	// +optional
 	Architecture string `json:"architecture,omitempty"`
 	// +optional
-	MatchLabels metav1.LabelSelector `json:"matchLabels,omitempty,omitzero"`
+	Selector metav1.LabelSelector `json:"selector,omitempty,omitzero"`
 }
 
 // TartMachineStatus defines the observed state of a TartMachine.
@@ -76,6 +78,8 @@ type TartMachineStatus struct {
 	Addresses clusterv1.MachineAddresses `json:"addresses,omitempty"`
 
 	// +optional
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
 	FailureDomain string `json:"failureDomain,omitempty"`
 
 	// hostRef is the observed Host binding, i.e. the Host currently claimed via

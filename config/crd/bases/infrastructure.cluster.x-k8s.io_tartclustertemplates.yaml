@@ -44,23 +44,47 @@ spec:
                 description: TartClusterTemplateResource describes the data needed
                   to create a TartCluster from a template.
                 properties:
-                  spec:
-                    description: TartClusterSpec defines the desired state of a TartCluster.
+                  metadata:
+                    description: ObjectMeta is propagated to the generated Cluster
+                      and its descendants.
+                    minProperties: 1
                     properties:
-                      id:
+                      annotations:
+                        additionalProperties:
+                          type: string
                         description: |-
-                          id is an immutable random UUID that identifies this workload cluster independently
-                          of Cluster.metadata.uid. It is generated once by the controller on first
-                          non-dry-run creation and is never regenerated for the same object; a cluster
-                          recreated under the same name gets a new id and must not reuse old secret bundles
-                          or Retained Hosts.
-                        type: string
-                        x-kubernetes-validations:
-                        - message: id is immutable
-                          rule: self == oldSelf
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
                     type: object
-                required:
-                - spec
+                  spec:
+                    description: |-
+                      TartClusterTemplateResourceSpec contains only fields that are meaningful for
+                      every concrete TartCluster created from the template. Cluster identity is
+                      always generated on the concrete resource after creation.
+                    properties:
+                      updatePolicy:
+                        description: TartUpdatePolicy defines the availability policy
+                          for node-disruptive updates.
+                        properties:
+                          allowDowntime:
+                            description: |-
+                              allowDowntime allows graceful shutdown or reboot when drain fails only for
+                              availability, PDB, or capacity reasons.
+                            type: boolean
+                        type: object
+                    type: object
                 type: object
             required:
             - template

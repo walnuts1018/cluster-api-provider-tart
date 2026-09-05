@@ -22,7 +22,7 @@ import (
 // TartClusterTemplateResource describes the data needed to create a TartCluster from a template.
 type TartClusterTemplateResource struct {
 	// ObjectMeta is propagated to the generated Cluster and its descendants.
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	ObjectMeta clusterv1.ObjectMeta            `json:"metadata,omitempty,omitzero"`
 	Spec       TartClusterTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 

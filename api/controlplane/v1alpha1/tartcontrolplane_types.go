@@ -73,6 +73,8 @@ type TartControlPlaneMachineTemplateSpec struct {
 // TartControlPlaneSpec defines the desired state of a TartControlPlane.
 type TartControlPlaneSpec struct {
 	// version is the desired Kubernetes version.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
 	Version string `json:"version"`
 
 	// replicas is the desired number of control plane Machines.

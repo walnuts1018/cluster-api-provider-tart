@@ -46,14 +46,38 @@ spec:
                   TartControlPlaneTemplateResource describes the data needed to create a
                   TartControlPlane from a template.
                 properties:
+                  metadata:
+                    description: ObjectMetaは生成されるTartControlPlaneのmetadataへ伝播する。各control-plane
+                      Machineのmetadataは内側のmachineTemplate.metadataで指定する。
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
                   spec:
-                    description: TartControlPlaneSpec defines the desired state of
-                      a TartControlPlane.
+                    description: |-
+                      TartControlPlaneTemplateResourceSpec omits values calculated or injected by
+                      ClusterClass, such as version, replicas, and infrastructureRef.
                     properties:
                       bootstrapConfigTemplate:
-                        description: |-
-                          bootstrapConfigTemplate refers to a TartBootstrapConfigTemplate used to render
-                          each control-plane Machine's TartBootstrapConfig.
+                        description: ObjectReference contains enough information to
+                          let you inspect or modify the referred object.
                         properties:
                           apiVersion:
                             description: API version of the referent.
@@ -97,85 +121,81 @@ spec:
                         x-kubernetes-map-type: atomic
                       machineTemplate:
                         description: |-
-                          MachineTemplateSpec is the template used to create each control-plane CAPI Machine's
-                          infrastructureRef and deletion behavior.
+                          TartControlPlaneTemplateMachineTemplate is the template-specific form of the
+                          control-plane Machine template. The infrastructure reference is injected by
+                          ClusterClass or the concrete TartControlPlane.
                         properties:
-                          deletion:
+                          metadata:
                             description: |-
-                              MachineDeletionSpec carries node-disruptive deletion timeouts, kept separate from
-                              fields that must not trigger a rollout.
+                              ObjectMeta is metadata that all persisted resources must have, which includes all objects
+                              users must create. This is a copy of customizable fields from metav1.ObjectMeta.
+
+                              ObjectMeta is embedded in `Machine.Spec`, `MachineDeployment.Template` and `MachineSet.Template`,
+                              which are not top-level Kubernetes objects. Given that metav1.ObjectMeta has lots of special cases
+                              and read-only fields which end up in the generated CRD validation, having it as a subset simplifies
+                              the API and some issues that can impact user experience.
+
+                              During the [upgrade to controller-tools@v2](https://github.com/kubernetes-sigs/cluster-api/pull/1054)
+                              for v1alpha2, we noticed a failure would occur running Cluster API test suite against the new CRDs,
+                              specifically `spec.metadata.creationTimestamp in body must be of type string: "null"`.
+                              The investigation showed that `controller-tools@v2` behaves differently than its previous version
+                              when handling types from [metav1](k8s.io/apimachinery/pkg/apis/meta/v1) package.
+
+                              In more details, we found that embedded (non-top level) types that embedded `metav1.ObjectMeta`
+                              had validation properties, including for `creationTimestamp` (metav1.Time).
+                              The `metav1.Time` type specifies a custom json marshaller that, when IsZero() is true, returns `null`
+                              which breaks validation because the field isn't marked as nullable.
+
+                              In future versions, controller-tools@v2 might allow overriding the type and validation for embedded
+                              types. When that happens, this hack should be revisited.
+                            minProperties: 1
                             properties:
-                              nodeDeletionTimeoutSeconds:
-                                format: int32
-                                type: integer
-                              nodeDrainTimeoutSeconds:
-                                format: int32
-                                type: integer
-                              nodeVolumeDetachTimeoutSeconds:
-                                format: int32
-                                type: integer
+                              annotations:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  annotations is an unstructured key value map stored with a resource that may be
+                                  set by external tools to store and retrieve arbitrary metadata. They are not
+                                  queryable and should be preserved when modifying objects.
+                                  More info: http://kubernetes.io/docs/user-guide/annotations
+                                type: object
+                              labels:
+                                additionalProperties:
+                                  type: string
+                                description: |-
+                                  labels is a map of string keys and values that can be used to organize and categorize
+                                  (scope and select) objects. May match selectors of replication controllers
+                                  and services.
+                                  More info: http://kubernetes.io/docs/user-guide/labels
+                                type: object
                             type: object
-                          infrastructureRef:
-                            description: infrastructureRef refers to a TartMachineTemplate.
+                          spec:
+                            description: |-
+                              TartControlPlaneTemplateMachineTemplateSpec contains fields that can be
+                              shared without fixing the infrastructure template reference.
                             properties:
-                              apiVersion:
-                                description: API version of the referent.
-                                type: string
-                              fieldPath:
+                              deletion:
                                 description: |-
-                                  If referring to a piece of an object instead of an entire object, this string
-                                  should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                                  For example, if the object reference is to a container within a pod, this would take on a value like:
-                                  "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                                  the event) or if no container name is specified "spec.containers[2]" (container with
-                                  index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                                  referencing a part of an object.
-                                type: string
-                              kind:
-                                description: |-
-                                  Kind of the referent.
-                                  More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-                                type: string
-                              name:
-                                description: |-
-                                  Name of the referent.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                                type: string
-                              namespace:
-                                description: |-
-                                  Namespace of the referent.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                                type: string
-                              resourceVersion:
-                                description: |-
-                                  Specific resourceVersion to which this reference is made, if any.
-                                  More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                                type: string
-                              uid:
-                                description: |-
-                                  UID of the referent.
-                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
-                                type: string
+                                  TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
+                                  timeouts, kept separate from fields that must not trigger a rollout.
+                                minProperties: 1
+                                properties:
+                                  nodeDeletionTimeoutSeconds:
+                                    format: int32
+                                    minimum: 0
+                                    type: integer
+                                  nodeDrainTimeoutSeconds:
+                                    format: int32
+                                    minimum: 0
+                                    type: integer
+                                  nodeVolumeDetachTimeoutSeconds:
+                                    format: int32
+                                    minimum: 0
+                                    type: integer
+                                type: object
                             type: object
-                            x-kubernetes-map-type: atomic
-                        required:
-                        - infrastructureRef
                         type: object
-                      replicas:
-                        description: replicas is the desired number of control plane
-                          Machines.
-                        format: int32
-                        type: integer
-                      version:
-                        description: version is the desired Kubernetes version.
-                        type: string
-                    required:
-                    - bootstrapConfigTemplate
-                    - machineTemplate
-                    - version
                     type: object
-                required:
-                - spec
                 type: object
             required:
             - template

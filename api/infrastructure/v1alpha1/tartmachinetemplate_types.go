@@ -21,8 +21,8 @@ import (
 
 // TartMachineTemplateResource describes the data needed to create a TartMachine from a template.
 type TartMachineTemplateResource struct {
-	// ObjectMeta is propagated to the generated Machine and its descendants.
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	// ObjectMetaは生成されるTartMachineのmetadataへ伝播する。CAPI Machineのmetadataは別途管理される。
+	ObjectMeta clusterv1.ObjectMeta            `json:"metadata,omitempty,omitzero"`
 	Spec       TartMachineTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 

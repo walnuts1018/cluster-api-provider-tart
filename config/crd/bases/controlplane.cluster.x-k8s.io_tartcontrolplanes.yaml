@@ -93,69 +93,114 @@ spec:
                 x-kubernetes-map-type: atomic
               machineTemplate:
                 description: |-
-                  MachineTemplateSpec is the template used to create each control-plane CAPI Machine's
-                  infrastructureRef and deletion behavior.
+                  TartControlPlaneMachineTemplate is the template used to create each
+                  control-plane CAPI Machine.
                 properties:
-                  deletion:
+                  metadata:
                     description: |-
-                      MachineDeletionSpec carries node-disruptive deletion timeouts, kept separate from
-                      fields that must not trigger a rollout.
+                      ObjectMeta is metadata that all persisted resources must have, which includes all objects
+                      users must create. This is a copy of customizable fields from metav1.ObjectMeta.
+
+                      ObjectMeta is embedded in `Machine.Spec`, `MachineDeployment.Template` and `MachineSet.Template`,
+                      which are not top-level Kubernetes objects. Given that metav1.ObjectMeta has lots of special cases
+                      and read-only fields which end up in the generated CRD validation, having it as a subset simplifies
+                      the API and some issues that can impact user experience.
+
+                      During the [upgrade to controller-tools@v2](https://github.com/kubernetes-sigs/cluster-api/pull/1054)
+                      for v1alpha2, we noticed a failure would occur running Cluster API test suite against the new CRDs,
+                      specifically `spec.metadata.creationTimestamp in body must be of type string: "null"`.
+                      The investigation showed that `controller-tools@v2` behaves differently than its previous version
+                      when handling types from [metav1](k8s.io/apimachinery/pkg/apis/meta/v1) package.
+
+                      In more details, we found that embedded (non-top level) types that embedded `metav1.ObjectMeta`
+                      had validation properties, including for `creationTimestamp` (metav1.Time).
+                      The `metav1.Time` type specifies a custom json marshaller that, when IsZero() is true, returns `null`
+                      which breaks validation because the field isn't marked as nullable.
+
+                      In future versions, controller-tools@v2 might allow overriding the type and validation for embedded
+                      types. When that happens, this hack should be revisited.
+                    minProperties: 1
                     properties:
-                      nodeDeletionTimeoutSeconds:
-                        format: int32
-                        type: integer
-                      nodeDrainTimeoutSeconds:
-                        format: int32
-                        type: integer
-                      nodeVolumeDetachTimeoutSeconds:
-                        format: int32
-                        type: integer
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
                     type: object
-                  infrastructureRef:
-                    description: infrastructureRef refers to a TartMachineTemplate.
+                  spec:
+                    description: |-
+                      TartControlPlaneMachineTemplateSpec is the template used to create each
+                      control-plane CAPI Machine's infrastructureRef and deletion behavior.
                     properties:
-                      apiVersion:
-                        description: API version of the referent.
-                        type: string
-                      fieldPath:
+                      deletion:
                         description: |-
-                          If referring to a piece of an object instead of an entire object, this string
-                          should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                          For example, if the object reference is to a container within a pod, this would take on a value like:
-                          "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                          the event) or if no container name is specified "spec.containers[2]" (container with
-                          index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                          referencing a part of an object.
-                        type: string
-                      kind:
-                        description: |-
-                          Kind of the referent.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
-                        type: string
-                      name:
-                        description: |-
-                          Name of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                        type: string
-                      namespace:
-                        description: |-
-                          Namespace of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                        type: string
-                      resourceVersion:
-                        description: |-
-                          Specific resourceVersion to which this reference is made, if any.
-                          More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                        type: string
-                      uid:
-                        description: |-
-                          UID of the referent.
-                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
-                        type: string
+                          TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
+                          timeouts, kept separate from fields that must not trigger a rollout.
+                        minProperties: 1
+                        properties:
+                          nodeDeletionTimeoutSeconds:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          nodeDrainTimeoutSeconds:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                          nodeVolumeDetachTimeoutSeconds:
+                            format: int32
+                            minimum: 0
+                            type: integer
+                        type: object
+                      infrastructureRef:
+                        description: infrastructureRef refers to a TartMachineTemplate.
+                        properties:
+                          apiGroup:
+                            description: |-
+                              apiGroup is the group of the resource being referenced.
+                              apiGroup must be fully qualified domain name.
+                              The corresponding version for this reference will be looked up from the contract
+                              labels of the corresponding CRD of the resource being referenced.
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          kind:
+                            description: |-
+                              kind of the resource being referenced.
+                              kind must consist of alphanumeric characters or '-', start with an alphabetic character, and end with an alphanumeric character.
+                            maxLength: 63
+                            minLength: 1
+                            pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                            type: string
+                          name:
+                            description: |-
+                              name of the resource being referenced.
+                              name must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character.
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                        required:
+                        - apiGroup
+                        - kind
+                        - name
+                        type: object
+                    required:
+                    - infrastructureRef
                     type: object
-                    x-kubernetes-map-type: atomic
-                required:
-                - infrastructureRef
                 type: object
               replicas:
                 description: replicas is the desired number of control plane Machines.
@@ -163,6 +208,8 @@ spec:
                 type: integer
               version:
                 description: version is the desired Kubernetes version.
+                maxLength: 256
+                minLength: 1
                 type: string
             required:
             - bootstrapConfigTemplate
@@ -263,20 +310,27 @@ spec:
                   versions lists observed actual Kubernetes versions across control-plane Machines,
                   oldest to newest. There is no separate top-level status.version.
                 items:
-                  description: |-
-                    TartControlPlaneKubernetesVersion is one observed Kubernetes version among the control
-                    plane's actual Machines, ordered from oldest to newest.
+                  description: StatusVersion groups version-related status information.
                   properties:
-                    count:
+                    replicas:
+                      description: replicas is the number of replicas at this version.
                       format: int32
+                      minimum: 1
                       type: integer
                     version:
+                      description: version is the Kubernetes version.
+                      maxLength: 256
+                      minLength: 1
                       type: string
                   required:
-                  - count
                   - version
                   type: object
+                maxItems: 100
+                minItems: 1
                 type: array
+                x-kubernetes-list-map-keys:
+                - version
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true

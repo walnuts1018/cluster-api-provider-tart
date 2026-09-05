@@ -31,7 +31,7 @@ type TartClusterSpec struct {
 	// non-dry-run creation and is never regenerated for the same object; a cluster
 	// recreated under the same name gets a new id and must not reuse old secret bundles
 	// or Retained Hosts.
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="id is immutable"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="id may only be initialized once and is immutable afterwards"
 	// +optional
 	ID string `json:"id,omitempty"`
 
@@ -56,9 +56,10 @@ type TartClusterStatus struct {
 	Initialization TartClusterInitializationStatus `json:"initialization,omitempty"`
 
 	// +optional
-	ControlPlaneEndpoint clusterv1.APIEndpoint `json:"controlPlaneEndpoint,omitempty"`
-
-	// +optional
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
 	FailureDomains []clusterv1.FailureDomain `json:"failureDomains,omitempty"`
 
 	// activeSecretGeneration is the currently active cluster secret bundle generation,

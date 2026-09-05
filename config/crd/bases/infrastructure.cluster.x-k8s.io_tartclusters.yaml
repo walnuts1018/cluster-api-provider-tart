@@ -52,8 +52,20 @@ spec:
                   or Retained Hosts.
                 type: string
                 x-kubernetes-validations:
-                - message: id is immutable
-                  rule: self == oldSelf
+                - message: id may only be initialized once and is immutable afterwards
+                  rule: self == oldSelf || (oldSelf == '' && self != '')
+              updatePolicy:
+                description: |-
+                  updatePolicy controls whether availability-only drain failures may be
+                  relaxed for node-disruptive updates. It never relaxes data, identity,
+                  Host, etcd, or quorum safety checks.
+                properties:
+                  allowDowntime:
+                    description: |-
+                      allowDowntime allows graceful shutdown or reboot when drain fails only for
+                      availability, PDB, or capacity reasons.
+                    type: boolean
+                type: object
             type: object
           status:
             description: TartClusterStatus defines the observed state of a TartCluster.
@@ -123,22 +135,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              controlPlaneEndpoint:
-                description: APIEndpoint represents a reachable Kubernetes API endpoint.
-                minProperties: 1
-                properties:
-                  host:
-                    description: host is the hostname on which the API server is serving.
-                    maxLength: 512
-                    minLength: 1
-                    type: string
-                  port:
-                    description: port is the port on which the API server is serving.
-                    format: int32
-                    maximum: 65535
-                    minimum: 1
-                    type: integer
-                type: object
               failureDomains:
                 items:
                   description: |-
@@ -163,7 +159,12 @@ spec:
                   required:
                   - name
                   type: object
+                maxItems: 100
+                minItems: 1
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               initialization:
                 description: TartClusterInitializationStatus tracks initial provisioning
                   milestones.

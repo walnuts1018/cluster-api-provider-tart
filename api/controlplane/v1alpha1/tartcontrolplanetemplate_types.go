@@ -23,8 +23,8 @@ import (
 // TartControlPlaneTemplateResource describes the data needed to create a
 // TartControlPlane from a template.
 type TartControlPlaneTemplateResource struct {
-	// ObjectMeta is propagated to generated control-plane Machines.
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	// ObjectMetaは生成されるTartControlPlaneのmetadataへ伝播する。各control-plane Machineのmetadataは内側のmachineTemplate.metadataで指定する。
+	ObjectMeta clusterv1.ObjectMeta                 `json:"metadata,omitempty,omitzero"`
 	Spec       TartControlPlaneTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 

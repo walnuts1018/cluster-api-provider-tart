@@ -38,6 +38,12 @@ const (
 	ReasonUnsafeUpdate            = "UnsafeUpdate"
 	ReasonSecretBundleUnavailable = "SecretBundleUnavailable"
 	ReasonRolledBack              = "RolledBack"
+	ReasonNoEligibleHost          = "NoEligibleHost"
+	ReasonHostNotFound            = "HostNotFound"
+	ReasonHostClaimConflict       = "HostClaimConflict"
+	ReasonHostMismatch            = "HostMismatch"
+	ReasonHostIDUnavailable       = "HostIDUnavailable"
+	ReasonForgetApprovalRequired  = "ForgetApprovalRequired"
 	ReasonNotImplemented          = "NotImplemented"
 )
 
@@ -195,7 +201,7 @@ type TartHostSpec struct {
 // DiskInventory is an observed disk on the Host, identified by a stable Talos disk
 // selector rather than an unstable Linux device path.
 type DiskInventory struct {
-	Selector string `json:"selector"`
+	Selector   string   `json:"selector"`
 	SizeBytes  int64    `json:"sizeBytes"`
 	DevPath    string   `json:"devPath,omitempty"`
 	Model      string   `json:"model,omitempty"`
@@ -210,9 +216,9 @@ type DiskInventory struct {
 
 // HostInventory is the hardware inventory observed via maintenance Talos discovery.
 type HostInventory struct {
-	SystemUUID string          `json:"systemUUID,omitempty"`
-	Architecture string        `json:"architecture,omitempty"`
-	Disks      []DiskInventory `json:"disks,omitempty"`
+	SystemUUID   string          `json:"systemUUID,omitempty"`
+	Architecture string          `json:"architecture,omitempty"`
+	Disks        []DiskInventory `json:"disks,omitempty"`
 }
 
 // TartHostStatus defines the observed state of a TartHost.

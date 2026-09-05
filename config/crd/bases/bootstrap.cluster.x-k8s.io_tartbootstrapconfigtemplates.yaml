@@ -46,16 +46,39 @@ spec:
                   TartBootstrapConfigTemplateResource describes the data needed to create a
                   TartBootstrapConfig from a template.
                 properties:
+                  metadata:
+                    description: ObjectMeta is propagated to the generated BootstrapConfig
+                      and its Secret.
+                    minProperties: 1
+                    properties:
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          annotations is an unstructured key value map stored with a resource that may be
+                          set by external tools to store and retrieve arbitrary metadata. They are not
+                          queryable and should be preserved when modifying objects.
+                          More info: http://kubernetes.io/docs/user-guide/annotations
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          labels is a map of string keys and values that can be used to organize and categorize
+                          (scope and select) objects. May match selectors of replication controllers
+                          and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels
+                        type: object
+                    type: object
                   spec:
                     description: |-
-                      TartBootstrapConfigSpec defines the desired state of a TartBootstrapConfig. All
-                      user-owned raw Talos configuration patches are supplied via an immutable
-                      Secret-backed input; no raw patch is ever stored inline in this Spec.
+                      TartBootstrapConfigTemplateResourceSpec contains the immutable Secret input
+                      shared by concrete BootstrapConfigs created from the template.
                     properties:
                       configSecretRef:
                         description: |-
-                          configSecretRef optionally references an immutable Secret holding user-owned raw
-                          Talos configuration patches. The referenced Secret must set immutable: true.
+                          LocalObjectReference contains enough information to let you locate the
+                          referenced object inside the same namespace.
                         properties:
                           name:
                             default: ""
@@ -69,8 +92,6 @@ spec:
                         type: object
                         x-kubernetes-map-type: atomic
                     type: object
-                required:
-                - spec
                 type: object
             required:
             - template

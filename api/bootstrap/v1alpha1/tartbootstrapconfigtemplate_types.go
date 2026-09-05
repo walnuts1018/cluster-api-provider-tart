@@ -24,7 +24,7 @@ import (
 // TartBootstrapConfig from a template.
 type TartBootstrapConfigTemplateResource struct {
 	// ObjectMeta is propagated to the generated BootstrapConfig and its Secret.
-	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	ObjectMeta clusterv1.ObjectMeta                    `json:"metadata,omitempty,omitzero"`
 	Spec       TartBootstrapConfigTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 

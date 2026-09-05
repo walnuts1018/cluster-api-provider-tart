@@ -103,12 +103,25 @@ spec:
                 description: failureDomain is a Host selector criterion matched against
                   Machine.spec.failureDomain.
                 type: string
-              forgetApproved:
+              forgetApproval:
                 description: |-
-                  forgetApproved must be set before a Claimed or Retained Host can be deleted. It
-                  authorizes removing the Host from inventory only; it never triggers power off,
-                  Talos reset, or disk wipe.
-                type: boolean
+                  forgetApproval must match the current Host state before a Claimed or Retained
+                  Host can be deleted. It authorizes removing the Host from inventory only; it
+                  never triggers power off, Talos reset, or disk wipe.
+                properties:
+                  consumerUID:
+                    description: |-
+                      UID is a type that holds unique ID values, including UUIDs.  Because we
+                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                      intent and helps make sure that UIDs and names do not get conflated.
+                    type: string
+                  retainedFromUID:
+                    description: |-
+                      UID is a type that holds unique ID values, including UUIDs.  Because we
+                      don't ONLY use UUIDs, this is an alias to string.  Being a type captures
+                      intent and helps make sure that UIDs and names do not get conflated.
+                    type: string
+                type: object
               id:
                 description: |-
                   id is an immutable random UUID that identifies this Host independently of
@@ -116,8 +129,8 @@ spec:
                   physical Host identity and ProviderID.
                 type: string
                 x-kubernetes-validations:
-                - message: id is immutable
-                  rule: self == oldSelf
+                - message: id may only be initialized once and is immutable afterwards
+                  rule: self == oldSelf || (oldSelf == '' && self != '')
               macAddress:
                 description: |-
                   macAddress is the primary enrollment identity used to bind an observed boot
@@ -135,6 +148,12 @@ spec:
                     - WakeOnLAN
                     - Manual
                     type: string
+                    x-kubernetes-validations:
+                    - message: backend must select exactly its matching power configuration
+                      rule: (self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN))
+                        || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) &&
+                        !has(self.redfish)) || (self.backend == 'Manual' && !has(self.redfish)
+                        && !has(self.wakeOnLAN))
                   redfish:
                     description: RedfishPowerConfig configures out-of-band power control
                       and stop confirmation via Redfish.
@@ -143,17 +162,18 @@ spec:
                         description: address is the Redfish service root base URL.
                         type: string
                       credentialSecretRef:
-                        description: credentialSecretRef references a Secret with
-                          "username" and "password" keys.
+                        description: |-
+                          credentialSecretRef references a namespaced Secret with "username" and
+                          "password" keys. The controller restricts the reference to the configured
+                          management namespace.
                         properties:
                           name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            description: name is unique within a namespace to reference
+                              a secret resource.
+                            type: string
+                          namespace:
+                            description: namespace defines the space within which
+                              the secret name must be unique.
                             type: string
                         type: object
                         x-kubernetes-map-type: atomic
@@ -238,7 +258,6 @@ spec:
                 - Reusable
                 type: string
             required:
-            - id
             - macAddress
             - power
             type: object
@@ -337,19 +356,44 @@ spec:
                 description: HostInventory is the hardware inventory observed via
                   maintenance Talos discovery.
                 properties:
+                  architecture:
+                    type: string
                   disks:
                     items:
                       description: |-
                         DiskInventory is an observed disk on the Host, identified by a stable Talos disk
                         selector rather than an unstable Linux device path.
                       properties:
+                        busPath:
+                          type: string
+                        devPath:
+                          type: string
+                        model:
+                          type: string
+                        readonly:
+                          type: boolean
+                        rotational:
+                          type: boolean
                         selector:
+                          type: string
+                        serial:
                           type: string
                         sizeBytes:
                           format: int64
                           type: integer
+                        symlinks:
+                          items:
+                            type: string
+                          type: array
+                        transport:
+                          type: string
+                        wwid:
+                          type: string
                       required:
+                      - readonly
+                      - rotational
                       - selector
+                      - sizeBytes
                       type: object
                     type: array
                   systemUUID:

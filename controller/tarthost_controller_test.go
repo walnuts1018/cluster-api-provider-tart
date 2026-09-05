@@ -15,7 +15,7 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
-func TestForgetApproved(t *testing.T) {
+func TestDeletionApproved(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -27,40 +27,40 @@ func TestForgetApproved(t *testing.T) {
 		{
 			name: "claimed host needs matching consumer approval",
 			spec: infrav1alpha1.TartHostSpec{
-				ConsumerRef:    &corev1.ObjectReference{UID: types.UID("consumer")},
-				ForgetApproval: &infrav1alpha1.ForgetApproval{ConsumerUID: types.UID("other")},
+				ConsumerRef:      &corev1.ObjectReference{UID: types.UID("consumer")},
+				DeletionApproval: &infrav1alpha1.DeletionApproval{ConsumerUID: types.UID("other")},
 			},
 		},
 		{
-			name: "claimed host with empty consumer UID cannot be forgotten",
+			name: "claimed host with empty consumer UID cannot be deleted",
 			spec: infrav1alpha1.TartHostSpec{
-				ConsumerRef:    &corev1.ObjectReference{},
-				ForgetApproval: &infrav1alpha1.ForgetApproval{},
+				ConsumerRef:      &corev1.ObjectReference{},
+				DeletionApproval: &infrav1alpha1.DeletionApproval{},
 			},
 		},
 		{
-			name: "retained host needs matching retained approval",
+			name: "retained host needs matching previous-consumer approval",
 			spec: infrav1alpha1.TartHostSpec{
-				RetainedFrom:   &infrav1alpha1.RetainedFrom{UID: types.UID("previous")},
-				ForgetApproval: &infrav1alpha1.ForgetApproval{RetainedFromUID: types.UID("previous")},
+				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("previous")},
+				DeletionApproval:    &infrav1alpha1.DeletionApproval{PreviousConsumerUID: types.UID("previous")},
 			},
 			want: true,
 		},
 		{
-			name: "retained host with empty retained UID cannot be forgotten",
+			name: "retained host with empty previous-consumer UID cannot be deleted",
 			spec: infrav1alpha1.TartHostSpec{
-				RetainedFrom:   &infrav1alpha1.RetainedFrom{},
-				ForgetApproval: &infrav1alpha1.ForgetApproval{},
+				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{},
+				DeletionApproval:    &infrav1alpha1.DeletionApproval{},
 			},
 		},
 		{
 			name: "both bindings require both approvals",
 			spec: infrav1alpha1.TartHostSpec{
-				ConsumerRef:  &corev1.ObjectReference{UID: types.UID("consumer")},
-				RetainedFrom: &infrav1alpha1.RetainedFrom{UID: types.UID("previous")},
-				ForgetApproval: &infrav1alpha1.ForgetApproval{
-					ConsumerUID:     types.UID("consumer"),
-					RetainedFromUID: types.UID("previous"),
+				ConsumerRef:         &corev1.ObjectReference{UID: types.UID("consumer")},
+				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("previous")},
+				DeletionApproval: &infrav1alpha1.DeletionApproval{
+					ConsumerUID:         types.UID("consumer"),
+					PreviousConsumerUID: types.UID("previous"),
 				},
 			},
 			want: true,
@@ -70,8 +70,8 @@ func TestForgetApproved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := forgetApproved(tt.spec); got != tt.want {
-				t.Errorf("forgetApproved() = %t, want %t", got, tt.want)
+			if got := deletionApproved(tt.spec); got != tt.want {
+				t.Errorf("deletionApproved() = %t, want %t", got, tt.want)
 			}
 		})
 	}
@@ -89,7 +89,7 @@ func TestTartHostReconcilerReportsIdentityConflictForEveryRelatedHost(t *testing
 		hosts[index] = &infrav1alpha1.TartHost{
 			Name: fmt.Sprintf("host-%d", index),
 			Spec: infrav1alpha1.TartHostSpec{
-				ID:         fmt.Sprintf("018f3c5e-5f8a-7c1b-9a2d-123456789ab%d", index),
+				HostID:     fmt.Sprintf("018f3c5e-5f8a-7c1b-9a2d-123456789ab%d", index),
 				MACAddress: "02:00:00:00:00:01",
 			},
 		}

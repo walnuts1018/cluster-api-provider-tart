@@ -38,12 +38,12 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	if config.Spec.ConfigSecretRef == nil {
+	if config.Spec.ConfigPatchesSecretRef == nil {
 		return r.report(ctx, &config, "ConfigurationSecretUnavailable", "An immutable configuration Secret reference is required before Bootstrap data can be generated.")
 	}
 
 	input := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigSecretRef.Name}, input); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigPatchesSecretRef.Name}, input); err != nil {
 		if apierrors.IsNotFound(err) {
 			return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
 		}
@@ -99,7 +99,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	// 既存Secretを観測してStatusだけを更新する。
 	original := config.DeepCopy()
 	config.Status.Initialization.DataSecretCreated = new(true)
-	config.Status.DataSecretName = new(actual.Name)
+	config.Status.DataSecretName = actual.Name
 	config.Status.ConfigurationDigest = digest
 	setCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionTrue, "DataSecretCreated", "The immutable Bootstrap Secret is available.", config.Generation)
 	config.Status.ObservedGeneration = config.Generation
@@ -123,10 +123,10 @@ func (r *TartBootstrapConfigReconciler) report(ctx context.Context, config *boot
 func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &bootstrapv1alpha1.TartBootstrapConfig{}, bootstrapConfigSecretIndex, func(obj client.Object) []string {
 		config, ok := obj.(*bootstrapv1alpha1.TartBootstrapConfig)
-		if !ok || config.Spec.ConfigSecretRef == nil {
+		if !ok || config.Spec.ConfigPatchesSecretRef == nil {
 			return nil
 		}
-		return []string{config.Spec.ConfigSecretRef.Name}
+		return []string{config.Spec.ConfigPatchesSecretRef.Name}
 	}); err != nil {
 		return err
 	}
@@ -148,4 +148,4 @@ func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-const bootstrapConfigSecretIndex = ".spec.configSecretRef.name"
+const bootstrapConfigSecretIndex = ".spec.configPatchesSecretRef.name"

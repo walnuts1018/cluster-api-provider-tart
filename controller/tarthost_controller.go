@@ -48,9 +48,9 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if !current.DeletionTimestamp.IsZero() {
 		return r.reconcileDeletion(ctx, &current)
 	}
-	if current.Spec.ID == "" {
+	if current.Spec.HostID == "" {
 		original := current.DeepCopy()
-		current.Spec.ID = uuid.NewV4().String()
+		current.Spec.HostID = uuid.NewV4().String()
 		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -152,25 +152,15 @@ func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility ho
 	generation := hostObject.Generation
 	switch eligibility {
 	case host.Available:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host has no retained state to reuse.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionTrue, infrav1alpha1.ReasonAvailable, "The Host has no active consumerRef and no retained state.", generation)
 	case host.Claimed:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionTrue, "Claimed", "The Host is claimed by a TartMachine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host is currently claimed.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonClaimed, "The Host is claimed by a TartMachine.", generation)
 	case host.Retained:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionTrue, "Retained", "The Host retains state from a previous TartMachine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "ReuseApprovalRequired", "A matching reuse approval and reuse mode are required.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host retains state from a previous TartMachine; a matching reuse approval and reuse mode are required.", generation)
 	case host.Reusable:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionTrue, "Retained", "The Host retains state from a previous TartMachine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionTrue, "ReuseApproved", "The Host has an explicit matching reuse approval.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonReuseApprovalRequired, "The Host retains state from a previous TartMachine but has an explicit matching reuse approval; allocation follows reuseMode, not the normal claim path.", generation)
 	default:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host has no retained state to reuse.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host eligibility could not be classified.", generation)
 	}
 
 	if hostObject.Status.Inventory != nil {
@@ -184,8 +174,8 @@ func (r *TartHostReconciler) reconcileDeletion(ctx context.Context, current *inf
 	if !controllerutil.ContainsFinalizer(current, tartHostFinalizer) {
 		return ctrl.Result{}, nil
 	}
-	if !forgetApproved(current.Spec) {
-		return r.report(ctx, current, infrav1alpha1.ReasonForgetApprovalRequired, "The Host is claimed or retained; matching forget approval is required and no power or data operation is performed.")
+	if !deletionApproved(current.Spec) {
+		return r.report(ctx, current, infrav1alpha1.ReasonDeletionApprovalRequired, "The Host is claimed or retained; matching deletion approval is required and no power or data operation is performed.")
 	}
 	original := current.DeepCopy()
 	controllerutil.RemoveFinalizer(current, tartHostFinalizer)
@@ -195,20 +185,20 @@ func (r *TartHostReconciler) reconcileDeletion(ctx context.Context, current *inf
 	return ctrl.Result{}, nil
 }
 
-func forgetApproved(spec infrav1alpha1.TartHostSpec) bool {
-	if spec.ConsumerRef == nil && spec.RetainedFrom == nil {
+func deletionApproved(spec infrav1alpha1.TartHostSpec) bool {
+	if spec.ConsumerRef == nil && spec.PreviousConsumerRef == nil {
 		return true
 	}
-	if spec.ForgetApproval == nil {
+	if spec.DeletionApproval == nil {
 		return false
 	}
 	if spec.ConsumerRef != nil {
-		if spec.ConsumerRef.UID == "" || spec.ForgetApproval.ConsumerUID == "" || spec.ForgetApproval.ConsumerUID != spec.ConsumerRef.UID {
+		if spec.ConsumerRef.UID == "" || spec.DeletionApproval.ConsumerUID == "" || spec.DeletionApproval.ConsumerUID != spec.ConsumerRef.UID {
 			return false
 		}
 	}
-	if spec.RetainedFrom != nil {
-		if spec.RetainedFrom.UID == "" || spec.ForgetApproval.RetainedFromUID == "" || spec.ForgetApproval.RetainedFromUID != spec.RetainedFrom.UID {
+	if spec.PreviousConsumerRef != nil {
+		if spec.PreviousConsumerRef.UID == "" || spec.DeletionApproval.PreviousConsumerUID == "" || spec.DeletionApproval.PreviousConsumerUID != spec.PreviousConsumerRef.UID {
 			return false
 		}
 	}

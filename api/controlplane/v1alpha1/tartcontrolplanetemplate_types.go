@@ -1,7 +1,6 @@
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
@@ -21,7 +20,7 @@ type TartControlPlaneTemplateResourceSpec struct {
 	MachineTemplate TartControlPlaneTemplateMachineTemplate `json:"machineTemplate,omitempty,omitzero"`
 
 	// +optional
-	BootstrapConfigTemplate *corev1.ObjectReference `json:"bootstrapConfigTemplate,omitempty"`
+	BootstrapConfigTemplateRef *clusterv1.ContractVersionedObjectReference `json:"bootstrapConfigTemplateRef,omitempty"`
 }
 
 // TartControlPlaneTemplateMachineTemplate is the template-specific form of the
@@ -38,6 +37,14 @@ type TartControlPlaneTemplateMachineTemplate struct {
 // TartControlPlaneTemplateMachineTemplateSpec contains fields that can be
 // shared without fixing the infrastructure template reference.
 type TartControlPlaneTemplateMachineTemplateSpec struct {
+	// readinessGates specifies additional conditions to evaluate for Machine readiness.
+	// +optional
+	ReadinessGates []clusterv1.MachineReadinessGate `json:"readinessGates,omitempty,omitzero"`
+
+	// taints specifies node taints applied to the created Machine.
+	// +optional
+	Taints []clusterv1.MachineTaint `json:"taints,omitempty,omitzero"`
+
 	// +optional
 	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
@@ -49,6 +56,7 @@ type TartControlPlaneTemplateSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
+// +kubebuilder:resource:categories=cluster-api,shortName=tcpt
 
 // TartControlPlaneTemplate is the Schema for the tartcontrolplanetemplates API.
 type TartControlPlaneTemplate struct {

@@ -1,24 +1,24 @@
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartControlPlane Condition types, per docs/development/api-contract.md.
+// In accordance with CAPI v1beta2 ControlPlane contract, Available is the primary condition
+// bubble-up to Cluster.status.
 const (
-	TartControlPlaneReadyCondition            = "Ready"
-	TartControlPlaneAvailableCondition        = "Available"
-	TartControlPlaneUpToDateCondition         = "UpToDate"
-	TartControlPlaneRollingOutCondition       = "RollingOut"
-	TartControlPlaneScalingUpCondition        = "ScalingUp"
-	TartControlPlaneScalingDownCondition      = "ScalingDown"
-	TartControlPlaneMachinesReadyCondition    = "MachinesReady"
-	TartControlPlaneMachinesUpToDateCondition = "MachinesUpToDate"
-	TartControlPlaneEtcdClusterAvailableCond  = "EtcdClusterAvailable"
-	TartControlPlaneDeletingCondition         = "Deleting"
-	TartControlPlanePausedCondition           = "Paused"
+	TartControlPlaneAvailableCondition            = "Available"
+	TartControlPlaneUpToDateCondition             = "UpToDate"
+	TartControlPlaneRollingOutCondition           = "RollingOut"
+	TartControlPlaneScalingUpCondition            = "ScalingUp"
+	TartControlPlaneScalingDownCondition          = "ScalingDown"
+	TartControlPlaneMachinesReadyCondition        = "MachinesReady"
+	TartControlPlaneMachinesUpToDateCondition     = "MachinesUpToDate"
+	TartControlPlaneEtcdClusterAvailableCondition = "EtcdClusterAvailable"
+	TartControlPlaneDeletingCondition             = "Deleting"
+	TartControlPlanePausedCondition               = "Paused"
 )
 
 // TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
@@ -47,18 +47,35 @@ type TartControlPlaneMachineTemplate struct {
 }
 
 // TartControlPlaneMachineTemplateSpec is the template used to create each
-// control-plane CAPI Machine's infrastructureRef and deletion behavior.
+// control-plane CAPI Machine's infrastructureRef, deletion behavior, readiness gates, and taints.
 type TartControlPlaneMachineTemplateSpec struct {
 	// infrastructureRef refers to a TartMachineTemplate.
 	InfrastructureRef clusterv1.ContractVersionedObjectReference `json:"infrastructureRef"`
+
+	// readinessGates specifies additional conditions to evaluate for Machine readiness.
+	// +optional
+	ReadinessGates []clusterv1.MachineReadinessGate `json:"readinessGates,omitempty,omitzero"`
+
+	// taints specifies node taints applied to the created Machine.
+	// +optional
+	Taints []clusterv1.MachineTaint `json:"taints,omitempty,omitzero"`
 
 	// +optional
 	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
 // TartControlPlaneSpec defines the desired state of a TartControlPlane.
+//
+// Control Plane endpoint note: Tart does not provision control plane endpoints (VIP, LB).
+// The endpoint is expected to be provided externally via Cluster.spec.controlPlaneEndpoint.
+//
+// In-place update note: Control plane in-place updates follow the CAPI KCP pattern:
+// CanUpdateMachine verification -> update Machine/InfraMachine/BootstrapConfig desired specs ->
+// in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation -> UpdateMachine hook pending ->
+// Machine controller coordination.
 type TartControlPlaneSpec struct {
-	// version is the desired Kubernetes version.
+	// version is the desired Kubernetes version. It must follow semantic versioning with a leading "v".
+	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
 	Version string `json:"version"`
@@ -69,15 +86,15 @@ type TartControlPlaneSpec struct {
 
 	MachineTemplate TartControlPlaneMachineTemplate `json:"machineTemplate"`
 
-	// bootstrapConfigTemplate refers to a TartBootstrapConfigTemplate used to render
+	// bootstrapConfigTemplateRef refers to a TartBootstrapConfigTemplate used to render
 	// each control-plane Machine's TartBootstrapConfig.
-	BootstrapConfigTemplate corev1.ObjectReference `json:"bootstrapConfigTemplate"`
+	BootstrapConfigTemplateRef clusterv1.ContractVersionedObjectReference `json:"bootstrapConfigTemplateRef"`
 }
 
 // TartControlPlaneStatus defines the observed state of a TartControlPlane.
 type TartControlPlaneStatus struct {
 	// +optional
-	Initialization TartControlPlaneInitializationStatus `json:"initialization,omitempty"`
+	Initialization TartControlPlaneInitializationStatus `json:"initialization,omitempty,omitzero"`
 
 	// versions lists observed actual Kubernetes versions across control-plane Machines,
 	// oldest to newest. There is no separate top-level status.version.
@@ -109,6 +126,7 @@ type TartControlPlaneStatus struct {
 }
 
 // TartControlPlaneInitializationStatus tracks initial etcd/API server bootstrap.
+// +kubebuilder:validation:MinProperties=1
 type TartControlPlaneInitializationStatus struct {
 	// controlPlaneInitialized becomes true once the workload Kubernetes API server
 	// accepts requests. It does not imply all Nodes are Ready or that CNI is installed.
@@ -120,7 +138,8 @@ type TartControlPlaneInitializationStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:subresource:scale:specpath=.spec.replicas,statuspath=.status.replicas,selectorpath=.status.selector
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
-// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:resource:categories=cluster-api,shortName=tcp
+// +kubebuilder:printcolumn:name="Available",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status"
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=".status.replicas"
 
 // TartControlPlane is the Schema for the tartcontrolplanes API.

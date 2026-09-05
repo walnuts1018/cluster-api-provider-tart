@@ -10,9 +10,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartClusterTemplate
     listKind: TartClusterTemplateList
     plural: tartclustertemplates
+    shortNames:
+    - tclt
     singular: tartclustertemplate
   scope: Namespaced
   versions:
@@ -80,11 +84,14 @@ spec:
                         description: TartUpdatePolicy defines the availability policy
                           for node-disruptive updates.
                         properties:
-                          allowDowntime:
-                            description: |-
-                              allowDowntime allows graceful shutdown or reboot when drain fails only for
-                              availability, PDB, or capacity reasons.
-                            type: boolean
+                          disruptionPolicy:
+                            default: Block
+                            description: disruptionPolicy controls how drain failures
+                              are handled during node-disruptive updates.
+                            enum:
+                            - Block
+                            - AllowDowntime
+                            type: string
                         type: object
                     type: object
                 type: object

@@ -10,9 +10,13 @@ metadata:
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartBootstrapConfigTemplate
     listKind: TartBootstrapConfigTemplateList
     plural: tartbootstrapconfigtemplates
+    shortNames:
+    - tbcfgt
     singular: tartbootstrapconfigtemplate
   scope: Namespaced
   versions:
@@ -77,7 +81,7 @@ spec:
                       TartBootstrapConfigTemplateResourceSpec contains the immutable Secret input
                       shared by concrete BootstrapConfigs created from the template.
                     properties:
-                      configSecretRef:
+                      configPatchesSecretRef:
                         description: |-
                           LocalObjectReference contains enough information to let you locate the
                           referenced object inside the same namespace.

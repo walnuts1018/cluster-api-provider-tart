@@ -30,19 +30,19 @@ const (
 // Classify computes the current allocation eligibility of a Host from its Spec only.
 // It never performs an external side effect and never treats reusePolicy/reuseApproval
 // set while the Host is still fresh or Claimed as a future deletion approval: those
-// fields only take effect once the Host is Retained and retainedFrom is present.
+// fields only take effect once the Host is Retained and previousConsumerRef is present.
 func Classify(spec infrav1alpha1.TartHostSpec) Eligibility {
 	if spec.ConsumerRef != nil {
 		return Claimed
 	}
-	if spec.RetainedFrom == nil {
+	if spec.PreviousConsumerRef == nil {
 		return Available
 	}
-	if spec.ReusePolicy == infrav1alpha1.ReusePolicyReusable &&
+	if spec.ReusePolicy == infrav1alpha1.ReusePolicyAllowReuse &&
 		spec.ReuseApproval != nil &&
-		spec.RetainedFrom.UID != "" &&
-		spec.ReuseApproval.RetainedFromUID != "" &&
-		spec.ReuseApproval.RetainedFromUID == spec.RetainedFrom.UID &&
+		spec.PreviousConsumerRef.UID != "" &&
+		spec.ReuseApproval.PreviousConsumerUID != "" &&
+		spec.ReuseApproval.PreviousConsumerUID == spec.PreviousConsumerRef.UID &&
 		validReuseMode(spec.ReuseMode) {
 		return Reusable
 	}

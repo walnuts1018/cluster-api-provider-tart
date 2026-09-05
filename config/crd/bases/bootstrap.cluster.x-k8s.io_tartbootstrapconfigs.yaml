@@ -10,9 +10,13 @@ metadata:
 spec:
   group: bootstrap.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartBootstrapConfig
     listKind: TartBootstrapConfigList
     plural: tartbootstrapconfigs
+    shortNames:
+    - tbcfg
     singular: tartbootstrapconfig
   scope: Namespaced
   versions:
@@ -51,11 +55,19 @@ spec:
               TartBootstrapConfigSpec defines the desired state of a TartBootstrapConfig. All
               user-owned raw Talos configuration patches are supplied via an immutable
               Secret-backed input; no raw patch is ever stored inline in this Spec.
+
+              Field classification:
+              - configPatchesSecretRef: mutable / Update Extension-owned lifecycle.
+                The normal Bootstrap reconciler generates the initial Bootstrap Secret only and
+                does NOT apply in-place changes to running Nodes; live updates are driven by Update Extension.
             properties:
-              configSecretRef:
+              configPatchesSecretRef:
                 description: |-
-                  configSecretRef optionally references an immutable Secret holding user-owned raw
+                  configPatchesSecretRef optionally references an immutable Secret holding user-owned raw
                   Talos configuration patches. The referenced Secret must set immutable: true.
+                  Contract for referenced Secret:
+                  - "patches": Talos multi-document YAML or JSON patches
+                  - "value": complete Talos machine configuration
                 properties:
                   name:
                     default: ""
@@ -141,11 +153,14 @@ spec:
               dataSecretName:
                 description: |-
                   dataSecretName is the deterministically derived name of the generated Bootstrap
-                  Secret.
+                  Secret satisfying the CAPI contract (single "value" key, cluster name label, owner reference).
+                maxLength: 253
+                minLength: 1
                 type: string
               initialization:
                 description: TartBootstrapConfigInitializationStatus tracks initial
                   Secret creation.
+                minProperties: 1
                 properties:
                   dataSecretCreated:
                     type: boolean

@@ -28,7 +28,7 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 		Name: "host-a",
 		UID:  types.UID("host-a"),
 		Spec: infrav1alpha1.TartHostSpec{
-			ID:         "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
+			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
 			MACAddress: "02:00:00:00:00:01",
 		},
 	}
@@ -37,7 +37,7 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 		Name:      "machine-a",
 		UID:       types.UID("machine-a"),
 		Spec: infrav1alpha1.TartMachineSpec{
-			TalosImage: infrav1alpha1.TalosImage{Version: "v1.9.0", SchematicID: "schematic"},
+			Image: infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
@@ -78,7 +78,7 @@ func TestTartMachineReconcilerDoesNotMutatePausedMachine(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			ID:         "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
+			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
 			MACAddress: "02:00:00:00:00:01",
 		},
 	}
@@ -88,7 +88,7 @@ func TestTartMachineReconcilerDoesNotMutatePausedMachine(t *testing.T) {
 		UID:         types.UID("machine-a"),
 		Annotations: map[string]string{clusterv1.PausedAnnotation: "true"},
 		Spec: infrav1alpha1.TartMachineSpec{
-			TalosImage: infrav1alpha1.TalosImage{Version: "v1.9.0", SchematicID: "schematic"},
+			Image: infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
@@ -127,7 +127,7 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			ID:         "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
+			HostID:     "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
 			MACAddress: "02:00:00:00:00:01",
 		},
 	}
@@ -137,7 +137,7 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 		UID:       types.UID("machine-a"),
 		Spec: infrav1alpha1.TartMachineSpec{
 			ProviderID: "tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789def",
-			TalosImage: infrav1alpha1.TalosImage{Version: "v1.9.0", SchematicID: "schematic"},
+			Image:      infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
@@ -185,7 +185,7 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			ID: "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
+			HostID: "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
 				Kind:       tartMachineKind,

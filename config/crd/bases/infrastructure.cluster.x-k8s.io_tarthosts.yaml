@@ -8,9 +8,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartHost
     listKind: TartHostList
     plural: tarthosts
+    shortNames:
+    - thost
     singular: tarthost
   scope: Cluster
   versions:
@@ -18,8 +22,8 @@ spec:
     - jsonPath: .status.conditions[?(@.type=='Ready')].status
       name: Ready
       type: string
-    - jsonPath: .status.conditions[?(@.type=='Claimed')].status
-      name: Claimed
+    - jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Available
       type: string
     name: v1alpha1
     schema:
@@ -99,13 +103,9 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
-              failureDomain:
-                description: failureDomain is a Host selector criterion matched against
-                  Machine.spec.failureDomain.
-                type: string
-              forgetApproval:
+              deletionApproval:
                 description: |-
-                  forgetApproval must match the current Host state before a Claimed or Retained
+                  deletionApproval must match the current Host state before a Claimed or Retained
                   Host can be deleted. It authorizes removing the Host from inventory only; it
                   never triggers power off, Talos reset, or disk wipe.
                 properties:
@@ -115,26 +115,32 @@ spec:
                       don't ONLY use UUIDs, this is an alias to string.  Being a type captures
                       intent and helps make sure that UIDs and names do not get conflated.
                     type: string
-                  retainedFromUID:
+                  previousConsumerUID:
                     description: |-
                       UID is a type that holds unique ID values, including UUIDs.  Because we
                       don't ONLY use UUIDs, this is an alias to string.  Being a type captures
                       intent and helps make sure that UIDs and names do not get conflated.
                     type: string
                 type: object
-              id:
+              failureDomain:
+                description: failureDomain is a Host selector criterion matched against
+                  Machine.spec.failureDomain.
+                type: string
+              hostID:
                 description: |-
-                  id is an immutable random UUID that identifies this Host independently of
+                  hostID is an immutable random UUID that identifies this Host independently of
                   metadata.uid, so backups of the management cluster can recreate the same
-                  physical Host identity and ProviderID.
+                  physical Host identity and ProviderID. This is a controller-owned spec field.
+                pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                 type: string
                 x-kubernetes-validations:
-                - message: id may only be initialized once and is immutable afterwards
+                - message: hostID may only be initialized once and is immutable afterwards
                   rule: self == oldSelf || (oldSelf == '' && self != '')
               macAddress:
                 description: |-
                   macAddress is the primary enrollment identity used to bind an observed boot
                   attempt to this Host before any other inventory is known.
+                pattern: ^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$
                 type: string
               power:
                 description: power describes this Host's power control and stop-confirmation
@@ -161,11 +167,27 @@ spec:
                       address:
                         description: address is the Redfish service root base URL.
                         type: string
+                      caSecretRef:
+                        description: |-
+                          caSecretRef optionally references a Secret containing a custom CA certificate bundle
+                          under the "ca.crt" key for verifying the Redfish endpoint TLS certificate.
+                          When omitted, the system trust bundle is used unless insecureSkipVerify is true.
+                        properties:
+                          name:
+                            description: name is unique within a namespace to reference
+                              a secret resource.
+                            type: string
+                          namespace:
+                            description: namespace defines the space within which
+                              the secret name must be unique.
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
                       credentialSecretRef:
                         description: |-
-                          credentialSecretRef references a namespaced Secret with "username" and
-                          "password" keys. The controller restricts the reference to the configured
-                          management namespace.
+                          credentialSecretRef references a Secret with "username" and "password" keys.
+                          Because TartHost is a cluster-scoped resource, the controller restricts reference
+                          resolution strictly to the configured provider management namespace.
                         properties:
                           name:
                             description: name is unique within a namespace to reference
@@ -178,8 +200,9 @@ spec:
                         type: object
                         x-kubernetes-map-type: atomic
                       insecureSkipVerify:
-                        description: insecureSkipVerify disables TLS certificate verification
-                          for the Redfish endpoint.
+                        description: |-
+                          insecureSkipVerify disables TLS certificate verification for the Redfish endpoint.
+                          It should only be used when custom CA verification is not feasible.
                         type: boolean
                       systemID:
                         description: systemID is the Redfish ComputerSystem identifier.
@@ -203,14 +226,14 @@ spec:
                 required:
                 - backend
                 type: object
-              retainedFrom:
+              previousConsumerRef:
                 description: |-
-                  retainedFrom is the controller-managed record of the previous consumer, kept
+                  previousConsumerRef is the controller-managed record of the previous consumer, kept
                   after Machine deletion so this Host is not auto-allocated again until an explicit
                   reuse approval is given.
                 properties:
                   clusterID:
-                    description: clusterID is the TartCluster.spec.id the previous
+                    description: clusterID is the TartCluster.spec.clusterID the previous
                       consumer belonged to.
                     type: string
                   name:
@@ -230,21 +253,21 @@ spec:
                 - uid
                 type: object
               reuseApproval:
-                description: reuseApproval must match the current retainedFrom.uid
-                  before this Host becomes Reusable.
+                description: reuseApproval must match the current previousConsumerRef.uid
+                  before this Host becomes eligible for reuse.
                 properties:
-                  retainedFromUID:
+                  previousConsumerUID:
                     description: |-
                       UID is a type that holds unique ID values, including UUIDs.  Because we
                       don't ONLY use UUIDs, this is an alias to string.  Being a type captures
                       intent and helps make sure that UIDs and names do not get conflated.
                     type: string
                 required:
-                - retainedFromUID
+                - previousConsumerUID
                 type: object
               reuseMode:
                 description: reuseMode selects Adopt or Reprovision once the Host
-                  becomes Reusable.
+                  is approved for reuse.
                 enum:
                 - Adopt
                 - Reprovision
@@ -252,16 +275,16 @@ spec:
               reusePolicy:
                 default: Retain
                 description: reusePolicy is the user intent for whether a Retained
-                  Host may become Reusable.
+                  Host may be reused.
                 enum:
                 - Retain
-                - Reusable
+                - AllowReuse
                 type: string
-              talosEndpoint:
+              talosAPIAddress:
                 description: |-
-                  talosEndpoint is an optional address or DNS name where the Talos API for this
-                  Host can be reached. It is a reachability hint only; the controller still
-                  verifies the observed MAC address before applying configuration.
+                  talosAPIAddress is an optional address or DNS name where the Talos API for this
+                  Host can be reached. It is a reachability hint / override only; the controller
+                  still verifies the observed MAC address before applying configuration.
                 maxLength: 512
                 type: string
             required:
@@ -360,29 +383,30 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               inventory:
-                description: HostInventory is the hardware inventory observed via
-                  maintenance Talos discovery.
+                description: |-
+                  HostInventory is the hardware inventory observed via maintenance Talos discovery.
+                  Note that systemUUID is treated as one piece of identity evidence and is not solely
+                  relied upon due to potential BIOS omissions, all-zero values, or duplicates in DIY hardware.
                 properties:
                   architecture:
                     type: string
                   disks:
                     items:
                       description: |-
-                        DiskInventory is an observed disk on the Host, identified by a stable Talos disk
-                        selector rather than an unstable Linux device path.
+                        DiskInventory is an observed disk on the Host raw hardware inventory.
+                        Stable Talos CEL disk selectors are generated by CLI or helper tools rather than
+                        hardcoded into this inventory schema.
                       properties:
                         busPath:
                           type: string
-                        devPath:
+                        devicePath:
                           type: string
                         model:
                           type: string
-                        readonly:
+                        readOnly:
                           type: boolean
                         rotational:
                           type: boolean
-                        selector:
-                          type: string
                         serial:
                           type: string
                         sizeBytes:
@@ -397,10 +421,30 @@ spec:
                         wwid:
                           type: string
                       required:
-                      - readonly
+                      - readOnly
                       - rotational
-                      - selector
                       - sizeBytes
+                      type: object
+                    type: array
+                  networkInterfaces:
+                    items:
+                      description: NetworkInterfaceInventory is an observed network
+                        interface on the Host.
+                      properties:
+                        addresses:
+                          items:
+                            type: string
+                          type: array
+                        busPath:
+                          type: string
+                        driver:
+                          type: string
+                        linkState:
+                          type: string
+                        macAddress:
+                          type: string
+                        name:
+                          type: string
                       type: object
                     type: array
                   systemUUID:

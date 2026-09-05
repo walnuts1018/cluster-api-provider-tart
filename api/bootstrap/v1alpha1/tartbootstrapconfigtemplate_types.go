@@ -18,7 +18,7 @@ type TartBootstrapConfigTemplateResource struct {
 // shared by concrete BootstrapConfigs created from the template.
 type TartBootstrapConfigTemplateResourceSpec struct {
 	// +optional
-	ConfigSecretRef *corev1.LocalObjectReference `json:"configSecretRef,omitempty"`
+	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
 }
 
 // TartBootstrapConfigTemplateSpec defines the desired state of a TartBootstrapConfigTemplate.
@@ -28,6 +28,7 @@ type TartBootstrapConfigTemplateSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
+// +kubebuilder:resource:categories=cluster-api,shortName=tbcfgt
 
 // TartBootstrapConfigTemplate is the Schema for the tartbootstrapconfigtemplates API.
 type TartBootstrapConfigTemplate struct {

@@ -44,9 +44,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// TartCluster.spec.id must be generated exactly once, after the concrete
 	// (non-dry-run) Resource is created, and must never be regenerated. Secret bundle
 	// generation, Host claim and provisioning must not start before it is set.
-	if cluster.Spec.ID == "" {
+	if cluster.Spec.ClusterID == "" {
 		original := cluster.DeepCopy()
-		cluster.Spec.ID = uuid.NewV4().String()
+		cluster.Spec.ClusterID = uuid.NewV4().String()
 		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -62,7 +62,8 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	original := cluster.DeepCopy()
-	setNotImplemented(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, cluster.Generation)
+	cluster.Status.Initialization.Provisioned = new(true)
+	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", cluster.Generation)
 	cluster.Status.ActiveSecretGeneration = generation
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, &cluster, client.MergeFrom(original)); err != nil {
@@ -73,7 +74,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, generation int32) error {
-	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ID, generation)
+	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ClusterID, generation)
 	if err != nil {
 		return err
 	}
@@ -81,11 +82,11 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	secret := &corev1.Secret{}
 	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
 	if apierrors.IsNotFound(err) {
-		data, generateErr := controlplane.GenerateBundleData(cluster.Spec.ID)
+		data, generateErr := controlplane.GenerateBundleData(cluster.Spec.ClusterID)
 		if generateErr != nil {
 			return generateErr
 		}
-		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, cluster.Spec.ID, generation, metav1.OwnerReference{
+		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
 			Kind:       "TartCluster",
 			Name:       cluster.Name,
@@ -105,10 +106,10 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	if err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, cluster.Spec.ID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ID); err != nil {
+	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ClusterID); err != nil {
 		return err
 	}
 

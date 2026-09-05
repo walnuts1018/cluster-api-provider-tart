@@ -20,8 +20,8 @@ type TartMachineTemplateResourceSpec struct {
 	// +optional
 	HostSelector *HostSelector `json:"hostSelector,omitempty"`
 
-	// talosImage is the desired Talos OS version and system extension set.
-	TalosImage TalosImage `json:"talosImage"`
+	// image is the desired Talos OS version and system extension set.
+	Image TalosImageSpec `json:"image"`
 }
 
 // TartMachineTemplateSpec defines the desired state of a TartMachineTemplate.
@@ -31,6 +31,7 @@ type TartMachineTemplateSpec struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
+// +kubebuilder:resource:categories=cluster-api,shortName=tmt
 
 // TartMachineTemplate is the Schema for the tartmachinetemplates API.
 type TartMachineTemplate struct {

@@ -54,11 +54,11 @@
      - generation Nからgeneration N+1の `Pending` bundle Secretを先行生成。
      - Talos公式の段階的CA更新（accepted CA追加 → issuing CA切替 → certificate refresh → 旧CA削除）をreconcileし、完了確認後に `activeSecretGeneration` を更新する。
 - **解消条件**:
-  - `TartControlPlaneReadyCondition`, `TartControlPlaneAvailableCondition`, `TartControlPlaneEtcdClusterAvailableCond` 等が実際の観測に基づいて正常に更新されること。
+  - `TartControlPlaneAvailableCondition`, `TartControlPlaneEtcdClusterAvailableCondition` 等が実際の観測に基づいて正常に更新されること。
 
 ### タスク3: TartCluster のReconcile実装
 - **重要度**: 中
-- **現状**: [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) では `spec.id` 生成と初期bundle Secret生成のみが行われ、`TartClusterReadyCondition` は `setNotImplemented` のままとなっている。
+- **現状**: [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) では `spec.clusterID` 生成と初期bundle Secret生成のみが行われている。
 - **実装内容**:
   1. **Cluster Ready判定**:
      - Control Planeおよび各Infrastructureコンポーネントの観測結果を集約し、Clusterの準備完了を判定してReady Conditionを更新する。

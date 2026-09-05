@@ -123,10 +123,10 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return r.reportFailure(ctx, &cp, err)
 	}
 	var bootstrapTemplate bootstrapv1alpha1.TartBootstrapConfigTemplate
-	if err := r.getBootstrapTemplate(ctx, cp.Namespace, &cp.Spec.BootstrapConfigTemplate, &bootstrapTemplate); err != nil {
+	if err := r.getBootstrapTemplate(ctx, cp.Namespace, &cp.Spec.BootstrapConfigTemplateRef, &bootstrapTemplate); err != nil {
 		return r.reportFailure(ctx, &cp, err)
 	}
-	if bootstrapTemplate.Spec.Template.Spec.ConfigSecretRef == nil || bootstrapTemplate.Spec.Template.Spec.ConfigSecretRef.Name == "" {
+	if bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef == nil || bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef.Name == "" {
 		return r.reportFailure(ctx, &cp, &controlPlaneFailure{
 			reason:  reasonBootstrapTemplateInvalid,
 			message: "The BootstrapConfigTemplate must reference an immutable configuration Secret.",
@@ -166,7 +166,7 @@ func (r *TartControlPlaneReconciler) reconcilePaused(ctx context.Context, cp *co
 func (r *TartControlPlaneReconciler) reconcileDeleting(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane) (ctrl.Result, error) {
 	original := cp.DeepCopy()
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionTrue, "Deleting", "The control plane is being deleted; no new Machine or Host allocation is started.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, metav1.ConditionFalse, "Deleting", "The control plane is being deleted.", cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "Deleting", "The control plane is being deleted.", cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
 	if err := r.Status().Patch(ctx, cp, client.MergeFrom(original)); err != nil {
@@ -183,7 +183,7 @@ func (r *TartControlPlaneReconciler) reportFailure(ctx context.Context, cp *cont
 		failure = typedFailure
 	}
 	original := cp.DeepCopy()
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, metav1.ConditionFalse, failure.reason, failure.message, cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, failure.reason, failure.message, cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
 	if err := r.Status().Patch(ctx, cp, client.MergeFrom(original)); err != nil {
@@ -238,7 +238,7 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 		}
 		return nil, err
 	}
-	if tartCluster.Spec.ID == "" || tartCluster.Status.ActiveSecretGeneration < 1 {
+	if tartCluster.Spec.ClusterID == "" || tartCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The TartCluster identity and active secret bundle are not ready yet.",
@@ -249,7 +249,7 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 
 func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster) error {
 	generation := cluster.Status.ActiveSecretGeneration
-	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ID, generation)
+	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ClusterID, generation)
 	if err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
@@ -266,13 +266,13 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 		}
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, cluster.Spec.ID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle does not satisfy its identity contract.",
 		}
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ID); err != nil {
+	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ClusterID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle data is invalid.",
@@ -300,8 +300,8 @@ func (r *TartControlPlaneReconciler) getTartMachineTemplate(ctx context.Context,
 	return nil
 }
 
-func (r *TartControlPlaneReconciler) getBootstrapTemplate(ctx context.Context, namespace string, ref *corev1.ObjectReference, template *bootstrapv1alpha1.TartBootstrapConfigTemplate) error {
-	if ref.APIVersion != bootstrapv1alpha1.GroupVersion.String() || ref.Kind != "TartBootstrapConfigTemplate" || ref.Name == "" {
+func (r *TartControlPlaneReconciler) getBootstrapTemplate(ctx context.Context, namespace string, ref *clusterv1.ContractVersionedObjectReference, template *bootstrapv1alpha1.TartBootstrapConfigTemplate) error {
+	if ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group || ref.Kind != "TartBootstrapConfigTemplate" || ref.Name == "" {
 		return &controlPlaneFailure{
 			reason:  reasonBootstrapTemplateInvalid,
 			message: "The bootstrapConfigTemplate must reference a TartBootstrapConfigTemplate.",
@@ -552,7 +552,7 @@ func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *cont
 			},
 		},
 	}
-	if bootstrapTemplate.Spec.Template.Spec.ConfigSecretRef == nil {
+	if bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef == nil {
 		return nil, &controlPlaneFailure{reason: reasonBootstrapTemplateInvalid, message: "The BootstrapConfigTemplate has no configuration Secret reference."}
 	}
 	if err := r.Create(ctx, machine); err != nil && !apierrors.IsAlreadyExists(err) {
@@ -580,7 +580,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
 		Spec: infrav1alpha1.TartMachineSpec{
 			HostSelector: machineTemplate.Spec.Template.Spec.HostSelector.DeepCopy(),
-			TalosImage:   machineTemplate.Spec.Template.Spec.TalosImage,
+			Image:        machineTemplate.Spec.Template.Spec.Image,
 		},
 	}
 	var tartMachine infrav1alpha1.TartMachine
@@ -598,7 +598,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	if err := validateProviderOwner(&tartMachine, machine, infrav1alpha1.GroupVersion.String(), tartMachineKind); err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.TalosImage != expectedMachine.Spec.TalosImage {
+	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.Image != expectedMachine.Spec.Image {
 		return &controlPlaneFailure{reason: "MachineSpecMismatch", message: "The existing TartMachine does not match its immutable control-plane template."}
 	}
 
@@ -615,7 +615,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		Labels:          bootstrapLabels,
 		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
 		Spec: bootstrapv1alpha1.TartBootstrapConfigSpec{
-			ConfigSecretRef: bootstrapTemplate.Spec.Template.Spec.ConfigSecretRef.DeepCopy(),
+			ConfigPatchesSecretRef: bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef.DeepCopy(),
 		},
 	}
 	var bootstrapConfig bootstrapv1alpha1.TartBootstrapConfig
@@ -633,7 +633,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	if err := validateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), tartBootstrapConfigKind); err != nil {
 		return err
 	}
-	if bootstrapConfig.Spec.ConfigSecretRef == nil || expectedBootstrap.Spec.ConfigSecretRef == nil || bootstrapConfig.Spec.ConfigSecretRef.Name != expectedBootstrap.Spec.ConfigSecretRef.Name {
+	if bootstrapConfig.Spec.ConfigPatchesSecretRef == nil || expectedBootstrap.Spec.ConfigPatchesSecretRef == nil || bootstrapConfig.Spec.ConfigPatchesSecretRef.Name != expectedBootstrap.Spec.ConfigPatchesSecretRef.Name {
 		return &controlPlaneFailure{reason: "BootstrapConfigMismatch", message: "The existing TartBootstrapConfig does not match its immutable template."}
 	}
 	return nil
@@ -729,16 +729,6 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	}
 
 	controlPlaneReady := bootstrapState.workloadReady && desired > 0 && ready == desired
-	readyReason := "MachinesNotReady"
-	readyMessage := "Not all desired control-plane Machines report Ready."
-	if !bootstrapState.workloadReady {
-		readyReason = reasonWorkloadAPIUnavailable
-		readyMessage = "The workload Kubernetes API is not ready yet."
-	} else if controlPlaneReady {
-		readyReason = "Ready"
-		readyMessage = "All desired control-plane Machines and the workload Kubernetes API are ready."
-	}
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, conditionStatus(controlPlaneReady), readyReason, readyMessage, cp.Generation)
 	availableReason := "MachinesNotAvailable"
 	availableMessage := "Not all desired control-plane Machines are available."
 	if !bootstrapState.workloadReady {
@@ -765,7 +755,7 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down requires the not-yet-implemented etcd safety path.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCond, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation

@@ -10,9 +10,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartCluster
     listKind: TartClusterList
     plural: tartclusters
+    shortNames:
+    - tcl
     singular: tartcluster
   scope: Namespaced
   versions:
@@ -43,18 +47,24 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartClusterSpec defines the desired state of a TartCluster.
+            description: |-
+              TartClusterSpec defines the desired state of a TartCluster.
+              Note on control plane endpoint: Tart does not provision control plane endpoints (VIP, load balancer).
+              The control plane endpoint must be provided by the user, ClusterClass, or surrounding topology via
+              Cluster.spec.controlPlaneEndpoint; Tart reconcilers wait until this endpoint is available.
             properties:
-              id:
+              clusterID:
                 description: |-
-                  id is an immutable random UUID that identifies this workload cluster independently
+                  clusterID is an immutable random UUID that identifies this workload cluster independently
                   of Cluster.metadata.uid. It is generated once by the controller on first
                   non-dry-run creation and is never regenerated for the same object; a cluster
-                  recreated under the same name gets a new id and must not reuse old secret bundles
-                  or Retained Hosts.
+                  recreated under the same name gets a new clusterID and must not reuse old secret bundles
+                  or Retained Hosts. This is a controller-owned spec field.
+                pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                 type: string
                 x-kubernetes-validations:
-                - message: id may only be initialized once and is immutable afterwards
+                - message: clusterID may only be initialized once and is immutable
+                    afterwards
                   rule: self == oldSelf || (oldSelf == '' && self != '')
               updatePolicy:
                 description: |-
@@ -62,11 +72,14 @@ spec:
                   relaxed for node-disruptive updates. It never relaxes data, identity,
                   Host, etcd, or quorum safety checks.
                 properties:
-                  allowDowntime:
-                    description: |-
-                      allowDowntime allows graceful shutdown or reboot when drain fails only for
-                      availability, PDB, or capacity reasons.
-                    type: boolean
+                  disruptionPolicy:
+                    default: Block
+                    description: disruptionPolicy controls how drain failures are
+                      handled during node-disruptive updates.
+                    enum:
+                    - Block
+                    - AllowDowntime
+                    type: string
                 type: object
             type: object
           status:
@@ -76,6 +89,9 @@ spec:
                 description: |-
                   activeSecretGeneration is the currently active cluster secret bundle generation,
                   starting at 1 and monotonically increasing on CA rotation.
+                  Note: Although status is not preserved across clusterctl move / backup restores,
+                  the active generation can be deterministically reconstructed by inspecting the
+                  existing immutable bundle Secrets in the cluster namespace.
                 format: int32
                 type: integer
               conditions:
@@ -170,6 +186,7 @@ spec:
               initialization:
                 description: TartClusterInitializationStatus tracks initial provisioning
                   milestones.
+                minProperties: 1
                 properties:
                   provisioned:
                     type: boolean

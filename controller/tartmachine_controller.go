@@ -97,10 +97,10 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
 	}
 
-	if selected.Spec.ID == "" {
+	if selected.Spec.HostID == "" {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
-	providerID, err := host.ProviderID(selected.Spec.ID)
+	providerID, err := host.ProviderID(selected.Spec.HostID)
 	if err != nil {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
@@ -223,12 +223,12 @@ func (r *TartMachineReconciler) bootstrapConfiguration(ctx context.Context, mach
 		}
 		return nil, err
 	}
-	if config.Status.DataSecretName == nil || strings.TrimSpace(*config.Status.DataSecretName) == "" {
+	if strings.TrimSpace(config.Status.DataSecretName) == "" {
 		return nil, errBootstrapDataUnavailable
 	}
 
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: *config.Status.DataSecretName}, secret); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, errBootstrapDataUnavailable
 		}
@@ -283,7 +283,7 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 				talosRequeue)
 		}
 
-		if machine.Spec.TalosImage.Version != "" && version.Tag == machine.Spec.TalosImage.Version {
+		if machine.Spec.Image.Version != "" && version.Tag == machine.Spec.Image.Version {
 			return r.reportTalosStatusWithVersion(ctx, machine, version.Tag,
 				metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
 				metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
@@ -350,7 +350,7 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 			0)
 	}
 
-	effectiveConfiguration, err := talos.SetInstallerImage(configuration, machine.Spec.TalosImage.Version, machine.Spec.TalosImage.SchematicID)
+	effectiveConfiguration, err := talos.SetInstallerImage(configuration, machine.Spec.Image.Version, machine.Spec.Image.SchematicID)
 	if err != nil {
 		if closeErr := maintenance.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
@@ -385,7 +385,7 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 }
 
 func hostTalosEndpoint(host *infrav1alpha1.TartHost) string {
-	if endpoint := strings.TrimSpace(host.Spec.TalosEndpoint); endpoint != "" {
+	if endpoint := strings.TrimSpace(host.Spec.TalosAPIAddress); endpoint != "" {
 		return endpoint
 	}
 	for _, addressType := range []clusterv1.MachineAddressType{clusterv1.MachineInternalIP, clusterv1.MachineExternalIP, clusterv1.MachineHostName} {
@@ -435,7 +435,7 @@ func (r *TartMachineReconciler) reportTalosStatusWithVersion(ctx context.Context
 	}
 	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosReachableCondition, reachableStatus, reachableReason, reachableMessage, machine.Generation)
 	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineProvisionedCondition, provisionedStatus, provisionedReason, provisionedMessage, machine.Generation)
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineUpToDateCondition, upToDateStatus, upToDateReason, upToDateMessage, machine.Generation)
+	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition, upToDateStatus, upToDateReason, upToDateMessage, machine.Generation)
 	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, readyStatus, readyReason, readyMessage, machine.Generation)
 	machine.Status.ObservedGeneration = machine.Generation
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {

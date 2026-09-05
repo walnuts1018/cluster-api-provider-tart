@@ -10,15 +10,19 @@ metadata:
 spec:
   group: controlplane.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartControlPlane
     listKind: TartControlPlaneList
     plural: tartcontrolplanes
+    shortNames:
+    - tcp
     singular: tartcontrolplane
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.conditions[?(@.type=='Ready')].status
-      name: Ready
+    - jsonPath: .status.conditions[?(@.type=='Available')].status
+      name: Available
       type: string
     - jsonPath: .status.replicas
       name: Replicas
@@ -46,53 +50,53 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartControlPlaneSpec defines the desired state of a TartControlPlane.
+            description: |-
+              TartControlPlaneSpec defines the desired state of a TartControlPlane.
+
+              Control Plane endpoint note: Tart does not provision control plane endpoints (VIP, LB).
+              The endpoint is expected to be provided externally via Cluster.spec.controlPlaneEndpoint.
+
+              In-place update note: Control plane in-place updates follow the CAPI KCP pattern:
+              CanUpdateMachine verification -> update Machine/InfraMachine/BootstrapConfig desired specs ->
+              in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation -> UpdateMachine hook pending ->
+              Machine controller coordination.
             properties:
-              bootstrapConfigTemplate:
+              bootstrapConfigTemplateRef:
                 description: |-
-                  bootstrapConfigTemplate refers to a TartBootstrapConfigTemplate used to render
+                  bootstrapConfigTemplateRef refers to a TartBootstrapConfigTemplate used to render
                   each control-plane Machine's TartBootstrapConfig.
                 properties:
-                  apiVersion:
-                    description: API version of the referent.
-                    type: string
-                  fieldPath:
+                  apiGroup:
                     description: |-
-                      If referring to a piece of an object instead of an entire object, this string
-                      should contain a valid JSON/Go field access statement, such as desiredState.manifest.containers[2].
-                      For example, if the object reference is to a container within a pod, this would take on a value like:
-                      "spec.containers{name}" (where "name" refers to the name of the container that triggered
-                      the event) or if no container name is specified "spec.containers[2]" (container with
-                      index 2 in this pod). This syntax is chosen only to have some well-defined way of
-                      referencing a part of an object.
+                      apiGroup is the group of the resource being referenced.
+                      apiGroup must be fully qualified domain name.
+                      The corresponding version for this reference will be looked up from the contract
+                      labels of the corresponding CRD of the resource being referenced.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
                   kind:
                     description: |-
-                      Kind of the referent.
-                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                      kind of the resource being referenced.
+                      kind must consist of alphanumeric characters or '-', start with an alphabetic character, and end with an alphanumeric character.
+                    maxLength: 63
+                    minLength: 1
+                    pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
                     type: string
                   name:
                     description: |-
-                      Name of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      name of the resource being referenced.
+                      name must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character.
+                    maxLength: 253
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                     type: string
-                  namespace:
-                    description: |-
-                      Namespace of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
-                    type: string
-                  resourceVersion:
-                    description: |-
-                      Specific resourceVersion to which this reference is made, if any.
-                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#concurrency-control-and-consistency
-                    type: string
-                  uid:
-                    description: |-
-                      UID of the referent.
-                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#uids
-                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
                 type: object
-                x-kubernetes-map-type: atomic
               machineTemplate:
                 description: |-
                   TartControlPlaneMachineTemplate is the template used to create each
@@ -145,7 +149,7 @@ spec:
                   spec:
                     description: |-
                       TartControlPlaneMachineTemplateSpec is the template used to create each
-                      control-plane CAPI Machine's infrastructureRef and deletion behavior.
+                      control-plane CAPI Machine's infrastructureRef, deletion behavior, readiness gates, and taints.
                     properties:
                       deletion:
                         description: |-
@@ -200,6 +204,86 @@ spec:
                         - kind
                         - name
                         type: object
+                      readinessGates:
+                        description: readinessGates specifies additional conditions
+                          to evaluate for Machine readiness.
+                        items:
+                          description: MachineReadinessGate contains the type of a
+                            Machine condition to be used as a readiness gate.
+                          properties:
+                            conditionType:
+                              description: |-
+                                conditionType refers to a condition with matching type in the Machine's condition list.
+                                If the conditions doesn't exist, it will be treated as unknown.
+                                Note: Both Cluster API conditions or conditions added by 3rd party controllers can be used as readiness gates.
+                              maxLength: 316
+                              minLength: 1
+                              pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                              type: string
+                            polarity:
+                              description: |-
+                                polarity of the conditionType specified in this readinessGate.
+                                Valid values are Positive, Negative and omitted.
+                                When omitted, the default behaviour will be Positive.
+                                A positive polarity means that the condition should report a true status under normal conditions.
+                                A negative polarity means that the condition should report a false status under normal conditions.
+                              enum:
+                              - Positive
+                              - Negative
+                              type: string
+                          required:
+                          - conditionType
+                          type: object
+                        type: array
+                      taints:
+                        description: taints specifies node taints applied to the created
+                          Machine.
+                        items:
+                          description: MachineTaint defines a taint equivalent to
+                            corev1.Taint, but additionally having a propagation field.
+                          properties:
+                            effect:
+                              description: effect is the effect for the taint. Valid
+                                values are NoSchedule, PreferNoSchedule and NoExecute.
+                              enum:
+                              - NoSchedule
+                              - PreferNoSchedule
+                              - NoExecute
+                              type: string
+                            key:
+                              description: |-
+                                key is the taint key to be applied to a node.
+                                Must be a valid qualified name of maximum size 63 characters
+                                with an optional subdomain prefix of maximum size 253 characters,
+                                separated by a `/`.
+                              maxLength: 317
+                              minLength: 1
+                              pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*\/)?([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]$
+                              type: string
+                            propagation:
+                              description: |-
+                                propagation defines how this taint should be propagated to nodes.
+                                Valid values are 'Always' and 'OnInitialization'.
+                                Always: The taint will be continuously reconciled. If it is not set for a node, it will be added during reconciliation.
+                                OnInitialization: The taint will be added during node initialization. If it gets removed from the node later on it will not get added again.
+                              enum:
+                              - Always
+                              - OnInitialization
+                              type: string
+                            value:
+                              description: |-
+                                value is the taint value corresponding to the taint key.
+                                It must be a valid label value of maximum size 63 characters.
+                              maxLength: 63
+                              minLength: 1
+                              pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
+                              type: string
+                          required:
+                          - effect
+                          - key
+                          - propagation
+                          type: object
+                        type: array
                     required:
                     - infrastructureRef
                     type: object
@@ -209,12 +293,14 @@ spec:
                 format: int32
                 type: integer
               version:
-                description: version is the desired Kubernetes version.
+                description: version is the desired Kubernetes version. It must follow
+                  semantic versioning with a leading "v".
                 maxLength: 256
                 minLength: 1
+                pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
                 type: string
             required:
-            - bootstrapConfigTemplate
+            - bootstrapConfigTemplateRef
             - machineTemplate
             - version
             type: object
@@ -286,6 +372,7 @@ spec:
               initialization:
                 description: TartControlPlaneInitializationStatus tracks initial etcd/API
                   server bootstrap.
+                minProperties: 1
                 properties:
                   controlPlaneInitialized:
                     description: |-

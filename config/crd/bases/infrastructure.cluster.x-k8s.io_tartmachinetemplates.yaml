@@ -10,9 +10,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartMachineTemplate
     listKind: TartMachineTemplateList
     plural: tartmachinetemplates
+    shortNames:
+    - tmt
     singular: tartmachinetemplate
   scope: Namespaced
   versions:
@@ -131,24 +135,28 @@ spec:
                             type: object
                             x-kubernetes-map-type: atomic
                         type: object
-                      talosImage:
-                        description: talosImage is the desired Talos OS version and
-                          system extension set.
+                      image:
+                        description: image is the desired Talos OS version and system
+                          extension set.
                         properties:
                           schematicID:
                             description: |-
                               schematicID is the Image Factory schematic identifier, which also determines the
                               installed system extension set.
+                            maxLength: 128
+                            minLength: 1
                             type: string
                           version:
                             description: version is the desired Talos OS version.
+                              It must follow semantic versioning with a leading "v".
+                            pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
                             type: string
                         required:
                         - schematicID
                         - version
                         type: object
                     required:
-                    - talosImage
+                    - image
                     type: object
                 type: object
             required:

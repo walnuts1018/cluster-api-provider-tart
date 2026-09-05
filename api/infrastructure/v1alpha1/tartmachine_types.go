@@ -11,36 +11,51 @@ const (
 	TartMachineReadyCondition          = "Ready"
 	TartMachineTalosReachableCondition = "TalosReachable"
 	TartMachineProvisionedCondition    = "Provisioned"
-	TartMachineUpToDateCondition       = "UpToDate"
+	TartMachineTalosUpToDateCondition  = "TalosUpToDate"
 )
 
-// TalosImage is the single source of truth for the Talos OS version and system
+// TalosImageSpec is the single source of truth for the Talos OS version and system
 // extension set. The same schematic is used for both the boot asset and the installer
 // image.
-type TalosImage struct {
-	// version is the desired Talos OS version.
+type TalosImageSpec struct {
+	// version is the desired Talos OS version. It must follow semantic versioning with a leading "v".
+	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
 	Version string `json:"version"`
 	// schematicID is the Image Factory schematic identifier, which also determines the
 	// installed system extension set.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
 	SchematicID string `json:"schematicID"`
 }
 
 // TartMachineSpec defines the desired state of a TartMachine.
+// Field classification:
+// - hostRef: initial-only / user-owned (immutable after claim)
+// - hostSelector: initial-only / user-owned (safe-stop after claim)
+// - image: mutable / Update Extension-owned lifecycle (in-place Talos updates are handled via Update Extension, not by normal TartMachine reconciler)
+// - providerID: controller-written
+//
+// +kubebuilder:validation:XValidation:rule="!(has(self.hostRef) && has(self.hostSelector))",message="hostRef and hostSelector are mutually exclusive"
 type TartMachineSpec struct {
-	// hostRef explicitly selects a TartHost. Immutable after the Host claim succeeds.
+	// hostRef explicitly selects a TartHost (initial-only, user-owned). Immutable after Host claim succeeds.
+	// Mutually exclusive with hostSelector.
 	// +optional
 	HostRef *corev1.LocalObjectReference `json:"hostRef,omitempty"`
 
-	// hostSelector deterministically narrows Host allocation when hostRef is not set.
+	// hostSelector deterministically narrows Host allocation when hostRef is not set (initial-only, user-owned).
 	// Changing it after claim is a safe-stop, not an in-place update.
+	// Mutually exclusive with hostRef.
 	// +optional
 	HostSelector *HostSelector `json:"hostSelector,omitempty"`
 
-	// talosImage is the desired Talos OS version and schematic identity.
-	TalosImage TalosImage `json:"talosImage"`
+	// image is the desired Talos OS version and schematic identity (mutable, Update Extension-owned).
+	// Normal TartMachine reconciler does not trigger Talos upgrades on live nodes directly;
+	// upgrades are driven by the CAPI Update Extension lifecycle (CanUpdateMachine -> UpdateMachine).
+	Image TalosImageSpec `json:"image"`
 
-	// providerID is derived deterministically from the claimed TartHost.spec.id as
-	// tart://host/<TartHost.spec.id> once Host allocation succeeds.
+	// providerID is derived deterministically from the claimed TartHost.spec.hostID as
+	// tart://host/<TartHost.spec.hostID> once Host allocation succeeds (controller-written).
+	// Invariant: TartHost.spec.hostID -> tart://host/<hostID> -> TartMachine.spec.providerID == Node.spec.providerID.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -58,7 +73,7 @@ type HostSelector struct {
 // TartMachineStatus defines the observed state of a TartMachine.
 type TartMachineStatus struct {
 	// +optional
-	Initialization TartMachineInitializationStatus `json:"initialization,omitempty"`
+	Initialization TartMachineInitializationStatus `json:"initialization,omitempty,omitzero"`
 
 	// +optional
 	Addresses clusterv1.MachineAddresses `json:"addresses,omitempty"`
@@ -87,6 +102,7 @@ type TartMachineStatus struct {
 }
 
 // TartMachineInitializationStatus tracks initial provisioning milestones.
+// +kubebuilder:validation:MinProperties=1
 type TartMachineInitializationStatus struct {
 	// +optional
 	Provisioned *bool `json:"provisioned,omitempty"`
@@ -95,6 +111,7 @@ type TartMachineInitializationStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
+// +kubebuilder:resource:categories=cluster-api,shortName=tm
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="ProviderID",type=string,JSONPath=".spec.providerID"
 

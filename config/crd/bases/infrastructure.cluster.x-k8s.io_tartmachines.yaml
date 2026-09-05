@@ -10,9 +10,13 @@ metadata:
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
+    categories:
+    - cluster-api
     kind: TartMachine
     listKind: TartMachineList
     plural: tartmachines
+    shortNames:
+    - tm
     singular: tartmachine
   scope: Namespaced
   versions:
@@ -46,11 +50,18 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartMachineSpec defines the desired state of a TartMachine.
+            description: |-
+              TartMachineSpec defines the desired state of a TartMachine.
+              Field classification:
+              - hostRef: initial-only / user-owned (immutable after claim)
+              - hostSelector: initial-only / user-owned (safe-stop after claim)
+              - image: mutable / Update Extension-owned lifecycle (in-place Talos updates are handled via Update Extension, not by normal TartMachine reconciler)
+              - providerID: controller-written
             properties:
               hostRef:
-                description: hostRef explicitly selects a TartHost. Immutable after
-                  the Host claim succeeds.
+                description: |-
+                  hostRef explicitly selects a TartHost (initial-only, user-owned). Immutable after Host claim succeeds.
+                  Mutually exclusive with hostSelector.
                 properties:
                   name:
                     default: ""
@@ -65,8 +76,9 @@ spec:
                 x-kubernetes-map-type: atomic
               hostSelector:
                 description: |-
-                  hostSelector deterministically narrows Host allocation when hostRef is not set.
+                  hostSelector deterministically narrows Host allocation when hostRef is not set (initial-only, user-owned).
                   Changing it after claim is a safe-stop, not an in-place update.
+                  Mutually exclusive with hostRef.
                 properties:
                   architecture:
                     type: string
@@ -120,32 +132,42 @@ spec:
                     type: object
                     x-kubernetes-map-type: atomic
                 type: object
-              providerID:
+              image:
                 description: |-
-                  providerID is derived deterministically from the claimed TartHost.spec.id as
-                  tart://host/<TartHost.spec.id> once Host allocation succeeds.
-                maxLength: 512
-                minLength: 1
-                type: string
-              talosImage:
-                description: talosImage is the desired Talos OS version and schematic
-                  identity.
+                  image is the desired Talos OS version and schematic identity (mutable, Update Extension-owned).
+                  Normal TartMachine reconciler does not trigger Talos upgrades on live nodes directly;
+                  upgrades are driven by the CAPI Update Extension lifecycle (CanUpdateMachine -> UpdateMachine).
                 properties:
                   schematicID:
                     description: |-
                       schematicID is the Image Factory schematic identifier, which also determines the
                       installed system extension set.
+                    maxLength: 128
+                    minLength: 1
                     type: string
                   version:
-                    description: version is the desired Talos OS version.
+                    description: version is the desired Talos OS version. It must
+                      follow semantic versioning with a leading "v".
+                    pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
                     type: string
                 required:
                 - schematicID
                 - version
                 type: object
+              providerID:
+                description: |-
+                  providerID is derived deterministically from the claimed TartHost.spec.hostID as
+                  tart://host/<TartHost.spec.hostID> once Host allocation succeeds (controller-written).
+                  Invariant: TartHost.spec.hostID -> tart://host/<hostID> -> TartMachine.spec.providerID == Node.spec.providerID.
+                maxLength: 512
+                minLength: 1
+                type: string
             required:
-            - talosImage
+            - image
             type: object
+            x-kubernetes-validations:
+            - message: hostRef and hostSelector are mutually exclusive
+              rule: '!(has(self.hostRef) && has(self.hostSelector))'
           status:
             description: TartMachineStatus defines the observed state of a TartMachine.
             properties:
@@ -260,6 +282,7 @@ spec:
               initialization:
                 description: TartMachineInitializationStatus tracks initial provisioning
                   milestones.
+                minProperties: 1
                 properties:
                   provisioned:
                     type: boolean

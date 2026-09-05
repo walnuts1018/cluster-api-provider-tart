@@ -5,6 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	capiannotations "sigs.k8s.io/cluster-api/util/annotations"
 
+	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
@@ -30,7 +31,7 @@ func isPaused(object metav1.Object) bool {
 	return capiannotations.HasPaused(object)
 }
 
-func setPausedCondition(conditions *[]metav1.Condition, conditionType string, paused bool, generation int64) {
+func setPausedCondition(conditions *[]metav1.Condition, paused bool, generation int64) {
 	status := metav1.ConditionFalse
 	reason := "NotPaused"
 	message := "Reconciliation is not paused."
@@ -39,5 +40,5 @@ func setPausedCondition(conditions *[]metav1.Condition, conditionType string, pa
 		reason = "Paused"
 		message = "Reconciliation is paused by the cluster.x-k8s.io/paused annotation."
 	}
-	setCondition(conditions, conditionType, status, reason, message, generation)
+	setCondition(conditions, controlplanev1alpha1.TartControlPlanePausedCondition, status, reason, message, generation)
 }

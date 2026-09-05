@@ -188,7 +188,7 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 			ID: "018f3c5e-5f8a-7c1b-9a2d-123456789abc",
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
-				Kind:       "TartMachine",
+				Kind:       tartMachineKind,
 				Namespace:  machine.Namespace,
 				Name:       machine.Name,
 				UID:        machine.UID,

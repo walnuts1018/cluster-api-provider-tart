@@ -36,6 +36,13 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 	if secret.Labels[BundleStateLabel] != BundleStatePending {
 		t.Errorf("bundle state = %q, want %q", secret.Labels[BundleStateLabel], BundleStatePending)
 	}
+	active, err := BuildActiveSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, owner, data)
+	if err != nil {
+		t.Fatalf("BuildActiveSecret() error = %v", err)
+	}
+	if active.Labels[BundleStateLabel] != BundleStateActive {
+		t.Errorf("active bundle state = %q, want %q", active.Labels[BundleStateLabel], BundleStateActive)
+	}
 	wrongOwner := owner
 	wrongOwner.Kind = "TartControlPlane"
 	if _, err := BuildPendingSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, wrongOwner, data); !errors.Is(err, ErrBundleOwnerInvalid) {

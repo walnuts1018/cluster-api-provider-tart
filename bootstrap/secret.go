@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	BootstrapSecretType = corev1.SecretType("cluster.x-k8s.io/secret")
-	BootstrapSecretKey  = "value"
-	ClusterNameLabel    = "cluster.x-k8s.io/cluster-name"
+	BootstrapSecretType   = corev1.SecretType("cluster.x-k8s.io/secret")
+	BootstrapSecretKey    = "value"
+	ClusterNameLabel      = "cluster.x-k8s.io/cluster-name"
+	ConfigurationInputKey = "value"
 )
 
 var (
@@ -26,6 +27,7 @@ var (
 	ErrOwnerReferenceIncomplete   = errors.New("bootstrap Secret owner reference is incomplete")
 	ErrOwnerReferenceInvalid      = errors.New("bootstrap Secret owner reference is invalid")
 	ErrCompleteConfigurationEmpty = errors.New("complete machine configuration is empty")
+	ErrConfigurationInputMissing  = errors.New("bootstrap configuration Secret has no usable configuration input")
 )
 
 // ValidateConfigSecretはユーザー所有のraw configuration inputがimmutableであり、空でないことを確認する。
@@ -43,6 +45,33 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 		}
 	}
 	return fmt.Errorf("%w: %s", ErrConfigSecretEmpty, secret.Name)
+}
+
+// CompleteConfigurationFromSecretはimmutableな入力Secretから完全なTalos configurationを取得する。
+// 初期実装ではvalue keyを優先し、それ以外のkeyしかない場合は単一の値を完全なconfigurationとして解釈する。
+// TODO: Cluster、Machine、bundle contextからraw patchを合成できるようになった時点で、完全configuration専用の暫定入力形式を廃止する。
+// raw patchだけが渡された場合はTalos machineryの完全性検証で拒否し、未完成な設定を配布しない。
+func CompleteConfigurationFromSecret(secret *corev1.Secret) ([]byte, error) {
+	if err := ValidateConfigSecret(secret); err != nil {
+		return nil, err
+	}
+
+	configuration, ok := secret.Data[ConfigurationInputKey]
+	if !ok {
+		if len(secret.Data) != 1 {
+			return nil, ErrConfigurationInputMissing
+		}
+		for _, value := range secret.Data {
+			configuration = value
+		}
+	}
+
+	rendered, err := RenderEffectiveConfiguration(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("render configuration input: %w", err)
+	}
+
+	return rendered, nil
 }
 
 // BuildSecretは完全にrender済みのTalos machine configurationからCAPI Bootstrap Secretを作成する。

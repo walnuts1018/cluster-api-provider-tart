@@ -5,11 +5,16 @@ import (
 	"time"
 	"uuid"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 )
 
 // TartClusterReconciler reconciles a TartCluster object.
@@ -19,6 +24,7 @@ type TartClusterReconciler struct {
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cluster infrav1alpha1.TartCluster
@@ -47,10 +53,17 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	// TODO: control plane endpoint観測、failure domain反映、secret bundle世代管理は
-	// controlplaneパッケージの実装後にここへ接続する。
+	generation := cluster.Status.ActiveSecretGeneration
+	if generation == 0 {
+		generation = 1
+	}
+	if err := r.ensureBundle(ctx, &cluster, generation); err != nil {
+		return r.reportBundleError(ctx, &cluster, err)
+	}
+
 	original := cluster.DeepCopy()
 	setNotImplemented(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, cluster.Generation)
+	cluster.Status.ActiveSecretGeneration = generation
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, &cluster, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -59,9 +72,70 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
+func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, generation int32) error {
+	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ID, generation)
+	if err != nil {
+		return err
+	}
+
+	secret := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
+	if apierrors.IsNotFound(err) {
+		data, generateErr := controlplane.GenerateBundleData(cluster.Spec.ID)
+		if generateErr != nil {
+			return generateErr
+		}
+		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, cluster.Spec.ID, generation, metav1.OwnerReference{
+			APIVersion: infrav1alpha1.GroupVersion.String(),
+			Kind:       "TartCluster",
+			Name:       cluster.Name,
+			UID:        cluster.UID,
+		}, data)
+		if buildErr != nil {
+			return buildErr
+		}
+		if err := r.Create(ctx, expected); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return err
+			}
+			return err
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, cluster.Spec.ID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+		return err
+	}
+	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *infrav1alpha1.TartCluster, bundleErr error) (ctrl.Result, error) {
+	original := cluster.DeepCopy()
+	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonSecretBundleUnavailable, "The immutable cluster secret bundle is unavailable or does not satisfy its identity contract.", cluster.Generation)
+	cluster.Status.ObservedGeneration = cluster.Generation
+	if err := r.Status().Patch(ctx, cluster, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, bundleErr
+}
+
 func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.TartCluster{}).
+		Owns(&corev1.Secret{}).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			clusterName := obj.GetLabels()[controlplane.ClusterNameLabel]
+			if clusterName == "" {
+				return nil
+			}
+			return []reconcile.Request{{Namespace: obj.GetNamespace(), Name: clusterName}}
+		})).
 		Named("tartcluster").
 		Complete(r)
 }

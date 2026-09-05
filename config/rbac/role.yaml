@@ -9,6 +9,7 @@ rules:
   resources:
   - secrets
   verbs:
+  - create
   - get
   - list
   - watch
@@ -17,6 +18,7 @@ rules:
   resources:
   - tartbootstrapconfigs
   verbs:
+  - create
   - get
   - list
   - patch
@@ -30,6 +32,31 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - bootstrap.cluster.x-k8s.io
+  resources:
+  - tartbootstrapconfigtemplates
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - machines
+  verbs:
+  - create
+  - get
+  - list
+  - watch
 - apiGroups:
   - controlplane.cluster.x-k8s.io
   resources:
@@ -53,7 +80,6 @@ rules:
   resources:
   - tartclusters
   - tarthosts
-  - tartmachines
   verbs:
   - get
   - list
@@ -70,3 +96,22 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tartmachines
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tartmachinetemplates
+  verbs:
+  - get
+  - list
+  - watch

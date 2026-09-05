@@ -92,7 +92,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	consumer := corev1.ObjectReference{
 		APIVersion: infrav1alpha1.GroupVersion.String(),
-		Kind:       "TartMachine",
+		Kind:       tartMachineKind,
 		Namespace:  machine.Namespace,
 		Name:       machine.Name,
 		UID:        machine.UID,

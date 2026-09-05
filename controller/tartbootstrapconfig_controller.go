@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"bytes"
 	"context"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,7 +24,7 @@ type TartBootstrapConfigReconciler struct {
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var config bootstrapv1alpha1.TartBootstrapConfig
@@ -36,23 +38,70 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	if config.Spec.ConfigSecretRef != nil {
-		input := &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigSecretRef.Name}, input); err != nil {
-			if apierrors.IsNotFound(err) {
-				return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
+	if config.Spec.ConfigSecretRef == nil {
+		return r.report(ctx, &config, "ConfigurationSecretUnavailable", "An immutable configuration Secret reference is required before Bootstrap data can be generated.")
+	}
+
+	input := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigSecretRef.Name}, input); err != nil {
+		if apierrors.IsNotFound(err) {
+			return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
+		}
+		return ctrl.Result{}, err
+	}
+	completeConfiguration, err := bootstrap.CompleteConfigurationFromSecret(input)
+	if err != nil {
+		return r.report(ctx, &config, "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration.")
+	}
+	digest, err := bootstrap.DigestEffectiveConfiguration(completeConfiguration)
+	if err != nil {
+		return r.report(ctx, &config, "ConfigurationInvalid", "The rendered Talos machine configuration is not valid for boot.")
+	}
+
+	clusterName := config.Labels[bootstrap.ClusterNameLabel]
+	if clusterName == "" {
+		return r.report(ctx, &config, "ClusterNameUnavailable", "The cluster.x-k8s.io/cluster-name label is required to create the Bootstrap Secret.")
+	}
+	owner := metav1.OwnerReference{
+		APIVersion: bootstrapv1alpha1.GroupVersion.String(),
+		Kind:       tartBootstrapConfigKind,
+		Name:       config.Name,
+		UID:        config.UID,
+	}
+	expected, err := bootstrap.BuildSecret(config.Namespace, config.Name, clusterName, owner, completeConfiguration)
+	if err != nil {
+		return r.report(ctx, &config, "BootstrapSecretInvalid", "The Bootstrap Secret owner or metadata cannot satisfy the CAPI contract.")
+	}
+
+	actual := &corev1.Secret{}
+	err = r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, actual)
+	switch {
+	case apierrors.IsNotFound(err):
+		if err := r.Create(ctx, expected); err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
 			}
 			return ctrl.Result{}, err
 		}
-		if err := bootstrap.ValidateConfigSecret(input); err != nil {
-			return r.report(ctx, &config, "ConfigurationConflict", "The referenced configuration Secret must be immutable and contain configuration data.")
+		actual = expected
+	case err != nil:
+		return ctrl.Result{}, err
+	default:
+		if !bootstrap.IsContractSecret(actual, clusterName, config.UID) {
+			return r.report(ctx, &config, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.")
+		}
+		if !bytes.Equal(actual.Data[bootstrap.BootstrapSecretKey], completeConfiguration) {
+			return r.report(ctx, &config, "BootstrapSecretImmutable", "The Bootstrap Secret already contains different immutable data; create a new BootstrapConfig instead.")
 		}
 	}
 
-	// complete Talos configurationのrender contextが揃うまでraw patchをBootstrap Secretへ
-	// 誤って配布しない。生成後のSecretは書き換えず、mutableな変更はUpdate Extensionへ委譲する。
+	// Bootstrap Secretは一度作成したら書き換えず、同じdesired stateの再concileでは
+	// 既存Secretを観測してStatusだけを更新する。
 	original := config.DeepCopy()
-	setCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionFalse, "NotImplemented", "Bootstrap configuration rendering is not implemented yet; no Secret has been generated.", config.Generation)
+	config.Status.Initialization.DataSecretCreated = new(true)
+	config.Status.DataSecretName = new(actual.Name)
+	config.Status.ConfigurationDigest = digest
+	setCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionTrue, "DataSecretCreated", "The immutable Bootstrap Secret is available.", config.Generation)
 	config.Status.ObservedGeneration = config.Generation
 	if err := r.Status().Patch(ctx, &config, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -83,6 +132,7 @@ func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&bootstrapv1alpha1.TartBootstrapConfig{}).
+		Owns(&corev1.Secret{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			configs := &bootstrapv1alpha1.TartBootstrapConfigList{}
 			if err := r.List(ctx, configs, client.InNamespace(obj.GetNamespace()), client.MatchingFields{bootstrapConfigSecretIndex: obj.GetName()}); err != nil {

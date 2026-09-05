@@ -6,13 +6,17 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"time"
 	"uuid"
 
+	"go.yaml.in/yaml/v4"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
@@ -23,6 +27,7 @@ const (
 	BundleStateLabel   = "tart.cluster.x-k8s.io/bundle-state"
 	BundleStatePending = "Pending"
 	BundleStateActive  = "Active"
+	BundleDataKey      = "bundle"
 )
 
 var (
@@ -33,6 +38,7 @@ var (
 	ErrBundleOwnerIncomplete   = errors.New("bundle owner reference is incomplete")
 	ErrBundleOwnerInvalid      = errors.New("bundle owner reference is invalid")
 	ErrBundleSecretInvalid     = errors.New("bundle Secret does not satisfy its contract")
+	ErrBundleIdentityMismatch  = errors.New("bundle cluster identity does not match")
 )
 
 // NextGenerationはactive generationから単調増加する次世代番号を返す。
@@ -104,9 +110,21 @@ func ValidateBundleSecretContract(secret *corev1.Secret, namespace, clusterName,
 // BuildPendingSecretはTalos machineryが生成したcomplete bundleをPendingとして永続化する。
 // この関数は秘密materialを生成せず、入力mapをSecretへ安全にcloneするだけである。
 func BuildPendingSecret(namespace, clusterName, clusterID string, generation int32, owner metav1.OwnerReference, data map[string][]byte) (*corev1.Secret, error) {
+	return buildBundleSecret(namespace, clusterName, clusterID, generation, BundleStatePending, owner, data)
+}
+
+// BuildActiveSecretは初回生成済みのcomplete bundleをActiveとして永続化するSecretを作成する。
+func BuildActiveSecret(namespace, clusterName, clusterID string, generation int32, owner metav1.OwnerReference, data map[string][]byte) (*corev1.Secret, error) {
+	return buildBundleSecret(namespace, clusterName, clusterID, generation, BundleStateActive, owner, data)
+}
+
+func buildBundleSecret(namespace, clusterName, clusterID string, generation int32, state string, owner metav1.OwnerReference, data map[string][]byte) (*corev1.Secret, error) {
 	name, err := BundleName(clusterName, clusterID, generation)
 	if err != nil {
 		return nil, err
+	}
+	if state != BundleStatePending && state != BundleStateActive {
+		return nil, ErrBundleSecretInvalid
 	}
 	if namespace == "" || owner.APIVersion == "" || owner.Kind == "" || owner.Name == "" || owner.UID == "" {
 		return nil, ErrBundleOwnerIncomplete
@@ -126,7 +144,7 @@ func BuildPendingSecret(namespace, clusterName, clusterID string, generation int
 			ClusterNameLabel: clusterName,
 			ClusterIDLabel:   clusterID,
 			GenerationLabel:  strconv.FormatInt(int64(generation), 10),
-			BundleStateLabel: BundleStatePending,
+			BundleStateLabel: state,
 		},
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: owner.APIVersion,
@@ -139,6 +157,53 @@ func BuildPendingSecret(namespace, clusterName, clusterID string, generation int
 		Immutable: new(true),
 		Data:      cloned,
 	}, nil
+}
+
+// GenerateBundleDataはTalos machineryでcluster-level secret bundleを生成する。
+// TartClusterのidentityをTalos bundleのcluster identityにも設定し、世代Secretのlabelと内容を同じClusterへ束ねる。
+func GenerateBundleData(clusterID string) (map[string][]byte, error) {
+	if _, err := uuid.Parse(clusterID); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
+	}
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		return nil, fmt.Errorf("generate Talos secret bundle: %w", err)
+	}
+	bundle.Cluster.ID = clusterID
+	if err := bundle.Validate(talosconfig.TalosVersionCurrent); err != nil {
+		return nil, fmt.Errorf("validate generated Talos secret bundle: %w", err)
+	}
+	encoded, err := yaml.Marshal(bundle)
+	if err != nil {
+		return nil, fmt.Errorf("marshal Talos secret bundle: %w", err)
+	}
+
+	return map[string][]byte{BundleDataKey: encoded}, nil
+}
+
+// ValidateBundleDataはSecret内のbundleが指定されたCluster identityの完全なTalos bundleか確認する。
+func ValidateBundleData(data map[string][]byte, clusterID string) error {
+	if _, err := uuid.Parse(clusterID); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
+	}
+	encoded, ok := data[BundleDataKey]
+	if !ok || len(encoded) == 0 || len(data) != 1 {
+		return ErrBundleDataIncomplete
+	}
+
+	var bundle secrets.Bundle
+	if err := yaml.Unmarshal(encoded, &bundle); err != nil {
+		return fmt.Errorf("unmarshal Talos secret bundle: %w", err)
+	}
+	if bundle.Cluster == nil || bundle.Cluster.ID != clusterID {
+		return ErrBundleIdentityMismatch
+	}
+	if err := bundle.Validate(talosconfig.TalosVersionCurrent); err != nil {
+		return fmt.Errorf("validate Talos secret bundle: %w", err)
+	}
+
+	return nil
 }
 
 // RotateDataは指定したrotation対象keyだけを差し替えた完全な次世代bundleを返す。

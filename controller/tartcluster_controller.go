@@ -12,10 +12,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	"k8s.io/apimachinery/pkg/api/meta"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
@@ -27,6 +29,7 @@ type TartClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=list;watch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -73,10 +76,20 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.reportFailureDomainError(ctx, &cluster, err)
 	}
 
+	// status.initialization.provisionedはsecret bundleが利用可能になった時点でtrueにする。
+	// TartControlPlaneの子Machine作成はこのProvisioned(CAPIのInfrastructureReady)を前提に
+	// 開始するため、ここでTartControlPlaneのreadinessを待つと循環依存になり両者とも
+	// 進行できなくなる。Control Plane/Infrastructureの健全性はReady Conditionの内容にのみ
+	// 反映し、Provisionedのgate自体は変更しない。
+	readyStatus, readyReason, readyMessage, err := r.aggregateReadiness(ctx, &cluster)
+	if err != nil {
+		return r.reportFailureDomainError(ctx, &cluster, err)
+	}
+
 	original := cluster.DeepCopy()
 	cluster.Status.Initialization.Provisioned = new(true)
 	cluster.Status.FailureDomains = failureDomains
-	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", cluster.Generation)
+	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, readyStatus, readyReason, readyMessage, cluster.Generation)
 	cluster.Status.ActiveSecretGeneration = generation
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, &cluster, client.MergeFrom(original)); err != nil {
@@ -84,6 +97,30 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// aggregateReadinessは、secret bundleに加えてこのClusterに紐づくTartControlPlaneのAvailable
+// Conditionを観測してReady Conditionの内容を決定する。TartControlPlaneがまだ存在しない場合
+// (control planeの初回provisioning前)は、secret bundleの準備完了だけをもってReady=Trueとする。
+func (r *TartClusterReconciler) aggregateReadiness(ctx context.Context, cluster *infrav1alpha1.TartCluster) (metav1.ConditionStatus, string, string, error) {
+	if cluster.Name == "" {
+		return metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", nil
+	}
+
+	var controlPlanes controlplanev1alpha1.TartControlPlaneList
+	if err := r.List(ctx, &controlPlanes, client.InNamespace(cluster.Namespace), client.MatchingLabels{clusterv1.ClusterNameLabel: cluster.Name}); err != nil {
+		return "", "", "", err
+	}
+	if len(controlPlanes.Items) == 0 {
+		return metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", nil
+	}
+
+	controlPlane := &controlPlanes.Items[0]
+	available := meta.FindStatusCondition(controlPlane.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition)
+	if available == nil || available.Status != metav1.ConditionTrue {
+		return metav1.ConditionFalse, "ControlPlaneNotAvailable", "The TartControlPlane for this Cluster is not yet Available.", nil
+	}
+	return metav1.ConditionTrue, "ControlPlaneAvailable", "The immutable cluster secret bundle is available and the TartControlPlane is Available.", nil
 }
 
 func (r *TartClusterReconciler) observeFailureDomains(ctx context.Context) ([]clusterv1.FailureDomain, error) {
@@ -228,6 +265,13 @@ func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&infrav1alpha1.TartCluster{}).
 		Owns(&corev1.Secret{}).
 		Watches(&infrav1alpha1.TartHost{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllClusters)).
+		Watches(&controlplanev1alpha1.TartControlPlane{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			clusterName := obj.GetLabels()[clusterv1.ClusterNameLabel]
+			if clusterName == "" {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.GetNamespace(), Name: clusterName}}}
+		})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
 			clusterName := obj.GetLabels()[controlplane.ClusterNameLabel]
 			if clusterName == "" {

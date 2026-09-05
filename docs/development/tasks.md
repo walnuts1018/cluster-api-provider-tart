@@ -12,7 +12,7 @@
 | --- | --- | --- | --- |
 | **Runtime Extension (Update)** | Talos image変更を実装 | [`extensions/handlers.go`](../../extensions/handlers.go) | machine configuration変更、drain連携、MachineSet実機適用の拡張 |
 | **Control Plane Reconcile** | 初回経路、Failure Domain分散、quorum-safe scale-down、CA rotationステートマシン実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | 実機でのcertificate有効期限・同時cutoverの検証 |
-| **Cluster Reconcile** | 初期bundle経路とFailure Domain観測・反映を実装 | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | Ready条件のControl PlaneおよびInfrastructure集約 |
+| **Cluster Reconcile** | 初期bundle経路、Failure Domain観測・反映、Control Plane Availableを集約したReady判定を実装 | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | なし |
 | **Machine / Talos Reconcile** | 初回Install、shutdown/retention、Update Extension接続を実装 | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | deletion時のCAPI drain連携、停止観測の実機検証 |
 | **Raw Patch 合成** | 初期経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | 完全な安全差分判定とUpdate Extensionへの接続 |
 | **Hardware Discovery** | 実装済み（初期観測） | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go), [`talos/client.go`](../../talos/client.go) | 複数boot attemptの追跡やdisk identity重複時のallocation停止 |
@@ -64,10 +64,10 @@
 ### タスク3: TartCluster のReconcile実装
 
 - **重要度**: 中
-- **現状**: [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) では `spec.clusterID` 生成、初期bundle Secret生成、および登録済みHostのFailure Domain観測・反映を行っている。CAPI ClusterのInfrastructureReadyはこのResourceの`status.initialization.provisioned`と`Ready`を通じてCAPIへ委譲する。
+- **現状**: [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) では `spec.clusterID` 生成、初期bundle Secret生成、登録済みHostのFailure Domain観測・反映、およびControl Planeの健全性を集約したReady判定を行っている。CAPI ClusterのInfrastructureReadyはこのResourceの`status.initialization.provisioned`を通じてCAPIへ委譲する(`status.initialization.provisioned`はTartControlPlaneの子Machine作成の前提であるため、TartControlPlaneの準備完了を待たずsecret bundleの準備完了だけで`true`にする。循環依存を避けるため)。
 - **実装内容**:
-  1. **Cluster Ready判定**:
-     - Control Planeおよび各Infrastructureコンポーネントの観測結果を集約し、Clusterの準備完了を判定してReady Conditionを更新する。
+  1. **Cluster Ready判定（実装済み）**:
+     - `aggregateReadiness`が、このClusterと同名の`clusterv1.ClusterNameLabel`を持つ`TartControlPlane`を検索し、その`Available` Conditionを観測する。TartControlPlaneがまだ存在しない場合(初回provisioning前)はsecret bundleの準備完了のみでReady=Trueとし、存在する場合はAvailableでない限りReady=Falseとする。TartControlPlaneの変更はWatchで即座にreconcileへ反映される。
   2. **Failure Domainの観測と伝播**（実装済み）:
      - `TartHost`のFailure Domain設定を全件観測して重複排除・ソートし、`TartCluster.status.failureDomains`へ反映する。
      - CAPI Machineの`spec.failureDomain`をHost allocatorへ渡し、明示HostRefと自動選択の双方で一致しないHostをclaimしない。

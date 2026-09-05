@@ -26,7 +26,7 @@ import (
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
 
-// ErrClientUnavailable indicates that a Talos operation was requested without a connected client.
+// ErrClientUnavailableは接続済みのclientなしでTalos operationが要求されたことを示す。
 var ErrClientUnavailable = errors.New("talos client is unavailable")
 
 // Client is a thin wrapper around the Talos machinery gRPC client. It exposes only the

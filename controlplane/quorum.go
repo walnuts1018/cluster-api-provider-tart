@@ -14,8 +14,7 @@
 
 package controlplane
 
-// RemovalObservation contains only observed etcd membership and health needed
-// to decide whether one member can be removed without losing quorum.
+// RemovalObservationはmemberを一つ削除してもquorumを維持できるか判定するためのetcd membershipとhealthの観測値だけを持つ。
 type RemovalObservation struct {
 	MemberCount          int
 	HealthyMemberCount   int
@@ -23,9 +22,7 @@ type RemovalObservation struct {
 	TargetHealthObserved bool
 }
 
-// CanRemoveMember returns true only when the current and post-removal member
-// sets both have a majority of healthy members. Unknown target health and
-// inconsistent observations are unsafe, regardless of an availability policy.
+// CanRemoveMemberは現在と削除後のmember集合がともにhealthy memberの過半数を持つ場合だけtrueを返す。対象のhealth不明と観測値の矛盾はavailability policyに関係なく安全ではないためfalseを返す。
 func CanRemoveMember(observation RemovalObservation) bool {
 	if observation.MemberCount < 2 || !observation.TargetHealthObserved {
 		return false

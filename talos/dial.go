@@ -23,7 +23,7 @@ import (
 	"strings"
 )
 
-// ErrEndpointEmpty indicates that a Talos connection has no endpoint to dial.
+// ErrEndpointEmptyはTalos接続先が空でdialできないことを示す。
 var ErrEndpointEmpty = errors.New("talos endpoint is empty")
 
 // DialMaintenance connects to an unconfigured Talos node's maintenance API. The

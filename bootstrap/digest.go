@@ -25,7 +25,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 )
 
-// RedactedConfigurationValue is the marker used for secret-bearing configuration values before hashing.
+// RedactedConfigurationValueはhash計算前にsecret-bearing configuration valueを置換するmarkerである。
 const RedactedConfigurationValue = "<redacted>"
 
 var (

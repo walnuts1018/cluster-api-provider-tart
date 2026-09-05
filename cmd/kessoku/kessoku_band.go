@@ -13,6 +13,7 @@ func InitializeReconcilers(client0 client.Client) Reconcilers {
 	tartMachineReconciler := kessoku.Provide(provideTartMachineReconciler).Fn()(client0)
 	tartBootstrapConfigReconciler := kessoku.Provide(provideTartBootstrapConfigReconciler).Fn()(client0)
 	tartControlPlaneReconciler := kessoku.Provide(provideTartControlPlaneReconciler).Fn()(client0)
-	reconcilers := kessoku.Provide(provideReconcilers).Fn()(tartHostReconciler, tartClusterReconciler, tartMachineReconciler, tartBootstrapConfigReconciler, tartControlPlaneReconciler)
+	talosRecoveryReconciler := kessoku.Provide(provideTalosRecoveryReconciler).Fn()(client0)
+	reconcilers := kessoku.Provide(provideReconcilers).Fn()(tartHostReconciler, tartClusterReconciler, tartMachineReconciler, tartBootstrapConfigReconciler, tartControlPlaneReconciler, talosRecoveryReconciler)
 	return reconcilers
 }

@@ -40,7 +40,14 @@ Statusへ公開してよいのは、Secret参照名、生成フラグ、およ�
 - 単一の `value` keyに完全なTalos machine configurationを格納する。
 - 一度生成されたBootstrap Secretは変更せず、構成変更はUpdate Extension（Runtime Extension）に委譲する。
 
-### 3. Immutable な設定入力 (`configSecretRef`)
+### 3. Talos Recovery Secret
+- provider管理namespace上のimmutableなSecret（`tart-talos-recovery-<cluster-id>-<ca-fingerprint>`）であり、`os-ca.crt`、`os-ca.key`、`clusterID`のみを保持する。
+- **最小限のmaterial**: Talos API（machine/OS）CAのsigning materialだけを保持し、Kubernetes PKI、service account key、bootstrap token、Bootstrap Data全体は複製しない。
+- **短命credential**: 長寿命のadmin client certificateは保存しない。Reset等の操作が必要になった時点でrecovery CAから`os:admin` roleの短命なclient certificate（既定10分）を都度発行し、メモリ内だけで使用する。
+- **GCしない条件**: `TartCluster`やMachineのOwnerReferenceでGCしない。少なくとも1台のTartHostが`status.currentTalosIdentityRef`でそのSecretを参照する間は保持し、最後のHostがReprovisionを完了するかinventoryからforgetされた後にだけ削除する。削除可否は参照countではなく、reconcileごとに現在のTartHost集合を観測して判定する。
+- **共有単位**: 同一cluster identityかつ同一CA generationに属するHostは1つのSecretを共有し、HostごとにCA private keyを複製しない。
+
+### 4. Immutable な設定入力 (`configSecretRef`)
 - ユーザーのraw configuration patchは全て `configSecretRef` 経由で取得し、CRD Specへのinline保存は行わない。
 - 参照先Secretは `immutable: true` を必須とし、内容変更時は新しいSecret名への参照更新とする。
 
@@ -52,7 +59,7 @@ Statusへ公開してよいのは、Secret参照名、生成フラグ、およ�
    - Infrastructure、Bootstrap、Control Planeの各Providerは、自身の責務に必要な最小限の権限のみを持つ。
    - CAPI coreがprovider resourceを参照するために必要なaggregated RBACのみを公開する。
 2. **管理者フィールドの保護**:
-   - `TartHost` の `spec.consumerRef`、`spec.reuseApproval`、`spec.reuseMode`、`spec.forgetApproval` は、Host上のデータ破壊や意図しない再利用につながる重要フィールドである。
+   - `TartHost` の `spec.consumerRef`、`spec.reuseApproval`、`spec.reuseMode`、`spec.forgetApproval` は、Host上のデータ破壊や意図しない再利用につながる重要フィールドである。`spec.reuseMode: Reprovision` と一致する `spec.reuseApproval` の組み合わせは、recovery identityで認証したTalos Resetを許可する唯一の入力である。
    - Kubernetes RBACにはfield-level permissionが存在しないため、これらのSpecを更新できるRoleとcontrollerの権限を分離し、通常のworkloadオペレーターには付与しない（インフラ管理者に限定）。
 3. **TartHost直接削除（Forget）の安全性**:
    - Claim中またはRetainedのHostは、現在のbindingまたはretained recordに一致する `spec.forgetApproval` なしに直接削除できない。

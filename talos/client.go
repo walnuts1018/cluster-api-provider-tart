@@ -802,15 +802,22 @@ func uniqueStrings(values []string) []string {
 // DialMaintenanceで確立した無認証接続に対してResetを呼び出すことは、対象Hostの正当性を何も証明していないため
 // 絶対に行ってはならない(呼び出し側の責務。本メソッド自体は接続の認証状態を検証しない)。
 // Graceful/Rebootは常にtrueとし、control-plane machineの場合はetcdからの離脱を試みたうえでmaintenance modeへ
-// 再起動する最も安全な選択にする。SystemPartitionsToWipe/UserDisksToWipeは指定せず、WipeModeの既定値(ALL)で
-// system disk全体を消去し、部分的な消去による中途半端な状態を避ける。
+// 再起動する最も安全な選択にする。
+//
+// Reset scope: SystemPartitionsToWipeとUserDisksToWipeを空のまま明示し、WipeModeへ明示的にALLを渡す。
+// これはTalos自身のsystem installation(system disk上のSTATE/EPHEMERAL等のsystem partition)全体を消去して
+// maintenance modeへ戻すことを意味する。UserDisksToWipeを指定しないため、Longhorn、TopoLVM、raw volumeなど
+// 別diskまたはuser diskとして構成されたdataはこの操作の対象外であり、消去されたと仮定してはならない。
 func (c *Client) Reset(ctx context.Context) error {
 	if c == nil || c.raw == nil {
 		return ErrClientUnavailable
 	}
 	if err := c.raw.ResetGeneric(ctx, &machine.ResetRequest{
-		Graceful: true,
-		Reboot:   true,
+		Graceful:               true,
+		Reboot:                 true,
+		SystemPartitionsToWipe: nil,
+		UserDisksToWipe:        nil,
+		Mode:                   machine.ResetRequest_ALL,
 	}); err != nil {
 		return fmt.Errorf("reset talos node: %w", err)
 	}

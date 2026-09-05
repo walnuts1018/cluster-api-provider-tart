@@ -46,8 +46,10 @@ var (
 // TartMachineReconcilerはHost claim、Talosの初回configuration apply、認証済みAPIの起動確認を担当する。初回provisioning後のmutableな変更はUpdate Extensionへ委譲する。
 type TartMachineReconciler struct {
 	client.Client
-	// ManagementNamespaceはRedfish credential Secretを解決するprovider管理namespaceである。TartHostのSpecからnamespaceを受け取らない。
+	// ManagementNamespaceはRedfish credential SecretとTalos recovery Secretを解決するprovider管理namespaceである。TartHostのSpecからnamespaceを受け取らない。
 	ManagementNamespace string
+	// TalosDialerはReprovision flowのTalos接続を差し替えるための境界である。未設定の場合は実際のTalos gRPC clientを使う。
+	TalosDialer TalosDialer
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;update;patch
@@ -56,7 +58,7 @@ type TartMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var machine infrav1alpha1.TartMachine
@@ -256,6 +258,21 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 			metav1.ConditionFalse, "EndpointUnavailable", "Talos installation has not started because the Host endpoint is not observed.",
 			"EndpointUnavailable", "Talos version cannot be verified before the Host is reachable.",
 			"EndpointUnavailable", "The Host Talos endpoint is not available yet.",
+			talosRequeue)
+	}
+	// 承認済みReprovisionでHostが旧Talos installationを保持している間は、まずそのinstallationを検証してresetする。
+	// 旧installationは新しいconfigurationのCAでは認証できないため、この分岐を経ずにfresh provisioningへ進むことはない。
+	if result, handled, err := r.reconcileReprovision(ctx, machine, selected, endpoint); handled {
+		return result, err
+	}
+	// installationのrecovery identityは、configurationをHostへ渡すより前に確立する。
+	// Machine削除の瞬間にSecretを退避する設計にせず、Hostがそのinstallationを保持する間ずっと参照できるようにする。
+	if err := r.ensureTalosIdentityBinding(ctx, machine, selected); err != nil {
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, infrav1alpha1.ReasonRecoveryIdentityUnavailable, "The Talos recovery identity for this installation could not be established.",
+			metav1.ConditionFalse, infrav1alpha1.ReasonRecoveryIdentityUnavailable, "Talos installation is stopped until its recovery identity is persisted.",
+			infrav1alpha1.ReasonRecoveryIdentityUnavailable, "Talos version cannot be verified before the recovery identity is persisted.",
+			infrav1alpha1.ReasonRecoveryIdentityUnavailable, "The Talos recovery Secret could not be established for this Host.",
 			talosRequeue)
 	}
 	if result, handled, err := r.reconcileAuthenticatedTalos(ctx, machine, endpoint, configuration); handled {
@@ -522,7 +539,9 @@ func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, mach
 		if selected.Spec.ConsumerRef != nil && selected.Spec.ConsumerRef.UID == machine.UID {
 			return selected, nil
 		}
-		if host.Classify(selected.Spec) != host.Available || !host.MatchesForFailureDomain(selected.Labels, selected.Spec, machine.Spec.HostSelector, failureDomain) {
+		// 明示的なspec.hostRefは、reuse approvalとreuse modeが揃ったReusable Hostを再利用する唯一の経路である。自動選択経路(SelectFreshForFailureDomain)はAvailable Hostしか選ばない。
+		eligibility := host.Classify(selected.Spec)
+		if (eligibility != host.Available && eligibility != host.Reusable) || !host.MatchesForFailureDomain(selected.Labels, selected.Spec, machine.Spec.HostSelector, failureDomain) {
 			return nil, host.ErrNoEligibleHost
 		}
 		return selected, nil

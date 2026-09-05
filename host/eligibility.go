@@ -38,6 +38,19 @@ func Classify(spec infrav1alpha1.TartHostSpec) Eligibility {
 	return Retained
 }
 
+// ReprovisionApprovedは、Retained Hostに対する破壊的なTalos Resetがユーザーによって明示的に承認されているかを返す。
+// Classifyと異なりconsumerRefの有無に依存しないため、claim確立後のreconcileでも同じ承認を再評価できる。
+// reuse approvalは常に現在のpreviousConsumerRef.UIDと一致する必要があり、次のMachine削除でpreviousConsumerRefが変われば自動的に無効になる。
+func ReprovisionApproved(spec infrav1alpha1.TartHostSpec) bool {
+	return spec.ReusePolicy == infrav1alpha1.ReusePolicyAllowReuse &&
+		spec.ReuseMode == infrav1alpha1.ReuseModeReprovision &&
+		spec.PreviousConsumerRef != nil &&
+		spec.PreviousConsumerRef.UID != "" &&
+		spec.ReuseApproval != nil &&
+		spec.ReuseApproval.PreviousConsumerUID != "" &&
+		spec.ReuseApproval.PreviousConsumerUID == spec.PreviousConsumerRef.UID
+}
+
 func validReuseMode(mode infrav1alpha1.ReuseMode) bool {
 	return mode == infrav1alpha1.ReuseModeAdopt || mode == infrav1alpha1.ReuseModeReprovision
 }

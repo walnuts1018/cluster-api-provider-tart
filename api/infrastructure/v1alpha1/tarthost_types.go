@@ -38,6 +38,10 @@ const (
 	ReasonRetained                 = "Retained"
 	ReasonReuseApprovalRequired    = "ReuseApprovalRequired"
 	ReasonAvailable                = "Available"
+	// ReasonRecoveryIdentityUnavailableはRetained Hostが保持する旧Talos installationのrecovery identityを解決できず、破壊的なReprovisionを開始できないことを示す。
+	ReasonRecoveryIdentityUnavailable = "RecoveryIdentityUnavailable"
+	// ReasonReprovisioningは承認されたReprovisionのTalos Resetを要求し、maintenance modeへの遷移を待っていることを示す。
+	ReasonReprovisioning = "Reprovisioning"
 )
 
 // ReusePolicyはRetained TartHostを再利用できるかというユーザーの意図を表す。
@@ -243,8 +247,25 @@ type BootAttempt struct {
 	Endpoint string `json:"endpoint,omitempty"`
 }
 
+// TalosIdentityReferenceは、このHostが現在保持しているTalos installationが属するTalos cluster identityと、そのrecovery Secretへの参照を表す。
+// recovery Secretはprovider管理namespace上のimmutable Secretであり、Talos API CAのsigning materialだけを保持する。Machine、TartBootstrapConfig、Bootstrap SecretのGCとは独立した寿命を持ち、少なくとも1台のTartHostがこのidentityを参照する間は削除されない。
+type TalosIdentityReference struct {
+	// clusterIDはこのHostへinstallされているTalos clusterのIDである。
+	ClusterID string `json:"clusterID"`
+	// recoverySecretRefは短命なTalos API client certificateを再発行できるrecovery Secretをprovider管理namespaceから参照する。
+	RecoverySecretRef ManagementNamespaceSecretReference `json:"recoverySecretRef"`
+	// boundAtはこのHostがこのTalos identityへbindされたことを最初に観測した時刻である。
+	// +optional
+	BoundAt metav1.Time `json:"boundAt,omitempty,omitzero"`
+}
+
 // TartHostStatusはTartHostのobserved stateを定義する。
 type TartHostStatus struct {
+	// currentTalosIdentityRefはこのHostが現在保持しているTalos installationのidentityである。
+	// Machineの寿命ではなくHost上のinstallationの寿命に従い、Reprovisionのreset完了またはHostのforgetまで保持する。
+	// +optional
+	CurrentTalosIdentityRef *TalosIdentityReference `json:"currentTalosIdentityRef,omitempty"`
+
 	// +optional
 	Inventory *HostInventory `json:"inventory,omitempty"`
 

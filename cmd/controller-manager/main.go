@@ -165,6 +165,7 @@ func main() {
 	managementNamespace := os.Getenv("POD_NAMESPACE")
 	reconcilers.TartHost.ManagementNamespace = managementNamespace
 	reconcilers.TartMachine.ManagementNamespace = managementNamespace
+	reconcilers.TalosRecovery.ManagementNamespace = managementNamespace
 
 	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
@@ -184,6 +185,10 @@ func main() {
 	}
 	if err := reconcilers.TartControlPlane.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartControlPlane")
+		os.Exit(1)
+	}
+	if err := reconcilers.TalosRecovery.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "TalosRecovery")
 		os.Exit(1)
 	}
 

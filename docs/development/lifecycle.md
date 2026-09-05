@@ -31,12 +31,53 @@ Reusable
 - claimはSSAではなく、resourceVersion付きUpdateまたはJSON Patchの `test` によるatomic CASで確立する（[`host/claim.go`](../../host/claim.go)）。
 - 競合が発生した場合は上書きせず、別Hostの選択または再試行を行う。
 
+### Recovery IdentityとHost上のinstallationの寿命
+
+Machineの寿命と、Host上のTalos installationの寿命は一致しない。Retained Hostを安全に扱うためのrecovery identityは、TartMachineやTartBootstrapConfigのownership lifecycleから独立した寿命を持つ。
+
+- **Recovery Secret**: provider管理namespace上のimmutable Secret（`tart-talos-recovery-<cluster-id>-<ca-fingerprint>`）であり、Talos API（machine/OS）CAのcertificateとprivate key、およびcluster IDだけを保持する。Kubernetes PKI、service account key、bootstrap token、Bootstrap Data全体は複製しない。実装は[`recovery/secret.go`](../../recovery/secret.go)を参照する。
+- **共有単位**: 「Talos cluster identity → recovery Secret → それに属する複数のTartHost」という構造であり、同じ旧clusterに属するHostごとにCA private keyを複製しない。CA rotationで有効なCAが変わった場合だけ別のSecretになる。
+- **確立のタイミング**: Machine削除の瞬間にSecretを退避するのではなく、Talos configurationをHostへapplyする前に確立する。`TartMachineReconciler`はcluster secret bundleのactive generationからrecovery Secretを作成し、`TartHost.status.currentTalosIdentityRef`へbindingを書く（[`controller/reprovision.go`](../../controller/reprovision.go)の`ensureTalosIdentityBinding`）。
+- **binding更新の規則**: 既存bindingが別clusterを指す場合は決して上書きしない。それはそのHostが保持する旧installationをresetできる唯一の根拠である。同一cluster内でCA rotationが完了した場合だけ、現在のactive identityへ更新する。
+- **GC**: `TartCluster`やMachineのOwnerReferenceでGCしない。[`controller/talosrecovery_controller.go`](../../controller/talosrecovery_controller.go)が定期的に現在のTartHost参照を観測し、そのrecovery Secretを参照する`status.currentTalosIdentityRef`が1つも存在しない場合だけ削除する。参照countは保持せず、毎回のreconcileでTartHost集合から再計算する。
+
 ### Reusableの2つの動作
 
 - **`Adopt`**: 既存のTalosインストール、同一Cluster ID、同一secret generation、同一Host identity、同一ProviderID、整合するrole/versionが一致する場合のみ、データを保持したままclaimする。control-planeのAdoptではetcd membershipとNode identityも検証する。
-- **`Reprovision`**: ユーザーが明示的にデータ破棄を承認した別ライフサイクルであり、Talosのreset/installer機構へ委譲してから新しいMachineへclaimする。
+- **`Reprovision`**: ユーザーが明示的にデータ破棄を承認した別ライフサイクルであり、recovery identityで旧Talos APIへ認証してからTalosのreset/installer機構へ委譲し、maintenance mode復帰を確認した上で新しいMachineへclaimする。
 - 通常のallocationやupdate、deleteのフォールバックとして暗黙に実行してはならない。
 - **自動Reprovisionの前提要件**: installed OSが存在する状態からremoteにmaintenance environmentへ戻せるboot strategyをHostが持つ必要がある。Fresh machineのnetwork boot capabilityだけでは自動Reprovisionを許可しない。
+- Reusable Hostを再利用できるのは`TartMachine.spec.hostRef`による明示的な指定経路だけである。自動選択（[`host.SelectFreshForFailureDomain`](../../host/selection.go)）はAvailable Hostしか選ばない。
+
+### Reprovision Flow
+
+```text
+TartHost = Retained（spec.previousConsumerRef が残る）
+        ↓ ユーザーが spec.reusePolicy: AllowReuse、spec.reuseMode: Reprovision、
+        ↓ 現在の previousConsumerRef.uid に一致する spec.reuseApproval を設定
+        ↓ TartMachine.spec.hostRef で明示的に指定し、consumerRef をatomic CASでclaim
+        ↓ status.currentTalosIdentityRef が指す recovery Secret を解決
+        ↓ recovery CAから短命な os:admin client certificate を発行（既定10分）
+        ↓ 旧Talos APIへ相互TLSで接続（server certificateがrecovery CAに属することの検証を含む）
+        ↓ active machine configuration から cluster ID を観測して照合
+        ↓ inventory から MAC address と system UUID を観測して照合、endpointの一致も確認
+        ↓ すべて一致した場合のみ Talos Reset（WipeMode=ALL、user disk は対象外）
+        ↓ 旧identityで認証できなくなり、maintenance APIで期待したHost identityを確認
+        ↓ status.currentTalosIdentityRef を解除（bindingの解放）
+        ↓ 通常のfresh provisioning（reconcileMaintenanceTalos）
+        ↓ 新しいcluster identityへ status.currentTalosIdentityRef を再確立
+```
+
+- 実装は[`controller/reprovision.go`](../../controller/reprovision.go)の`reconcileReprovision`であり、[`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go)の`reconcileTalos`から`reconcileAuthenticatedTalos`より前に分岐する。
+- Statusをworkflowのstep番号として使わず、毎回「recovery identity bindingの有無」と「旧Talos API／maintenance APIの到達性」を再観測して継続位置を決める。controller再起動後も同じ観測から安全に再開できる。
+- identityが1つでも一致しない場合はResetを実行せず、`Ready=False`、`Reason=IdentityConflict`でrequeueせずに安全停止する。MAC addressだけ、IP addressだけを根拠にResetしてはならない。
+- recovery Secretを解決できない場合は`Reason=RecoveryIdentityUnavailable`で停止する。
+
+### Reset Scope
+
+Talos Resetがwipeするのは、Talos自身のsystem installation（system disk上のSTATE/EPHEMERALなどのsystem partition）である。[`talos.Client.Reset`](../../talos/client.go)は`WipeMode=ALL`を明示し、`UserDisksToWipe`を指定しない。
+
+したがってLonghorn、TopoLVM、raw volumeなど別diskまたはuser diskとして構成されたデータはこの操作の対象外であり、**Reprovision後に全データが消えたと仮定してはならない**。それらのデータの扱いはユーザーまたはstorage add-onの責務である。
 
 ---
 

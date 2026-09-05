@@ -379,6 +379,31 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              currentTalosIdentityRef:
+                description: |-
+                  currentTalosIdentityRefはこのHostが現在保持しているTalos installationのidentityである。
+                  Machineの寿命ではなくHost上のinstallationの寿命に従い、Reprovisionのreset完了またはHostのforgetまで保持する。
+                properties:
+                  boundAt:
+                    description: boundAtはこのHostがこのTalos identityへbindされたことを最初に観測した時刻である。
+                    format: date-time
+                    type: string
+                  clusterID:
+                    description: clusterIDはこのHostへinstallされているTalos clusterのIDである。
+                    type: string
+                  recoverySecretRef:
+                    description: recoverySecretRefは短命なTalos API client certificateを再発行できるrecovery
+                      Secretをprovider管理namespaceから参照する。
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - clusterID
+                - recoverySecretRef
+                type: object
               inventory:
                 description: HostInventoryはmaintenance Talos discoveryで観測したhardware
                   inventoryである。systemUUIDはidentity evidenceの一つとして扱い、BIOSでの欠落、全て0の値、DIY

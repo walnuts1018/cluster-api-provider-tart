@@ -13,7 +13,7 @@
 | **Runtime Extension (Update)** | Talos image変更を実装 | [`extensions/handlers.go`](../../extensions/handlers.go) | machine configuration変更、drain連携、MachineSet実機適用の拡張 |
 | **Control Plane Reconcile** | 初回経路、Failure Domain分散、quorum-safe scale-down、CA rotationステートマシン実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | 実機でのcertificate有効期限・同時cutoverの検証 |
 | **Cluster Reconcile** | 初期bundle経路、Failure Domain観測・反映、Control Plane Availableを集約したReady判定を実装 | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | なし |
-| **Machine / Talos Reconcile** | 初回Install、shutdown/retention、Update Extension接続を実装 | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | deletion時のCAPI drain連携、停止観測の実機検証 |
+| **Machine / Talos Reconcile** | 初回Install、shutdown/retention、Update Extension接続、Reprovision（recovery identityによるTalos Reset連携）を実装 | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`controller/reprovision.go`](../../controller/reprovision.go), [`recovery/`](../../recovery), [`talos/client.go`](../../talos/client.go) | deletion時のCAPI drain連携、停止観測とReprovisionの実機検証 |
 | **Raw Patch 合成** | 初期経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | 完全な安全差分判定とUpdate Extensionへの接続 |
 | **Hardware Discovery** | 実装済み（初期観測、boot attempt履歴、disk identity重複時のallocation/apply停止） | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go), [`talos/client.go`](../../talos/client.go), [`host/identity.go`](../../host/identity.go) | なし |
 | **Power Backend** | RedfishとWoLを実装 | [`boot/`](../../boot), [`controller/power.go`](../../controller/power.go) | vendorごとの実機差異とE2E確認 |
@@ -185,20 +185,27 @@
 ### タスク10: Reusable Host「Reprovision」モードのTalos Reset連携
 
 - **重要度**: 中
-- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Reusableの2つの動作」節で、`Adopt`(既存installを保持したままclaim)と`Reprovision`(データ破棄を承認しTalosのreset/installer機構へ委譲してから新しいMachineへclaim)の2つのReuse modeを定義している。`Adopt`は`TartMachineReconciler.reconcileAuthenticatedTalos`が既存のBootstrap Secretで認証済みAPIへ接続を試み、成功すれば(=cryptographicにcluster secretが一致する既存installとして)そのまま`Provisioned`として扱うことで実質的に満たされている。
-- **実装済み**: `talos.Client.Reset`(`talos/client.go`)を追加した。Talos machine APIの`ResetGeneric`(`github.com/siderolabs/talos/pkg/machinery/api/machine`の`ResetRequest`)へ`Graceful: true, Reboot: true`(WipeModeは既定の`ALL`でsystem disk全体を消去)を渡すだけの薄いwrapperであり、呼び出し前提として「認証済み(mTLS)接続の`*talos.Client`に対してのみ呼び出すこと」をdocコメントで明記した(メソッド自体は接続の認証状態を検証しない。無認証のmaintenance接続への呼び出しは呼び出し側が絶対に行ってはならない)。
-- **調査結果と、`TartMachineReconciler`側オーケストレーションの見送り理由**: Reset RPCを安全に呼び出すには「対象Hostの旧clusterとして認証済みの`*talos.Client`」が必要だが、これを新しいTartMachine側から確立する経路が現在の実装に存在しないことを確認した。
-  - `host.Retain`(`host/claim.go`)は`TartHost.spec.consumerRef`を解除し`spec.previousConsumerRef`(Namespace/Name/UID/ClusterIDのみ)を書き込むだけで、Secretの読み書きは一切行わない。
-  - `PreviousConsumerRef`(`api/infrastructure/v1alpha1/tarthost_types.go`)にはBootstrap Secret名やcluster secret bundleへの参照fieldが存在しない。
-  - 旧TartMachineが使っていたBootstrap Secretは`bootstrap.BuildSecret`(`bootstrap/secret.go`)により対応する`TartBootstrapConfig`単一のcontroller OwnerReferenceを持つ設計であり、`TartBootstrapConfig`はTartMachineに1:1対応してMachine削除とともにcascade GCされる。したがって旧Machine削除後は旧Bootstrap Secret(旧clusterのcluster secret material)も失われる。
-  - Cluster secret bundle(`controlplane/bundle.go`)はTartCluster/ClusterID+generation単位のライフサイクルであり、Machine単位の再利用とは別レイヤーである。
-  - 結果として、新しいTartMachineが持つ認証情報は自分自身の(新cluster用)Bootstrap Secretだけであり、これは旧clusterのCAとは一致しないため旧installへの認証済み接続を確立できない。一方、認証なしのmaintenance接続に対してResetを呼ぶことは、対象Hostの正当性(=承認されたretainedFromと同一の旧installであること)を何も証明しないため、`talos.Client.Reset`のdocコメントで明記した安全前提に反し採用できない。
-  - この矛盾を解消せずに`TartMachineReconciler`へオーケストレーションを実装すると、(a)実際には決して発火しない死んだ分岐になるか、(b)無認証呼び出しを許容してfail-closedの原則を破るかのいずれかになるため、**本タスクのオーケストレーション実装は見送る**。
-  - **再検討の条件**: 以下のいずれかの設計変更が行われた場合に再評価する。
-    1. Machine削除時に旧cluster secret bundle(またはそこから導出した短命なReset専用client certificate)を`TartHost`側(例えば`retainedFrom`に紐づくprovider管理namespace上のimmutable Secret)へ明示的に保持する新しいretention機構を設計し、Reprovision承認時にのみそのSecretを読み出して認証済み接続を確立できるようにする。
-    2. Redfish/WoLなど物理電源操作層でTalos disk自体を安全に初期化できる代替経路が確認され、Talos gRPC Reset RPCへ依存しない設計に変更する。
-  - それまでは`spec.reuseMode: Reprovision`で承認されたHostについて、Reset実行経路が存在しないため、`host/eligibility.go`の`ReuseModeReprovision`分類はfail-closedのまま維持し、`TartMachineReconciler`は当該Hostに対して(既存のAdopt判定と同様)認証済みAPI/maintenance APIどちらにも接続できない場合はreconcileを安全に停止し続ける(既存の`reconcileTalos`の分岐に変更を加えていない)。
-- **解消条件**:
-  - `spec.reuseMode: Reprovision`で承認されたHostが、Talos Resetとmaintenance mode復帰を経て新しいTartMachineへ正常にinstallされること。
-  - 承認や識別が一致しない場合にResetを実行せず安全停止すること。
-  - 上記の再検討条件のいずれかを満たし、旧clusterとして認証済みの`*talos.Client`を安全に確立できる経路が設計された後に、`TartMachineReconciler`でのオーケストレーションを実装すること。
+- **現状**: **実装済み**。「Machineの寿命とHost上のTalos installationの寿命は異なる」という設計変更により、Machine/TartBootstrapConfigのownership lifecycleから独立した寿命を持つrecovery identityを導入し、Reprovision flow全体を実装した。
+- **実装内容**:
+  1. **Cluster Recovery Secret**（[`recovery/secret.go`](../../recovery/secret.go)）:
+     - provider管理namespace上のimmutable Secret（`tart-talos-recovery-<cluster-id>-<ca-fingerprint>`）。`os-ca.crt`、`os-ca.key`、`clusterID`のみを保持する。
+     - 「Talos cluster identity → recovery Secret → 複数のTartHost」という構造であり、Hostごとにcluster secret bundleやCA private keyを複製しない。Kubernetes PKIやBootstrap Data全体も複製しない。
+     - 長寿命のadmin client certificateは保存せず、`Material.ClientCertificate`が必要時に短命（既定10分）な`os:admin` client certificateを都度発行する。Talos machine APIのReset RPCは`os:admin` roleを要求するため、この最小権限を都度発行する方式とした。
+     - 生成元は[`controlplane/bundle.go`](../../controlplane/bundle.go)が管理するcluster secret bundleのactive generationであり、CA rotation機構と同じ`secrets.Bundle`構造を共有する。
+  2. **確立のタイミング**（[`controller/reprovision.go`](../../controller/reprovision.go)の`ensureTalosIdentityBinding`）:
+     - Machine削除の瞬間ではなく、Talos configurationをHostへapplyする前にrecovery Secretを作成し、`TartHost.status.currentTalosIdentityRef`へbindingを書く。
+     - 既存bindingが別clusterを指す場合は上書きしない。同一clusterでCA rotationにより有効なCAが変わった場合だけ更新する（`shouldRebindTalosIdentity`）。
+  3. **Lifetime管理**（[`controller/talosrecovery_controller.go`](../../controller/talosrecovery_controller.go)）:
+     - `TartCluster`やMachineのOwnerReferenceでGCしない。定期reconcileで現在のTartHost集合を観測し、そのSecretを参照する`status.currentTalosIdentityRef`が1つも存在しない場合だけ削除する（[`recovery/retention.go`](../../recovery/retention.go)の`ShouldDelete`）。
+     - 参照countのような壊れやすい状態を持たない。作成直後の短い猶予（`CreationGracePeriod`）でbinding書き込み前の削除を防ぐ。
+  4. **Reprovision flow**（`reconcileReprovision`）:
+     - `reconcileTalos`の分岐として、`reconcileAuthenticatedTalos`より前に実行する。
+     - recovery Secret解決 → 短命証明書発行 → 旧Talos APIへ認証済み接続 → cluster identity検証 → host identity検証 → Reset → maintenance mode復帰確認 → binding解除 → 既存の`reconcileMaintenanceTalos`による通常のfresh provisioning → 新identityの再確立、という順序で進む。
+     - Statusはstep番号ではなく観測結果とConditionsのみを保持し、controller再起動後も外部状態の再観測から安全に再開する。
+  5. **Reset前のidentity verification**（[`recovery/identity.go`](../../recovery/identity.go)の`VerifyResetTarget`）:
+     - TLS認証（recovery CAによるserver certificate検証とclient certificate提示）の成功を前提に、active machine configurationから観測したcluster ID、inventoryのMAC address、system UUID、接続endpointをすべて照合する。
+     - MAC addressだけ、IP addressだけを根拠にせず、いずれか1つでも一致しない場合はResetを実行せずrequeueもせずに安全停止する。
+  6. **Reset scope**: [`talos.Client.Reset`](../../talos/client.go)は`WipeMode=ALL`を明示し、`SystemPartitionsToWipe`と`UserDisksToWipe`は指定しない。system Talos installationのresetのみを意味し、別disk上のLonghorn/TopoLVM/raw volumeのデータは対象外である。詳細は[`docs/development/lifecycle.md`](lifecycle.md)の「Reset Scope」を参照する。
+  7. **Reusable Hostのclaim経路**: 自動選択はAvailable Hostのみを対象とし、Reusable Hostは`TartMachine.spec.hostRef`による明示的な指定でだけclaimできる。
+- **テスト**: Talos APIとのやりとりは`controller.TalosDialer` / `controller.TalosNode` interfaceで抽象化した。Wrong-host protection（別のMAC、別のsystem UUID、別のcluster、configuration観測失敗、reset後のmaintenance identity不一致）でResetが実行されないことと、Retain→承認→Reset→binding解除→通常経路復帰の流れを、Talos clientをfakeへ差し替えたGo testで検証している（[`controller/reprovision_test.go`](../../controller/reprovision_test.go)）。実機/VMを伴うE2Eは[検証方針](verification.md)の責務分離に従い別途実施する。
+- **解消条件**: 満たしている。

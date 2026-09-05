@@ -17,7 +17,8 @@ Hostの適格性分類（実装は [`host/eligibility.go`](../../../host/eligibi
 1. **`Available`**: `consumerRef` も `retainedFrom` もなく、自動割り当て可能。
 2. **`Claimed`**: `consumerRef` で特定の `TartMachine` に割り当て済み。
 3. **`Retained`**: Machine削除後に `retainedFrom` が記録され、データ保護のため自動割り当て停止。
-4. **`Reusable`**: `spec.reusePolicy: Reusable`、一致する `spec.reuseApproval.retainedFromUID`、および `spec.reuseMode`（`Adopt` または `Reprovision`）が揃った状態。
+4. **`Reusable`**: `spec.reusePolicy: Reusable`、一致する `spec.reuseApproval.retainedFromUID`、および `spec.reuseMode`（`Adopt` または `Reprovision`）が揃った状態。Reusable Hostは`TartMachine.spec.hostRef`による明示的な指定でだけclaimでき、自動選択の対象にはならない。
+   - `Reprovision`のTalos Resetは、`TartHost.status.currentTalosIdentityRef`が指すrecovery Secret（provider管理namespace上のimmutable Secret）から短命な`os:admin`証明書を発行して旧Talos APIへ認証し、cluster ID・MAC・system UUID・endpointをすべて照合できた場合にだけ実行する。詳細は[`recovery/`](../../../recovery)と`docs/development/lifecycle.md`の「Reprovision Flow」を参照する。
 
 ---
 

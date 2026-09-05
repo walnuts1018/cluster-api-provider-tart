@@ -16,6 +16,7 @@ type Reconcilers struct {
 	TartMachine         *controller.TartMachineReconciler
 	TartBootstrapConfig *controller.TartBootstrapConfigReconciler
 	TartControlPlane    *controller.TartControlPlaneReconciler
+	TalosRecovery       *controller.TalosRecoveryReconciler
 }
 
 func provideTartHostReconciler(c client.Client) *controller.TartHostReconciler {
@@ -38,12 +39,17 @@ func provideTartControlPlaneReconciler(c client.Client) *controller.TartControlP
 	return &controller.TartControlPlaneReconciler{Client: c}
 }
 
+func provideTalosRecoveryReconciler(c client.Client) *controller.TalosRecoveryReconciler {
+	return &controller.TalosRecoveryReconciler{Client: c}
+}
+
 func provideReconcilers(
 	tartHost *controller.TartHostReconciler,
 	tartCluster *controller.TartClusterReconciler,
 	tartMachine *controller.TartMachineReconciler,
 	tartBootstrapConfig *controller.TartBootstrapConfigReconciler,
 	tartControlPlane *controller.TartControlPlaneReconciler,
+	talosRecovery *controller.TalosRecoveryReconciler,
 ) Reconcilers {
 	return Reconcilers{
 		TartHost:            tartHost,
@@ -51,6 +57,7 @@ func provideReconcilers(
 		TartMachine:         tartMachine,
 		TartBootstrapConfig: tartBootstrapConfig,
 		TartControlPlane:    tartControlPlane,
+		TalosRecovery:       talosRecovery,
 	}
 }
 
@@ -61,5 +68,6 @@ var _ = kessokulib.Inject[Reconcilers](
 	kessokulib.Provide(provideTartMachineReconciler),
 	kessokulib.Provide(provideTartBootstrapConfigReconciler),
 	kessokulib.Provide(provideTartControlPlaneReconciler),
+	kessokulib.Provide(provideTalosRecoveryReconciler),
 	kessokulib.Provide(provideReconcilers),
 )

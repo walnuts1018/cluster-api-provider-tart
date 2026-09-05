@@ -11,7 +11,7 @@
 | 機能エリア | 現状 | 該当コード | 主な未実装内容 |
 | --- | --- | --- | --- |
 | **Runtime Extension (Update)** | Talos image変更を実装 | [`extensions/handlers.go`](../../extensions/handlers.go) | machine configuration変更、drain連携、MachineSet実機適用の拡張 |
-| **Control Plane Reconcile** | 初回経路、Failure Domain分散、quorum-safe scale-down実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | CA rotation |
+| **Control Plane Reconcile** | 初回経路、Failure Domain分散、quorum-safe scale-down、CA rotationステートマシン実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | 実機でのcertificate有効期限・同時cutoverの検証 |
 | **Cluster Reconcile** | 初期bundle経路とFailure Domain観測・反映を実装 | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | Ready条件のControl PlaneおよびInfrastructure集約 |
 | **Machine / Talos Reconcile** | 初回Install、shutdown/retention、Update Extension接続を実装 | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | deletion時のCAPI drain連携、停止観測の実機検証 |
 | **Raw Patch 合成** | 初期経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | 完全な安全差分判定とUpdate Extensionへの接続 |
@@ -29,7 +29,7 @@
 - **実装内容**:
   1. **safe-diff判定エンジン**:
      - `CanUpdateMachineSet` / `CanUpdateMachine`はTartMachineのimage versionとschematicだけを許可し、その他の差分をpatchなしの`Failure`で確実にvetoする（fail-closed）。
-     - effective configurationの差分評価と破壊的でないmachine configuration変更の許可は、Talos configuration read/apply APIの契約を追加した後に拡張する。
+     - effective configurationの差分評価と破壊的でないmachine configuration変更の許可は、Talos configuration read/apply APIの契約を追加した後に拡張する。稼働中nodeから現在のmachine configurationを読み出すAPI（[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)、CA rotationステートマシン実装のために追加済み）は利用可能になったが、`extensions/handlers.go`側のeffective configuration差分評価・許可ロジックへの接続は未着手であり、引き続き本タスクの残作業とする。
   2. **完全パッチ生成**:
      - 安全と判定された場合、CAPI MachineSet / Machineに対する完全なJSON patchを返却する。
   3. **`UpdateMachine` の実行**:
@@ -42,7 +42,7 @@
 ### タスク2: TartControlPlane の高度なReconcile実装
 
 - **重要度**: 高
-- **現状**: [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) はdesired replicasに基づく子リソース作成、初回etcd Bootstrap RPC呼び出し、workload kubeconfig生成、etcd/API readiness観測、およびpre-terminate hookを使ったquorum-safe scale-downまで実装済み。CA rotationは未実装。
+- **現状**: [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) はdesired replicasに基づく子リソース作成、初回etcd Bootstrap RPC呼び出し、workload kubeconfig生成、etcd/API readiness観測、pre-terminate hookを使ったquorum-safe scale-down、およびCA Rotationステートマシンまで実装済み。
 - **実装内容**:
   1. **初回etcd Bootstrap RPC**:
      - 最初のcontrol-plane Machineが起動しmaintenanceから認証済みAPIへ移行した際、Talos `Bootstrap` RPCを一度だけ実行する。
@@ -51,11 +51,15 @@
      - `<cluster-name>-kubeconfig` Secretを生成し、client certificateの期限監視と更新を行う。
   3. **etcd Quorum監視と安全なScale Down**:
      - scale-down対象Machineの削除時に、pre-terminate delete hook（`pre-terminate.delete.hook.machine.cluster.x-k8s.io/...`）でetcd member removalとquorum維持を確認してから削除を許可する。
-  4. **CA Rotationステートマシン**:
-     - generation Nからgeneration N+1の `Pending` bundle Secretを先行生成。
-     - Talos公式の段階的CA更新（accepted CA追加 → issuing CA切替 → certificate refresh → 旧CA削除）をreconcileし、完了確認後に `activeSecretGeneration` を更新する。
+  4. **CA Rotationステートマシン（実装済み）**:
+     - `TartCluster.spec.caRotationRequestedGeneration`が`status.activeSecretGeneration + 1`と一致すると、`TartClusterReconciler`が[`controlplane.GenerateRotatedBundleData`](../../controlplane/bundle.go)でmachine(OS)/Kubernetes API server/Kubernetes aggregatorのCAだけを新規生成した`Pending` bundle Secretを先行生成する（etcd CAとcluster/trustd tokenは維持し、既存clusterのmembershipやbootstrapへ影響しない）。
+     - `TartControlPlaneReconciler.reconcileCARotation`が、各control-plane MachineへTalos認証接続し[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)で稼働中configurationを観測、[`controlplane.ObserveCATrustStage`](../../controlplane/rotation.go)でactive/pending bundleのCAとissuing/accepted CAを比較して進行段階（Stable→DualTrust→Cutover→Rotated）を判定する。Statusはこの観測結果をConditionとして表すだけで、step番号としては使わない。
+     - 全machineの最小段階に応じて、[`talos.SetMachineCertificateAuthority`](../../talos/client.go)・`SetKubernetesAPICertificateAuthority`・`SetKubernetesAggregatorCertificateAuthority`で「accepted CA追加」→「issuing CA切替」→「旧CA削除」の順にTalos machine configurationをapplyする（Talosの`ApplyConfiguration`はAUTOモードのためcertificateの反映に再起動を要しない）。全machineがRotated段階に達すると、Pending bundle SecretのlabelをActiveへ書き換え、`TartCluster.status.activeSecretGeneration`を昇格させる。
+     - controller再起動時も、Pending/Active bundle Secretの有無と各Machineから観測した実際のCA構成から進行段階を毎回再計算するため、途中状態をメモリやStatusのstep番号として保持しない。
+     - **実機でのみ検証可能な残課題**: rotation中の実際のcertificate有効期限の遷移、複数control-plane Machineが同時にcutoverする際のetcd/API serverの実際の可用性、Talosバージョンごとの`ApplyConfiguration`の無停止反映可否、およびetcd CA自体のrotation（Talos機械configurationにaccepted-CAによる二重信頼の仕組みがないため今回はスコープ外とし、必要になった場合はetcd member単位の再起動を伴う別手順として設計する）。
 - **解消条件**:
   - `TartControlPlaneAvailableCondition`, `TartControlPlaneEtcdClusterAvailableCondition` 等が実際の観測に基づいて正常に更新されること。
+  - CA Rotationについては、`TartControlPlaneCARotatingCondition`が観測結果に基づいて進行・完了を反映し、実機での証明書有効期限とetcd/API可用性の検証が残ること。
 
 ### タスク3: TartCluster のReconcile実装
 
@@ -101,12 +105,23 @@
 ### タスク6: Hardware Discovery / Maintenance Boot連携
 
 - **重要度**: 低〜中
-- **現状**: maintenance Talos APIからMAC、system UUID、architecture、NIC、disk情報を取得して`TartHost.status.inventory`へ反映する初期観測を実装済み。
+- **現状**: maintenance Talos APIからMAC、system UUID、architecture、NIC、disk情報を取得して`TartHost.status.inventory`へ反映する初期観測を実装済み。まっさらなhostをTalos maintenance modeへ到達させるためのProxyDHCP/TFTP/iPXEスクリプト配信サーバーを`netboot/`パッケージと独立バイナリ`cmd/netboot-server`として実装済み（controller-managerとは別Deploymentで動作し、Resource modelの中心には置かない）。`config/default`に組み込み済みのため`clusterctl init --infrastructure tart`や`InfrastructureProvider`(cluster-api-operator)でのインストールだけでnetboot-serverも一緒にデプロイされる。
 - **実装内容**:
   1. **動的インベントリ収集**:
      - maintenance Talos bootしたHostから、MAC、System UUID、CPUアーキテクチャ、Disk詳細（WWID, Serial, Size, Model）を収集し、`TartHost.status.inventory` に反映する。
+  2. **netboot-server（実装済み）**:
+     - 既存DHCPサーバーと共存するProxyDHCPで、PXE optionを持つrequestにのみiPXEブートローダのTFTP配信先を応答する。
+     - TFTPは初期iPXEブートローダ(`ipxe-x86_64.efi`/`ipxe-arm64.efi`)のみを配信し、kernel/initramfsの取得はiPXEが自らHTTP経由で行う。
+     - iPXEはHTTPハンドラ(`netboot/httpboot.go`)が返すスクリプトから、PXEクライアントのMACアドレスに対応する`TartHost`/`TartMachine`をKubernetes APIからread-onlyで参照し(`netboot/resolver.go`)、そのdesired Talos version/schematicIDでTalos Image FactoryのPXE配信endpoint(`https://pxe.factory.talos.dev/pxe/<schematicID>/v<version>/metal-<arch>`)へ直接chainする。対応するTartHost/TartMachineが存在しないMAC(初回enrollment boot)は、operator設定のdiscovery用Talos version/schematicIDへfallbackする。netboot-server自身はSecretを読まずStatus/Conditionを書かないstatelessなread-onlyアダプターであり、maintenance mode到達後のconfiguration適用はcontroller-manager側の既存reconcileが担う。
+  3. **clusterctl/cluster-api-operator向けrelease workflow（実装済み）**:
+     - `.github/workflows/release.yaml`がタグpushをトリガーにcontroller-managerとnetboot-serverの両imageをビルド・push後、`scripts/release-manifests/run.sh`(`mise run release-manifests`)で`infrastructure-components.yaml`、`metadata.yaml`、`infrastructure-provider.yaml`を生成しGitHub Releaseへ添付する。
+- **残タスク（スコープ外の実機検証）**:
+  - 実機vendorごとのPXE firmware差異（Option 93の有無、iPXE User-Classの実装差）の検証。
+  - 複数NICを持つnodeでのProxyDHCP応答経路の検証、および既存DHCPサーバーとの共存確認。
+  - IPv6 PXE bootへの対応要否の判断。
 - **解消条件**:
   - 事前のハードウェア詳細調査なしにHost登録とインベントリ収集が自動で行われること。
+  - netboot-serverが実機のPXE firmwareからTalos maintenance modeまで実際に到達できることをE2Eで確認すること。
 
 ### タスク7: Power Backend拡張 (Redfish/BMC)
 

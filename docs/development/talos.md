@@ -52,7 +52,7 @@ effective configurationをシリアライズし、SHA-256 digestを計算
 
 - ユーザーにinstall前の `/dev/sda`、`/dev/nvme0n1`、NIC名、disk UUID等の事前調査を要求しない。
 - Bootstrap SecretなしのDiscovery bootにより、maintenance Talos APIからCPUアーキテクチャ、system UUID、NIC、アドレス、disk詳細を取得し、`TartHost.status.inventory` へ観測として保存する。
-- 現在の組み込みcontrollerはDHCP、TFTP、PXEのendpoint discoveryを持たないため、maintenance APIのendpointは`TartHost.spec.talosAPIAddress`または外部boot連携が設定した`status.addresses`から供給する。
+- 組み込みcontroller(controller-manager)自体はDHCP、TFTP、PXEのendpoint discoveryを持たない。まっさらなhostをTalos maintenance modeへ到達させるProxyDHCP/TFTP/iPXEスクリプト配信は、controller-managerとは別processで動く独立アダプター`netboot/`パッケージおよび`cmd/netboot-server`として実装している（詳細は`docs/installation/talos.md`を参照）。maintenance APIのendpointは、netboot-server経由で起動したHostであっても`TartHost.spec.talosAPIAddress`または外部boot連携が設定した`status.addresses`から供給する。
 - disk identityの重複を観測した場合は、関係するHostをallocationとconfiguration applyから除外する。
 
 ---

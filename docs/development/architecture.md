@@ -50,6 +50,10 @@ cmd/controller-manager
         |       +--> extensions
         |
         +--> boot / talosの具体的adapter
+
+cmd/netboot-server (controller-managerとは別process)
+        |
+        +--> netboot
 ```
 
 - **API層 (`api/`)**: pureな型定義とCRDメタデータのみを配置。
@@ -57,6 +61,7 @@ cmd/controller-manager
 - **外部アダプター層 (`talos/`, `boot/`)**: Talos gRPCクライアントや電源制御（WoL/Redfish）などの外部副作用をカプセル化。
 - **コントローラー層 (`controller/`)**: Kubernetes resourceのwatch/reconcile。ポリシー層とアダプター層を組み合わせて状態を収束させる。
 - **拡張層 (`extensions/`)**: CAPI Runtime Extensionのエンドポイント。
+- **network boot層 (`netboot/`, `cmd/netboot-server`)**: ProxyDHCP、TFTP、iPXEスクリプト配信を提供する独立アダプター。Kubernetes clientやcontroller層に依存せず、controller-managerとは別binary・別processとして動作する。まっさらなhostをTalos maintenance modeへ到達させるためだけに使い、TartHost/TartMachineのResource modelには組み込まない。
 
 ---
 

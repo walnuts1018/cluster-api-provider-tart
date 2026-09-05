@@ -73,7 +73,7 @@ Provisioning Plan
 Cilium / Longhorn / TopoLVM / kube-vip等のadd-on専用API
 ```
 
-- DHCP、TFTP、PXE等を汎用的なnetwork boot基盤として独自開発することは目的としない。ただし、bare-metal HostをTalos maintenance modeまで自動起動するためのnetwork boot機能または既存基盤との統合はTartの責務とする。
+- DHCP、TFTP、PXE等を汎用的なnetwork boot基盤として独自開発することは目的としない。ただし、bare-metal HostをTalos maintenance modeまで自動起動するためのnetwork boot機能または既存基盤との統合はTartの責務とする。ProxyDHCP/TFTP/iPXEスクリプト配信は`netboot/`パッケージと独立バイナリ`cmd/netboot-server`として実装済みであり、controller-managerとは別processのアダプターとして動作させ、TartHost/TartMachineのResource modelには組み込まない。
 - BMC、VM API等は必要に応じてアダプターとして統合できるが、TartのResource modelの中心へ固定しない。
 
 ---

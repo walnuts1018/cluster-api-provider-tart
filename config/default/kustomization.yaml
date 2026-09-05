@@ -14,12 +14,14 @@ resources:
 - ../crd
 - ../rbac
 - ../manager
+- ../netboot-server
 - metrics_service.yaml
 
 patches:
 - path: manager_metrics_patch.yaml
   target:
     kind: Deployment
+    name: controller-manager
 
 replacements:
 - source:
@@ -30,5 +32,17 @@ replacements:
   targets:
   - select:
       kind: Deployment
+      name: controller-manager
+    fieldPaths:
+    - spec.template.spec.serviceAccountName
+- source:
+    kind: ServiceAccount
+    version: v1
+    name: netboot-server
+    fieldPath: metadata.name
+  targets:
+  - select:
+      kind: Deployment
+      name: netboot-server
     fieldPaths:
     - spec.template.spec.serviceAccountName

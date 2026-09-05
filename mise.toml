@@ -41,6 +41,10 @@ run = "controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd
 description = "controller-managerをcompileする"
 run = "go build ./cmd/controller-manager"
 
+[tasks."build-netboot-server"]
+description = "netboot-serverをcompileする"
+run = "go build ./cmd/netboot-server"
+
 [tasks.vet]
 description = "Goの静的検査を実行する"
 run = "go vet ./..."
@@ -65,3 +69,7 @@ run = "./bin/custom-gcl run ./..."
 description = "Run linter and perform fixes"
 depends = ["build-golangci-lint"]
 run = "./bin/custom-gcl run --fix ./..."
+
+[tasks."release-manifests"]
+description = "clusterctl/cluster-api-operator向けのinfrastructure-components.yaml等を生成する(CONTROLLER_IMAGE, NETBOOT_SERVER_IMAGEが必須)"
+run = "./scripts/release-manifests/run.sh"

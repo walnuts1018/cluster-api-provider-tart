@@ -1,0 +1,37 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: netboot-server-role
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-tart
+    app.kubernetes.io/managed-by: kustomize
+    cluster.x-k8s.io/provider: infrastructure-tart
+rules:
+  # netboot-serverはPXEクライアントのMACアドレスからdesired Talos imageを解決するためだけに
+  # TartHost/TartMachineをread-onlyで参照する。Secret、Status書き込み、他リソースへの権限は持たない。
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tarthosts
+  - tartmachines
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: netboot-server-rolebinding
+  labels:
+    app.kubernetes.io/name: cluster-api-provider-tart
+    app.kubernetes.io/managed-by: kustomize
+    cluster.x-k8s.io/provider: infrastructure-tart
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: netboot-server-role
+subjects:
+- kind: ServiceAccount
+  name: netboot-server
+  namespace: system

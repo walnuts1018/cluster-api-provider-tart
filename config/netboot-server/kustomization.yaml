@@ -1,0 +1,10 @@
+resources:
+- deployment.yaml
+- service_account.yaml
+- role.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- name: netboot-server
+  newName: ghcr.io/example/netboot-server
+  newTag: v0.0.0-test

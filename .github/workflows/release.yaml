@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  CONTROLLER_IMAGE_NAME: ${{ github.repository }}
+  NETBOOT_SERVER_IMAGE_NAME: ${{ github.repository }}-netboot-server
+
+jobs:
+  images:
+    name: Build and push container images
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - target: manager
+            image: controller
+          - target: netboot-server
+            image: netboot-server
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          tags: >-
+            ${{ matrix.image == 'controller'
+              && format('{0}/{1}:{2}', env.REGISTRY, env.CONTROLLER_IMAGE_NAME, github.ref_name)
+              || format('{0}/{1}:{2}', env.REGISTRY, env.NETBOOT_SERVER_IMAGE_NAME, github.ref_name) }}
+
+  manifests:
+    name: Render clusterctl manifests
+    needs: images
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ github.ref_name }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+        with:
+          install-args: kustomize
+
+      - name: Render infrastructure-components.yaml and metadata.yaml
+        env:
+          CONTROLLER_IMAGE: ${{ env.REGISTRY }}/${{ env.CONTROLLER_IMAGE_NAME }}:${{ github.ref_name }}
+          NETBOOT_SERVER_IMAGE: ${{ env.REGISTRY }}/${{ env.NETBOOT_SERVER_IMAGE_NAME }}:${{ github.ref_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./scripts/release-manifests/run.sh out
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: clusterctl-manifests
+          path: out/
+
+  release:
+    name: Publish GitHub Release
+    needs: manifests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Download rendered manifests
+        uses: actions/download-artifact@v4
+        with:
+          name: clusterctl-manifests
+          path: out
+
+      # clusterctl/cluster-api-operatorはmetadata.yaml、infrastructure-components.yamlという
+      # 固定ファイル名のリリースassetを前提にしているため、ここでは名前を変更しない。
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/infrastructure-components.yaml
+            out/metadata.yaml
+            out/infrastructure-provider.yaml
+          generate_release_notes: true

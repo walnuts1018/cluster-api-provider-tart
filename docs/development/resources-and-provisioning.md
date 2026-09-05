@@ -7,7 +7,7 @@
 | Resource | 寿命 | Specの正本 | Statusに保存する観測 |
 | --- | --- | --- | --- |
 | `TartHost` | management cluster全体の物理/仮想Hostの寿命 | immutableな`id`、Host identity、power/boot capability、selection条件、`reusePolicy`、`reuseMode`、`reuseApproval`、controller-managed consumerRef、retention record | inventory、addresses、reachability、allocation eligibility、Conditions |
-| `TartCluster` | CAPI `Cluster`の寿命 | immutableなcluster ID、control plane endpoint、cluster-level infrastructure、`updatePolicy.allowDowntime` | endpoint反映、provisioned、failure domains、active secret generation、Conditions |
+| `TartCluster` | CAPI `Cluster`の寿命 | immutableなcluster ID、cluster-level infrastructure、`updatePolicy.allowDowntime` | provisioned、failure domains、active secret generation、Conditions |
 | `TartMachine` | CAPI `Machine`の寿命 | Host selection、Talos image identity、ProviderID、machine infrastructure identity | Host binding、Talos version、addresses、ProviderID反映、provisioned、Conditions |
 | `TartMachineTemplate` | templateの寿命 | `TartMachine`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
 | `TartBootstrapConfig` | CAPI Machineのbootstrap dataの寿命 | user-owned Talos configuration/patches（全てimmutableな`configSecretRef`） | Secret生成、configuration digest、Conditions |

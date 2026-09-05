@@ -21,7 +21,7 @@ CAPIのproviderごとの責務に合わせてAPI groupを分ける。別groupの
 | Resource | 主な責務 |
 | --- | --- |
 | `TartHost` | Host identity、hardware inventory、power/boot capability、allocation eligibility |
-| `TartCluster` | cluster-level infrastructure、control plane endpoint、failure domainの観測 |
+| `TartCluster` | cluster-level infrastructure、failure domainの観測 |
 | `TartMachine` | CAPI `Machine`とHostのbinding、Talos image、ProviderID、addresses、infrastructure readiness |
 | `TartBootstrapConfig` | CAPI bootstrap dataとして適用可能なTalos machine configurationの生成 |
 | `TartControlPlane` | control plane Machine、etcd bootstrap、kubeconfig、Kubernetes lifecycle、quorum safety |
@@ -62,7 +62,7 @@ Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable
 
 ## `TartClusterSpec`
 
-CAPIのcontrol plane endpointとcluster全体に必要なinfrastructure設定だけを持つ。`spec.id`はimmutableなランダムUUIDで、workload clusterの永続identityを表す。concreteな`TartCluster`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化し、Templateへ含めない。通常CREATEで指定された`spec.id`は、restore-approved annotationとinfra administratorの権限がない限り拒否する。SSA dry-runやwebhookの検証中にrandom identityを生成してはならない。management clusterのDR復元ではバックアップ済みの値をそのまま復元する。同じ名前で新しいClusterを作成した場合は新しいIDを割り当て、古いClusterのbundle、Retained Host、consumer bindingを再利用しない。CAPI `Cluster.metadata.uid`はmanagement cluster上のobject identityとして扱い、`TartCluster.spec.id`の代替にしない。`spec.id`が確定するまでbundle生成、Host claim、provisioningを開始しない。Host、Machine、Talos disk、CNI、CSI、kube-vipなどのnode固有またはadd-on固有設定は持たない。
+cluster全体に必要なinfrastructure設定だけを持つ。control plane endpointはCAPI `Cluster.spec.controlPlaneEndpoint`を正本とし、TartClusterへ重複して持たせない。`spec.id`はimmutableなランダムUUIDで、workload clusterの永続identityを表す。concreteな`TartCluster`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化し、Templateへ含めない。通常CREATEで指定された`spec.id`は、restore-approved annotationとinfra administratorの権限がない限り拒否する。SSA dry-runやwebhookの検証中にrandom identityを生成してはならない。management clusterのDR復元ではバックアップ済みの値をそのまま復元する。同じ名前で新しいClusterを作成した場合は新しいIDを割り当て、古いClusterのbundle、Retained Host、consumer bindingを再利用しない。CAPI `Cluster.metadata.uid`はmanagement cluster上のobject identityとして扱い、`TartCluster.spec.id`の代替にしない。`spec.id`が確定するまでbundle生成、Host claim、provisioningを開始しない。Host、Machine、Talos disk、CNI、CSI、kube-vipなどのnode固有またはadd-on固有設定は持たない。
 
 ```yaml
 spec:
@@ -193,7 +193,7 @@ Statusはobserved stateとConditionsだけを表し、workflowのprogram counter
 | Resource | contract上の主要Status |
 | --- | --- |
 | `TartHost` | inventory、addresses、reachability、`Claimed`/`Retained`/`Reusable`の観測、`Ready`、`InventoryReady`、`TalosReachable`、`Claimed`、`Retained`、`Reusable`、observedGeneration |
-| `TartCluster` | `initialization.provisioned`、control plane endpoint、failure domains、`Ready`、observedGeneration |
+| `TartCluster` | `initialization.provisioned`、failure domains、`Ready`、observedGeneration |
 | `TartMachine` | `initialization.provisioned`、addresses、failure domain、ProviderID、Talos version、`Ready`、`TalosReachable`、`Provisioned`、`UpToDate`、observedGeneration |
 | `TartBootstrapConfig` | `initialization.dataSecretCreated`、`dataSecretName`、configuration digest、`Ready`、observedGeneration |
 | `TartControlPlane` | `status.versions`、`initialization.controlPlaneInitialized`、replica counts、selector、kubeconfig観測、`Ready`、`Available`、`UpToDate`、`RollingOut`、`ScalingUp`、`ScalingDown`、`MachinesReady`、`MachinesUpToDate`、`EtcdClusterAvailable`、`Deleting`、`Paused`、observedGeneration |

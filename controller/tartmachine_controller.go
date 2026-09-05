@@ -15,6 +15,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -576,6 +578,13 @@ func (r *TartMachineReconciler) reportAndRequeue(ctx context.Context, machine *i
 func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.TartMachine{}).
+		Watches(&infrav1alpha1.TartHost{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+			hostObject, ok := obj.(*infrav1alpha1.TartHost)
+			if !ok || hostObject.Spec.ConsumerRef == nil || hostObject.Spec.ConsumerRef.Namespace == "" || hostObject.Spec.ConsumerRef.Name == "" || hostObject.Spec.ConsumerRef.UID == "" {
+				return nil
+			}
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: hostObject.Spec.ConsumerRef.Namespace, Name: hostObject.Spec.ConsumerRef.Name}}}
+		})).
 		Named("tartmachine").
 		Complete(r)
 }

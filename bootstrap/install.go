@@ -163,8 +163,11 @@ func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 		return false, fmt.Errorf("load Talos machine configuration: %w", err)
 	}
 	if unattended := provider.UnattendedInstallConfig(); unattended != nil {
-		if unattended.VolumeSelector().IsZero() {
-			return false, ErrInstallConfigurationInvalid
+		if raw := provider.RawV1Alpha1(); raw != nil && raw.MachineConfig != nil && raw.MachineConfig.MachineInstall != nil { //nolint:staticcheck // legacy configuration support.
+			return false, fmt.Errorf("%w: modern unattended configuration conflicts with legacy machine.install", ErrInstallConfigurationInvalid)
+		}
+		if err := validateInstallSelector(unattended.VolumeSelector()); err != nil {
+			return false, err
 		}
 		return true, nil
 	}
@@ -184,7 +187,23 @@ func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read Talos install disk selector: %w", err)
 	}
-	return expression != nil && !expression.IsZero(), nil
+	if expression == nil || expression.IsZero() {
+		return false, nil
+	}
+	if err := validateInstallSelector(*expression); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func validateInstallSelector(expression cel.Expression) error {
+	if expression.IsZero() {
+		return ErrInstallConfigurationInvalid
+	}
+	if err := expression.ParseBool(celenv.DiskLocator()); err != nil {
+		return fmt.Errorf("%w: invalid disk selector: %w", ErrInstallConfigurationInvalid, err)
+	}
+	return nil
 }
 
 // EnsureInstallDiskは入力configurationにinstall targetがない場合、Talos nativeのinstall targetを追加する。

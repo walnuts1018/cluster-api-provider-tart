@@ -131,7 +131,7 @@ type PreviousConsumerRef struct {
 	Name      string    `json:"name"`
 	UID       types.UID `json:"uid"`
 	// clusterID is the TartCluster.spec.clusterID the previous consumer belonged to.
-	ClusterID ClusterID `json:"clusterID"`
+	ClusterID string `json:"clusterID"`
 }
 
 // ReuseApproval is an explicit, user-provided approval to reuse a Retained Host. It is
@@ -157,7 +157,7 @@ type TartHostSpec struct {
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="hostID may only be initialized once and is immutable afterwards"
 	// +optional
-	HostID HostID `json:"hostID,omitempty,omitzero"`
+	HostID string `json:"hostID,omitempty"`
 
 	// macAddress is the primary enrollment identity used to bind an observed boot
 	// attempt to this Host before any other inventory is known.

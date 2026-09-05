@@ -49,7 +49,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	if current.Spec.HostID.IsZero() {
 		original := current.DeepCopy()
-		current.Spec.HostID = infrav1alpha1.HostID(hostdomain.NewHostID().String())
+		current.Spec.HostID = hostdomain.NewHostID().String()
 		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}

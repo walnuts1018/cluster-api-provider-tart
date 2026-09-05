@@ -46,7 +46,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// generation, Host claim and provisioning must not start before it is set.
 	if cluster.Spec.ClusterID.IsZero() {
 		original := cluster.DeepCopy()
-		cluster.Spec.ClusterID = infrav1alpha1.ClusterID(clusterdomain.NewClusterID().String())
+		cluster.Spec.ClusterID = clusterdomain.NewClusterID().String()
 		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}

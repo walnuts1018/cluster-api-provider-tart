@@ -245,6 +245,9 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 		}
 		return bootstrap.InstallDisk{}, err
 	}
+	if err := validateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+		return bootstrap.InstallDisk{}, err
+	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {
 		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
@@ -254,6 +257,10 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 			return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
 		}
 		return bootstrap.InstallDisk{}, err
+	}
+	consumer := host.Spec.ConsumerRef
+	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != tartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
+		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	if host.Status.Inventory == nil || len(host.Status.Inventory.Disks) == 0 {
 		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
@@ -301,6 +308,8 @@ func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&bootstrapv1alpha1.TartBootstrapConfig{}).
 		Owns(&corev1.Secret{}).
+		Watches(&infrav1alpha1.TartMachine{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
+		Watches(&infrav1alpha1.TartHost{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			configs := &bootstrapv1alpha1.TartBootstrapConfigList{}
 			if err := r.List(ctx, configs, client.InNamespace(obj.GetNamespace()), client.MatchingFields{bootstrapConfigSecretIndex: obj.GetName()}); err != nil {
@@ -314,6 +323,18 @@ func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error
 		})).
 		Named("tartbootstrapconfig").
 		Complete(r)
+}
+
+func (r *TartBootstrapConfigReconciler) enqueueAllBootstrapConfigs(ctx context.Context, _ client.Object) []reconcile.Request {
+	configs := &bootstrapv1alpha1.TartBootstrapConfigList{}
+	if err := r.List(ctx, configs); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(configs.Items))
+	for index := range configs.Items {
+		requests = append(requests, reconcile.Request{Namespace: configs.Items[index].Namespace, Name: configs.Items[index].Name})
+	}
+	return requests
 }
 
 const bootstrapConfigSecretIndex = ".spec.configPatchesSecretRef.name"

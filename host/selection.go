@@ -18,7 +18,7 @@ func SelectFresh(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSel
 		if Classify(candidate.Spec) != Available || candidate.Spec.HostID.IsZero() {
 			continue
 		}
-		if _, err := hostdomain.ParseHostID(candidate.Spec.HostID.String()); err != nil {
+		if _, err := hostdomain.ParseHostID(candidate.Spec.HostID); err != nil {
 			continue
 		}
 		if !Matches(candidate.Labels, candidate.Spec, selector) {

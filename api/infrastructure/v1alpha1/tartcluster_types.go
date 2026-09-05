@@ -37,7 +37,7 @@ type TartClusterSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="clusterID may only be initialized once and is immutable afterwards"
 	// +optional
 	// +kubebuilder:validation:Type=string
-	ClusterID ClusterID `json:"clusterID,omitempty,omitzero"`
+	ClusterID string `json:"clusterID,omitempty"`
 
 	// updatePolicy controls whether availability-only drain failures may be
 	// relaxed for node-disruptive updates. It never relaxes data, identity,

@@ -127,3 +127,34 @@ func TestClaimRejectsMismatchedExistingReference(t *testing.T) {
 		t.Fatalf("Claim() error = %v, want ErrClaimConflict", err)
 	}
 }
+
+func TestClaimRetriesAfterUnrelatedResourceVersionConflict(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	stored := &infrav1alpha1.TartHost{Name: "host-a"}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).Build()
+	stale := stored.DeepCopy()
+	latest := &infrav1alpha1.TartHost{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: stored.Name}, latest); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	latest.Labels = map[string]string{"observed": "true"}
+	if err := fakeClient.Update(t.Context(), latest); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	consumer := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
+	if err := Claim(t.Context(), fakeClient, stale, consumer); err != nil {
+		t.Fatalf("Claim() error = %v", err)
+	}
+	if stale.Spec.ConsumerRef == nil || stale.Spec.ConsumerRef.UID != consumer.UID {
+		t.Fatalf("Claim() did not update the caller's observed binding")
+	}
+	if stale.Labels["observed"] != "true" {
+		t.Errorf("Claim() discarded the refreshed Host state: labels = %#v", stale.Labels)
+	}
+}

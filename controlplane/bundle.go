@@ -24,7 +24,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
 const (
@@ -42,6 +45,7 @@ var (
 	ErrBundleDataIncomplete    = errors.New("bundle data is incomplete")
 	ErrRotationTargetMismatch  = errors.New("rotation target mismatch")
 	ErrBundleOwnerIncomplete   = errors.New("bundle owner reference is incomplete")
+	ErrBundleSecretInvalid     = errors.New("bundle Secret does not satisfy its contract")
 )
 
 // NextGenerationはactive generationから単調増加する次世代番号を返す。
@@ -66,7 +70,48 @@ func BundleName(clusterName, clusterID string, generation int32) (string, error)
 	if generation < 1 {
 		return "", ErrInvalidBundleGeneration
 	}
-	return clusterName + "-talos-secrets-" + clusterID + "-g" + strconv.FormatInt(int64(generation), 10), nil
+	name := clusterName + "-talos-secrets-" + clusterID + "-g" + strconv.FormatInt(int64(generation), 10)
+	if len(validation.IsDNS1123Subdomain(name)) != 0 {
+		return "", fmt.Errorf("%w: generated Secret name", ErrInvalidClusterIdentity)
+	}
+
+	return name, nil
+}
+
+// ValidateBundleSecretContractは既存bundle Secretのidentityとmetadataを検証する。
+// Secret dataの値はerrorへ含めず、Cluster IDとgenerationが一致しないbundleを再利用しない。
+func ValidateBundleSecretContract(secret *corev1.Secret, namespace, clusterName, clusterID string, generation int32, state string, ownerUID types.UID) error {
+	if secret == nil || namespace == "" || secret.Namespace != namespace {
+		return ErrBundleSecretInvalid
+	}
+	expectedName, err := BundleName(clusterName, clusterID, generation)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBundleSecretInvalid, err)
+	}
+	if secret.Name != expectedName || secret.Type != corev1.SecretTypeOpaque || secret.Immutable == nil || !*secret.Immutable {
+		return ErrBundleSecretInvalid
+	}
+	if secret.Labels[ClusterNameLabel] != clusterName || secret.Labels[ClusterIDLabel] != clusterID || secret.Labels[GenerationLabel] != strconv.FormatInt(int64(generation), 10) || secret.Labels[BundleStateLabel] != state {
+		return ErrBundleSecretInvalid
+	}
+	if state != BundleStatePending && state != BundleStateActive {
+		return ErrBundleSecretInvalid
+	}
+	if _, err := cloneCompleteData(secret.Data); err != nil {
+		return fmt.Errorf("%w: %w", ErrBundleSecretInvalid, err)
+	}
+	if len(secret.OwnerReferences) != 1 {
+		return ErrBundleSecretInvalid
+	}
+	owner := secret.OwnerReferences[0]
+	if owner.APIVersion != infrav1alpha1.GroupVersion.String() || owner.Kind != "TartCluster" || owner.Name != clusterName || owner.UID == "" || owner.Controller == nil || !*owner.Controller {
+		return ErrBundleSecretInvalid
+	}
+	if ownerUID != "" && owner.UID != ownerUID {
+		return ErrBundleSecretInvalid
+	}
+
+	return nil
 }
 
 // BuildPendingSecretはTalos machineryが生成したcomplete bundleをPendingとして永続化する。

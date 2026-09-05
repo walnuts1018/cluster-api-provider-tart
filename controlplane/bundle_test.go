@@ -17,10 +17,14 @@ package controlplane
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
 func TestBundleNameAndPendingSecret(t *testing.T) {
@@ -100,5 +104,59 @@ func TestRotateDataRejectsPartialReplacement(t *testing.T) {
 	_, err := RotateData(map[string][]byte{"talos.ca": []byte("old")}, map[string][]byte{}, []string{"talos.ca"})
 	if !errors.Is(err, ErrRotationTargetMismatch) {
 		t.Errorf("RotateData() error = %v, want ErrRotationTargetMismatch", err)
+	}
+}
+
+func TestValidateBundleSecretContract(t *testing.T) {
+	t.Parallel()
+
+	owner := metav1.OwnerReference{
+		APIVersion: infrav1alpha1.GroupVersion.String(),
+		Kind:       "TartCluster",
+		Name:       "cluster-a",
+		UID:        types.UID("cluster-uid"),
+	}
+	secret, err := BuildPendingSecret("ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, owner, map[string][]byte{"talos.ca": []byte("ca")})
+	if err != nil {
+		t.Fatalf("BuildPendingSecret() error = %v", err)
+	}
+
+	if err := ValidateBundleSecretContract(secret, "ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, BundleStatePending, owner.UID); err != nil {
+		t.Fatalf("ValidateBundleSecretContract() error = %v", err)
+	}
+
+	tests := map[string]func(*corev1.Secret){
+		"wrong cluster ID label": func(secret *corev1.Secret) {
+			secret.Labels[ClusterIDLabel] = "018f3c5e-5f8a-7c1b-9a2d-123456789abd"
+		},
+		"mutable Secret": func(secret *corev1.Secret) {
+			secret.Immutable = new(false)
+		},
+		"wrong owner kind": func(secret *corev1.Secret) {
+			secret.OwnerReferences[0].Kind = "TartControlPlane"
+		},
+		"missing bundle data": func(secret *corev1.Secret) {
+			secret.Data = nil
+		},
+	}
+	for name, mutate := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			invalid := secret.DeepCopy()
+			mutate(invalid)
+			if err := ValidateBundleSecretContract(invalid, "ns", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, BundleStatePending, owner.UID); !errors.Is(err, ErrBundleSecretInvalid) {
+				t.Fatalf("ValidateBundleSecretContract() error = %v, want ErrBundleSecretInvalid", err)
+			}
+		})
+	}
+}
+
+func TestBundleNameRejectsNameThatExceedsDNSLimit(t *testing.T) {
+	t.Parallel()
+
+	clusterName := strings.Repeat("a", 240)
+	if _, err := BundleName(clusterName, "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 1); !errors.Is(err, ErrInvalidClusterIdentity) {
+		t.Fatalf("BundleName() error = %v, want ErrInvalidClusterIdentity", err)
 	}
 }

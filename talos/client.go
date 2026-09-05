@@ -796,6 +796,27 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
+// ResetはTalos machine APIのReset RPCを呼び出し、system diskを消去してmaintenance modeへ戻す。
+// これは不可逆にデータを破棄する操作であるため、呼び出し側は必ず認証済み接続(DialAuthenticatedまたは
+// DialAuthenticatedFromConfiguration/FromBundleが確立したClient)に対してのみこのメソッドを呼び出さなければならない。
+// DialMaintenanceで確立した無認証接続に対してResetを呼び出すことは、対象Hostの正当性を何も証明していないため
+// 絶対に行ってはならない(呼び出し側の責務。本メソッド自体は接続の認証状態を検証しない)。
+// Graceful/Rebootは常にtrueとし、control-plane machineの場合はetcdからの離脱を試みたうえでmaintenance modeへ
+// 再起動する最も安全な選択にする。SystemPartitionsToWipe/UserDisksToWipeは指定せず、WipeModeの既定値(ALL)で
+// system disk全体を消去し、部分的な消去による中途半端な状態を避ける。
+func (c *Client) Reset(ctx context.Context) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if err := c.raw.ResetGeneric(ctx, &machine.ResetRequest{
+		Graceful: true,
+		Reboot:   true,
+	}); err != nil {
+		return fmt.Errorf("reset talos node: %w", err)
+	}
+	return nil
+}
+
 // ShutdownはTalosの通常のshutdownを要求する。forceオプションは使わず、停止確認は呼び出し側が別途観測する。
 func (c *Client) Shutdown(ctx context.Context) error {
 	if c == nil || c.raw == nil {

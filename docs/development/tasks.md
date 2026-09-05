@@ -185,15 +185,20 @@
 ### タスク10: Reusable Host「Reprovision」モードのTalos Reset連携
 
 - **重要度**: 中
-- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Reusableの2つの動作」節で、`Adopt`(既存installを保持したままclaim)と`Reprovision`(データ破棄を承認しTalosのreset/installer機構へ委譲してから新しいMachineへclaim)の2つのReuse modeを定義している。`Adopt`は`TartMachineReconciler.reconcileAuthenticatedTalos`が既存のBootstrap Secretで認証済みAPIへ接続を試み、成功すれば(=cryptographicにcluster secretが一致する既存installとして)そのまま`Provisioned`として扱うことで実質的に満たされている。しかし`Reprovision`は、`host/eligibility.go`のeligibility分類(`ReuseModeReprovision`)が存在するだけで、実際にTalosへreset RPCを発行して既存installを消去し、maintenance modeへ戻す処理が存在しない。`talos/client.go`にもReset APIがない。このため`spec.reuseMode: Reprovision`で承認されたHostをclaimしても、既存installが残ったままmaintenance APIが利用できず、Talos installへ進めずreconcileが停止し続ける。
-- **実装内容**:
-  1. **`talos.Client`へのReset API追加**:
-     - Talos machine APIの`Reset`RPC(`github.com/siderolabs/talos/pkg/machinery/api/machine`。system disk wipe、graceful reboot into maintenance modeを指定できるオプションを確認する)を呼び出すメソッドを追加する。
-     - Resetは対象Hostのデータを不可逆に消去する操作であるため、認証済みAPI(既存installのcluster secretで接続できる場合)またはRedfish/WoLでの物理電源operationとは独立して、`spec.reuseMode: Reprovision`かつ`spec.reuseApproval`が現在の`retainedFrom`と一致する場合にのみ呼び出せるようguardする。
-  2. **`TartMachineReconciler`でのReprovisionオーケストレーション**:
-     - claimしたHostが`Reprovision`モードで選択されていることを観測したら、install前に一度だけTalos `Reset`を要求し、maintenance modeへ戻ったことを観測してから通常のfresh install経路(`reconcileMaintenanceTalos`)へ合流させる。
-     - Reset要求とその完了観測はProvider-owned invariantやHost claimのatomicityを壊さず、controller再起動時も外部観測(現在のTalos APIモード、`status`)から安全に再開できるようにする(Statusをprogram counterとして使わない)。
-     - Reset失敗、または対象Hostの認証が現在のretainedFrom(旧cluster)と一致しない場合は、データ破壊を伴う操作であるため安全側に倒して`Ready=False`で停止する。
+- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Reusableの2つの動作」節で、`Adopt`(既存installを保持したままclaim)と`Reprovision`(データ破棄を承認しTalosのreset/installer機構へ委譲してから新しいMachineへclaim)の2つのReuse modeを定義している。`Adopt`は`TartMachineReconciler.reconcileAuthenticatedTalos`が既存のBootstrap Secretで認証済みAPIへ接続を試み、成功すれば(=cryptographicにcluster secretが一致する既存installとして)そのまま`Provisioned`として扱うことで実質的に満たされている。
+- **実装済み**: `talos.Client.Reset`(`talos/client.go`)を追加した。Talos machine APIの`ResetGeneric`(`github.com/siderolabs/talos/pkg/machinery/api/machine`の`ResetRequest`)へ`Graceful: true, Reboot: true`(WipeModeは既定の`ALL`でsystem disk全体を消去)を渡すだけの薄いwrapperであり、呼び出し前提として「認証済み(mTLS)接続の`*talos.Client`に対してのみ呼び出すこと」をdocコメントで明記した(メソッド自体は接続の認証状態を検証しない。無認証のmaintenance接続への呼び出しは呼び出し側が絶対に行ってはならない)。
+- **調査結果と、`TartMachineReconciler`側オーケストレーションの見送り理由**: Reset RPCを安全に呼び出すには「対象Hostの旧clusterとして認証済みの`*talos.Client`」が必要だが、これを新しいTartMachine側から確立する経路が現在の実装に存在しないことを確認した。
+  - `host.Retain`(`host/claim.go`)は`TartHost.spec.consumerRef`を解除し`spec.previousConsumerRef`(Namespace/Name/UID/ClusterIDのみ)を書き込むだけで、Secretの読み書きは一切行わない。
+  - `PreviousConsumerRef`(`api/infrastructure/v1alpha1/tarthost_types.go`)にはBootstrap Secret名やcluster secret bundleへの参照fieldが存在しない。
+  - 旧TartMachineが使っていたBootstrap Secretは`bootstrap.BuildSecret`(`bootstrap/secret.go`)により対応する`TartBootstrapConfig`単一のcontroller OwnerReferenceを持つ設計であり、`TartBootstrapConfig`はTartMachineに1:1対応してMachine削除とともにcascade GCされる。したがって旧Machine削除後は旧Bootstrap Secret(旧clusterのcluster secret material)も失われる。
+  - Cluster secret bundle(`controlplane/bundle.go`)はTartCluster/ClusterID+generation単位のライフサイクルであり、Machine単位の再利用とは別レイヤーである。
+  - 結果として、新しいTartMachineが持つ認証情報は自分自身の(新cluster用)Bootstrap Secretだけであり、これは旧clusterのCAとは一致しないため旧installへの認証済み接続を確立できない。一方、認証なしのmaintenance接続に対してResetを呼ぶことは、対象Hostの正当性(=承認されたretainedFromと同一の旧installであること)を何も証明しないため、`talos.Client.Reset`のdocコメントで明記した安全前提に反し採用できない。
+  - この矛盾を解消せずに`TartMachineReconciler`へオーケストレーションを実装すると、(a)実際には決して発火しない死んだ分岐になるか、(b)無認証呼び出しを許容してfail-closedの原則を破るかのいずれかになるため、**本タスクのオーケストレーション実装は見送る**。
+  - **再検討の条件**: 以下のいずれかの設計変更が行われた場合に再評価する。
+    1. Machine削除時に旧cluster secret bundle(またはそこから導出した短命なReset専用client certificate)を`TartHost`側(例えば`retainedFrom`に紐づくprovider管理namespace上のimmutable Secret)へ明示的に保持する新しいretention機構を設計し、Reprovision承認時にのみそのSecretを読み出して認証済み接続を確立できるようにする。
+    2. Redfish/WoLなど物理電源操作層でTalos disk自体を安全に初期化できる代替経路が確認され、Talos gRPC Reset RPCへ依存しない設計に変更する。
+  - それまでは`spec.reuseMode: Reprovision`で承認されたHostについて、Reset実行経路が存在しないため、`host/eligibility.go`の`ReuseModeReprovision`分類はfail-closedのまま維持し、`TartMachineReconciler`は当該Hostに対して(既存のAdopt判定と同様)認証済みAPI/maintenance APIどちらにも接続できない場合はreconcileを安全に停止し続ける(既存の`reconcileTalos`の分岐に変更を加えていない)。
 - **解消条件**:
   - `spec.reuseMode: Reprovision`で承認されたHostが、Talos Resetとmaintenance mode復帰を経て新しいTartMachineへ正常にinstallされること。
   - 承認や識別が一致しない場合にResetを実行せず安全停止すること。
+  - 上記の再検討条件のいずれかを満たし、旧clusterとして認証済みの`*talos.Client`を安全に確立できる経路が設計された後に、`TartMachineReconciler`でのオーケストレーションを実装すること。

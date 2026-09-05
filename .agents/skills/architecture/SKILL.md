@@ -32,7 +32,7 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 
 ## ディレクトリ方針
 
-ルート直下の責務別パッケージだけを使う。`internal`と`pkg`は禁止する。
+ルート直下の`internal`と`pkg`は禁止する。
 
 ## 安全性の不変条件
 

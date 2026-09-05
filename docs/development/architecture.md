@@ -42,22 +42,6 @@ ProviderIDはHost allocation後の`TartHost.spec.id`から`tart://host/<TartHost
 
 ## 実装パッケージの境界
 
-ルート直下のパッケージを、現在複数の具体的な利用箇所がある責務に限定して配置する。`internal`や`pkg`は作成しない。
-
-```text
-api/infrastructure/v1alpha1  Infrastructure CRDのSpec、Status、Condition、DeepCopy対象の型
-api/bootstrap/v1alpha1       Bootstrap CRDのSpec、Status、Condition、DeepCopy対象の型
-api/controlplane/v1alpha1    Control Plane CRDのSpec、Status、Condition、DeepCopy対象の型
-controller                   Kubernetes watchとreconcileの薄いentrypoint
-host                         Host選択、consumerRef claim、identity、power/boot境界
-talos                       Talos API clientとobserved stateへのadapter
-bootstrap                    Talos configuration生成とpatch合成の判断
-controlplane                 etcd/control planeの安全性判断とKubernetes lifecycle policy
-boot                         maintenance boot backendの最小interfaceとadapter
-extensions                   CAPI Runtime Extensionのwire protocolとupdate policy
-cmd/controller-manager       manager、scheme、controller、HTTPS endpointの組み立て
-```
-
 全てのパッケージを最初から作る必要はない。副作用を含む実装は該当するadapterへ置き、controllerはKubernetes resourceを読み、純粋なpolicyを呼び、外部状態をStatusへ反映する。interfaceは外部副作用の隔離または実際に複数実装が必要な境界だけに定義する。
 
 依存方向は次を基本とする。

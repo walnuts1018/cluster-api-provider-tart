@@ -531,7 +531,7 @@ func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *cont
 	objectLabels, annotations := controlPlaneMetadata(cp.Spec.MachineTemplate.ObjectMeta, clusterName, cp.Name, ordinal)
 	machine := &clusterv1.Machine{
 		APIVersion:      clusterv1.GroupVersion.String(),
-		Kind:            "Machine",
+		Kind:            capiMachineKind,
 		Name:            name,
 		Namespace:       cp.Namespace,
 		Labels:          objectLabels,
@@ -577,7 +577,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		Name:            machineName,
 		Namespace:       cp.Namespace,
 		Labels:          providerLabels,
-		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), "Machine")},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
 		Spec: infrav1alpha1.TartMachineSpec{
 			HostSelector: machineTemplate.Spec.Template.Spec.HostSelector.DeepCopy(),
 			TalosImage:   machineTemplate.Spec.Template.Spec.TalosImage,
@@ -613,7 +613,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		Name:            bootstrapName,
 		Namespace:       cp.Namespace,
 		Labels:          bootstrapLabels,
-		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), "Machine")},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
 		Spec: bootstrapv1alpha1.TartBootstrapConfigSpec{
 			ConfigSecretRef: bootstrapTemplate.Spec.Template.Spec.ConfigSecretRef.DeepCopy(),
 		},

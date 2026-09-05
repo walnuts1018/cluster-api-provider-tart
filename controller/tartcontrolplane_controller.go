@@ -904,6 +904,7 @@ func (r *TartControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&controlplanev1alpha1.TartControlPlane{}).
 		Owns(&clusterv1.Machine{}).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllControlPlanes)).
 		Watches(&infrav1alpha1.TartMachine{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllControlPlanes)).
 		Watches(&bootstrapv1alpha1.TartBootstrapConfig{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllControlPlanes)).
 		Watches(&infrav1alpha1.TartCluster{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllControlPlanes)).

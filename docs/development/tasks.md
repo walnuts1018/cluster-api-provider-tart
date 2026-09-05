@@ -149,17 +149,17 @@
 
 - **重要度**: 高
 - **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Kubernetes Upgradeの収束規則（実装前の契約）」に定義済みの契約はあるが未実装。`TartControlPlane.spec.version`とCAPI Machineの`spec.version`(Kubernetes version)の差分は、Update Extension(`extensions/handlers.go`)がpatchなしで安全停止するだけであり、`talos upgrade-k8s`をcluster単位で一度だけ要求するorchestrationが存在しない。
-- **実装内容**:
-  1. **`talos.Client`へのKubernetes upgrade API追加**:
-     - Talos machine APIの`KubernetesUpgrade`(または相当のgRPC RPC。`github.com/siderolabs/talos/pkg/machinery/api/machine`を確認する)を呼び出すメソッドを追加する。upgradeの進行状況(各Nodeのcomponent versionなど)を観測できる場合はあわせて観測APIを追加する。
-  2. **`TartControlPlaneReconciler`でのcluster-wide orchestration**:
-     - `TartControlPlane.spec.version`が現在のKubernetes versionと異なる場合にトリガーする(lifecycle.mdの"directly managed"契約)。worker Machineのdesired versionが目標と矛盾する場合は開始前に`Ready=False`、`Reason=VersionSkew`で安全停止する。
-     - `upgrade-k8s`はcluster単位で一度だけ要求し、二重実行を防ぐ(Resource Statusをprogram counterとして使わず、Kubernetes API/Node/control planeの実際のversion観測から「実行中か完了か」を毎回判定する)。
-     - Kubernetes API、全Nodeのkubelet、control planeの実際のversionが目標に到達したことを観測してから`TartControlPlane.status.versions`を更新する。
-     - component imageの保護(full configuration再apply時に現在のCAPI `Machine.spec.version`を必ず反映し、古いconfigurationでKubernetes componentがダウングレードされるのを防ぐ)を確認する。
-  3. **Update Extensionとの接続**:
-     - `extensions/handlers.go`の`canUpdateMachine`/`canUpdateMachineSet`は、Kubernetes version差分自体は引き続きMachine単位のpatchでは扱わず(cluster-wide operationのため)、worker Machineが観測したactual versionが既にcluster-wide upgrade後のtarget versionと一致する場合にのみ「重複upgradeなしで完了」とみなし安全にsuccessを返せるようにする。
-- **解消条件**:
+- **調査結果 (見送り)**: `talosctl upgrade-k8s`に対応する単一のgRPC RPCはTalos machine APIに存在しない。`github.com/siderolabs/talos@v1.14.0`の`api/machine/machine.proto`にKubernetes upgrade関連のRPCはなく、`cmd/talosctl/cmd/talos/upgrade-k8s.go`が実際に呼んでいるのは`github.com/siderolabs/talos/pkg/cluster/kubernetes`パッケージの`k8s.Upgrade`関数である。この関数は以下を含む1,600行超のclient-side orchestrationであり、単一のRPC呼び出しに還元できない:
+  - `k8s.DetectLowestVersion`によるcluster内の現在のKubernetes componentバージョン検出
+  - control-planeの各Nodeへ、component(kube-apiserver/kube-controller-manager/kube-scheduler)ごとに個別のmachine configuration patchを順次apply(既存の`ApplyConfiguration`/`ActiveMachineConfiguration`は使えるが、component単位の安全な順序制御とhealth check gatingをこちらで再実装する必要がある)
+  - kubeletのアップグレード
+  - kube-proxy、CoreDNSなどのcore manifestを、Kubernetes API に対する Server-Side Apply(`github.com/siderolabs/go-kubernetes/kubernetes/ssa`)で直接更新
+  - 各stepごとのreconcile/health待ち合わせ
+  
+  加えて、この実装(`pkg/cluster/kubernetes`)は`github.com/siderolabs/talos/pkg/machinery`とは別のGo module(`github.com/siderolabs/talos`本体、`go.mod`で確認済み)に属し、talosctl(CLI)向けの内部実装であって安定した外部向けライブラリ契約として提供されているものではない。取り込むには本体モジュール全体への依存追加が必要で、Talosのリリースサイクルに伴う破壊的変更を受けやすく、かつ「Talosのupgrade、Kubernetes runtimeを再実装しない」というProviderのスコープ制約に反する。
+  - 安全に呼び出せる契約(単一RPC、または安定した公開ライブラリAPI)が存在しないため、本タスクの実装は**見送る**。Providerからcluster-wide `upgrade-k8s`を呼び出す安全な経路が確認できるまで、`extensions/handlers.go`はKubernetes version差分をpatchなしでvetoし続ける(fail-closedを維持)。
+  - 再検討の条件: 将来のTalosリリースで`api/machine/machine.proto`にKubernetes upgrade用のRPCが追加される、または`pkg/cluster/kubernetes`相当の機能が`pkg/machinery`モジュール配下の安定APIとして公開された場合。
+- **解消条件 (将来実装時)**:
   - `TartControlPlane.spec.version`の変更が、cluster-wide `upgrade-k8s`の一度だけの実行とKubernetes API/Node/control planeの完了観測を経て`status.versions`へ安全に反映されること。
   - version skewが不正な場合に`Ready=False`、`Reason=VersionSkew`で安全停止すること。
   - Topology managed clusterでの`upgrade-k8s`開始条件と、worker Machineへの伝播が矛盾なく動作すること(実機でのみ検証可能な部分はE2Eへ委ねる)。

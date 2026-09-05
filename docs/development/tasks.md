@@ -144,3 +144,22 @@
      - 秘密情報の取得、TLS設定、controllerの停止確認連携を追加する。
 - **解消条件**:
   - BMC経由での電源管理と電源OFF確認ができること。実機vendor差異、TLS、credential rotation、電源断の受入れ確認はE2Eで別途実施する。
+
+### タスク8: Kubernetes Upgrade (cluster-wide `upgrade-k8s`) の実装
+
+- **重要度**: 高
+- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Kubernetes Upgradeの収束規則（実装前の契約）」に定義済みの契約はあるが未実装。`TartControlPlane.spec.version`とCAPI Machineの`spec.version`(Kubernetes version)の差分は、Update Extension(`extensions/handlers.go`)がpatchなしで安全停止するだけであり、`talos upgrade-k8s`をcluster単位で一度だけ要求するorchestrationが存在しない。
+- **実装内容**:
+  1. **`talos.Client`へのKubernetes upgrade API追加**:
+     - Talos machine APIの`KubernetesUpgrade`(または相当のgRPC RPC。`github.com/siderolabs/talos/pkg/machinery/api/machine`を確認する)を呼び出すメソッドを追加する。upgradeの進行状況(各Nodeのcomponent versionなど)を観測できる場合はあわせて観測APIを追加する。
+  2. **`TartControlPlaneReconciler`でのcluster-wide orchestration**:
+     - `TartControlPlane.spec.version`が現在のKubernetes versionと異なる場合にトリガーする(lifecycle.mdの"directly managed"契約)。worker Machineのdesired versionが目標と矛盾する場合は開始前に`Ready=False`、`Reason=VersionSkew`で安全停止する。
+     - `upgrade-k8s`はcluster単位で一度だけ要求し、二重実行を防ぐ(Resource Statusをprogram counterとして使わず、Kubernetes API/Node/control planeの実際のversion観測から「実行中か完了か」を毎回判定する)。
+     - Kubernetes API、全Nodeのkubelet、control planeの実際のversionが目標に到達したことを観測してから`TartControlPlane.status.versions`を更新する。
+     - component imageの保護(full configuration再apply時に現在のCAPI `Machine.spec.version`を必ず反映し、古いconfigurationでKubernetes componentがダウングレードされるのを防ぐ)を確認する。
+  3. **Update Extensionとの接続**:
+     - `extensions/handlers.go`の`canUpdateMachine`/`canUpdateMachineSet`は、Kubernetes version差分自体は引き続きMachine単位のpatchでは扱わず(cluster-wide operationのため)、worker Machineが観測したactual versionが既にcluster-wide upgrade後のtarget versionと一致する場合にのみ「重複upgradeなしで完了」とみなし安全にsuccessを返せるようにする。
+- **解消条件**:
+  - `TartControlPlane.spec.version`の変更が、cluster-wide `upgrade-k8s`の一度だけの実行とKubernetes API/Node/control planeの完了観測を経て`status.versions`へ安全に反映されること。
+  - version skewが不正な場合に`Ready=False`、`Reason=VersionSkew`で安全停止すること。
+  - Topology managed clusterでの`upgrade-k8s`開始条件と、worker Machineへの伝播が矛盾なく動作すること(実機でのみ検証可能な部分はE2Eへ委ねる)。

@@ -12,14 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package controlplane will hold the pure policy for TartControlPlane: quorum-safe
-// scale up/down decisions, cluster secret bundle generation-management (immutable
-// per-generation Secrets, active generation switch only after observing a completed
-// Talos CA rotation), initial etcd bootstrap sequencing, and Kubernetes version
-// upgrade convergence across Topology-managed and directly managed clusters.
-//
-// TODO: このpackageの実装は次セッション以降とする。現時点ではcontroller.
-// TartControlPlaneReconcilerが観測・Status反映のみを行うskeletonであり、cluster secret
-// bundleの生成やTalos Bootstrap RPCの呼び出しはまだ行っていない。実装時はdocs/development/
-// lifecycle.mdとapi-contract.mdのCluster secret bundle contractを参照する。
+// Package controlplaneはTartControlPlaneのquorum安全性、cluster secret bundle世代管理、
+// etcd bootstrap、Kubernetes version収束の純粋なpolicyを扱う。bundleのmaterial生成とTalos
+// operationはTalos machineryへ委譲し、このpackageはimmutable Secretの境界と世代遷移を検証する。
 package controlplane

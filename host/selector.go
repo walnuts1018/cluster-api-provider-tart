@@ -32,7 +32,7 @@ func Matches(hostLabels map[string]string, spec infrav1alpha1.TartHostSpec, sele
 	if selector.Architecture != "" && selector.Architecture != spec.Architecture {
 		return false
 	}
-	hostSelector, err := metav1.LabelSelectorAsSelector(&selector.MatchLabels)
+	hostSelector, err := metav1.LabelSelectorAsSelector(&selector.Selector)
 	if err != nil {
 		return false
 	}

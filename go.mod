@@ -6,7 +6,6 @@ tool github.com/mazrean/kessoku/cmd/kessoku
 
 require (
 	github.com/go-logr/logr v1.4.4
-	github.com/google/uuid v1.6.0
 	github.com/mazrean/kessoku v1.1.1
 	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/siderolabs/talos/pkg/machinery v1.14.0
@@ -22,6 +21,7 @@ require (
 	k8s.io/client-go v0.37.0
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/cluster-api v1.14.1
+	sigs.k8s.io/cluster-api/api v1.14.1
 	sigs.k8s.io/controller-runtime v0.25.0
 )
 
@@ -69,6 +69,7 @@ require (
 	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
@@ -131,7 +132,6 @@ require (
 	k8s.io/streaming v0.37.0 // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.36.0 // indirect
-	sigs.k8s.io/cluster-api/api v1.14.1 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect

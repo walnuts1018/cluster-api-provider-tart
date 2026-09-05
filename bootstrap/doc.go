@@ -12,15 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package bootstrap will hold the pure policy for synthesizing Talos machine
-// configuration for TartBootstrapConfig: combining base configuration, the
-// user-owned raw patch read from an immutable Secret, and provider-owned invariants
-// (cluster identity, Talos PKI/token, cluster endpoint, machine role, ProviderID,
-// CAPI version-managed fields), and rejecting conflicts with
-// Ready=False/Reason=ConfigurationConflict instead of silently overwriting them.
-//
-// TODO: このpackageの実装は次セッション以降とする。現時点ではcontroller.
-// TartBootstrapConfigReconcilerが観測・Status反映のみを行うskeletonであり、
-// Bootstrap Secretの生成やconfiguration digest計算はまだ呼び出していない。
-// 実装時はdocs/development/talos.mdとapi-contract.mdのSecret contractを参照する。
+// Package bootstrapはTalos machine configurationの合成とBootstrap Secret contractを扱う。
+// immutable Secretの入力検証とcomplete configurationからのSecret生成を提供し、raw patchを
+// complete configurationとして誤配布しない。cluster identity、Talos PKI、endpoint、machine
+// role、ProviderID、CAPI version-managed fieldを含む合成とconflict判定は、必要なcontextが
+// controllerから渡されるまで未実装のまま安全に停止する。
 package bootstrap

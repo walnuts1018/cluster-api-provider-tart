@@ -26,30 +26,27 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
-// ErrClaimConflict is returned when a Host's consumerRef changed between the caller's
-// read and the claim attempt, either because another Machine claimed it first or
-// because the caller's cached copy was stale. Callers must not retry against the same
-// Host; they must re-select from current observed state instead.
+// ErrClaimConflictは取得後にconsumerRefが変化した場合の競合を表す。
 var ErrClaimConflict = errors.New("host claim conflict")
 
-// Claim atomically binds host.spec.consumerRef to consumer using a
-// resourceVersion-checked Update, never server-side apply. It only succeeds if the
-// Host's consumerRef is currently nil or already equal to consumer; a claim already
-// held by a different consumer is reported as ErrClaimConflict rather than overwritten.
-//
-// TODO: 次セッションで、resourceVersion競合時の別Host選択・再試行フローをhost選択pure
-// 関数と組み合わせて実装する。ここでは単一Hostに対する原子的なCASだけを提供する。
+// ClaimはresourceVersion付きUpdateでhost.spec.consumerRefをatomicに確立する。
+// 既存claimが別consumerを指す場合は上書きせず、呼び出し側が再選択できる競合として返す。
 func Claim(ctx context.Context, c client.Client, host *infrav1alpha1.TartHost, consumer corev1.ObjectReference) error {
 	if host.Spec.ConsumerRef != nil && host.Spec.ConsumerRef.UID != consumer.UID {
 		return fmt.Errorf("%w: host %s is already claimed by %s/%s", ErrClaimConflict, host.Name, host.Spec.ConsumerRef.Namespace, host.Spec.ConsumerRef.Name)
 	}
-	original := host.DeepCopy()
-	host.Spec.ConsumerRef = &consumer
-	if err := c.Patch(ctx, host, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
+	if host.Spec.ConsumerRef != nil {
+		return nil
+	}
+
+	claimed := host.DeepCopy()
+	claimed.Spec.ConsumerRef = &consumer
+	if err := c.Update(ctx, claimed); err != nil {
 		if apierrors.IsConflict(err) {
 			return fmt.Errorf("%w: %w", ErrClaimConflict, err)
 		}
 		return err
 	}
+	*host = *claimed
 	return nil
 }

@@ -12,25 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package controller contains the thin Kubernetes watch/reconcile entrypoints for
-// each Tart Resource. Reconcilers read Kubernetes desired state, call into the host,
-// talos, bootstrap, controlplane and boot packages for policy decisions and external
-// side effects, and patch back only observed state and Conditions. See
-// .agents/skills/reconcile/SKILL.md.
+// Package controller contains the thin Kubernetes watch/reconcile entrypoints for Tart resources.
 package controller
 
 import (
 	"context"
+	"time"
 
-	"github.com/google/uuid"
+	"uuid"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/host"
 )
 
-// TartHostReconciler reconciles a TartHost object.
+const tartHostFinalizer = "tart.cluster.x-k8s.io/host-lifecycle"
+
+// TartHostReconcilerはHost identityと削除時のretention gateを管理する。Talos discoveryや
+// power操作は観測adapterが接続されるまで開始せず、Statusだけを安全側へ更新する。
 type TartHostReconciler struct {
 	client.Client
 }
@@ -39,36 +43,124 @@ type TartHostReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 
 func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var host infrav1alpha1.TartHost
-	if err := r.Get(ctx, req.NamespacedName, &host); err != nil {
+	var current infrav1alpha1.TartHost
+	if err := r.Get(ctx, req.NamespacedName, &current); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
 
-	// TartHost.spec.id must be generated exactly once, after the concrete (non-dry-run)
-	// Resource is created, and must never be regenerated. Allocation, maintenance
-	// configuration apply and inventory observation must not start before it is set.
-	if host.Spec.ID == "" {
-		original := host.DeepCopy()
-		host.Spec.ID = uuid.NewString()
-		if err := r.Patch(ctx, &host, client.MergeFrom(original)); err != nil {
+	if current.Spec.ID == "" {
+		original := current.DeepCopy()
+		current.Spec.ID = uuid.NewV4().String()
+		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	// TODO: Host claim CAS、hardware discovery、power/boot観測、Retained/Reusable判定を
-	// 次セッションで実装する(host, boot, talosパッケージを参照)。それまでは安全側で
-	// Ready=Falseのまま停止し、外部副作用を一切開始しない。
-	original := host.DeepCopy()
-	setNotImplemented(&host.Status.Conditions, infrav1alpha1.TartHostReadyCondition, host.Generation)
-	host.Status.ObservedGeneration = host.Generation
-	if err := r.Status().Patch(ctx, &host, client.MergeFrom(original)); err != nil {
+	if !current.DeletionTimestamp.IsZero() {
+		return r.reconcileDeletion(ctx, &current)
+	}
+	if !controllerutil.ContainsFinalizer(&current, tartHostFinalizer) {
+		original := current.DeepCopy()
+		controllerutil.AddFinalizer(&current, tartHostFinalizer)
+		if err := r.Patch(ctx, &current, client.MergeFrom(original)); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, nil
+	}
+
+	hosts := &infrav1alpha1.TartHostList{}
+	if err := r.List(ctx, hosts); err != nil {
 		return ctrl.Result{}, err
 	}
+	if host.HasIdentityConflictForAny(hosts.Items) {
+		return r.report(ctx, &current, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation and maintenance configuration are stopped.")
+	}
 
+	eligibility := host.Classify(current.Spec)
+	original := current.DeepCopy()
+	setEligibilityConditions(&current, eligibility)
+	setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonNotImplemented, "Host discovery and Talos reachability observation are not implemented yet; no external side effect has been attempted.", current.Generation)
+	current.Status.ObservedGeneration = current.Generation
+	if err := r.Status().Patch(ctx, &current, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility host.Eligibility) {
+	generation := hostObject.Generation
+	switch eligibility {
+	case host.Available:
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host has no retained state to reuse.", generation)
+	case host.Claimed:
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionTrue, "Claimed", "The Host is claimed by a TartMachine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host is currently claimed.", generation)
+	case host.Retained:
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionTrue, "Retained", "The Host retains state from a previous TartMachine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "ReuseApprovalRequired", "A matching reuse approval and reuse mode are required.", generation)
+	case host.Reusable:
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionTrue, "Retained", "The Host retains state from a previous TartMachine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionTrue, "ReuseApproved", "The Host has an explicit matching reuse approval.", generation)
+	default:
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostClaimedCondition, metav1.ConditionFalse, "NotClaimed", "The Host has no active consumerRef.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostRetainedCondition, metav1.ConditionFalse, "NotRetained", "The Host is not retained from a previous Machine.", generation)
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostReusableCondition, metav1.ConditionFalse, "NotReusable", "The Host has no retained state to reuse.", generation)
+	}
+
+	if hostObject.Status.Inventory != nil {
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, "InventoryObserved", "Hardware inventory has been observed.", generation)
+	} else {
+		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionFalse, "InventoryUnavailable", "Hardware inventory has not been observed yet.", generation)
+	}
+}
+
+func (r *TartHostReconciler) reconcileDeletion(ctx context.Context, current *infrav1alpha1.TartHost) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(current, tartHostFinalizer) {
+		return ctrl.Result{}, nil
+	}
+	if !forgetApproved(current.Spec) {
+		return r.report(ctx, current, infrav1alpha1.ReasonForgetApprovalRequired, "The Host is claimed or retained; matching forget approval is required and no power or data operation is performed.")
+	}
+	original := current.DeepCopy()
+	controllerutil.RemoveFinalizer(current, tartHostFinalizer)
+	if err := r.Patch(ctx, current, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func forgetApproved(spec infrav1alpha1.TartHostSpec) bool {
+	if spec.ConsumerRef == nil && spec.RetainedFrom == nil {
+		return true
+	}
+	if spec.ForgetApproval == nil {
+		return false
+	}
+	if spec.ConsumerRef != nil && spec.ForgetApproval.ConsumerUID != spec.ConsumerRef.UID {
+		return false
+	}
+	if spec.RetainedFrom != nil && spec.ForgetApproval.RetainedFromUID != spec.RetainedFrom.UID {
+		return false
+	}
+	return true
+}
+
+func (r *TartHostReconciler) report(ctx context.Context, current *infrav1alpha1.TartHost, reason, message string) (ctrl.Result, error) {
+	original := current.DeepCopy()
+	setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
+	current.Status.ObservedGeneration = current.Generation
+	if err := r.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, nil
 }
 

@@ -16,8 +16,9 @@ package controller
 
 import (
 	"context"
+	"time"
+	"uuid"
 
-	"github.com/google/uuid"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,11 +48,11 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// generation, Host claim and provisioning must not start before it is set.
 	if cluster.Spec.ID == "" {
 		original := cluster.DeepCopy()
-		cluster.Spec.ID = uuid.NewString()
-		if err := r.Patch(ctx, &cluster, client.MergeFrom(original)); err != nil {
+		cluster.Spec.ID = uuid.NewV4().String()
+		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
 	// TODO: control plane endpoint観測、failure domain反映、secret bundle世代管理は

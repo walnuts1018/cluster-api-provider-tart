@@ -55,8 +55,12 @@ func Classify(spec infrav1alpha1.TartHostSpec) Eligibility {
 	if spec.ReusePolicy == infrav1alpha1.ReusePolicyReusable &&
 		spec.ReuseApproval != nil &&
 		spec.ReuseApproval.RetainedFromUID == spec.RetainedFrom.UID &&
-		spec.ReuseMode != "" {
+		validReuseMode(spec.ReuseMode) {
 		return Reusable
 	}
 	return Retained
+}
+
+func validReuseMode(mode infrav1alpha1.ReuseMode) bool {
+	return mode == infrav1alpha1.ReuseModeAdopt || mode == infrav1alpha1.ReuseModeReprovision
 }

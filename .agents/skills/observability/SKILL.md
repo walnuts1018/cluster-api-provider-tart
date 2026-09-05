@@ -13,6 +13,7 @@ log、Event、Condition message、Status messageは英語で書き、ユーザ�
 ## Conditions
 
 Conditionは外部から観測できる能力や状態を表す。Resourceごとに[API contract](../../../docs/development/api-contract.md)で固定した`Ready`、`Available`、`InventoryReady`、`TalosReachable`、`Claimed`、`Retained`、`Reusable`、`Provisioned`、`UpToDate`と、Control Plane contractで定めたConditionだけを使い、汎用の`Blocked` Condition typeは追加しない。安全停止は`Ready=False`または`Available=False`とreason（例:`UnsafeUpdate`、`IdentityConflict`、`RolledBack`、`SecretBundleUnavailable`）で表し、controllerのstep番号、retry回数、goroutineの状態を表現しない。`observedGeneration`はdesired Specを観測したgenerationへ更新する。
+Statusへ公開するconfiguration digestはsecret-bearing valueをredaction markerへ置換したcanonical semantic representationのSHA-256とし、secret値を含む内部比較結果やHMACをStatus、Event、log、metricsへ出力しない。更新安全性は公開digestではなく、解決済みSecretからrenderしたsemantic diffで判定する。
 
 ## error分類
 

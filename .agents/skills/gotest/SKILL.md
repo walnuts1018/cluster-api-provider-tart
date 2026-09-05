@@ -33,7 +33,7 @@ go test ./... -v
 
 実装を早く完成させることを最優先に取り組む。バグや実装の綺麗さ・レイヤー分けの正確さなどは実装が完了してから修正していけば良い。テストについても基本的には最低限のテストに留め、実装が完了してから網羅的にテストを追加する。失敗時の影響が大きく副作用から分離できる純粋な判断へtable testや必要最小限のfuzz testを追加する。
 
-対象はHost claimの競合結果、Retained gate、Cluster ID不一致によるbundle/Adopt拒否、unsafe diffのfail-closed判定、reuse approvalの世代不一致、quorum判定、configuration invariant conflict、semantic digestなどとする。
+対象はHost claimの競合結果、Retained gate、Cluster ID不一致によるbundle/Adopt拒否、TemplateやSSA dry-runでIDを生成しないこと、pending secret generationをrotation開始前に永続化すること、unsafe diffのfail-closed判定、Secret参照名ではなくresolved configurationのsemantic diffを使うこと、single-nodeの`allowDowntime`判定、reuse approvalの世代不一致、quorum判定、configuration invariant conflict、redacted semantic digestなどとする。
 
 Kubernetes API、CAPI Runtime Extension、Webhook、Secret contract、controller restartは必要に応じてenvtestまたは契約テストで検証する。CAPI minorごとのunsafe diffでMachineSet、Machine、TartHost claimが作られないこと、実機のTalos、storage、reboot、rollback、drainはE2Eで検証する。
 対象、実行範囲、envtestやE2Eの扱いは[検証方針](../../../docs/development/verification.md)へ記録する。

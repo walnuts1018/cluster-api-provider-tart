@@ -2,6 +2,8 @@
 
 Tartのlifecycleは、Kubernetes resourceのdesired stateと、Host、Talos、workload clusterのobserved stateの比較から毎回再計算する。長時間処理のstep、Operation CRD、process memoryを正本にしない。
 
+`TartHost.spec.id`と`TartCluster.spec.id`はTemplateやSSA dry-runで生成せず、concrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化する。DR復元ではバックアップ済みのIDを保持し、ID確定前にbundle生成、Host claim、provisioningを開始しない。同名Clusterの再作成では新しいCluster IDを使う。
+
 ## Fresh machine
 
 ```text
@@ -70,7 +72,7 @@ Tartが自動Reprovisionを提供するHostは、installed OSが存在する状�
 
 Cluster全体の削除はscale-downと分ける。Cluster deletionが観測された場合、Control Plane Providerは各etcd memberのquorum維持を最後まで要求せず、pre-terminate hookを安全に完了させてCAPI Machine controllerの削除を進める。個別のscale-downではquorumとmember removalを必須とし、全体削除では削除不能を避けるためmember detachを必須条件にしない。
 
-Cluster secret bundleは`TartCluster.spec.id`を含むgeneration単位でimmutableにする。CA rotationはTalosの段階的なCA rotation operationへ委譲し、accepted CA追加、issuing CA切替、certificate refresh、旧CA削除の正常完了を観測してから新generationをactiveに確定する。rotation中は新しいMachineのprovisioningとAdoptを開始しない。Cluster存続中は過去generationをGCせず、Cluster削除時に全Managed Machineのshutdownとretention、バックアップ保持方針、Retained Hostの再利用制約を確認した後だけGCを許可する。Cluster削除後に必要なbundleが消えたRetained Hostは旧cluster credentialを復元できないため`Adopt`を禁止し、`Reprovision`だけを許可する。新しいcluster IDのbundleと新しい通常の`controlplane`/`worker` configurationを用いて再provisionし、既存Talosへauthenticated API接続できない場合は自動wipeせず`Ready=False`、`Reason=SecretBundleUnavailable`にする。
+Cluster secret bundleは`TartCluster.spec.id`を含むgeneration単位でimmutableにする。CA rotationではTalosの準備結果から得た新しいsecret materialで次generationを`Pending`として先に永続化し、その後に段階的なCA rotation operationを開始する。accepted CA追加、issuing CA切替、certificate refresh、旧CA削除の正常完了を観測してから新generationをactiveに確定する。controller再起動時はPending bundleとTalosのobserved stateから再開し、rotation中は新しいMachineのprovisioningとAdoptを開始しない。Cluster存続中は過去generationをGCせず、Cluster削除時に全Managed Machineのshutdownとretention、バックアップ保持方針、Retained Hostの再利用制約を確認した後だけGCを許可する。Cluster削除後に必要なbundleが消えたRetained Hostは旧cluster credentialを復元できないため`Adopt`を禁止し、`Reprovision`だけを許可する。新しいcluster IDのbundleと新しい通常の`controlplane`/`worker` configurationを用いて再provisionし、既存Talosへauthenticated API接続できない場合は自動wipeせず`Ready=False`、`Reason=SecretBundleUnavailable`にする。
 
 ## MachineHealthCheck
 
@@ -88,7 +90,7 @@ Cluster APIのMachineHealthCheckは通常、unhealthy Machineを削除してMach
 
 Control Plane ProviderはCAPI contractに従い、Cluster namespaceへ`<cluster-name>-kubeconfig` Secretを生成・維持する。kubeconfigの生成完了をcontrol plane bootstrapのprocess memoryで管理せず、Secret、API server、証明書の有効期限を観測して再concileする。
 
-scale upは既存control planeがhealthyであることを確認し、新MachineのTalos configuration、reachability、healthを確認してからready countへ反映する。control planeのin-place updateは常に一台ずつとし、node-disruptive operationの前にTalosの安全なdrainまたはworkload cluster側のcordon/drainを完了し、次のMachineへ進む前にetcd membership、Kubernetes API、Node healthを確認する。3 node以上ではdrain成功、quorum、availabilityを必須とする。single nodeではcordonとgraceful evictionを可能な範囲で試し、明示的なdowntime policyがあればavailabilityを理由に永久blockせず、persistent data preservationを優先してrebootを許容する。具体的な強制drain flagは実装判断とし、API contractへ固定しない。scale downは対象memberを安全にremoveでき、quorumを維持できるとTalos/etcdの観測で判断してからpre-terminate hookを完了させる。判定不能または危険な場合は削除せず、`Ready=False`と`Reason=UnsafeControlPlaneOperation`を設定する。
+scale upは既存control planeがhealthyであることを確認し、新MachineのTalos configuration、reachability、healthを確認してからready countへ反映する。control planeのin-place updateは常に一台ずつとし、node-disruptive operationの前にTalosの安全なdrainまたはworkload cluster側のcordon/drainを完了し、次のMachineへ進む前にetcd membership、Kubernetes API、Node healthを確認する。3 node以上ではdrain成功、quorum、availabilityを必須とする。single nodeではcordonとgraceful evictionを可能な範囲で試し、`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されていればavailabilityを理由に永久blockせず、persistent data preservationを優先してrebootを許容する。未指定または`false`なら開始しない。具体的な強制drain flagは実装判断とし、API contractへ固定しない。scale downは対象memberを安全にremoveでき、quorumを維持できるとTalos/etcdの観測で判断してからpre-terminate hookを完了させる。判定不能または危険な場合は削除せず、`Ready=False`と`Reason=UnsafeControlPlaneOperation`を設定する。
 
 Control Plane Providerが既存Machineを更新する場合、Machine controllerに任せる前に`CanUpdateMachine`を呼ぶ。成功時はCAPI Machine、TartMachine、TartBootstrapConfigのdesired specをresourceVersion付きで更新し、`in-place-updates.internal.cluster.x-k8s.io/update-in-progress` annotationを設定してからMachineへ`UpdateMachine` hook pendingを設定する。再concileではannotation、spec、hook pending、generationを観測してこの遷移を再入可能にし、途中停止後も部分適用を二重実行しない。失敗時やunsupported diffではspecを変更せずControl Planeを`Ready=False`と安全なreasonにする。
 
@@ -104,7 +106,7 @@ Talos OS update、Talos machine configuration update、Kubernetes update、Machi
 
 configuration digestが変わった場合、初回provisioning中だけBootstrap Providerのeffective configurationをinstallへ渡す。初回provisioning後のmutableなconfiguration applyはUpdate Extensionだけが実行し、通常のInfrastructure/Bootstrap reconcileはactual configuration digestとConditionsを観測する。service restartやrebootが必要でも、Talosの結果とhealthをUpdate Extensionから観測する。rebootを伴う場合は先にNodeをquiesceし、drainに失敗したら開始しない。disk layoutなど破壊的になり得る差分をTart独自の巨大なcompatibility tableで推測して適用しない。
 
-configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。
+configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化し、secret-bearing valueをredaction markerへ置換したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。更新安全性はStatus digestではなく、old/new Secretを解決したsemantic diffで判定する。
 
 full machine configurationを再applyする場合は、CAPI `Machine.spec.version`から導出したcurrent Kubernetes versionを必ずeffective configurationへ反映する。Talosの`upgrade-k8s`がlive configurationのKubernetes component image versionを書き換えるため、古いconfiguration digestをそのまま再applyしてdowngradeを発生させてはならない。version-managed fieldはgeneric user patchから分離する。
 
@@ -136,7 +138,7 @@ upgrade requestの送信事実を正本にせず、API server version、Node ver
 
 Runtime Extensionの`CanUpdateMachineSet`、`CanUpdateMachine`は安全に全desired diffをcoverできる場合だけ`Success`と完全なpatchを返し、危険、未知、または部分的にしかcoverできない差分は`Failure`としてreconcileを停止する。`UpdateMachine`ではUpdate Extensionだけが同じMachineへのTalos operationを開始する。通常のInfrastructure/Bootstrap reconcileはmutable diffを見てもoperationを開始せず、初回provisioning後のconfigurationとimage変更はUpdate Extensionへ任せる。CAPIのhook未対応差分をSuccessの部分patchで通してimmutable rolloutへfallbackさせてはならない。
 
-Workerの標準rollout profileは、対応するCAPI resourceの設定で`maxSurge: 0`、`maxUnavailable: 1`を推奨する。これにより追加Hostを要求せず、一度に一つの既存Machineをin-place updateする。`maxUnavailable: 0`ではCAPIがbufferのためsurge Machineを作成し得るため、local persistent Hostを守る既定値にしない。Control PlaneはprofileをMachineDeploymentへ委譲せず、常に一台ずつ更新してetcd、API、Node healthを確認する。multi-nodeではdrain成功を必須とし、single nodeではcordonとgraceful evictionを可能な範囲で試した後、明示的なdowntime policyがあれば1台unavailableになるdowntimeを許容してpersistent data preservationを優先する。Machineとdiskを置き換えない。Tart独自のrollout controllerや`maxUnavailable`の別実装は作らない。
+Workerの標準rollout profileは、対応するCAPI resourceの`RollingUpdate`設定で`maxSurge: 0`、`maxUnavailable: 1`を推奨する。`OnDelete` strategyは自動worker in-place update lifecycleとしてサポートしない。これにより追加Hostを要求せず、一度に一つの既存Machineをin-place updateする。`maxUnavailable: 0`ではCAPIがbufferのためsurge Machineを作成し得るため、local persistent Hostを守る既定値にしない。Control PlaneはprofileをMachineDeploymentへ委譲せず、常に一台ずつ更新してetcd、API、Node healthを確認する。multi-nodeではdrain成功を必須とし、single nodeではcordonとgraceful evictionを可能な範囲で試した後、`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されていれば1台unavailableになるdowntimeを許容してpersistent data preservationを優先する。未指定または`false`なら安全停止する。Machineとdiskを置き換えない。Tart独自のrollout controllerや`maxUnavailable`の別実装は作らない。
 
 ## Recoveryとerror
 

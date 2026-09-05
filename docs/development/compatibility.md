@@ -12,6 +12,8 @@ Tartの対応範囲は「最新version」ではなく、各releaseで実際に�
 
 ここでいうtestedは、CRD/RBAC/managerの静的確認だけではなく、該当するCAPI minorとTalos minorを使ったFresh machine、Discovery、single node、HA control plane、worker、OS/config update、Kubernetes upgrade、deletion、controller restartの受け入れ確認を意味する。未実施の境界はtestedと記載しない。
 
+Tartの自動worker in-place updateではCAPIの`RollingUpdate` strategyを使用し、`OnDelete` strategyはin-place update lifecycleとしてサポートしない。標準profileは`maxSurge: 0`、`maxUnavailable: 1`とする。
+
 各CAPI minorで、`CanUpdateMachineSet`または`CanUpdateMachine`がunsafe、unknown、partial diffを`Failure`として返したとき、CAPIの実際の挙動がMachineSet、Machine、TartHost claimを一つも作成しないことを必須の安全E2Eとする。これを確認できないCAPI minorは、Tartのrelease compatibilityへ含めない。静的な`Failure`判定やRuntime Extension endpointの疎通だけではこの契約を満たしたことにしない。
 
 ## 判定規則

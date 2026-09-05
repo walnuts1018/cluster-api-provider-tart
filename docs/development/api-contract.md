@@ -30,7 +30,7 @@ Cluster topology、Machine version、rollout policy、add-onはCAPIまたはKube
 
 ## `TartHostSpec`
 
-初期登録に必要なfieldはHost identityとpower/boot capabilityに限定する。`spec.id`はimmutableなランダムUUIDとして生成・指定し、MAC addressは主要なenrollment情報とする。system UUID、NIC名、disk UUID、Linux device path、Talos endpointの事前入力を必須にしない。architecture、label、failure domainはallocation条件として指定可能にするが、Talosから取得できるinventoryをユーザーのdesired hardware stateとして複製しない。
+初期登録に必要なfieldはHost identityとpower/boot capabilityに限定する。`spec.id`はconcreteな`TartHost`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化するimmutableなランダムUUIDとし、Templateへ含めない。management clusterのDR復元ではバックアップ済みの値をそのまま復元する。system UUID、NIC名、disk UUID、Linux device path、Talos endpointの事前入力を必須にしない。architecture、label、failure domainはallocation条件として指定可能にするが、Talosから取得できるinventoryをユーザーのdesired hardware stateとして複製しない。
 
 `spec.consumerRef`はcontrollerが管理するbindingであり、ユーザーが任意のMachineへ向ける通常設定ではない。claimはSSAのfield ownershipをlockとして使わず、`GET → consumerRefがnilまたは自分のUIDであることを確認 → 取得したresourceVersion付きUpdate`、またはJSON Patchの`test`を使うatomic CASで確立する。競合したUpdateは成功として扱わず、別Hostの選択または再試行を行う。`TartHost.status`をallocation lockの正本にせず、Statusには`Claimed` Conditionと観測されたconsumerを必要な範囲で保持する。
 
@@ -62,11 +62,19 @@ Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable
 
 ## `TartClusterSpec`
 
-CAPIのcontrol plane endpointとcluster全体に必要なinfrastructure設定だけを持つ。`spec.id`はimmutableなランダムUUIDで、workload clusterの永続identityを表す。初回作成時に確定し、management clusterのバックアップからobjectを再作成しても値を維持する。同じ名前で新しいClusterを作成した場合は新しいIDを割り当て、古いClusterのbundle、Retained Host、consumer bindingを再利用しない。CAPI `Cluster.metadata.uid`はmanagement cluster上のobject identityとして扱い、`TartCluster.spec.id`の代替にしない。Host、Machine、Talos disk、CNI、CSI、kube-vipなどのnode固有またはadd-on固有設定は持たない。
+CAPIのcontrol plane endpointとcluster全体に必要なinfrastructure設定だけを持つ。`spec.id`はimmutableなランダムUUIDで、workload clusterの永続identityを表す。concreteな`TartCluster`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化し、Templateへ含めない。SSA dry-runやwebhookの検証中にrandom identityを生成してはならない。management clusterのDR復元ではバックアップ済みの値をそのまま復元する。同じ名前で新しいClusterを作成した場合は新しいIDを割り当て、古いClusterのbundle、Retained Host、consumer bindingを再利用しない。CAPI `Cluster.metadata.uid`はmanagement cluster上のobject identityとして扱い、`TartCluster.spec.id`の代替にしない。`spec.id`が確定するまでbundle生成、Host claim、provisioningを開始しない。Host、Machine、Talos disk、CNI、CSI、kube-vipなどのnode固有またはadd-on固有設定は持たない。
 
 ```yaml
 spec:
   id: <immutable random UUID>  # CAPI Cluster.metadata.uidとは独立した永続identity
+```
+
+`TartClusterTemplate.spec.template.spec`には`id`を持たせない。同じTemplateから生成されるconcrete Clusterごとにprovider controllerが異なるIDを確定する。DR復元で既存IDを指定する場合は、バックアップ復元として扱い、通常の同名Cluster作成と混同しない。`updatePolicy.allowDowntime`はTemplateからconcrete Clusterへ伝播できるcluster-levelのdesired policyであり、既定値は`false`とする。
+
+```yaml
+spec:
+  updatePolicy:
+    allowDowntime: false
 ```
 
 TartClusterがfailure domainsをsurfaceする場合、`TartHost.spec.failureDomain`から`TartCluster.status.failureDomains`、CAPI `Machine.spec.failureDomain`、Host allocatorまで同じ値を接続し、対応するMachineを必ず一致するHostへ割り当てる。failure domainをallocationまで接続できない段階では、Statusへ部分的なfailure domainをsurfaceしない。
@@ -127,7 +135,7 @@ spec:
 
 ## MHC remediationの生成前保護
 
-初期運用では、MachineDeploymentのMachine templateまたは`TartControlPlane`のMachine templateのmetadataへ`cluster.x-k8s.io/skip-remediation: "true"`を設定し、CAPI Machineが最初に作成される時点からannotationを持つことを必須とする。Machine作成後にcontrollerが後追いでannotationを付けるだけの実装は、annotationがない短い期間にMHC remediationの対象となるraceを残すため受け入れない。replacementを許可する場合は、利用者がMachine templateまたはMachine単位で明示的にopt-inし、Host上のdataが失われ得ることを承認する。
+初期運用では、MachineDeploymentのMachine templateまたは`TartControlPlane`のMachine templateのmetadataへ`cluster.x-k8s.io/skip-remediation: "true"`を設定し、CAPI Machineが最初に作成される時点からannotationを持つことを必須とする。Machine作成後にcontrollerが後追いでannotationを付けるだけの実装は、annotationがない短い期間にMHC remediationの対象となるraceを残すため受け入れない。Tart v1alpha1では自動replacementのopt-inを提供しない。必要な再構築は、利用者がMachineを明示的に削除し、Retained Hostに対する`Reprovision`承認を行うlifecycleとして扱う。
 
 Control Plane Providerは次を所有する。
 
@@ -170,7 +178,7 @@ data:
 
 ### Cluster secret bundle
 
-TartControlPlane Providerが、control-plane MachineやBootstrap Secretより先に、Talos/Kubernetesのcluster-level PKIとsecret materialをClusterごとのgeneration単位で生成する。Bootstrap Providerはread-only consumerであり、bundleを作成・再生成・更新しない。各generationはCluster namespaceの`<cluster-name>-talos-secrets-<cluster-id>-g<generation>`という決定論的な`Opaque` Secretへ格納し、`immutable: true`、Cluster label、Cluster ID label、generation label、`TartCluster`のcontroller OwnerReferenceを設定する。OwnerReferenceはgarbage collectionのための関係であり、Cluster identityの検証にはCluster ID labelと`TartCluster.spec.id`を使う。active generationはprocess memoryではなくprovider-managedな永続参照で選択し、初期generationは`1`とする。CA rotationではTalosのrotation operationを開始し、正常完了と新しいsecret materialを観測してから旧Secretを変更せず新しいgenerationを作成し、active generationを切り替える。rotation中にactive generationを先に切り替えたり、旧CAをTart独自に削除したりしない。
+TartControlPlane Providerが、control-plane MachineやBootstrap Secretより先に、Talos/Kubernetesのcluster-level PKIとsecret materialをClusterごとのgeneration単位で生成する。Bootstrap Providerはread-only consumerであり、bundleを作成・再生成・更新しない。各generationはCluster namespaceの`<cluster-name>-talos-secrets-<cluster-id>-g<generation>`という決定論的な`Opaque` Secretへ格納し、`immutable: true`、Cluster label、Cluster ID label、generation label、`TartCluster`のcontroller OwnerReferenceを設定する。OwnerReferenceはgarbage collectionのための関係であり、Cluster identityの検証にはCluster ID labelと`TartCluster.spec.id`を使う。active generationはprocess memoryではなくprovider-managedな永続参照で選択し、初期generationは`1`とする。CA rotationではTalosのrotation operationから得た新しいsecret materialで次generationのimmutable Secretを先に作成し、`Pending`として永続化してからrotationを開始する。accepted CA追加、issuing CA切替、certificate refresh、旧CA削除の正常完了を観測した後だけactive generationを切り替える。controllerが途中で再起動してもPending bundleとTalosのobserved stateから再開し、active generationを先に切り替えたり、旧CAをTart独自に削除したりしない。
 
 cluster secret bundleはgenerationごとにimmutableな正本とし、Clusterの全control planeとworkerのconfigurationからactive generationを参照する。active generationを切り替えても旧generationのSecretを上書きしない。Clusterが存続している間は過去generationをGCせず、CA rotationの完了観測とDR/Adoptの監査材料として保持する。Cluster deletion時だけ、全Managed Machineのshutdownとretention、バックアップ保持方針、Retained Hostの再利用制約を確認した後に過去generationのGCを許可する。`TartCluster`のdeletion finalizerまたは同等の削除ゲートは、全Managed Machineがshutdownとretentionを完了するまでbundleのOwnerをGC可能にしてはならない。必要なgenerationのbundleが欠落またはactive generationが不明な場合は自動再生成せず、既存clusterのidentityを壊さない`Ready=False`、`Reason=SecretBundleUnavailable`として報告する。bundleの値をStatus、Event、log、metricsへ出力しない。
 
@@ -215,13 +223,15 @@ Machine、Host、disk、local persistent dataのidentityは`TartHost.spec.id`、
 
 `TartMachine`の通常reconcileと`TartBootstrapConfig`の通常reconcileは、Discovery観測、初回provisioning前のinstallation delivery、観測Status更新だけを担当する。初回provisioning後のmutableなTalos OS/config変更、BootstrapConfigの再生成、Talos upgradeはUpdate Extensionだけが実行する。通常controllerがdesiredとactualの差分を見て同じTalos operationを開始してはならない。CAPIが`Failure`をimmutable rolloutへ変換するversionでは、Tartの対象CRD webhook、MHC policy、rollout profile、Retained gateを合わせてreplacementが開始される構成を受け入れず、deployment prerequisiteとして拒否する。
 
-node-disruptiveなin-place updateの前には、Talosが提供する安全なdrainまたはworkload cluster側のcordon/drainを完了する。multi-node clusterではdrain成功を必須とし、失敗時はupdateを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、明示的なdowntime policyがある場合はavailabilityを理由に永久blockせずpersistent data preservationを優先してupdateを開始できる。具体的な強制drain flagはAPI contractへ固定しない。
+node-disruptiveなin-place updateの前には、Talosが提供する安全なdrainまたはworkload cluster側のcordon/drainを完了する。multi-node clusterではdrain成功を必須とし、失敗時はupdateを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、`TartCluster.spec.updatePolicy.allowDowntime: true`が正本として明示されている場合だけavailabilityを理由に永久blockせずpersistent data preservationを優先してupdateを開始できる。未指定または`false`ならsingle-nodeのnode-disruptive updateも安全停止する。具体的な強制drain flagはAPI contractへ固定しない。
 
-configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。
+configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化し、secret-bearing valueを型付きのredaction markerへ置換したsemantic representationのSHA-256とする。Statusへ公開するdigestからcredential、password、token、private key、certificateの値を除外し、field order、defaulting、serialization差分をdriftとしない。desired driftと`CanUpdate*`の安全判定はStatus digestを正本にせず、old/new Secretを解決したsemantic diffを使う。必要な場合だけcontroller内部でsecret値を含む比較を行い、内部digestを永続Statusやlogへ出力しない。`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。
 
-Control Plane Providerがin-place updateを開始する場合は、まず`CanUpdateMachine`を呼ぶ。`Success`の場合だけresourceVersionを確認しながらCAPI Machine、対応するTartMachine、TartBootstrapConfigのdesired specを更新し、3つすべてへ`in-place-updates.internal.cluster.x-k8s.io/update-in-progress` annotationを設定した後、Machineへ`UpdateMachine` hook pendingを設定する。この遷移は既存annotation、desired spec、hook pending、各resourceのgenerationを観測して再入可能にし、途中で再起動しても二重の更新や部分的なidentity変更を作らない。`Failure`または更新対象外の場合はspecを変更せず、Control Planeを`Ready=False`と具体的なreasonで停止する。node-disruptive operationの前にはTalosの安全なdrainまたはworkload cluster側のcordon/drainを完了する。multi-nodeではdrain成功を必須とし、single-nodeではcordonとgraceful evictionを可能な範囲で試した後、明示的なdowntime policyがあればpersistent data preservationを優先して開始できる。Talos rollback後はdesired Specを自動で旧versionへ戻さず、`UpdateMachine`を`Failure`、`Reason=RolledBack`として後続Machineの更新を停止する。
+Control Plane Providerがin-place updateを開始する場合は、まず`CanUpdateMachine`を呼ぶ。`Success`の場合だけresourceVersionを確認しながらCAPI Machine、対応するTartMachine、TartBootstrapConfigのdesired specを更新し、3つすべてへ`in-place-updates.internal.cluster.x-k8s.io/update-in-progress` annotationを設定した後、Machineへ`UpdateMachine` hook pendingを設定する。この遷移は既存annotation、desired spec、hook pending、各resourceのgenerationを観測して再入可能にし、途中で再起動しても二重の更新や部分的なidentity変更を作らない。`Failure`または更新対象外の場合はspecを変更せず、Control Planeを`Ready=False`と具体的なreasonで停止する。node-disruptive operationの前にはTalosの安全なdrainまたはworkload cluster側のcordon/drainを完了する。multi-nodeではdrain成功を必須とし、single-nodeではcordonとgraceful evictionを可能な範囲で試した後、`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されていればpersistent data preservationを優先して開始できる。未指定または`false`なら開始しない。Talos rollback後はdesired Specを自動で旧versionへ戻さず、`UpdateMachine`を`Failure`、`Reason=RolledBack`として後続Machineの更新を停止する。
 
 ## Runtime Extensionの前提
+
+`CanUpdateMachineSet`と`CanUpdateMachine`はSecret参照名だけを比較してはならない。old/new双方の`configSecretRef`を解決し、immutable Secretの内容からeffective Talos configurationをrenderしてsemantic diff全体を分類する。Secretがmissing、unreadable、generation不明の場合は`unknown`としてpatchなしの`Failure`を返す。安全なconfiguration変更、reboot-required変更、destructive change、ProviderID overrideなどの分類はSecret名の変更だけから推測しない。
 
 in-place updateを有効にするmanagement clusterでは、CAPIの`RuntimeSDK=true`と`InPlaceUpdates=true`をfeature gateへ設定する。TartのHTTPS endpointを`ExtensionConfig`へ登録し、server certificate、TLS Secret、必要なCA trustを管理する。in-place update hookへ登録できるextensionが一つに制限されるCAPI versionでは、Tart以外のhookと同時に登録しない。CRDには`cluster.x-k8s.io/v1beta2: v1alpha1`のcontract-version labelを付与する。
 

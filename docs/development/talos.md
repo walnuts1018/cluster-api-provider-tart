@@ -4,7 +4,7 @@ TartはTalos Linux専用であり、Talosが提供するOS、storage、configura
 
 ## Machine configurationの合成
 
-Bootstrap ProviderはTalos machineryのversion contract、active secret bundle generation、cluster endpoint、CAPIから導出したmachine role、Kubernetes version、`TartMachine.spec.talosImage`、Secret-backed raw configuration patch modelを利用する。Talos secretsは`TartCluster.spec.id`を含むgeneration単位のimmutable bundleを参照し、BootstrapConfigごとにgenerateしない。CA rotationはTalosの段階的なCA rotation operationへ委譲し、正常完了を観測してから新generationへ切り替える。rotation中は新しいMachineのprovisioningとAdoptを開始しない。
+Bootstrap ProviderはTalos machineryのversion contract、active secret bundle generation、cluster endpoint、CAPIから導出したmachine role、Kubernetes version、`TartMachine.spec.talosImage`、Secret-backed raw configuration patch modelを利用する。Talos secretsは`TartCluster.spec.id`を含むgeneration単位のimmutable bundleを参照し、BootstrapConfigごとにgenerateしない。CA rotationではTalosの準備結果から得た新しいsecret materialで次generationを`Pending`として先に永続化し、その後に段階的なCA rotation operationを開始する。正常完了を観測してから新generationへ切り替え、rotation中は新しいMachineのprovisioningとAdoptを開始しない。
 
 configurationは次の順序で決定的に合成する。
 
@@ -101,9 +101,9 @@ Talosの`upgrade-k8s`がlive machine configuration内のKubernetes component ima
 
 操作はApplyConfiguration、Upgrade、UpgradeKubernetes、Bootstrap、Shutdown、必要なetcd member operationに限定する。operationの送信事実をStatusへ保存せず、外部観測から未開始・実行中・完了済み・失敗を判断できるようにする。
 
-configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。digestは非可逆値だけをStatusへ公開する。
+configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationを正規化し、secret-bearing valueをredaction markerへ置換したsemantic representationのSHA-256とする。field order、defaulting、serialization差分をdriftとせず、`upgrade-k8s`などが変更するversion-managed fieldはgeneric configuration driftから分離する。更新安全性はStatus digestではなく、old/new Secretを解決したsemantic diffで判定する。digestはsecret値を再現できない形だけをStatusへ公開する。
 
-configuration applyやOS upgradeがrebootを要求する場合、Update Extensionは先にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainする。multi-node clusterではdrain成功を必須とし、失敗時はoperationを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、明示的なdowntime policyがある場合はavailabilityを理由に永久blockせず、persistent data preservationを優先してoperationを開始できる。具体的な強制drain flagをAPI contractへ固定しない。
+configuration applyやOS upgradeがrebootを要求する場合、Update Extensionは先にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainする。multi-node clusterではdrain成功を必須とし、失敗時はoperationを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合だけavailabilityを理由に永久blockせず、persistent data preservationを優先してoperationを開始できる。未指定または`false`なら安全停止する。具体的な強制drain flagをAPI contractへ固定しない。
 
 ## Bootとpower
 

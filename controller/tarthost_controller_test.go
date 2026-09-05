@@ -46,12 +46,26 @@ func TestForgetApproved(t *testing.T) {
 			},
 		},
 		{
+			name: "claimed host with empty consumer UID cannot be forgotten",
+			spec: infrav1alpha1.TartHostSpec{
+				ConsumerRef:    &corev1.ObjectReference{},
+				ForgetApproval: &infrav1alpha1.ForgetApproval{},
+			},
+		},
+		{
 			name: "retained host needs matching retained approval",
 			spec: infrav1alpha1.TartHostSpec{
 				RetainedFrom:   &infrav1alpha1.RetainedFrom{UID: types.UID("previous")},
 				ForgetApproval: &infrav1alpha1.ForgetApproval{RetainedFromUID: types.UID("previous")},
 			},
 			want: true,
+		},
+		{
+			name: "retained host with empty retained UID cannot be forgotten",
+			spec: infrav1alpha1.TartHostSpec{
+				RetainedFrom:   &infrav1alpha1.RetainedFrom{},
+				ForgetApproval: &infrav1alpha1.ForgetApproval{},
+			},
 		},
 		{
 			name: "both bindings require both approvals",

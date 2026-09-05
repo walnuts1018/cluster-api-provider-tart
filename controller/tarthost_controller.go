@@ -147,11 +147,15 @@ func forgetApproved(spec infrav1alpha1.TartHostSpec) bool {
 	if spec.ForgetApproval == nil {
 		return false
 	}
-	if spec.ConsumerRef != nil && spec.ForgetApproval.ConsumerUID != spec.ConsumerRef.UID {
-		return false
+	if spec.ConsumerRef != nil {
+		if spec.ConsumerRef.UID == "" || spec.ForgetApproval.ConsumerUID == "" || spec.ForgetApproval.ConsumerUID != spec.ConsumerRef.UID {
+			return false
+		}
 	}
-	if spec.RetainedFrom != nil && spec.ForgetApproval.RetainedFromUID != spec.RetainedFrom.UID {
-		return false
+	if spec.RetainedFrom != nil {
+		if spec.RetainedFrom.UID == "" || spec.ForgetApproval.RetainedFromUID == "" || spec.ForgetApproval.RetainedFromUID != spec.RetainedFrom.UID {
+			return false
+		}
 	}
 	return true
 }

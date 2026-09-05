@@ -105,6 +105,8 @@ hostSelector:
         values: [home]
 ```
 
+`TartMachineTemplate.spec.template.metadata`は生成される`TartMachine`のmetadataへ伝播し、CAPI `Machine`のmetadataを直接表現しない。
+
 `talosImage`は次のidentityを一つの正本として扱う。
 
 ```yaml
@@ -149,6 +151,8 @@ spec:
         nodeDeletionTimeoutSeconds: ...
   bootstrapConfigTemplate: ...
 ```
+
+`TartControlPlaneTemplate.spec.template.metadata`は生成される`TartControlPlane`のmetadataへ伝播する。各control-plane Machineのmetadataは内側の`machineTemplate.metadata`で指定し、Control Plane resourceのmetadataとは分けて扱う。
 
 ## MHC remediationの生成前保護
 

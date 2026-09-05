@@ -26,7 +26,7 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 - Infrastructure、Bootstrap、Control PlaneのAPI groupを分けたProviderを提供する。
 - TalosのOS installation、machine configuration、disk/volume、upgrade、rollback、etcd bootstrap、Kubernetes runtimeへ責務を委譲する。
 - CAPI Machineを使い捨てと仮定せず、同じMachine、TartMachine、TartHost、diskを保ったin-place updateを第一選択にする。
-- 安全にin-place updateできない変更はMachine replacementへ暗黙にfallbackせず、blocked Conditionで停止する。ただしCAPIのhook未対応差分がimmutable rolloutへfallbackし得るため、Host retention、rollout policy、MHC policyも必要とする。
+- 安全にin-place updateできない変更はMachine replacementへ暗黙にfallbackせず、CAPI-facing Resourceでは`Ready=False`と安全なreasonで停止する。ただしCAPIのhook未対応差分がimmutable rolloutへfallbackし得るため、Host retention、rollout policy、MHC policyに加えてCAPI minorごとのfail-closed E2Eを必須とする。
 - Resource Statusは外部から観測できる状態とConditionだけを持ち、workflowのstep番号やprogram counterを持たない。
 - controller再起動後も、Kubernetes desired stateとHost/Talos/Kubernetesのobserved stateから同じ判断を再計算できるようにする。
 
@@ -52,15 +52,15 @@ cmd/controller-manager       process wiringとHTTPS endpoint
 
 ## 安全性の不変条件
 
-- `TartHost`はmanagement cluster全体で一意なcluster-scoped inventoryであり、`TartHost.spec.consumerRef`がallocation bindingの正本である。claimはSSAをlockとして使わず、resourceVersion付きUpdateまたはJSON Patchの`test`によるatomic CASで確立し、`status.claimedBy`をlockの正本にしない。
+- `TartHost`はmanagement cluster全体で一意なcluster-scoped inventoryであり、immutableな`TartHost.spec.id`をKubernetes metadata UIDから独立した永続Host identityとして持つ。`TartHost.spec.consumerRef`がallocation bindingの正本であり、claimはSSAをlockとして使わず、resourceVersion付きUpdateまたはJSON Patchの`test`によるatomic CASで確立し、`status.claimedBy`をlockの正本にしない。
 - Machine削除後のHostは`spec.retainedFrom`を持つ`Retained`であり、現在のretained UIDに一致する明示的な`Adopt`または`Reprovision`承認なしに自動allocationしない。`Reusable`はwipeの同義語ではない。
-- claim解放前にauthenticated Talos shutdownと停止確認を行い、確認不能ならclaimとfinalizerを保持してblockedにする。
+- claim解放前にauthenticated Talos shutdownと停止確認を行い、確認不能ならclaimとfinalizerを保持して`Ready=False`とreasonを設定する。
 - Tart-managed Machineはlocal persistent stateの有無を判定せず、MHC delete-and-recreate remediationを既定で許可しない。初期運用では`cluster.x-k8s.io/skip-remediation`を使い、replacementは明示的なopt-inに限定する。
-- `TartMachine.spec.talosImage`の`{version, schematicID}`をTalos image/system extensionの単一の正本にする。
-- ProviderIDをHost UIDから`tart://host/<TartHost UID>`としてHost allocation後に生成し、Talos kubeletへ注入してCAPI InfraMachine、TartMachine、Nodeの`spec.providerID`を一致させる。allocationはbootstrap dataを待たず、Talos provisioningはbootstrap dataを待つ。
+- `TartCluster.spec.id`をCAPI `Cluster.metadata.uid`から独立したimmutableなworkload cluster identityとし、`retainedFrom.clusterID`、secret bundle、Adopt、DRの関連付けへ使う。同名Clusterの再作成で古いbundleやHost dataを再利用しない。`TartMachine.spec.talosImage`の`{version, schematicID}`をTalos image/system extensionの単一の正本にする。
+- ProviderIDを`TartHost.spec.id`から`tart://host/<TartHost.spec.id>`としてHost allocation後に生成し、Talos kubeletへ注入してCAPI InfraMachine、TartMachine、Nodeの`spec.providerID`を一致させる。Kubernetes objectをバックアップから再作成してmetadata UIDが変わってもProviderIDを再構築できる。allocationはbootstrap dataを待たず、Discovery bootもbootstrap dataを待たず、Talos provisioningだけがbootstrap dataを待つ。
 - 初回provisioning後のmutableなTalos OS/config updateはUpdate Extensionだけが実行し、通常のInfrastructure/Bootstrap reconcileは観測とStatus反映だけを行う。Control Plane Providerは`CanUpdateMachine`成功後にMachine、InfraMachine、BootstrapConfigをannotation付きで更新し、Machineへ`UpdateMachine` hook pendingを設定する。
 - `controlPlaneInitialized`はAPI serverがrequestを受け付ける状態であり、全Node ReadyやCNI導入を待たない。
-- cluster secret bundleをClusterごとに一度だけ生成し、Bootstrap SecretとkubeconfigをCAPI Secret contractに合わせる。
+- cluster secret bundleはCluster IDを含むgeneration単位でimmutableに生成し、active generationを切り替え可能にする。CA rotationはTalosの段階的なCA rotation operationへ委譲し、正常完了を観測してから新generationをactiveに確定する。Cluster存続中は過去generationをGCせず、削除時にDR保持方針を確認した後だけGCを許可する。Bootstrap SecretとkubeconfigはCAPI Secret contractに合わせる。
 
 ## 禁止事項
 
@@ -69,6 +69,19 @@ cmd/controller-manager       process wiringとHTTPS endpoint
 - Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用APIを追加しない。
 - DHCP、TFTP、PXE、BMC、VM APIの具体的な方式をTartのdomain modelやCRDへ固定しない。
 - local persistent dataを持つ可能性があるHostを、通常のtemplate差分だけでcleaning、reprovisioning、disk wipeしない。
+- CAPI webhookで`list TartHost → 重複がなければ許可`という非atomicな全体一意性検査を安全性の根拠にしない。重複identityを観測した場合は関係するHostを`Ready=False`、`Reason=IdentityConflict`としてallocationとmaintenance configuration applyを停止する。
+
+## Discoveryとprovisioningの境界
+
+- Enrollment/DiscoveryはBootstrapConfigとCAPI Machine provisioningから独立し、secret-freeなmaintenance Talos boot、hardware inventory取得、`TartHost.status`更新だけを行う。inventory未観測と観測済みはConditionで表し、Operation CRDを作らない。
+- ProvisioningはHost claim後にBootstrap Secretを待ち、configuration apply、install、power操作を開始する。Discovery bootをBootstrap Secret待ちにしてはならない。
+- machine configurationを持たないbare-metal Hostのmaintenance APIへ接続するときは、expected Host、boot attempt、endpoint、MAC/DHCP、observed identityを結び付け、曖昧ならfail closedにする。
+
+## Updateの共通安全規則
+
+- node-disruptiveなTalos operationの前にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainする。multi-node clusterではdrain成功を必須とし、失敗時はoperationを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、明示的なdowntime policyがある場合はavailabilityを理由に永久blockせず、persistent data preservationを優先して進める。
+- Talosが旧versionへrollbackした場合はdesired Specを自動で旧versionへ戻さず、`UpdateMachine`を`Failure`、`Reason=RolledBack`としてControl Planeの次Machineへの更新を停止する。
+- configuration digestはraw YAML bytesではなく、Talosが解釈したeffective machine configurationの正規化semantic representationへSHA-256を適用する。defaulting、field order、version-managed fieldの更新で不要なdriftを作らない。
 
 ## 変更時の確認
 

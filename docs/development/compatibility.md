@@ -10,12 +10,15 @@ Tartの対応範囲は「最新version」ではなく、各releaseで実際に�
 | --- | --- | --- | --- | --- | --- |
 | 未定義 | 未定義 | 未定義 | 未定義 | 未検証 | 実装完了前は利用可能なreleaseなし |
 
-ここでいうtestedは、CRD/RBAC/managerの静的確認だけではなく、該当するCAPI minorとTalos minorを使ったFresh machine、single node、HA control plane、worker、OS/config update、Kubernetes upgrade、deletion、controller restartの受け入れ確認を意味する。未実施の境界はtestedと記載しない。
+ここでいうtestedは、CRD/RBAC/managerの静的確認だけではなく、該当するCAPI minorとTalos minorを使ったFresh machine、Discovery、single node、HA control plane、worker、OS/config update、Kubernetes upgrade、deletion、controller restartの受け入れ確認を意味する。未実施の境界はtestedと記載しない。
+
+各CAPI minorで、`CanUpdateMachineSet`または`CanUpdateMachine`がunsafe、unknown、partial diffを`Failure`として返したとき、CAPIの実際の挙動がMachineSet、Machine、TartHost claimを一つも作成しないことを必須の安全E2Eとする。これを確認できないCAPI minorは、Tartのrelease compatibilityへ含めない。静的な`Failure`判定やRuntime Extension endpointの疎通だけではこの契約を満たしたことにしない。
 
 ## 判定規則
 
 - CAPI coreのcontract version、Runtime SDKのhook schema、`RuntimeSDK`/`InPlaceUpdates` feature gateの組み合わせがmatrix外なら、Update Extensionはmutable updateを`UnsupportedVersionCombination`として拒否する。
-- Talos minorがmatrix外なら、Talos configuration、installer、upgrade、`upgrade-k8s`のsemanticsを推測せず、初回provisioningまたはupdateを`Blocked`にする。
+- CAPIの`Failure`がTartの意図に反してimmutable rolloutへ進む組み合わせでは、`CanUpdate*`の正しさだけに依存せず、そのCAPI minorを未対応として拒否する。
+- Talos minorがmatrix外なら、Talos configuration、installer、upgrade、`upgrade-k8s`のsemanticsを推測せず、初回provisioningまたはupdateを`Ready=False`、`Reason=UnsupportedVersionCombination`として拒否する。
 - Kubernetes version range外、またはTalosが要求するupgrade pathを確認できない場合は、OS updateとKubernetes updateを開始しない。
 - `latest`、可変tag、未固定のschematicだけを対応versionの根拠にしない。可能な範囲でdigestと`TartMachine.spec.talosImage`の`{version, schematicID}`を使用する。
 - matrixの変更はCAPI、Talos、Kubernetesの依存versionを管理するRenovate設定と同じ更新単位でレビューし、実測なしにtested欄を更新しない。

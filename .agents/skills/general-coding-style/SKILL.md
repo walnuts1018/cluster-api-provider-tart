@@ -32,4 +32,4 @@ when_to_use: TartのGoコードを作成・変更・レビューする時
 
 ## Talos固有の禁止事項
 
-Talosのinstaller、machine configuration、disk/volume、upgrade、rollback、etcd bootstrapをTart独自機能として再実装しない。Tartの判断はTalos APIとTalos-native configurationへ委譲し、意味を解釈できない差分は安全側へ倒してblockedとする。
+Talosのinstaller、machine configuration、disk/volume、upgrade、rollback、etcd bootstrapをTart独自機能として再実装しない。Tartの判断はTalos APIとTalos-native configurationへ委譲し、意味を解釈できない差分は安全側へ倒して`Ready=False`とreasonを設定する。

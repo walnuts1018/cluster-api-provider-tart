@@ -18,4 +18,4 @@ TartはTalos専用です。TalosのOS installation、disk/volume、machine confi
 
 ## 開発
 
-開発環境と検証コマンドは[開発ガイド](docs/development/development.md)を参照してください。新設計を組み立てる間は、新しいGo testを追加せず、Go testも実行しません。生成、build、lint、manifestなどのテスト以外の静的確認を行います。
+開発環境と検証コマンドは[開発ガイド](docs/development/development.md)を参照してください。Go testは全面禁止せず、Host claim race、unsafe diff、quorum判定、外部contractなど失敗時の影響が大きい境界へ限定して実装します。Talos、storage、reboot、rollback、drain、CAPI minorごとのreplacement不発は実機E2Eなど適切な境界で検証し、静的確認とruntime受け入れを分けて扱います。

@@ -4,13 +4,11 @@
 
 ## 現在の方針
 
-新設計を一気に組み立てる期間は、開発速度を優先して新しいGo testを追加せず、Go testも実行しない。既存コードを削除・置換する際に、旧テストを実行して互換性を確認することもしない。test taskやCIのdefault taskへGo testを暗黙に含めない。
-
-この方針はテスト不要という意味ではない。実装が固まり、方針を解除するときに、外部contract、Host claimの競合、in-place updateのfail closed、controller再起動後の再計算など、保守価値が高い境界へ対象を限定して追加する。
+Go testを全面禁止しない。実装と同時に、失敗時の影響が大きく副作用から分離できる純粋な判断、外部contract、controller再起動後の再計算へ最小限のtable test、fuzz test、契約テストを追加する。設定ファイルの存在確認やmock呼出し順だけのテストは対象にしない。test taskやCIのdefault taskへ無関係なGo testを暗黙に含めず、重要なテストtaskを明示する。
 
 ## 静的検証
 
-Go testを使わず、次の確認をCIとローカルで共通化する。
+静的検証とGo testを分け、次の確認をCIとローカルで共通化する。
 
 | 対象 | 確認 |
 |---|---|
@@ -18,22 +16,23 @@ Go testを使わず、次の確認をCIとローカルで共通化する。
 | 生成 | `mise run generate`でDeepCopyなどを再生成 |
 | CRD/RBAC | `mise run manifests`でcontroller-genとkustomizeの結果を確認 |
 | compile | `mise run build`または`go build ./...` |
+| 重要な判断 | Host claim race、Retained gate、unsafe diff、reuse approval、quorum、configuration invariant、semantic digestの必要最小限のGo test |
 | 静的解析 | `mise run lint`、`go vet ./...`、必要なlint task |
 | 差分 | `git --no-pager diff --check` |
 | 旧設計の残存 | `rg`で`v1beta1`、`TartHostOperation`、agent、workflow、旧artifact、`internal`、`pkg`を確認 |
 | secret境界 | log、Event、Status、metrics label、manifestへcredentialが含まれないことを目視確認 |
 
-API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、scope、reference、aggregated RBACが一致していることを確認する。CAPI contractへ参加するCRDの`cluster.x-k8s.io/v1beta2: v1alpha1` label、Control Planeの`spec.machineTemplate.spec.infrastructureRef`、`spec.machineTemplate.spec.deletion`、`status.versions`、scale subresource、Bootstrap Config templateの入力元も確認する。`TartHost`がcluster-scopedでstable identityを重複させず、claimがSSAではなくatomic CASであることも確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、cluster secret bundleの一度だけの生成とGC境界、workload kubeconfig Secretの維持も契約確認の対象とする。
+API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、scope、reference、aggregated RBACが一致していることを確認する。CAPI contractへ参加するCRDの`cluster.x-k8s.io/v1beta2: v1alpha1` label、`TartCluster.spec.id`、Control Planeの`spec.machineTemplate.spec.infrastructureRef`、`spec.machineTemplate.spec.deletion`、`status.versions`、scale subresource、Bootstrap Config templateの入力元、ClusterClassのSSA dry-run対応も確認する。`TartHost.spec.id`がmetadata UIDから独立し、stable identityの重複時にallocationとmaintenance applyをfail closedし、claimがSSAではなくatomic CASであることも確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、Secret-backed raw configuration、Cluster ID付きgeneration単位のcluster secretとTalos CA rotationの完了後切替、workload kubeconfig Secretの維持も契約確認の対象とする。
 
 生成物の検証でcontroller-genやkustomizeが必要な場合は、miseで管理したversionを使用する。toolの出力を手で修正して検証を通してはならない。
 
 ## 実装後の受け入れ確認
 
-Go testを追加・実行しない期間でも、次の確認項目を実機またはkindとTalosの検証環境で別途実施する。未実施の項目は完了扱いにせず、実行環境、入力、観測結果、未検証の境界を記録する。
+Go testで検証できる純粋判断と、実機、kind、envtest、契約テストで検証する外部境界を分ける。未実施の項目は完了扱いにせず、実行環境、入力、観測結果、未検証の境界を記録する。
 
 ### Fresh machine
 
-- 最小限のHost登録からmaintenance Talos boot、hardware discovery、machine configuration delivery、Talos installation、authenticated API recoveryまで進む。
+- 最小限のHost登録からBootstrap Secretなしでsecret-free maintenance Talos bootとhardware discoveryを行い、その後Bootstrap Secretを用いたmachine configuration delivery、Talos installation、authenticated API recoveryまで進む。
 - `TartHost.status`へMAC以外のsystem UUID、architecture、address、disk inventoryを観測できる。
 - `TartMachine`がCAPI Infrastructure Machine contractのProviderID、addresses、provisioned、Conditionsを満たす。
 
@@ -46,42 +45,35 @@ Go testを追加・実行しない期間でも、次の確認項目を実機ま�
 
 ### Storageと安全性
 
-- 複数diskのHostで、Talos-native disk selector、volume、encryptionを含むconfigurationをそのまま適用できる。
-- disk UUIDやLinux device pathを事前登録しなくても、maintenance Talos inventoryからselectionを組み立てられる。
+- 複数diskのHostで、Talos-native disk selector、volume、encryptionを含むconfigurationをそのまま適用できる。永続データのsentinel payloadはEPHEMERALではなくUser VolumeまたはRaw Volumeへ配置する。
+- disk UUIDやLinux device pathを事前登録しなくても、maintenance Talos inventoryからdisk selectorを構築できる。ユーザーのraw configuration patchが全てimmutableな`configSecretRef`へ格納され、CRD Specへinline保存されないことを確認する。Secretには非機密configurationを含められる。
 - Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用Tart APIなしでTalos configurationとKubernetes manifestを利用できる。
 - 通常のTalos/Kubernetes updateでCAPI Machine replacement、Host cleaning、disk wipeが起きない。
-- unsafe change、identity mismatch、quorumを守れない操作が副作用なしでblockedになる。
-- Machine削除時にshutdownと停止確認を行い、確認不能ならclaimを保持してblockedになり、確認後もHostが`Retained`として自動allocationされない。
-- MHCのdelete-and-recreate remediationがすべてのTart-managed Machineへ既定で適用されず、`cluster.x-k8s.io/skip-remediation`の運用方針が守られる。replacementは明示的なopt-inなしに開始されない。
-- Host UIDからallocation後に決定した`tart://host/<TartHost UID>`が、`TartMachine.spec.providerID`、CAPI InfraMachine、Talos kubelet、Node `spec.providerID`で一致する。Host allocationはbootstrap dataを待たず、Talos provisioningはbootstrap dataを待つため循環依存がない。Machine削除後のAdoptで同じHost-based ProviderIDを維持する。
+- unsafe change、identity mismatch、quorumを守れない操作が副作用なしで`Ready=False`と具体的なreasonになる。stable identityの同時重複作成を観測しても、両Hostへのallocationとmaintenance configuration applyが停止する。
+- Machine削除時にshutdownと停止確認を行い、確認不能ならclaimを保持して`Ready=False`になり、確認後もHostが`Retained`として自動allocationされない。
+- MachineSetまたはControl PlaneのMachine templateに`cluster.x-k8s.io/skip-remediation`がMachine生成前から設定され、最初に作成されたMachineにもannotationが存在する。Machine作成後の後追いannotationがないと安全にならない設計になっておらず、MHCのdelete-and-recreate remediationが既定で適用されない。replacementは明示的なopt-inなしに開始されない。
+- `TartHost.spec.id`からallocation後に決定した`tart://host/<TartHost.spec.id>`が、`TartMachine.spec.providerID`、CAPI InfraMachine、Talos kubelet、Node `spec.providerID`で一致する。Host allocationとDiscovery bootはbootstrap dataを待たず、Talos provisioningはbootstrap dataを待つため循環依存がない。management cluster復元でmetadata UIDが変わってもProviderIDを維持する。`TartCluster.spec.id`もmetadata UIDから独立して維持され、同名Clusterの再作成では新IDとなり、古いbundleやRetained HostをAdoptしない。Adoptではsame cluster ID、secret generation、Host identity、ProviderID、role/version、disk identity、control-plane etcd membershipを検証する。
 - Machine deletionではCAPI Machine controllerのdrain/volume detach、Control Planeのscale-down用pre-terminate delete hook、TartMachine finalizerのshutdown/停止確認/retainedFrom/claim処理が責務どおりに分離される。WoL-onlyではTalos Shutdown受理後のendpoint消失を確認し、物理電源OFFの証明と混同しない。
 - CNI未導入でもAPI serverがrequestを受け付けた時点で`controlPlaneInitialized`となり、Node Readyと混同しない。
-- `CanUpdateMachineSet`、`CanUpdateMachine`、`UpdateMachine`が安全なin-place updateだけを扱い、`maxSurge: 0`、`maxUnavailable: 1`のWorker rolloutで追加Hostを要求せず、一台ずつin-place updateできる。Control Planeも一台ずつ更新する。
-- Topology managed clusterとdirectly managed clusterの両方で、Talos `upgrade-k8s`が一度だけ実行される。Topologyではupgrade planとversion skewが整合していれば旧worker desired versionでも開始でき、directly managedではworker desired versionとの矛盾時にblockedになる。Kubernetes upgradeのavailability sequencingをMachineDeploymentの`maxUnavailable`へ誤って依存しない。
-- `CanUpdateMachineSet`/`CanUpdateMachine`がsafe full coverageだけをSuccess + complete patchで返し、unsafe/unknown/partial diffをpatchなしのFailureで停止する。初回provisioning後のmutable Talos OS/config operationがUpdate Extension以外から実行されない。
+- `CanUpdateMachineSet`、`CanUpdateMachine`、`UpdateMachine`が安全なin-place updateだけを扱い、`maxSurge: 0`、`maxUnavailable: 1`のWorker rolloutで追加Hostを要求せず、一台ずつin-place updateできる。Control Planeも一台ずつ更新する。multi-nodeではreboot前のdrain成功を必須とし、single-nodeではcordonとgraceful evictionを可能な範囲で試した後、明示的なdowntime policyがあればavailabilityを理由に永久blockせずpersistent data preservationを優先する。
+- Topology managed clusterとdirectly managed clusterの両方で、Talos `upgrade-k8s`が一度だけ実行される。Topologyではupgrade planとversion skewが整合していれば旧worker desired versionでも開始でき、directly managedではworker desired versionとの矛盾時に`Ready=False`、`Reason=VersionSkew`になる。Kubernetes upgradeのavailability sequencingをMachineDeploymentの`maxUnavailable`へ誤って依存しない。
+- `CanUpdateMachineSet`/`CanUpdateMachine`がsafe full coverageだけをSuccess + complete patchで返し、unsafe/unknown/partial diffをpatchなしのFailureでvetoする。CAPI minorごとにMachineSet、Machine、TartHost claimが一つも作られないことを確認する。初回provisioning後のmutable Talos OS/config operationがUpdate Extension以外から実行されない。
 - Control Plane Providerが`CanUpdateMachine`からMachine、InfraMachine、BootstrapConfigのannotation付きspec update、Machineの`UpdateMachine` hook pendingまでをrace-free、re-entrantに遷移させる。`status.versions`、replica counts、selector、scale subresource、metadata/minReadySeconds/UpToDate propagationを確認する。
-- cluster secret bundleがControl Plane Providerにより一度だけ作成され、Managed Machineのretention前にGCされない。bundle消失後のRetained HostがAdoptではなくReprovision専用になる。
+- Cluster IDを含むcluster secret bundleがgeneration単位でimmutableに作成される。CA rotationがTalosのaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除へ委譲され、正常完了を観測してから新generationがactiveに確定する。rotation中に新MachineのprovisioningとAdoptが開始されず、Cluster存続中に過去generationがGCされないことを確認する。bundle消失または世代不明後のRetained HostがAdoptではなくReprovision専用になる。
 
 ### Recovery
 
 - provisioning、reboot、upgrade、bootstrap API呼び出し直後にcontroller-managerを停止・再起動する。
 - Resourceを手動修復せず、外部のobserved stateからreconcileが継続する。
 - API callの直後に停止しても、再起動後に完了済みoperationを危険に再初期化しない。
-- `clusterctl move`でclaimed Hostを暗黙に移動・解放せず、未対応としてblockedにする。`cluster.x-k8s.io/paused`中はshutdown、release、cleanを開始せず、解除後にobserved stateから再開する。
+- `clusterctl move`でclaimed Hostを暗黙に移動・解放せず、未対応として`Ready=False`と安全なreasonにする。management clusterバックアップから同じ`TartHost.spec.id`とsecret bundle generationを復元できる。`cluster.x-k8s.io/paused`中はshutdown、release、cleanを開始せず、解除後にobserved stateから再開する。
 
 ## 証跡と機密情報
 
 受け入れ確認の証跡にはResourceのUID、Conditions、Events、safeなstructured log、Talos version、health、configuration digestだけを含める。Secretの値、Talos client key、Kubernetes PKI private key、Bootstrap Data、kubeconfig、BMC password、PVC payloadを保存しない。
 
-更新による同一性はCAPI Machine UID、TartMachine UID、TartHost UID、stable disk identityで確認する。Pod名、Node名、resourceVersion、DHCP addressだけで同一性を判定しない。
+更新による同一性は`TartHost.spec.id`、CAPI Machine UID、TartMachine UID、stable disk identityで確認する。Pod名、Node名、resourceVersion、DHCP addressだけで同一性を判定しない。永続volume上のsentinel payloadをTalos minor update、schematic change、reboot-required configuration update、Kubernetes upgradeの前後で検証し、disk identityだけの一致をデータ保持の証拠にしない。
 
-## 検証方針の解除条件
+## テストの境界
 
-Go testを再開する場合は、実装と同じ変更で次を更新する。
-
-1. この文書の現在の方針から対象と実行コマンドを分離する。
-2. `gotest` skillを保留状態から有効な規約へ戻す。
-3. テスト追加の対象を重要な純粋判断または外部contractへ限定する。
-4. CIで再現できるtaskを定義し、ローカルだけの成功を完了根拠にしない。
-
-再開後に最初に追加するテストは、Host claim race、`Retained` Hostの自動allocation防止、unsafe diffのreplacement防止、Bootstrap Secret contract、cluster bootstrapのidempotencyに限定する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
+Go testはHost claim race、`Retained` Hostの自動allocation防止、unsafe diffのreplacement防止、reuse approval世代不一致、quorum判定、configuration invariant conflict、semantic digest、Bootstrap Secret contract、cluster bootstrapのidempotencyなどへ限定する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。Talos、実storage、reboot、rollback、drain、CAPI minorごとのreplacement不発は実機、kind、envtest、契約テストの適切な境界で検証し、どの境界を未検証か記録する。

@@ -17,4 +17,4 @@ Talos installerやboot assetはTalosの配布方式とidentityを使用し、Tar
 
 ## Release前のゲート
 
-Release workflowを再追加する前に、[検証方針](verification.md)の受け入れ確認を満たし、CIで生成、build、vet、lint、manifest検証を再現できることを確認する。Go testを再開する場合は、release gateへ組み込む前に[設計判断](decisions.md)と[gotest skill](../../.agents/skills/gotest/SKILL.md)を更新する。
+Release workflowを再追加する前に、[検証方針](verification.md)の受け入れ確認を満たし、CIで生成、build、vet、lint、manifest検証、重要なGo testを再現できることを確認する。CAPI minorごとのunsafe diffに対するreplacement不発、Discovery、Cluster IDの復元・同名再作成分離、Talos CA rotationの完了後generation切替、rollback、drain、storage payload保持をrelease gateへ含める。

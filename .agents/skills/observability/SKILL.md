@@ -12,11 +12,11 @@ log、Event、Condition message、Status messageは英語で書き、ユーザ�
 
 ## Conditions
 
-Conditionは外部から観測できる能力や状態を表す。`Ready`、`TalosReachable`、`Provisioned`、`UpToDate`、`Healthy`、`Blocked`などを使い、controllerのstep番号、retry回数、goroutineの状態を表現しない。`observedGeneration`はdesired Specを観測したgenerationへ更新する。
+Conditionは外部から観測できる能力や状態を表す。Resourceごとに[API contract](../../../docs/development/api-contract.md)で固定した`Ready`、`Available`、`InventoryReady`、`TalosReachable`、`Claimed`、`Retained`、`Reusable`、`Provisioned`、`UpToDate`と、Control Plane contractで定めたConditionだけを使い、汎用の`Blocked` Condition typeは追加しない。安全停止は`Ready=False`または`Available=False`とreason（例:`UnsafeUpdate`、`IdentityConflict`、`RolledBack`、`SecretBundleUnavailable`）で表し、controllerのstep番号、retry回数、goroutineの状態を表現しない。`observedGeneration`はdesired Specを観測したgenerationへ更新する。
 
 ## error分類
 
-power待ち、DHCP/address待ち、maintenance API待ち、reboot、Kubernetes APIの一時的unavailableはtransient errorとしてbounded requeueする。identity mismatch、destructive change、quorum violation、unsupported update pathはpermanentまたは安全停止としてblocked Conditionへ反映する。
+power待ち、DHCP/address待ち、maintenance API待ち、reboot、Kubernetes APIの一時的unavailableはtransient errorとしてbounded requeueする。identity mismatch、destructive change、quorum violation、unsupported update path、desired versionからのrollbackはpermanentまたは安全停止として`Ready=False`と具体的なreasonへ反映する。rollback後にdesired Specをactual versionへ自動修正しない。
 
 ## retry
 

@@ -44,9 +44,9 @@ git --no-pager diff --check
 
 ## Go testの扱い
 
-新設計を組み立てる現在の作業では、新しいGo testを追加せず、`go test`も実行しない。`mise`のdefault task、build task、lint task、CI workflowへGo testを暗黙に含めない。
+Go testを全面禁止しない。実装と同時に、Host claim race、Retained gate、unsafe diffのfail-closed判定、reuse approvalの世代不一致、quorum判定、configuration invariant conflict、semantic digest、Bootstrap Secret contractなど、失敗時の影響が大きい境界へ最小限のtable test、fuzz test、契約テストを追加する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
 
-この方針を解除するときは、先に[検証方針](verification.md)と[gotest skill](../../.agents/skills/gotest/SKILL.md)を更新し、対象を外部契約や破壊的変更を防ぐ重要な判断へ限定する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
+Talos、実storage、reboot、rollback、drain、CAPI minorごとのMachineSet/Machine/Host claim不発はGo unit testだけでは証明できないため、envtest、契約テスト、実機E2Eを境界に応じて使い分ける。test taskを追加する場合はCIで再現可能にし、静的検証の成功と外部runtimeの受け入れを混同しない。
 
 ## 実装のルール
 
@@ -54,7 +54,7 @@ git --no-pager diff --check
 - controllerにTalos version比較、Host allocation、quorum計算、update safetyなどのdomain判断を詰め込まない。
 - Talos API、power、boot、Kubernetes APIの副作用はadapterまたはcontrollerの明確な境界へ閉じ込める。
 - Statusをworkflowのstep番号にせず、observed stateとConditionをserver-side applyで更新する。
-- Talosが安全に扱えない差分はMachine replacementやdisk wipeへfallbackせず、blocked Conditionで停止する。
+- Talosが安全に扱えない差分はMachine replacementやdisk wipeへfallbackせず、`Ready=False`または`Available=False`と安全なreasonで停止する。
 - secret、credential、private key、Bootstrap Dataをlog、Event、Status、metrics label、build artifactへ出力しない。
 
 ## 変更とコミット

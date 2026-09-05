@@ -20,7 +20,7 @@ inventoryはobserved stateであり、ユーザーが編集するdesired storage
 
 明示的なHost referenceを優先し、未指定ならarchitecture、label、capability、failure domain、availabilityを満たすHostからdeterministicに選択する。`Machine.spec.failureDomain`が指定されていれば一致するHostだけを候補にする。
 
-排他claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで管理する。`GET`でresourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認してresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、既存claimが別Machineを指すHostは上書きしない。`TartHost.status.claimedBy`をlockの正本にせず、Statusには`Claimed` Conditionと観測結果を置く。
+排他claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで管理する。`GET`でresourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認してresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、既存claimが別Machineを指すHostは上書きしない。`TartHost.status`をlockの正本にせず、Statusには`Claimed` Conditionと観測結果を置く。
 
 Hostのallocation eligibilityは`Available`、`Claimed`、`Retained`、`Reusable`を区別する。freshなHostは`consumerRef`と`retainedFrom`がなく`Available`である。`Retained`はworkflow phaseではなく、前回のMachineのdataやTalos identityが残るため自動allocation不可である。Machine削除時はcontroller-managedな`TartHost.spec.retainedFrom`へ直前のconsumer UID、namespace、name、`TartCluster.spec.id`由来のcluster IDを記録する。`TartHost.spec.reusePolicy: Reusable`、現在の`retainedFrom`に一致する`spec.reuseApproval.retainedFromUID`、`spec.reuseMode: Adopt|Reprovision`がそろい、安全条件を再確認できた場合だけ`Reusable`にする。承認はSpecから消費せず、次の`retainedFrom.uid`が変わることで無効化する。`Adopt`にはsame cluster ID、same secret generation、same Host identity、same ProviderID、compatible role/version、expected disk identityを要求し、control-plane Adoptではetcd membershipも検証する。Claim中やfreshな時点の指定を将来の削除承認として扱わない。Cluster secret bundleが失われた後のRetained Hostは`Adopt`不可、`Reprovision`専用である。
 
@@ -46,7 +46,7 @@ management clusterのバックアップには、`TartHost.spec.id`、stable hard
 
 停止確認後にclaimを解除してもHostは`Retained`としてdataを保持する。`Adopt`は既存installation、same cluster ID、same secret generation、same Host identity、same ProviderID、compatible role/version、expected disk identity、desired configurationが一致する場合だけdataを保持してclaimする。control-plane Adoptではetcd membershipとNode identityも検証する。`Reprovision`はdata破棄を明示承認する別lifecycleであり、Talos reset/installerへ委譲する。cleaning、reprovisioning、disk wipe、force releaseは通常updateや通常deleteの副作用にせず、別の明示的な操作、権限、監査、確認を必要とする。
 
-`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを`tart.cluster.x-k8s.io/forget-approved: "true"` annotationなしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
+`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを現在のbindingまたはretained recordに一致する`spec.forgetApproval`なしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
 
 ## MHC
 

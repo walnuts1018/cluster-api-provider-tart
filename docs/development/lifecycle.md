@@ -36,7 +36,7 @@ Tartはimageをblock deviceへ直接書き込まず、partition tableを編集�
 
 明示的な`hostRef`を最優先し、未指定ならarchitecture、label、hardware capability、failure domain、availabilityを満たすHostをdeterministicに選択する。`Machine.spec.failureDomain`が設定されている場合、allocatorは一致するHostだけを候補にする。failure domainを正しく観測・割り当てできない場合は、Machineを別domainへ割り当ててはならない。
 
-claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで確立する。`GET`で最新resourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認した上でresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、`TartHost.status.claimedBy`も排他lockの正本にしない。別MachineがclaimしたHostを上書きせず、競合時は別Hostの選択または再試行を行う。`TartMachine.status.hostRef`はこのbindingの観測である。
+claimは`TartHost.spec.consumerRef`をcontroller-managed bindingとしてatomic CASで確立する。`GET`で最新resourceVersionを取得し、consumerRefがnilまたは自分のUIDであることを確認した上でresourceVersion付きUpdateを行う。JSON Patchの`test`も利用できる。SSAのfield ownershipを分散lockとして使わず、`TartHost.status`も排他lockの正本にしない。別MachineがclaimしたHostを上書きせず、競合時は別Hostの選択または再試行を行う。`TartMachine.status.hostRef`はこのbindingの観測である。
 
 Host allocation eligibilityはworkflow phaseではなく、`Available`、`Claimed`、`Retained`、`Reusable`の観測として扱う。freshなHostは`spec.consumerRef`と`spec.retainedFrom`がなく、過去のMachine由来のretention記録がないため`Available`である。Machine削除後はcontroller-managedな`spec.retainedFrom`へ直前のconsumer UID、namespace、nameを残し、claimを解除しても`Retained`にする。`Retained`は`Available`ではない。`spec.reusePolicy: Reusable`だけでは不十分で、現在の`retainedFrom`に一致する`spec.reuseApproval.retainedFromUID`と`spec.reuseMode`が明示され、安全条件を再確認できた場合だけ`Reusable`として候補に含める。HostがClaim中またはfreshな間に設定された再利用指定は、将来のMachine削除を承認するものとして扱わない。
 

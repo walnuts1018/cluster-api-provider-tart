@@ -6,13 +6,13 @@
 
 | Resource | 寿命 | Specの正本 | Statusに保存する観測 |
 | --- | --- | --- | --- |
-| `TartHost` | management cluster全体の物理/仮想Hostの寿命 | immutableな`id`、Host identity、power/boot capability、selection条件、`reusePolicy`、`reuseMode`、`reuseApproval`、controller-managed consumerRef、retention record | inventory、addresses、reachability、allocation eligibility、Conditions |
-| `TartCluster` | CAPI `Cluster`の寿命 | immutableなcluster ID、cluster-level infrastructure、`updatePolicy.allowDowntime` | provisioned、failure domains、active secret generation、Conditions |
-| `TartMachine` | CAPI `Machine`の寿命 | Host selection、Talos image identity、ProviderID、machine infrastructure identity | Host binding、Talos version、addresses、ProviderID反映、provisioned、Conditions |
+| `TartHost` | management cluster全体の物理/仮想Hostの寿命 | immutableな`id`、Host identity、power/boot capability、selection条件、`reusePolicy`、`reuseMode`、`reuseApproval`、`forgetApproval`、controller-managed consumerRef、retention record | inventory、addresses、reachability、allocation eligibility、Conditions |
+| `TartCluster` | CAPI `Cluster`の寿命 | immutableなcluster ID、cluster-level infrastructure、`updatePolicy.allowDowntime` | provisioned、failure domains、`activeSecretGeneration`、Conditions |
+| `TartMachine` | CAPI `Machine`の寿命 | Host selection、Talos image identity、ProviderID、machine infrastructure identity | Host binding、Talos version、addresses、provisioned、Conditions |
 | `TartMachineTemplate` | templateの寿命 | `TartMachine`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
 | `TartBootstrapConfig` | CAPI Machineのbootstrap dataの寿命 | user-owned Talos configuration/patches（全てimmutableな`configSecretRef`） | Secret生成、configuration digest、Conditions |
 | `TartBootstrapConfigTemplate` | templateの寿命 | `TartBootstrapConfig`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
-| `TartControlPlane` | CAPI Clusterのcontrol planeの寿命 | version、replicas、machine template、bootstrap template reference | replica counts、`status.versions`、control plane initialized、kubeconfig観測、Conditions |
+| `TartControlPlane` | CAPI Clusterのcontrol planeの寿命 | version、replicas、machine template、bootstrap template reference | replica counts、`status.versions`、control plane initialized、selector、Conditions |
 | `TartControlPlaneTemplate` | templateの寿命 | `TartControlPlane`のtemplate Spec | Statusなし、または標準的なConditionsのみ |
 
 API groupはInfrastructure、Bootstrap、Control Planeで分割する。CAPI contractへ参加するResourceはnamespace-scopedで、`TartHost`だけはmanagement cluster全体の物理inventoryとしてcluster-scopedにする。`TartMachine`はCAPI `Machine`と1対1で対応し、通常はCAPI `Machine`がownerとなる。`TartHost`はMachineより長寿命なのでMachineのOwnerReferenceを設定しない。
@@ -27,13 +27,13 @@ API groupはInfrastructure、Bootstrap、Control Planeで分割する。CAPI con
 | Talos desired configuration | `TartBootstrapConfig`とCAPI/Tart context | secret値をredactしたconfiguration digest、生成済みSecret名 |
 | Talos actual configuration、version、disk | Talos API | observed version、reachability、inventory |
 | Kubernetes actual health | workload Kubernetes APIとTalos API | ready/available counts、Conditions |
-| cluster-level Talos/Kubernetes secret material | Cluster IDを含むgeneration単位のimmutable Secretとactive generationの永続参照 | Secret名、Cluster ID、generation、active状態と存在状態 |
+| cluster-level Talos/Kubernetes secret material | Cluster IDを含むgeneration単位のimmutable Secret | Secret名、Cluster ID、generation、active状態と存在状態。active generationは`TartCluster.status.activeSecretGeneration`へ反映 |
 
 同じdesired stateを複数Resourceへコピーして正本にしない。Statusのdigestやversionはcacheであり、次回reconcileでは外部APIとdesired stateを再確認する。
 
 ## Host claimとallocation eligibility
 
-Host選択は、明示的な`hostRef`があればそれを優先し、なければarchitecture、labels、hardware capability、failure domain、availabilityを満たすHostからdeterministicに選択する。選択後は`TartHost.spec.consumerRef`へ対象`TartMachine`のnamespace、name、UIDをcontroller-managed bindingとしてatomic CASで書き込む。`TartHost.status.claimedBy`をallocation lockの正本にしない。stable identityの重複はadmission webhookの全体list検査で絶対的に防止せず、controllerが重複を観測したら関係する全Hostを`Ready=False`、`Reason=IdentityConflict`としてallocationとmaintenance configuration applyから除外する。
+Host選択は、明示的な`hostRef`があればそれを優先し、なければarchitecture、labels、hardware capability、failure domain、availabilityを満たすHostからdeterministicに選択する。選択後は`TartHost.spec.consumerRef`へ対象`TartMachine`のnamespace、name、UIDをcontroller-managed bindingとしてatomic CASで書き込む。`TartHost.status`をallocation lockの正本にしない。stable identityの重複はadmission webhookの全体list検査で絶対的に防止せず、controllerが重複を観測したら関係する全Hostを`Ready=False`、`Reason=IdentityConflict`としてallocationとmaintenance configuration applyから除外する。
 
 claimは`GET → consumerRefがnilまたは自分のUIDであることを確認 → 取得したresourceVersion付きUpdate`、またはJSON Patchの`test`でcompare-and-swapする。SSAのfield ownershipをlockとして使わず、同じHostを複数Machineが利用しないことをresourceVersion競合で保証する。既存claimが別Machineを指す場合に強制上書きせず、競合として扱う。`TartMachine.status.hostRef`はHost bindingの観測である。
 
@@ -93,7 +93,7 @@ maintenance modeからauthenticated APIへの切り替えは、固定のstep番�
 
 `TartBootstrapConfig`はCAPI Bootstrap contractに従うSecretを一つ生成する。Secret名は対応するBootstrapConfig名から決定論的に導出して`status.dataSecretName`へ記録し、typeは`cluster.x-k8s.io/secret`、dataは単一の`value` key、cluster labelとBootstrapConfigのcontroller OwnerReferenceを設定する。`value`には対象Machineへ適用するcomplete Talos machine configurationだけを格納し、cluster bundleを独自keyへ分解しない。生成後のBootstrap Secretは書き換えず、mutableな変更はUpdate Extensionへ委譲する。
 
-TartControlPlane Providerが、control-plane MachineやBootstrap Secretより先に、Talos/Kubernetesのcluster-level PKIとsecret materialをgeneration単位で生成する。Bootstrap ProviderはCluster namespaceの`<cluster-name>-talos-secrets-<cluster-id>-g<generation>` Secretをread-onlyで参照し、個別のbundle生成、更新、再生成を行わない。各Secretはimmutableで、Cluster ID labelとactive generationの永続参照を持つ。CA rotationではgeneration Nを基にrotation対象のCAだけを更新した完全なgeneration N+1を`Pending`として先に永続化する。その後、Talos公式のaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除のsemanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`を完了後のmaterial回収として扱わず、Pending bundleとobserved stateから再開する。rotation対象外のetcd CA、service account keyなどは変更しない。正常完了を観測してから新generationへ切り替える。rotation中は新しいMachineのprovisioningとAdoptを開始しない。Cluster存続中は過去generationをGCせず、Cluster deletion時に全Managed Machineのshutdownとretention、バックアップ保持方針、Retained Hostの再利用制約を確認した後だけGCを許可する。`TartCluster`のdeletion finalizerまたは同等の削除ゲートは、全Managed Machineのshutdownとretention完了までbundleのGCを阻止する。初期化後に必要なbundleが欠落または世代不明でも再生成せず、`Ready=False`、`Reason=SecretBundleUnavailable`として報告する。bundle消失後のRetained Hostは`Reprovision`専用である。
+TartControlPlane Providerが、control-plane MachineやBootstrap Secretより先に、Talos/Kubernetesのcluster-level PKIとsecret materialをgeneration単位で生成する。Bootstrap ProviderはCluster namespaceの`<cluster-name>-talos-secrets-<cluster-id>-g<generation>` Secretをread-onlyで参照し、個別のbundle生成、更新、再生成を行わない。各Secretはimmutableで、Cluster ID labelとgeneration labelを持つ。active generationは`TartCluster.status.activeSecretGeneration`へ反映する。CA rotationではgeneration Nを基にrotation対象のCAだけを更新した完全なgeneration N+1を`Pending`として先に永続化する。その後、Talos公式のaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除のsemanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`を完了後のmaterial回収として扱わず、Pending bundleとobserved stateから再開する。rotation対象外のetcd CA、service account keyなどは変更しない。正常完了を観測してから新generationへ切り替える。rotation中は新しいMachineのprovisioningとAdoptを開始しない。Cluster存続中は過去generationをGCせず、Cluster deletion時に全Managed Machineのshutdownとretention、バックアップ保持方針、Retained Hostの再利用制約を確認した後だけGCを許可する。`TartCluster`のdeletion finalizerまたは同等の削除ゲートは、全Managed Machineのshutdownとretention完了までbundleのGCを阻止する。初期化後に必要なbundleが欠落または世代不明でも再生成せず、`Ready=False`、`Reason=SecretBundleUnavailable`として報告する。bundle消失後のRetained Hostは`Reprovision`専用である。
 
 Control Plane ProviderはCluster namespaceの`<cluster-name>-kubeconfig` Secretを生成・維持する。type、label、single `value` key、OwnerReferenceをCAPI contractに合わせ、client certificateの期限を観測して更新する。
 
@@ -150,7 +150,7 @@ TartHost.spec.consumerRefを解除
 
 Talos APIに到達できない、shutdownの結果を確認できない、またはHostが停止していない場合はclaimとfinalizerを解放せず、`Ready=False`、`Reason=ShutdownUnconfirmed`とする。BMC/VM backendではout-of-bandの`PowerOff`を確認し、WoL-onlyまたはmanual backendではauthenticated Talos `Shutdown` RPCの受理後にendpointが一定時間消失したことを観測する。後者は物理電源OFFの証明ではなく、旧clusterへ接続可能なTalosが動作し続けていないことの確認である。停止確認前にclaimを解放してはならない。
 
-Machine deletionはdata retentionを意味し、disk wipe、cleaning、reprovisioningを意味しない。Cluster全体のdeletionではetcd quorum維持を削除完了の前提にしない。Cluster secret bundleはCluster存続中に過去generationをGCせず、deletion時はManaged Machineのshutdownとretention、DR保持方針を確認した後だけGCする。bundle消失後のRetained Hostは`Adopt`不可、`Reprovision`専用である。`TartHost`の直接削除はClaim中またはRetainedなら明示的なforget annotationが必要で、forget承認後もpower off、reset、disk wipeを行わない。明示的なforce releaseやdestructive cleanを将来追加する場合も、通常updateや通常deleteから暗黙に呼び出さず、別の権限、確認、監査、Conditionを要求する。
+Machine deletionはdata retentionを意味し、disk wipe、cleaning、reprovisioningを意味しない。Cluster全体のdeletionではetcd quorum維持を削除完了の前提にしない。Cluster secret bundleはCluster存続中に過去generationをGCせず、deletion時はManaged Machineのshutdownとretention、DR保持方針を確認した後だけGCする。bundle消失後のRetained Hostは`Adopt`不可、`Reprovision`専用である。`TartHost`の直接削除はClaim中またはRetainedなら、現在のbindingまたはretained recordに一致する`spec.forgetApproval`が必要で、forget承認後もpower off、reset、disk wipeを行わない。明示的なforce releaseやdestructive cleanを将来追加する場合も、通常updateや通常deleteから暗黙に呼び出さず、別の権限、確認、監査、Conditionを要求する。
 
 ## Conditionsとerror
 

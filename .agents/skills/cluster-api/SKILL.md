@@ -30,11 +30,11 @@ Tart独自APIは次のgroup/versionへ分けて`v1alpha1`へリセットする�
 - `TartHost`はCAPI Machineより長寿命なので、CAPI MachineのOwnerReferenceを設定しない。`TartHost.spec.id`はKubernetes metadata UIDから独立したimmutableな永続Host identityとし、`TartCluster.spec.id`もCAPI `Cluster.metadata.uid`から独立したimmutableなworkload cluster identityとする。`TartMachine`とBootstrap resourceは対応するCAPI resourceとのOwnerReferenceとCAPI labelを正しく設定する。
 - `TartHost.spec.id`と`TartCluster.spec.id`はTemplateやSSA dry-runのdefaultingで生成しない。通常CREATEでは空値をprovider controllerがnon-dry-run CREATE後に一度だけ生成して永続化し、指定済みのIDは拒否する。DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ既存値を保持する。ID確定前にbundle生成、Host claim、provisioningを開始しない。
 - `TartClusterTemplate.spec.template.spec`に`id`を持たせず、`updatePolicy.allowDowntime`だけをconcrete Clusterへ伝播可能なcluster-level policyとして扱う。`TartCluster.spec.updatePolicy.allowDowntime: true`はavailability、PDB、capacityによるdrain失敗を緩和する正本であり、未指定または`false`ならavailability理由でも開始しない。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。
-- CAPI contractへ参加するResourceはnamespace-scopedとし、`TartHost`だけはmanagement cluster全体で一意なcluster-scoped inventoryとする。Claim中またはRetainedの`TartHost`直接削除は明示的なforget annotationなしに許可せず、forgetしてもpower off、reset、disk wipeを行わない。
+- CAPI contractへ参加するResourceはnamespace-scopedとし、`TartHost`だけはmanagement cluster全体で一意なcluster-scoped inventoryとする。Claim中またはRetainedの`TartHost`直接削除は、現在のbindingまたはretained recordに一致する`spec.forgetApproval`なしに許可せず、forgetしてもpower off、reset、disk wipeを行わない。
 
 ## Host allocation
 
-`TartHost.spec.consumerRef`をcontroller-managed desired bindingとしてatomic CASで管理し、SSAのfield ownershipをlockとして使わない。`GET → consumerRefがnilまたは自分のUIDであることを確認 → resourceVersion付きUpdate`またはJSON Patchの`test`でclaimする。`TartHost.status.claimedBy`をlockの正本にしない。Machine削除後は`TartHost.spec.retainedFrom`へ直前のconsumer UIDと`TartCluster.spec.id`由来のcluster IDを永続的に記録する。`TartMachine.status.hostRef`はbindingの観測である。現在の`retainedFrom`に一致する`reuseApproval`と`Adopt`/`Reprovision` modeが明示されるまでHostをselectorの候補に戻さない。再利用承認は成功時にSpecから消費せず、次の`retainedFrom.uid`が変わることで自然に無効化する。
+`TartHost.spec.consumerRef`をcontroller-managed desired bindingとしてatomic CASで管理し、SSAのfield ownershipをlockとして使わない。`GET → consumerRefがnilまたは自分のUIDであることを確認 → resourceVersion付きUpdate`またはJSON Patchの`test`でclaimする。`TartHost.status`をlockの正本にしない。Machine削除後は`TartHost.spec.retainedFrom`へ直前のconsumer UIDと`TartCluster.spec.id`由来のcluster IDを永続的に記録する。`TartMachine.status.hostRef`はbindingの観測である。現在の`retainedFrom`に一致する`reuseApproval`と`Adopt`/`Reprovision` modeが明示されるまでHostをselectorの候補に戻さない。再利用承認は成功時にSpecから消費せず、次の`retainedFrom.uid`が変わることで自然に無効化する。
 
 `Machine.spec.failureDomain`が指定されている場合はHost allocatorが一致するfailure domainを必ず選ぶ。Host停止を確認できない削除ではclaimを解除せず、finalizerを保持して`Ready=False`、`Reason=ShutdownUnconfirmed`にする。
 
@@ -58,7 +58,7 @@ Transient errorはrequeueし、identity mismatch、unsafe storage change、quoru
 
 Infrastructure、Bootstrap、Control Planeの各Providerは、CAPIが読むreference、labels、OwnerReference、readiness Conditions、deletion semanticsを満たす。ClusterClassからtemplate resourceを通常のCAPI resourceとして参照できるようにし、Tart専用installation pathを要求しない。
 
-Control Planeのreplica、Kubernetes version、etcd membership、cluster secret bundle、workload kubeconfigはControl Plane Providerが所有する。cluster secret bundleはCluster IDを含むgeneration単位でimmutableに生成し、active generationを切り替え可能な永続参照から選択する。CA rotationではrotation対象のCAだけを更新した次generationのPending Secretを先に永続化し、Talos公式の段階的semanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`をブラックボックスとして扱わず、rotation完了観測後にだけactive generationを確定する。Cluster存続中は過去generationをGCしない。Bootstrap Providerはread-onlyで参照し、Infrastructure Providerがcontrol planeのquorumやadd-onを管理しない。CNI、CSI、kube-vip、observabilityなどはTalos configurationまたはKubernetes addon layerへ委譲する。
+Control Planeのreplica、Kubernetes version、etcd membership、cluster secret bundle、workload kubeconfigはControl Plane Providerが所有する。cluster secret bundleはCluster IDを含むgeneration単位でimmutableに生成し、active generationの観測を`TartCluster.status.activeSecretGeneration`へ反映する。CA rotationではrotation対象のCAだけを更新した次generationのPending Secretを先に永続化し、Talos公式の段階的semanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`をブラックボックスとして扱わず、rotation完了観測後にだけactive generationを確定する。Cluster存続中は過去generationをGCしない。Bootstrap Providerはread-onlyで参照し、Infrastructure Providerがcontrol planeのquorumやadd-onを管理しない。CNI、CSI、kube-vip、observabilityなどはTalos configurationまたはKubernetes addon layerへ委譲する。
 
 ## Runtime Extensionとrollout
 

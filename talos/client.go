@@ -76,6 +76,17 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	}, nil
 }
 
+// ShutdownはTalosの通常のshutdownを要求する。forceオプションは使わず、停止確認は呼び出し側が別途観測する。
+func (c *Client) Shutdown(ctx context.Context) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if err := c.raw.Shutdown(ctx); err != nil {
+		return fmt.Errorf("shutdown talos node: %w", err)
+	}
+	return nil
+}
+
 // dial establishes a gRPC connection to a single Talos endpoint using the given TLS
 // configuration. Maintenance connections are TLS-encrypted but not authenticated
 // (self-signed, no client certificate); see DialMaintenance. Authenticated connections

@@ -29,6 +29,15 @@ func TestClientVersionRejectsUnavailableClient(t *testing.T) {
 	}
 }
 
+func TestClientShutdownRejectsUnavailableClient(t *testing.T) {
+	t.Parallel()
+
+	var client *Client
+	if err := client.Shutdown(t.Context()); !errors.Is(err, ErrClientUnavailable) {
+		t.Fatalf("Shutdown() error = %v, want ErrClientUnavailable", err)
+	}
+}
+
 func TestDialRejectsEmptyEndpoint(t *testing.T) {
 	t.Parallel()
 

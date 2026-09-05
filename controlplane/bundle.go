@@ -184,26 +184,34 @@ func GenerateBundleData(clusterID string) (map[string][]byte, error) {
 
 // ValidateBundleDataはSecret内のbundleが指定されたCluster identityの完全なTalos bundleか確認する。
 func ValidateBundleData(data map[string][]byte, clusterID string) error {
+	_, err := DecodeBundleData(data, clusterID)
+
+	return err
+}
+
+// DecodeBundleDataはSecret内のbundleを検証し、Talos machineryが利用できる形で返す。
+// 呼び出し側は返却されたbundleをStatus、Event、logへ出力してはならない。
+func DecodeBundleData(data map[string][]byte, clusterID string) (*secrets.Bundle, error) {
 	if _, err := uuid.Parse(clusterID); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
 	}
 	encoded, ok := data[BundleDataKey]
 	if !ok || len(encoded) == 0 || len(data) != 1 {
-		return ErrBundleDataIncomplete
+		return nil, ErrBundleDataIncomplete
 	}
 
 	var bundle secrets.Bundle
 	if err := yaml.Unmarshal(encoded, &bundle); err != nil {
-		return fmt.Errorf("unmarshal Talos secret bundle: %w", err)
+		return nil, fmt.Errorf("unmarshal Talos secret bundle: %w", err)
 	}
 	if bundle.Cluster == nil || bundle.Cluster.ID != clusterID {
-		return ErrBundleIdentityMismatch
+		return nil, ErrBundleIdentityMismatch
 	}
 	if err := bundle.Validate(talosconfig.TalosVersionCurrent); err != nil {
-		return fmt.Errorf("validate Talos secret bundle: %w", err)
+		return nil, fmt.Errorf("validate Talos secret bundle: %w", err)
 	}
 
-	return nil
+	return &bundle, nil
 }
 
 // RotateDataは指定したrotation対象keyだけを差し替えた完全な次世代bundleを返す。

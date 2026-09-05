@@ -27,7 +27,7 @@ effective configurationをシリアライズし、SHA-256 digestを計算
 - Tartが生成したProviderID（`tart://host/<ID>`）
 - `TartMachine.spec.talosImage` のinstaller image identity
 
-※raw patchの動的合成エンジンの実装タスクは[実装タスク一覧 (タスク5)](tasks.md)を参照。
+`patches` keyのraw patchはBootstrap Providerがactive bundleとCAPI Machine contextから生成したbaseへ適用する。未実装のProvider-owned invariant競合検出は[実装タスク一覧 (タスク5)](tasks.md)を参照。
 
 ---
 

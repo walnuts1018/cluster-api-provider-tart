@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	BootstrapSecretType   = corev1.SecretType("cluster.x-k8s.io/secret")
-	BootstrapSecretKey    = "value"
-	ClusterNameLabel      = "cluster.x-k8s.io/cluster-name"
-	ConfigurationInputKey = "value"
+	BootstrapSecretType     = corev1.SecretType("cluster.x-k8s.io/secret")
+	BootstrapSecretKey      = "value"
+	ClusterNameLabel        = "cluster.x-k8s.io/cluster-name"
+	ConfigurationInputKey   = "value"
+	ConfigurationPatchesKey = "patches"
 )
 
 var (
@@ -48,9 +49,7 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 }
 
 // CompleteConfigurationFromSecretはimmutableな入力Secretから完全なTalos configurationを取得する。
-// 初期実装ではvalue keyを優先し、それ以外のkeyしかない場合は単一の値を完全なconfigurationとして解釈する。
-// TODO: Cluster、Machine、bundle contextからraw patchを合成できるようになった時点で、完全configuration専用の暫定入力形式を廃止する。
-// raw patchだけが渡された場合はTalos machineryの完全性検証で拒否し、未完成な設定を配布しない。
+// patches keyの入力はBootstrap controllerがcluster、Machine、bundle contextを解決してからGenerateMachineConfigurationへ渡す。
 func CompleteConfigurationFromSecret(secret *corev1.Secret) ([]byte, error) {
 	if err := ValidateConfigSecret(secret); err != nil {
 		return nil, err

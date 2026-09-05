@@ -2,6 +2,7 @@ package controller
 
 const (
 	tartControlPlaneKind              = "TartControlPlane"
+	tartClusterKind                   = "TartCluster"
 	tartMachineKind                   = "TartMachine"
 	tartBootstrapConfigKind           = "TartBootstrapConfig"
 	capiMachineKind                   = "Machine"

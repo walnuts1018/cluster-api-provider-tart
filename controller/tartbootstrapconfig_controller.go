@@ -3,6 +3,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,8 +14,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
+	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
+	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartBootstrapConfigReconciler reconciles a TartBootstrapConfig object.
@@ -25,6 +30,9 @@ type TartBootstrapConfigReconciler struct {
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch
 
 func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var config bootstrapv1alpha1.TartBootstrapConfig
@@ -49,8 +57,16 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
-	completeConfiguration, err := bootstrap.CompleteConfigurationFromSecret(input)
+	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
+		if errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) {
+			result, reportErr := r.report(ctx, &config, "ClusterContextUnavailable", "The CAPI Cluster and active Talos secret bundle are not available for configuration generation yet.")
+			if reportErr != nil {
+				return ctrl.Result{}, reportErr
+			}
+			result.RequeueAfter = 15 * time.Second
+			return result, nil
+		}
 		return r.report(ctx, &config, "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration.")
 	}
 	digest, err := bootstrap.DigestEffectiveConfiguration(completeConfiguration)
@@ -108,6 +124,79 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	return ctrl.Result{}, nil
+}
+
+var errBootstrapContextUnavailable = errors.New("bootstrap cluster context is unavailable")
+
+func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, input *corev1.Secret) ([]byte, error) {
+	if err := bootstrap.ValidateConfigSecret(input); err != nil {
+		return nil, err
+	}
+	// valueは既存の完全configuration契約を維持する。patchesだけを持つSecretだけが
+	// cluster bundleとCAPI contextからの生成経路へ進む。
+	if len(input.Data[bootstrap.ConfigurationInputKey]) > 0 || len(input.Data[bootstrap.ConfigurationPatchesKey]) == 0 {
+		return bootstrap.CompleteConfigurationFromSecret(input)
+	}
+
+	clusterMachine, err := findCAPIMachineForBootstrap(ctx, r.Client, config)
+	if err != nil {
+		return nil, err
+	}
+	cluster := &clusterv1.Cluster{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: clusterMachine.Spec.ClusterName}, cluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapContextUnavailable
+		}
+		return nil, err
+	}
+	clusterRef := cluster.Spec.InfrastructureRef
+	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != tartClusterKind || clusterRef.Name == "" {
+		return nil, errBootstrapContextUnavailable
+	}
+
+	providerCluster := &infrav1alpha1.TartCluster{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: clusterRef.Name}, providerCluster); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapContextUnavailable
+		}
+		return nil, err
+	}
+	if providerCluster.Spec.ClusterID == "" || providerCluster.Status.ActiveSecretGeneration < 1 {
+		return nil, errBootstrapContextUnavailable
+	}
+	if !cluster.Spec.ControlPlaneEndpoint.IsValid() || clusterMachine.Spec.Version == "" {
+		return nil, errBootstrapContextUnavailable
+	}
+	bundleName, err := controlplane.BundleName(providerCluster.Name, providerCluster.Spec.ClusterID, providerCluster.Status.ActiveSecretGeneration)
+	if err != nil {
+		return nil, errBootstrapContextUnavailable
+	}
+	bundleSecret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: providerCluster.Namespace, Name: bundleName}, bundleSecret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapContextUnavailable
+		}
+		return nil, err
+	}
+	if err := controlplane.ValidateBundleSecretContract(bundleSecret, providerCluster.Namespace, providerCluster.Name, providerCluster.Spec.ClusterID, providerCluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive, providerCluster.UID); err != nil {
+		return nil, errBootstrapContextUnavailable
+	}
+	bundle, err := controlplane.DecodeBundleData(bundleSecret.Data, providerCluster.Spec.ClusterID)
+	if err != nil {
+		return nil, errBootstrapContextUnavailable
+	}
+
+	machineType := talosmachine.TypeWorker
+	if _, ok := clusterMachine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
+		machineType = talosmachine.TypeControlPlane
+	}
+	return bootstrap.GenerateMachineConfiguration(bootstrap.MachineConfigurationContext{
+		ClusterName:          cluster.Name,
+		ControlPlaneEndpoint: cluster.Spec.ControlPlaneEndpoint.String(),
+		KubernetesVersion:    clusterMachine.Spec.Version,
+		MachineType:          machineType,
+		SecretsBundle:        bundle,
+	}, input.Data[bootstrap.ConfigurationPatchesKey])
 }
 
 func (r *TartBootstrapConfigReconciler) report(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, reason, message string) (ctrl.Result, error) {

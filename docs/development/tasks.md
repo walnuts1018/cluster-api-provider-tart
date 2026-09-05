@@ -14,7 +14,7 @@
 | **Control Plane Reconcile** | 一部仮実装 (`NotImplemented`) | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | Talos Bootstrap RPC呼び出し、kubeconfig生成、etcd監視、CA rotation |
 | **Cluster Reconcile** | 一部仮実装 (`NotImplemented`) | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | Ready条件判定、Failure Domain観測・反映 |
 | **Machine / Talos Reconcile** | 一部仮実装 (TODOあり) | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | Talos maintenance boot時のdiscoveryとinstall実行、reboot待機、認証済みAPI復帰確認、drain/shutdown完了確認 |
-| **Raw Patch 合成** | 暫定実装 (TODOあり) | [`bootstrap/secret.go`](../../bootstrap/secret.go) | cluster bundle、machine context、user raw patch、provider invariantのマージ合成 |
+| **Raw Patch 合成** | 基本経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | Provider-owned invariantの競合検出と完全な安全差分判定 |
 | **Hardware Discovery** | 未実装 | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go) | Bare-metal Hostのmaintenance Talosからの動的インベントリ取得 |
 | **Power Backend** | WoLのみ実装 | [`boot/`](../../boot) | Redfish等のBMCバックエンド |
 
@@ -82,11 +82,13 @@
 
 ### タスク5: Raw Patch 合成エンジンの実装
 - **重要度**: 中
-- **現状**: [`bootstrap/secret.go`](../../bootstrap/secret.go) は完全なconfigurationのみ受け入れる暫定実装（L52 TODO）。
+- **現状**: `patches` keyを持つimmutable Secretについて、Talos machineryの生成base、active bundle、CAPI Machine contextへraw patchを適用する基本経路を実装済み。`value` keyの完全configuration入力も後方互換として利用できる。
 - **実装内容**:
-  1. **設定マージパイプライン**:
+  1. **設定マージパイプライン**（基本経路実装済み）:
      - cluster secret bundleとCAPI/Tart contextからbase configurationを生成。
      - `configSecretRef` から読み出したユーザーのraw patchを適用。
+     - machine role、cluster endpoint、Kubernetes versionをTalos machineryのbaseへ反映。
+  2. **残タスク**:
      - Provider-owned invariant（ProviderID、cluster endpoint、machine roleなど）を上書き不可として検証・適用。
      - 競合がある場合は上書きせず `Ready=False`、`Reason=ConfigurationConflict` を設定。
 - **解消条件**:

@@ -138,6 +138,12 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	statusOriginal := machine.DeepCopy()
 	machine.Status.HostRef = &corev1.LocalObjectReference{Name: selected.Name}
+	if endpoint := hostTalosEndpoint(selected); endpoint != "" {
+		machine.Status.Addresses = hostAddresses(endpoint)
+	}
+	if selected.Spec.FailureDomain != "" {
+		machine.Status.FailureDomain = selected.Spec.FailureDomain
+	}
 	if err := r.Status().Patch(ctx, &machine, client.MergeFrom(statusOriginal)); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -158,24 +164,12 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID string) error {
-	var owner *metav1.OwnerReference
-	for index := range machine.OwnerReferences {
-		candidate := &machine.OwnerReferences[index]
-		if candidate.Kind == capiMachineKind && candidate.APIVersion == clusterv1.GroupVersion.String() {
-			owner = candidate
-			break
-		}
-	}
-	if owner == nil {
+	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if errors.Is(err, errCAPIMachineUnavailable) {
 		return nil
 	}
-
-	clusterMachine := &clusterv1.Machine{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: owner.Name}, clusterMachine); err != nil {
+	if err != nil {
 		return err
-	}
-	if owner.UID != "" && clusterMachine.UID != owner.UID {
-		return errCAPIProviderIDMismatch
 	}
 	if clusterMachine.Spec.ProviderID != "" {
 		if clusterMachine.Spec.ProviderID != providerID {
@@ -189,27 +183,12 @@ func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine 
 }
 
 func (r *TartMachineReconciler) bootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
-	var owner *metav1.OwnerReference
-	for index := range machine.OwnerReferences {
-		candidate := &machine.OwnerReferences[index]
-		if candidate.Kind == capiMachineKind && candidate.APIVersion == clusterv1.GroupVersion.String() {
-			owner = candidate
-			break
-		}
-	}
-	if owner == nil {
+	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if errors.Is(err, errCAPIMachineUnavailable) {
 		return nil, errBootstrapDataUnavailable
 	}
-
-	clusterMachine := &clusterv1.Machine{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: owner.Name}, clusterMachine); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapDataUnavailable
-		}
+	if err != nil {
 		return nil, err
-	}
-	if owner.UID != "" && clusterMachine.UID != owner.UID {
-		return nil, errBootstrapDataUnavailable
 	}
 	ref := clusterMachine.Spec.Bootstrap.ConfigRef
 	if ref.Name == "" || ref.Kind != tartBootstrapConfigKind || ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group {

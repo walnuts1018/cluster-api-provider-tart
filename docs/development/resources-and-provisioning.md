@@ -53,7 +53,7 @@ Cluster API                      Tart Resources
    ↓
 3. Discovery boot（maintenance Talos APIへの接続とハードウェアインベントリ観測）
    ↓
-4. Bootstrap Secretの待機と取得（TartBootstrapConfigReconcilerが生成したSecret）
+4. Bootstrap Secretの待機と取得（`value`入力またはactive bundleとCAPI contextから生成したSecret）
    ↓
 5. Talos APIへのmachine configuration適用とTalos installerの実行
    ↓

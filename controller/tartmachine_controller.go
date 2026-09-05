@@ -31,7 +31,10 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
 )
 
-const tartMachineFinalizer = "tart.cluster.x-k8s.io/machine-lifecycle"
+const (
+	tartMachineFinalizer        = "tart.cluster.x-k8s.io/machine-lifecycle"
+	shutdownConfirmationRequeue = 30 * time.Second
+)
 
 // TartMachineReconcilerはHost claimとProviderIDの確立を担当する。Talosへの副作用は
 // まだUpdate Extensionへ委譲する段階なので、初回provisioning後のoperationは開始しない。
@@ -173,7 +176,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 
 	selected, err := r.findClaimedHost(ctx, machine)
 	if err != nil {
-		return r.report(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be unambiguously observed; the Machine finalizer remains until shutdown is confirmed.")
+		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be unambiguously observed; the Machine finalizer remains until shutdown is confirmed.", shutdownConfirmationRequeue)
 	}
 	if selected == nil {
 		original := machine.DeepCopy()
@@ -183,7 +186,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		}
 		return ctrl.Result{}, nil
 	}
-	return r.report(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "Talos shutdown and Host stop confirmation are not implemented; the Host claim is retained safely.")
+	return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "Talos shutdown and Host stop confirmation are not implemented; the Host claim is retained safely.", shutdownConfirmationRequeue)
 }
 
 var errMachineHasAmbiguousHostClaims = errors.New("machine has ambiguous host claims")

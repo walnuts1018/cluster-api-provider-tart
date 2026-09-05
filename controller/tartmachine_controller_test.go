@@ -212,8 +212,12 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
 	reconciler := &TartMachineReconciler{Client: fakeClient}
 
-	if _, err := reconciler.Reconcile(t.Context(), ctrl.Request{Namespace: machine.Namespace, Name: machine.Name}); err != nil {
+	result, err := reconciler.Reconcile(t.Context(), ctrl.Request{Namespace: machine.Namespace, Name: machine.Name})
+	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if result.RequeueAfter != shutdownConfirmationRequeue {
+		t.Errorf("Reconcile() RequeueAfter = %s, want %s", result.RequeueAfter, shutdownConfirmationRequeue)
 	}
 
 	observed := &infrav1alpha1.TartMachine{}

@@ -20,7 +20,7 @@
 13. `TartMachine.spec.talosImage`の`{version, schematicID}`をTalos imageとsystem extensionの単一の正本にする。boot assetとinstaller imageには同じschematicを使う。
 14. Kubernetes desired versionはCAPI `Machine.spec.version`とControl Plane resourceを正本とし、BootstrapConfigへ重複させない。Talosのcluster-wide `upgrade-k8s`とCAPI worker version propagationを、Topology managedとdirectly managedの両方で明示的な収束規則に接続する。
 15. Resource Statusはobserved stateとConditionsだけを持ち、Operationやworkflowのprogram counterを保存しない。
-16. ルート直下の責務別packageだけを使い、`internal`と`pkg`、巨大な`domain`、`infrastructure`、`workflow`階層を作らない。
+16. `internal`と`pkg`を作らない。
 17. Go testを全面禁止せず、実装と同時に破壊的な判断、外部contract、controller再起動後の再計算を検証する最小限のtable test、fuzz test、契約テストを追加する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。
 
 ## Rolloutの標準方針

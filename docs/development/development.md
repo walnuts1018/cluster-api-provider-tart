@@ -38,7 +38,7 @@ MISE_OFFLINE=1 mise run manifests
 MISE_OFFLINE=1 mise run lint:fix
 ```
 
-実際のtask名が変更された場合は、この文書とCI workflowを同じ変更で更新する。生成、build、lintが旧`domain`、`infrastructure`、agent、artifact packageを参照しないことを確認する。
+実際のtask名が変更された場合は、この文書とCI workflowを同じ変更で更新する。
 
 ## Go testの扱い
 
@@ -48,7 +48,6 @@ Talos、実storage、reboot、rollback、drain、CAPI minorごとのMachineSet/M
 
 ## 実装のルール
 
-- `internal`と`pkg`を作らず、責務を直接表すルート直下のpackageへ置く。
 - controllerにTalos version比較、Host allocation、quorum計算、update safetyなどのdomain判断を詰め込まない。
 - Talos API、power、boot、Kubernetes APIの副作用はadapterまたはcontrollerの明確な境界へ閉じ込める。
 - Statusをworkflowのstep番号にせず、observed stateとConditionをserver-side applyで更新する。

@@ -30,7 +30,7 @@ Cluster topology、Machine version、rollout policy、add-onはCAPIまたはKube
 
 ## `TartHostSpec`
 
-初期登録に必要なfieldはHost identityとpower/boot capabilityに限定する。`spec.id`はconcreteな`TartHost`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化するimmutableなランダムUUIDとし、Templateへ含めない。通常CREATEで利用者が値を指定することは許可しない。management clusterのDR復元では、バックアップ復元を示す`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ、バックアップ済みの値をそのまま復元する。system UUID、NIC名、disk UUID、Linux device path、Talos endpointの事前入力を必須にしない。architecture、label、failure domainはallocation条件として指定可能にするが、Talosから取得できるinventoryをユーザーのdesired hardware stateとして複製しない。
+初期登録に必要なfieldはHost identityとpower/boot capabilityに限定する。`spec.id`はconcreteな`TartHost`のnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化するimmutableなランダムUUIDとし、Templateへ含めない。通常CREATEで利用者が値を指定することは許可しない。management clusterのDR復元では、バックアップ復元を示す`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ、バックアップ済みの値をそのまま復元する。system UUID、NIC名、disk UUID、Linux device path、Talos endpointの事前入力を必須にしない。`spec.talosEndpoint`は既知の管理ネットワークまたは外部Discoveryが提供する到達性hintとして任意に指定できるが、Host identityの代替にはならない。controllerはmaintenance APIから物理MACを観測し、claimed Hostの`spec.macAddress`と一致する場合だけconfigurationをapplyする。architecture、label、failure domainはallocation条件として指定可能にするが、Talosから取得できるinventoryをユーザーのdesired hardware stateとして複製しない。
 
 `spec.consumerRef`はcontrollerが管理するbindingであり、ユーザーが任意のMachineへ向ける通常設定ではない。claimはSSAのfield ownershipをlockとして使わず、`GET → consumerRefがnilまたは自分のUIDであることを確認 → 取得したresourceVersion付きUpdate`、またはJSON Patchの`test`を使うatomic CASで確立する。競合したUpdateは成功として扱わず、別Hostの選択または再試行を行う。`TartHost.status`をallocation lockの正本にせず、Statusには`Claimed` Conditionなどの観測結果を必要な範囲で保持する。
 

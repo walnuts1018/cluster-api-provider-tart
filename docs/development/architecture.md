@@ -42,7 +42,7 @@ ProviderIDはHost allocation後の`TartHost.spec.id`から`tart://host/<TartHost
 
 ## 実装パッケージの境界
 
-ルート直下のパッケージを、現在複数の具体的な利用箇所がある責務に限定して配置する。`internal`や`pkg`は作成しない。また、webアプリケーション由来の巨大な`domain`、`infrastructure`、`workflow`階層も作らない。
+ルート直下のパッケージを、現在複数の具体的な利用箇所がある責務に限定して配置する。`internal`や`pkg`は作成しない。
 
 ```text
 api/infrastructure/v1alpha1  Infrastructure CRDのSpec、Status、Condition、DeepCopy対象の型

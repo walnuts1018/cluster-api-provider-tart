@@ -85,7 +85,7 @@ expected TartHost
         ↔ maintenance endpoint fingerprint when available
 ```
 
-このbindingが曖昧、競合、または期待したHostと一致しない場合はconfigurationをapplyせず`Ready=False`、`Reason=IdentityConflict`にする。普通のPCでは初回に暗号学的なhardware identityを完全に証明できないため、provisioning network自体をtrusted infrastructureのsecurity boundaryとして扱うが、network trustだけでHostとendpointの論理的なbindingを省略しない。
+このbindingが曖昧、競合、または期待したHostと一致しない場合はconfigurationをapplyせず`Ready=False`、`Reason=IdentityConflict`にする。`TartHost.spec.talosEndpoint`は到達先のhintとして利用できるが、maintenance APIから観測した物理MACがclaimed Hostの`spec.macAddress`と一致することを確認してからconfigurationをapplyする。普通のPCでは初回に暗号学的なhardware identityを完全に証明できないため、provisioning network自体をtrusted infrastructureのsecurity boundaryとして扱うが、network trustだけでHostとendpointの論理的なbindingを省略しない。
 
 ## Installationとupgrade
 

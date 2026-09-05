@@ -32,23 +32,7 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 
 ## ディレクトリ方針
 
-ルート直下の責務別パッケージだけを使う。`internal`と`pkg`は禁止する。`domain`、`infrastructure`、`workflow`のように複数の責務を隠す大分類も作らない。
-
-```text
-api/infrastructure/v1alpha1  Infrastructure CRD型
-api/bootstrap/v1alpha1       Bootstrap CRD型
-api/controlplane/v1alpha1    Control Plane CRD型
-controller                   Kubernetes reconcile entrypoint
-host                         Host allocation、consumerRef claim、identity
-talos                        Talos API adapter
-bootstrap                    Talos configuration生成とpatch合成
-controlplane                 etcd/control plane policy
-boot                         maintenance boot backend
-extensions                   CAPI Runtime Extension
-cmd/controller-manager       process wiringとHTTPS endpoint
-```
-
-これらは必要になった責務の置き場であり、全てを事前に抽象化するための雛形ではない。interfaceは実際に複数実装がある、または副作用を隔離する境界でのみ作る。
+ルート直下の責務別パッケージだけを使う。`internal`と`pkg`は禁止する。
 
 ## 安全性の不変条件
 

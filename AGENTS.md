@@ -17,8 +17,7 @@
 
 ## ディレクトリ構成
 
-- ルート直下に`internal`または`pkg`という名前のディレクトリを作成しない。公開範囲ではなく、`api`、`controller`、`host`、`talos`、`bootstrap`、`controlplane`、`boot`、`extensions`などの具体的な責務で配置する。
-- Webアプリケーション由来の`domain`、`infrastructure`、`workflow`のような大分類を、複数の責務を隠すために新設しない。
+- ルート直下に`internal`または`pkg`という名前のディレクトリを作成しない。
 - interfaceは、外部副作用を隔離する、または実際に複数の実装が存在する場合だけ定義する。将来の可能性だけで抽象化しない。
 
 ## Tartの範囲

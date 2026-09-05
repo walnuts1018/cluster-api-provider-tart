@@ -1,6 +1,10 @@
 # Tartドキュメント
 
-TartはTalos Linux専用のCluster API Providerです。現在は新アーキテクチャの再実装中であり、利用者向けの導入手順は実用可能なE2Eが成立した時点で追加します。
+TartはTalos Linux専用のCluster API Providerです。
+
+## 利用者向けドキュメント
+
+導入手順は[Talos Linux導入](installation/talos.md)を参照してください。ただし実機E2Eによる受け入れ確認は未実施であり、対応version matrix([development/compatibility.md](development/compatibility.md))は未定義です。現時点のreleaseは理論上動作する実装を提供するものであり、実機での動作保証はまだありません。
 
 ## 開発者向けドキュメント
 

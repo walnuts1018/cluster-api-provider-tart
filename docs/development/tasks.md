@@ -183,3 +183,19 @@
   - `allowDowntime: false`(既定)において、drain失敗時に更新が安全に中断されること(verification.mdの受け入れ確認項目3)。
   - `allowDowntime: true`の場合のみ、availability/PDB/capacity起因のdrain失敗を許容してgraceful rebootが行われること。
   - 破壊的変更やquorum違反がこのpolicyで緩和されないこと。
+
+### タスク10: Reusable Host「Reprovision」モードのTalos Reset連携
+
+- **重要度**: 中
+- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Reusableの2つの動作」節で、`Adopt`(既存installを保持したままclaim)と`Reprovision`(データ破棄を承認しTalosのreset/installer機構へ委譲してから新しいMachineへclaim)の2つのReuse modeを定義している。`Adopt`は`TartMachineReconciler.reconcileAuthenticatedTalos`が既存のBootstrap Secretで認証済みAPIへ接続を試み、成功すれば(=cryptographicにcluster secretが一致する既存installとして)そのまま`Provisioned`として扱うことで実質的に満たされている。しかし`Reprovision`は、`host/eligibility.go`のeligibility分類(`ReuseModeReprovision`)が存在するだけで、実際にTalosへreset RPCを発行して既存installを消去し、maintenance modeへ戻す処理が存在しない。`talos/client.go`にもReset APIがない。このため`spec.reuseMode: Reprovision`で承認されたHostをclaimしても、既存installが残ったままmaintenance APIが利用できず、Talos installへ進めずreconcileが停止し続ける。
+- **実装内容**:
+  1. **`talos.Client`へのReset API追加**:
+     - Talos machine APIの`Reset`RPC(`github.com/siderolabs/talos/pkg/machinery/api/machine`。system disk wipe、graceful reboot into maintenance modeを指定できるオプションを確認する)を呼び出すメソッドを追加する。
+     - Resetは対象Hostのデータを不可逆に消去する操作であるため、認証済みAPI(既存installのcluster secretで接続できる場合)またはRedfish/WoLでの物理電源operationとは独立して、`spec.reuseMode: Reprovision`かつ`spec.reuseApproval`が現在の`retainedFrom`と一致する場合にのみ呼び出せるようguardする。
+  2. **`TartMachineReconciler`でのReprovisionオーケストレーション**:
+     - claimしたHostが`Reprovision`モードで選択されていることを観測したら、install前に一度だけTalos `Reset`を要求し、maintenance modeへ戻ったことを観測してから通常のfresh install経路(`reconcileMaintenanceTalos`)へ合流させる。
+     - Reset要求とその完了観測はProvider-owned invariantやHost claimのatomicityを壊さず、controller再起動時も外部観測(現在のTalos APIモード、`status`)から安全に再開できるようにする(Statusをprogram counterとして使わない)。
+     - Reset失敗、または対象Hostの認証が現在のretainedFrom(旧cluster)と一致しない場合は、データ破壊を伴う操作であるため安全側に倒して`Ready=False`で停止する。
+- **解消条件**:
+  - `spec.reuseMode: Reprovision`で承認されたHostが、Talos Resetとmaintenance mode復帰を経て新しいTartMachineへ正常にinstallされること。
+  - 承認や識別が一致しない場合にResetを実行せず安全停止すること。

@@ -25,14 +25,16 @@
 - Talosのinstaller、machine configuration、disk/volume、upgrade、rollback、etcd bootstrap、Kubernetes runtimeを再実装しない。
 - `TartHost`はCAPI Machineより長寿命のinventory、`TartMachine`はCAPI Machineとのbindingを表す。通常のupdateでHost claim、Machine、diskを破棄しない。
 - `TartHostOperation`、Operation CRD、Workflow engine、Provisioning Plan、独自Provisioning Agent、独自Node Lifecycle Agent、独自OS image format、独自disk writer、add-on専用APIを作らない。
-- Provider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へリセットする。CAPI coreの現行v1beta2 contractとは別のversionである。
+- Provider APIは`v1alpha1`へリセットし、Infrastructure、Bootstrap、Control Planeをそれぞれ`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io`へ分ける。CAPI coreの現行v1beta2 contractとは別のversionである。
 
 ## 安全性
 
 - Resource Statusは観測結果とConditionsだけを保持し、workflowのprogram counterやstep番号として利用しない。
 - controller再起動後もKubernetes desired state、TartHost observed state、Talos API、必要なworkload clusterの観測からreconcileを継続できるようにする。
 - in-place updateできない変更をMachine replacementへ暗黙にfallbackしない。identity変更、destructive storage change、quorumを守れない操作はblockedとして報告する。
-- Machine削除時はHost claimを解除して物理dataを保持する。cleaning、reprovisioning、disk wipeは通常updateや削除の暗黙の副作用にしない。
+- `TartHost.spec.consumerRef`をallocation bindingの正本とし、`status.claimedBy`をlockに使わない。Machine削除後のHostは`Retained`として保持し、明示的に`Reusable`へ変更するまで自動allocationしない。
+- Machine削除時はdrain、control planeのetcd detach、authenticated Talos shutdown、停止確認の後にHost claimを解除し、物理dataを保持した`Retained`へ移す。停止を確認できない場合はclaimを保持してBlockする。`Retained`は明示的に`Reusable`へ変更されるまで自動allocation対象に戻さない。cleaning、reprovisioning、disk wipeは通常updateや削除の暗黙の副作用にしない。
+- local persistent stateを持つMachineではMHCのdelete-and-recreate remediationを既定で許可せず、初期運用では`cluster.x-k8s.io/skip-remediation`を使う。
 - Secret、credential、private key、Bootstrap Data、kubeconfigをStatus、Event、通常log、metrics labelへ出力しない。
 
 ## 作業開始時の参照先

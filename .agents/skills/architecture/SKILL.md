@@ -23,10 +23,10 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 ## 基本方針
 
 - TartはTalos Linux専用であり、Kubeadm、Ubuntu、汎用OS provisioning framework、既存Talos Providerには依存しない。
-- Infrastructure Provider、Bootstrap Provider、Control Plane Providerを提供する。
+- Infrastructure、Bootstrap、Control PlaneのAPI groupを分けたProviderを提供する。
 - TalosのOS installation、machine configuration、disk/volume、upgrade、rollback、etcd bootstrap、Kubernetes runtimeへ責務を委譲する。
 - CAPI Machineを使い捨てと仮定せず、同じMachine、TartMachine、TartHost、diskを保ったin-place updateを第一選択にする。
-- 安全にin-place updateできない変更はMachine replacementへ暗黙にfallbackせず、blocked Conditionで停止する。
+- 安全にin-place updateできない変更はMachine replacementへ暗黙にfallbackせず、blocked Conditionで停止する。ただしCAPIのhook未対応差分がimmutable rolloutへfallbackし得るため、Host retention、rollout policy、MHC policyも必要とする。
 - Resource Statusは外部から観測できる状態とConditionだけを持ち、workflowのstep番号やprogram counterを持たない。
 - controller再起動後も、Kubernetes desired stateとHost/Talos/Kubernetesのobserved stateから同じ判断を再計算できるようにする。
 
@@ -35,18 +35,31 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 ルート直下の責務別パッケージだけを使う。`internal`と`pkg`は禁止する。`domain`、`infrastructure`、`workflow`のように複数の責務を隠す大分類も作らない。
 
 ```text
-api/v1alpha1             CRD型
-controller               Kubernetes reconcile entrypoint
-host                     Host allocation、claim、identity
-talos                    Talos API adapter
-bootstrap                Talos configuration生成とpatch合成
-controlplane             etcd/control plane policy
-boot                     maintenance boot backend
-extensions               CAPI Runtime Extension
-cmd/controller-manager   process wiring
+api/infrastructure/v1alpha1  Infrastructure CRD型
+api/bootstrap/v1alpha1       Bootstrap CRD型
+api/controlplane/v1alpha1    Control Plane CRD型
+controller                   Kubernetes reconcile entrypoint
+host                         Host allocation、consumerRef claim、identity
+talos                        Talos API adapter
+bootstrap                    Talos configuration生成とpatch合成
+controlplane                 etcd/control plane policy
+boot                         maintenance boot backend
+extensions                   CAPI Runtime Extension
+cmd/controller-manager       process wiringとHTTPS endpoint
 ```
 
 これらは必要になった責務の置き場であり、全てを事前に抽象化するための雛形ではない。interfaceは実際に複数実装がある、または副作用を隔離する境界でのみ作る。
+
+## 安全性の不変条件
+
+- `TartHost.spec.consumerRef`がallocation bindingの正本であり、`status.claimedBy`をlockの正本にしない。
+- Machine削除後のHostは`Retained`であり、明示的に`Reusable`へ変更されるまで自動allocationしない。
+- claim解放前にauthenticated Talos shutdownと停止確認を行い、確認不能ならclaimとfinalizerを保持してblockedにする。
+- local persistent stateを持つMachineのMHC delete-and-recreate remediationを既定で許可せず、初期運用では`cluster.x-k8s.io/skip-remediation`を使う。
+- `TartMachine.spec.talosImage`の`{version, schematicID}`をTalos image/system extensionの単一の正本にする。
+- ProviderIDをTalos kubeletへ注入し、CAPI InfraMachine、TartMachine、Nodeの`spec.providerID`を一致させる。
+- `controlPlaneInitialized`はAPI serverがrequestを受け付ける状態であり、全Node ReadyやCNI導入を待たない。
+- cluster secret bundleをClusterごとに一度だけ生成し、Bootstrap SecretとkubeconfigをCAPI Secret contractに合わせる。
 
 ## 禁止事項
 

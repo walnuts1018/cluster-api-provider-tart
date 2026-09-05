@@ -3,10 +3,10 @@
 このディレクトリは、Talos Linux専用のTart Providerを設計・実装・検証するための技術文書である。導入手順は親ディレクトリの[利用者向けドキュメント](../README.md)を参照する。
 
 - [アーキテクチャ](architecture.md): Provider、package、依存方向、副作用境界
-- [API contract](api-contract.md): v1alpha1 Resource、CAPI v1beta2 contract、Status、ownership
+- [API contract](api-contract.md): group分割したv1alpha1 Resource、CAPI v1beta2 contract、Secret、Status、ownership
 - [Machine lifecycle](lifecycle.md): provisioning、control plane、update、deletion、recovery
 - [Talos連携](talos.md): configuration、storage、hardware discovery、upgrade、add-on
-- [セキュリティと観測性](security.md): trust boundary、Secret、log、Event、metrics、retry
+- [セキュリティと観測性](security.md): maintenance trust、Secret、MHC、Runtime Extension、log、Event、metrics、retry
 - [設計判断と完成条件](decisions.md): 非目標、将来拡張、受け入れ条件、現在のテスト方針
 - [Release方針](release.md): 現在のrelease停止理由と再開条件
 - [リソースとProvisioningの流れ](resources-and-provisioning.md): Resourceの正本、Host claim、更新、削除、secret境界

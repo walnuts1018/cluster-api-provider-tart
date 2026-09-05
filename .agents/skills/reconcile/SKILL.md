@@ -39,11 +39,15 @@ CAPI Machineとprovider resourceの対応にはOwnerReference、CAPI label、ref
 
 ## Finalizer
 
-Finalizerを使う場合は、削除時に必要な安全な解放処理だけを担当させる。`TartMachine`のfinalizerはHost claim解除に使えても、OS再インストール、cleaning、partition変更、disk wipeを開始してはならない。外部APIが一時的に失敗する場合はfinalizerを保持して再試行する。
+Finalizerを使う場合は、削除時に必要な安全な解放処理だけを担当させる。`TartMachine`のfinalizerは、CAPIのdrain、control planeのetcd detach、authenticated Talos shutdown、停止確認、Host claim解除、`Retained`化の順序を守る。Talos APIに到達できない、停止を確認できない、またはHostが稼働している場合はclaimとfinalizerを保持して`Blocked`にする。OS再インストール、cleaning、partition変更、disk wipeを開始してはならない。
 
 ## 外部API
 
 Talos、power、boot、workload Kubernetes APIのclientはcontrollerの外側のadapterへ閉じ込める。controllerは具体的なgenerated API型ではなく、観測結果と必要な操作の小さなinterfaceへ依存する。副作用前にidentityと対象Hostを再確認し、別Hostへの誤適用をfail closedする。
+
+## Runtime Extension
+
+CAPIの`CanUpdateMachine`と`UpdateMachine`を使う場合、`CanUpdateMachine`は安全なin-place差分だけを許可する。CAPIがhook未対応差分をimmutable rolloutへfallbackし得るため、hookがfalseを返すことだけでreplacementを禁止したとみなさない。`TartMachine`のblocked判定、Hostの`Retained` gate、MHCの`cluster.x-k8s.io/skip-remediation`、`maxSurge: 0`/`maxUnavailable: 1`のrollout profileを併用する。
 
 ## 再試行
 

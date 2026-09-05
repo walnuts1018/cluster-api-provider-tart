@@ -23,6 +23,8 @@ Go testを使わず、次の確認をCIとローカルで共通化する。
 | 旧設計の残存 | `rg`で`v1beta1`、`TartHostOperation`、agent、workflow、旧artifact、`internal`、`pkg`を確認 |
 | secret境界 | log、Event、Status、metrics label、manifestへcredentialが含まれないことを目視確認 |
 
+API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、reference、aggregated RBACが一致していることを確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、cluster secret bundleの一度だけの生成、workload kubeconfig Secretの維持も契約確認の対象とする。
+
 生成物の検証でcontroller-genやkustomizeが必要な場合は、miseで管理したversionを使用する。toolの出力を手で修正して検証を通してはならない。
 
 ## 実装後の受け入れ確認
@@ -49,6 +51,11 @@ Go testを追加・実行しない期間でも、次の確認項目を実機ま�
 - Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用Tart APIなしでTalos configurationとKubernetes manifestを利用できる。
 - 通常のTalos/Kubernetes updateでCAPI Machine replacement、Host cleaning、disk wipeが起きない。
 - unsafe change、identity mismatch、quorumを守れない操作が副作用なしでblockedになる。
+- Machine削除時にshutdownと停止確認を行い、確認不能ならclaimを保持してblockedになり、確認後もHostが`Retained`として自動allocationされない。
+- MHCのdelete-and-recreate remediationがlocal persistent Machineへ既定で適用されず、`cluster.x-k8s.io/skip-remediation`の運用方針が守られる。
+- `TartMachine.spec.providerID`、CAPI InfraMachine、Talos kubelet、Node `spec.providerID`が一致する。
+- CNI未導入でもAPI serverがrequestを受け付けた時点で`controlPlaneInitialized`となり、Node Readyと混同しない。
+- `maxSurge: 0`、`maxUnavailable: 1`のrolloutで追加Hostを要求せず、一台ずつin-place updateできる。
 
 ### Recovery
 
@@ -70,3 +77,5 @@ Go testを再開する場合は、実装と同じ変更で次を更新する。
 2. `gotest` skillを保留状態から有効な規約へ戻す。
 3. テスト追加の対象を重要な純粋判断または外部contractへ限定する。
 4. CIで再現できるtaskを定義し、ローカルだけの成功を完了根拠にしない。
+
+再開後に最初に追加するテストは、Host claim race、`Retained` Hostの自動allocation防止、unsafe diffのreplacement防止、Bootstrap Secret contract、cluster bootstrapのidempotencyに限定する。設定ファイルの存在確認やmock呼出し順だけのテストは追加しない。

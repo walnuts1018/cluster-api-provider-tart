@@ -2,7 +2,7 @@
 
 ## 開発環境
 
-Go、Kubebuilder、controller-gen、kustomize、lint toolのversionは`mise.toml`で管理する。個別にtoolを導入せず、リポジトリのtaskを入口にする。
+Go、Kubebuilder、controller-gen、kustomize、lint toolのversionは`mise.toml`で管理する。個別にtoolを導入せず、リポジトリのtaskを入口にする。`mise.toml`の`[tools]`はRenovateの組み込み`mise` managerで更新するため、同じtool versionを別の設定ファイルへ複製しない。
 
 ```bash
 mise install
@@ -23,7 +23,7 @@ Goのmodule cacheやbuild cacheをリポジトリ配下へ置く場合も、環�
 6. [Reconcile skill](../../.agents/skills/reconcile/SKILL.md)
 7. [Talos skill](../../.agents/skills/talos/SKILL.md)
 
-Provider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へ新規に定義する。CAPI coreの現行v1beta2 contract、Talos machineryの型とsemantics、controller-genの生成物を確認し、旧`v1beta1`実装を温存するためのcompatibility layerを作らない。
+Provider APIはInfrastructure、Bootstrap、Control Planeをそれぞれ`infrastructure.cluster.x-k8s.io/v1alpha1`、`bootstrap.cluster.x-k8s.io/v1alpha1`、`controlplane.cluster.x-k8s.io/v1alpha1`へ新規に定義する。CAPI coreの現行v1beta2 contract、Talos machineryの型とsemantics、controller-genの生成物を確認し、旧`v1beta1`実装を温存するためのcompatibility layerを作らない。
 
 ## 生成と静的確認
 

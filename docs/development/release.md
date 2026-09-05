@@ -7,7 +7,7 @@ Tartは新しいTalos専用Providerへ再実装中です。旧Provisioning Agent
 実用可能なreleaseでは、少なくとも次を同じcommitから再現可能な形で提供する。
 
 - Infrastructure、Bootstrap、Control Plane Providerのcontroller-manager image
-- `infrastructure.cluster.x-k8s.io/v1alpha1`のCRD、RBAC、manager manifest
+- `infrastructure.cluster.x-k8s.io/v1alpha1`、`bootstrap.cluster.x-k8s.io/v1alpha1`、`controlplane.cluster.x-k8s.io/v1alpha1`のCRD、RBAC、manager manifest
 - CAPI contractへ対応したmetadataとprovider manifest
 - Talos image identity、対応architecture、boot backendの前提条件
 - Fresh machine、single node、HA control plane、worker、storage、recovery、safetyの受け入れ結果

@@ -17,4 +17,4 @@ TartはTalos Linux専用のCluster API Providerです。現在は新アーキテ
 
 ## APIとライフサイクル
 
-Provider APIは`infrastructure.cluster.x-k8s.io/v1alpha1`です。CAPIの現行v1beta2 contractへ適合させます。通常のTalos/Kubernetes updateは、同じCAPI Machine、`TartMachine`、`TartHost`、diskを維持するin-place updateを第一選択とし、安全に実行できない変更は明示的にblockedとします。
+Provider APIは`v1alpha1`へリセットし、Infrastructure、Bootstrap、Control Planeをそれぞれ`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io`へ分けます。CAPIの現行v1beta2 contractへ適合させます。通常のTalos/Kubernetes updateは、同じCAPI Machine、`TartMachine`、`TartHost`、diskを維持するin-place updateを第一選択とし、安全に実行できない変更は明示的にblockedとします。Machine削除後のHostは`Retained`として保持し、明示的に`Reusable`へ変更するまで自動allocationしません。

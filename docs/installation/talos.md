@@ -4,7 +4,7 @@ TartはTalos Linux専用のCluster API Providerとして再実装中です。現
 
 ## 導入モデル
 
-管理クラスタへCAPI core、TartのInfrastructure Provider、Bootstrap Provider、Control Plane Providerを導入し、`TartHost`へHostのidentityとpower/boot capabilityを登録します。ユーザーはinstall前にLinux device pathやdisk UUIDを登録する必要はありません。
+管理クラスタへCAPI core、TartのInfrastructure Provider、Bootstrap Provider、Control Plane Providerを導入し、`TartHost`へHostのidentityとpower/boot capabilityを登録します。ユーザーはinstall前にLinux device pathやdisk UUIDを登録する必要はありません。in-place updateを使う場合はCAPIの`RuntimeSDK`と`InPlaceUpdates`を有効にし、TartのHTTPS endpointを`ExtensionConfig`へ登録します。
 
 ```text
 TartHost登録
@@ -23,6 +23,8 @@ CAPI Cluster Ready
 ```
 
 OS installation、disk/volume、encryption、system extension、machine configuration、upgrade、rollback、Kubernetes runtimeはTalosへ委譲します。Cilium、Longhorn、TopoLVM、kube-vipなどはTalos configurationとKubernetes addon layerで構成し、Tart専用APIは使用しません。
+
+未構成Talosのmaintenance APIはTLSで暗号化されますが認証済みではありません。machine configurationを送る前に`TartHost`、boot attempt、MAC/DHCP、endpoint、system UUID/inventoryを結び付け、曖昧なら停止します。installation後はauthenticated Talos APIへ移行します。Machine削除時はshutdownと停止確認後にclaimを解除し、Hostをdata保持の`Retained`として残します。
 
 ## 安全性
 

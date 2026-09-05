@@ -8,70 +8,70 @@ repo: github.com/walnuts1018/cluster-api-provider-tart
 resources:
 - api:
     crdVersion: v1
-  controller: true
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartHost
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    controller: true
+    domain: cluster.x-k8s.io
+    group: infrastructure
+    kind: TartHost
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  controller: true
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartCluster
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    controller: true
+    domain: cluster.x-k8s.io
+    group: infrastructure
+    kind: TartCluster
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartClusterTemplate
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    domain: cluster.x-k8s.io
+    group: infrastructure
+    kind: TartClusterTemplate
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  controller: true
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartMachine
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    controller: true
+    domain: cluster.x-k8s.io
+    group: infrastructure
+    kind: TartMachine
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartMachineTemplate
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    domain: cluster.x-k8s.io
+    group: infrastructure
+    kind: TartMachineTemplate
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  controller: true
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartBootstrapConfig
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    controller: true
+    domain: cluster.x-k8s.io
+    group: bootstrap
+    kind: TartBootstrapConfig
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartBootstrapConfigTemplate
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    domain: cluster.x-k8s.io
+    group: bootstrap
+    kind: TartBootstrapConfigTemplate
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  controller: true
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartControlPlane
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    controller: true
+    domain: cluster.x-k8s.io
+    group: controlplane
+    kind: TartControlPlane
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: cluster.x-k8s.io
-  group: infrastructure
-  kind: TartControlPlaneTemplate
-  path: github.com/walnuts1018/cluster-api-provider-tart/api/v1alpha1
+    domain: cluster.x-k8s.io
+    group: controlplane
+    kind: TartControlPlaneTemplate
+  path: github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1
   version: v1alpha1
 version: "3"

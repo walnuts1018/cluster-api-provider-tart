@@ -4,7 +4,7 @@ Tartは、Talos Linuxを実行する物理または仮想HostをCluster APIへ�
 
 TartはTalos専用です。TalosのOS installation、disk/volume、machine configuration、upgrade、rollback、etcd bootstrap、Kubernetes runtimeを再実装せず、Talos APIとmachine configurationへ委譲します。Cilium、Longhorn、TopoLVM、kube-vipなどのadd-on専用APIは提供しません。
 
-現在は新アーキテクチャの再実装中です。APIは`infrastructure.cluster.x-k8s.io/v1alpha1`へリセットしており、過去の`v1beta1` APIやProvisioning Agentとの互換性はありません。
+現在は新アーキテクチャの再実装中です。APIは`v1alpha1`へリセットし、Infrastructure、Bootstrap、Control Planeをそれぞれ`infrastructure.cluster.x-k8s.io`、`bootstrap.cluster.x-k8s.io`、`controlplane.cluster.x-k8s.io`へ分けています。過去の`v1beta1` APIやProvisioning Agentとの互換性はありません。
 
 ## ドキュメント
 
@@ -14,6 +14,7 @@ TartはTalos専用です。TalosのOS installation、disk/volume、machine confi
 - [API contract](docs/development/api-contract.md): ResourceとCAPI contract
 - [Machine lifecycle](docs/development/lifecycle.md): provisioning、update、deletion、recovery
 - [Talos連携](docs/development/talos.md): configuration、storage、upgrade、add-on
+- [セキュリティと観測性](docs/development/security.md): maintenance trust、Secret、MHC、Runtime Extension
 
 ## 開発
 

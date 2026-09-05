@@ -42,6 +42,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	if !cluster.DeletionTimestamp.IsZero() {
+		return ctrl.Result{}, nil
+	}
 
 	// TartCluster.spec.id must be generated exactly once, after the concrete
 	// (non-dry-run) Resource is created, and must never be regenerated. Secret bundle

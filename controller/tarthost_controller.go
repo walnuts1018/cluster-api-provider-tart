@@ -51,6 +51,9 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 
+	if !current.DeletionTimestamp.IsZero() {
+		return r.reconcileDeletion(ctx, &current)
+	}
 	if current.Spec.ID == "" {
 		original := current.DeepCopy()
 		current.Spec.ID = uuid.NewV4().String()
@@ -59,14 +62,10 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
-
-	if !current.DeletionTimestamp.IsZero() {
-		return r.reconcileDeletion(ctx, &current)
-	}
 	if !controllerutil.ContainsFinalizer(&current, tartHostFinalizer) {
 		original := current.DeepCopy()
 		controllerutil.AddFinalizer(&current, tartHostFinalizer)
-		if err := r.Patch(ctx, &current, client.MergeFrom(original)); err != nil {
+		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
@@ -132,7 +131,7 @@ func (r *TartHostReconciler) reconcileDeletion(ctx context.Context, current *inf
 	}
 	original := current.DeepCopy()
 	controllerutil.RemoveFinalizer(current, tartHostFinalizer)
-	if err := r.Patch(ctx, current, client.MergeFrom(original)); err != nil {
+	if err := r.Patch(ctx, current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil

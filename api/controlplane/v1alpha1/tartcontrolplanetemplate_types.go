@@ -79,7 +79,3 @@ type TartControlPlaneTemplateList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartControlPlaneTemplate `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartControlPlaneTemplate{}, &TartControlPlaneTemplateList{})
-}

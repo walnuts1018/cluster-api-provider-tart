@@ -57,7 +57,3 @@ type TartClusterTemplateList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartClusterTemplate `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartClusterTemplate{}, &TartClusterTemplateList{})
-}

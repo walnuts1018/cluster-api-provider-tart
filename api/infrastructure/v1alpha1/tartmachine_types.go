@@ -128,7 +128,3 @@ type TartMachineList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartMachine `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartMachine{}, &TartMachineList{})
-}

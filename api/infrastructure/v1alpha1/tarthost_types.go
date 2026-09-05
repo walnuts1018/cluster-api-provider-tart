@@ -263,7 +263,3 @@ type TartHostList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartHost `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartHost{}, &TartHostList{})
-}

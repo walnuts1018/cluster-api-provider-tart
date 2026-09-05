@@ -169,7 +169,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	if machine.Status.HostRef == nil {
 		original := machine.DeepCopy()
 		controllerutil.RemoveFinalizer(machine, tartMachineFinalizer)
-		if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
@@ -182,7 +182,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	if selected.Spec.ConsumerRef == nil || selected.Spec.ConsumerRef.UID != machine.UID {
 		original := machine.DeepCopy()
 		controllerutil.RemoveFinalizer(machine, tartMachineFinalizer)
-		if err := r.Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil

@@ -103,7 +103,3 @@ type TartClusterList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartCluster `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartCluster{}, &TartClusterList{})
-}

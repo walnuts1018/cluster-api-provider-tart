@@ -27,7 +27,7 @@ spec:
       app.kubernetes.io/name: cluster-api-provider-tart
   replicas: 1
   strategy:
-    type: Recreate # hostNetwork: trueなので、同じPortを複数のPodが使用することを防ぐためにRecreateを指定
+    type: Recreate
   template:
     metadata:
       annotations:
@@ -50,30 +50,16 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-          - --bootstrap-bind-address=0
-          - --tftp-bind-address=0
-          - --ipxe-bind-address=0
         image: controller:latest
         name: manager
         ports:
-        - containerPort: 67
-          name: bootp
-          protocol: UDP
-        - containerPort: 69
-          name: tftp
-          protocol: UDP
-        - containerPort: 8082
-          name: ipxe
-          protocol: TCP
         - containerPort: 9443
-          name: ext-webhook
+          name: runtime-extension
           protocol: TCP
         securityContext:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
           capabilities:
-            add:
-            - NET_BIND_SERVICE
             drop:
             - "ALL"
         livenessProbe:
@@ -95,14 +81,5 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
-        volumeMounts:
-        - name: bootloader
-          mountPath: /var/lib/tftpboot
-          readOnly: true
-      volumes:
-      - name: bootloader
-        image:
-          reference: ghcr.io/walnuts1018/cluster-api-provider-tart-ipxe@sha256:a70c0eb2880e43275455882628e5bf594e141b130c8964cd245316107b6b376f
-          pullPolicy: IfNotPresent
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10

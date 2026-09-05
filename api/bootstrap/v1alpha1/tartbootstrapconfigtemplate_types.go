@@ -58,7 +58,3 @@ type TartBootstrapConfigTemplateList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []TartBootstrapConfigTemplate `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&TartBootstrapConfigTemplate{}, &TartBootstrapConfigTemplateList{})
-}

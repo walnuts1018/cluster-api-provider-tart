@@ -45,10 +45,23 @@ run = "go build ./cmd/controller-manager"
 description = "Goの静的検査を実行する"
 run = "go vet ./..."
 
-[tasks.lint]
-description = "golangci-lintを実行する"
-run = "golangci-lint run"
+[tasks."build-golangci-lint"]
+description = "Build custom golangci-lint binary with module plugins"
+sources = [".custom-gcl.yml"]
+outputs = ["bin/custom-gcl"]
+run = "golangci-lint custom"
 
-[tasks.static]
-description = "生成、format、compile、lintをまとめて確認する"
-depends = ["fmt", "generate", "manifests", "build", "vet", "lint"]
+[tasks."golangci-lint"]
+description = "Run custom golangci-lint"
+depends = ["build-golangci-lint"]
+run = "./bin/custom-gcl"
+
+[tasks.lint]
+description = "Run all linters"
+depends = ["build-golangci-lint"]
+run = "./bin/custom-gcl run ./..."
+
+[tasks."lint:fix"]
+description = "Run linter and perform fixes"
+depends = ["build-golangci-lint"]
+run = "./bin/custom-gcl run --fix ./..."

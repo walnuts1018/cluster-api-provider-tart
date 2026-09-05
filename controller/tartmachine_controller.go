@@ -34,6 +34,7 @@ const (
 
 var (
 	errBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
+	errCAPIProviderIDMismatch   = errors.New("CAPI Machine provider ID does not match TartHost")
 )
 
 // TartMachineReconcilerはHost claim、Talosの初回configuration apply、認証済みAPIの
@@ -46,7 +47,7 @@ type TartMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=,resources=secrets,verbs=get;list;watch
 
@@ -128,6 +129,12 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 	}
+	if err := r.syncCAPIProviderID(ctx, &machine, providerID); err != nil {
+		if errors.Is(err, errCAPIProviderIDMismatch) {
+			return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The CAPI Machine ProviderID does not match the allocated TartHost identity.")
+		}
+		return ctrl.Result{}, err
+	}
 
 	statusOriginal := machine.DeepCopy()
 	machine.Status.HostRef = &corev1.LocalObjectReference{Name: selected.Name}
@@ -150,11 +157,42 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return r.reconcileTalos(ctx, &machine, selected, configuration)
 }
 
+func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID string) error {
+	var owner *metav1.OwnerReference
+	for index := range machine.OwnerReferences {
+		candidate := &machine.OwnerReferences[index]
+		if candidate.Kind == capiMachineKind && candidate.APIVersion == clusterv1.GroupVersion.String() {
+			owner = candidate
+			break
+		}
+	}
+	if owner == nil {
+		return nil
+	}
+
+	clusterMachine := &clusterv1.Machine{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: owner.Name}, clusterMachine); err != nil {
+		return err
+	}
+	if owner.UID != "" && clusterMachine.UID != owner.UID {
+		return errCAPIProviderIDMismatch
+	}
+	if clusterMachine.Spec.ProviderID != "" {
+		if clusterMachine.Spec.ProviderID != providerID {
+			return errCAPIProviderIDMismatch
+		}
+		return nil
+	}
+	original := clusterMachine.DeepCopy()
+	clusterMachine.Spec.ProviderID = providerID
+	return r.Patch(ctx, clusterMachine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
 func (r *TartMachineReconciler) bootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
 	var owner *metav1.OwnerReference
 	for index := range machine.OwnerReferences {
 		candidate := &machine.OwnerReferences[index]
-		if candidate.Kind == "Machine" && candidate.APIVersion == clusterv1.GroupVersion.String() {
+		if candidate.Kind == capiMachineKind && candidate.APIVersion == clusterv1.GroupVersion.String() {
 			owner = candidate
 			break
 		}

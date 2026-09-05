@@ -15,6 +15,9 @@
 package host
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
@@ -29,13 +32,9 @@ func Matches(hostLabels map[string]string, spec infrav1alpha1.TartHostSpec, sele
 	if selector.Architecture != "" && selector.Architecture != spec.Architecture {
 		return false
 	}
-	if selector.FailureDomain != "" && selector.FailureDomain != spec.FailureDomain {
+	hostSelector, err := metav1.LabelSelectorAsSelector(&selector.MatchLabels)
+	if err != nil {
 		return false
 	}
-	for k, v := range selector.MatchLabels {
-		if hostLabels[k] != v {
-			return false
-		}
-	}
-	return true
+	return hostSelector.Matches(labels.Set(hostLabels))
 }

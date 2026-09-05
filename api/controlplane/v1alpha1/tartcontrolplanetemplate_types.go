@@ -15,13 +15,45 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartControlPlaneTemplateResource describes the data needed to create a
 // TartControlPlane from a template.
 type TartControlPlaneTemplateResource struct {
-	Spec TartControlPlaneSpec `json:"spec"`
+	// ObjectMeta is propagated to generated control-plane Machines.
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	Spec       TartControlPlaneTemplateResourceSpec `json:"spec,omitempty,omitzero"`
+}
+
+// TartControlPlaneTemplateResourceSpec omits values calculated or injected by
+// ClusterClass, such as version, replicas, and infrastructureRef.
+type TartControlPlaneTemplateResourceSpec struct {
+	// +optional
+	MachineTemplate TartControlPlaneTemplateMachineTemplate `json:"machineTemplate,omitempty,omitzero"`
+
+	// +optional
+	BootstrapConfigTemplate *corev1.ObjectReference `json:"bootstrapConfigTemplate,omitempty"`
+}
+
+// TartControlPlaneTemplateMachineTemplate is the template-specific form of the
+// control-plane Machine template. The infrastructure reference is injected by
+// ClusterClass or the concrete TartControlPlane.
+type TartControlPlaneTemplateMachineTemplate struct {
+	// +optional
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+
+	// +optional
+	Spec TartControlPlaneTemplateMachineTemplateSpec `json:"spec,omitempty,omitzero"`
+}
+
+// TartControlPlaneTemplateMachineTemplateSpec contains fields that can be
+// shared without fixing the infrastructure template reference.
+type TartControlPlaneTemplateMachineTemplateSpec struct {
+	// +optional
+	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
 // TartControlPlaneTemplateSpec defines the desired state of a TartControlPlaneTemplate.

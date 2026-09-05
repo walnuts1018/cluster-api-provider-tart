@@ -64,9 +64,7 @@ type HostSelector struct {
 	// +optional
 	Architecture string `json:"architecture,omitempty"`
 	// +optional
-	FailureDomain string `json:"failureDomain,omitempty"`
-	// +optional
-	MatchLabels map[string]string `json:"matchLabels,omitempty"`
+	MatchLabels metav1.LabelSelector `json:"matchLabels,omitempty,omitzero"`
 }
 
 // TartMachineStatus defines the observed state of a TartMachine.
@@ -101,7 +99,7 @@ type TartMachineStatus struct {
 // TartMachineInitializationStatus tracks initial provisioning milestones.
 type TartMachineInitializationStatus struct {
 	// +optional
-	Provisioned bool `json:"provisioned,omitempty"`
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true

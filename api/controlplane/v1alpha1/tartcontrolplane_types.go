@@ -17,6 +17,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartControlPlane Condition types, per docs/development/api-contract.md.
@@ -34,25 +35,39 @@ const (
 	TartControlPlanePausedCondition           = "Paused"
 )
 
-// MachineDeletionSpec carries node-disruptive deletion timeouts, kept separate from
-// fields that must not trigger a rollout.
-type MachineDeletionSpec struct {
+// TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
+// timeouts, kept separate from fields that must not trigger a rollout.
+// +kubebuilder:validation:MinProperties=1
+type TartControlPlaneMachineTemplateDeletionSpec struct {
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	NodeDrainTimeoutSeconds *int32 `json:"nodeDrainTimeoutSeconds,omitempty"`
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	NodeVolumeDetachTimeoutSeconds *int32 `json:"nodeVolumeDetachTimeoutSeconds,omitempty"`
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	NodeDeletionTimeoutSeconds *int32 `json:"nodeDeletionTimeoutSeconds,omitempty"`
 }
 
-// MachineTemplateSpec is the template used to create each control-plane CAPI Machine's
-// infrastructureRef and deletion behavior.
-type MachineTemplateSpec struct {
-	// infrastructureRef refers to a TartMachineTemplate.
-	InfrastructureRef corev1.ObjectReference `json:"infrastructureRef"`
+// TartControlPlaneMachineTemplate is the template used to create each
+// control-plane CAPI Machine.
+type TartControlPlaneMachineTemplate struct {
+	// +optional
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
 
 	// +optional
-	Deletion MachineDeletionSpec `json:"deletion,omitempty"`
+	Spec TartControlPlaneMachineTemplateSpec `json:"spec,omitempty,omitzero"`
+}
+
+// TartControlPlaneMachineTemplateSpec is the template used to create each
+// control-plane CAPI Machine's infrastructureRef and deletion behavior.
+type TartControlPlaneMachineTemplateSpec struct {
+	// infrastructureRef refers to a TartMachineTemplate.
+	InfrastructureRef clusterv1.ContractVersionedObjectReference `json:"infrastructureRef"`
+
+	// +optional
+	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
 // TartControlPlaneSpec defines the desired state of a TartControlPlane.
@@ -64,18 +79,11 @@ type TartControlPlaneSpec struct {
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	MachineTemplate MachineTemplateSpec `json:"machineTemplate"`
+	MachineTemplate TartControlPlaneMachineTemplate `json:"machineTemplate"`
 
 	// bootstrapConfigTemplate refers to a TartBootstrapConfigTemplate used to render
 	// each control-plane Machine's TartBootstrapConfig.
 	BootstrapConfigTemplate corev1.ObjectReference `json:"bootstrapConfigTemplate"`
-}
-
-// TartControlPlaneKubernetesVersion is one observed Kubernetes version among the control
-// plane's actual Machines, ordered from oldest to newest.
-type TartControlPlaneKubernetesVersion struct {
-	Version string `json:"version"`
-	Count   int32  `json:"count"`
 }
 
 // TartControlPlaneStatus defines the observed state of a TartControlPlane.
@@ -86,18 +94,22 @@ type TartControlPlaneStatus struct {
 	// versions lists observed actual Kubernetes versions across control-plane Machines,
 	// oldest to newest. There is no separate top-level status.version.
 	// +optional
-	Versions []TartControlPlaneKubernetesVersion `json:"versions,omitempty"`
+	// +listType=map
+	// +listMapKey=version
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	Versions []clusterv1.StatusVersion `json:"versions,omitempty"`
 
 	// +optional
 	Selector string `json:"selector,omitempty"`
 	// +optional
-	Replicas int32 `json:"replicas,omitempty"`
+	Replicas *int32 `json:"replicas,omitempty"`
 	// +optional
-	ReadyReplicas int32 `json:"readyReplicas,omitempty"`
+	ReadyReplicas *int32 `json:"readyReplicas,omitempty"`
 	// +optional
-	AvailableReplicas int32 `json:"availableReplicas,omitempty"`
+	AvailableReplicas *int32 `json:"availableReplicas,omitempty"`
 	// +optional
-	UpToDateReplicas int32 `json:"upToDateReplicas,omitempty"`
+	UpToDateReplicas *int32 `json:"upToDateReplicas,omitempty"`
 
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -113,7 +125,7 @@ type TartControlPlaneInitializationStatus struct {
 	// controlPlaneInitialized becomes true once the workload Kubernetes API server
 	// accepts requests. It does not imply all Nodes are Ready or that CNI is installed.
 	// +optional
-	ControlPlaneInitialized bool `json:"controlPlaneInitialized,omitempty"`
+	ControlPlaneInitialized *bool `json:"controlPlaneInitialized,omitempty"`
 }
 
 // +kubebuilder:object:root=true

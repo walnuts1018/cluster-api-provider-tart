@@ -22,8 +22,8 @@ package extensions
 import (
 	"fmt"
 
+	runtimecatalog "sigs.k8s.io/cluster-api/api/runtime/catalog"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
-	runtimecatalog "sigs.k8s.io/cluster-api/exp/runtime/catalog"
 )
 
 // NewCatalog creates a Runtime Extension catalog with the in-place update hooks

@@ -34,6 +34,20 @@ type TartClusterSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="id is immutable"
 	// +optional
 	ID string `json:"id,omitempty"`
+
+	// updatePolicy controls whether availability-only drain failures may be
+	// relaxed for node-disruptive updates. It never relaxes data, identity,
+	// Host, etcd, or quorum safety checks.
+	// +optional
+	UpdatePolicy TartUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
+}
+
+// TartUpdatePolicy defines the availability policy for node-disruptive updates.
+type TartUpdatePolicy struct {
+	// allowDowntime allows graceful shutdown or reboot when drain fails only for
+	// availability, PDB, or capacity reasons.
+	// +optional
+	AllowDowntime bool `json:"allowDowntime,omitempty,omitzero"`
 }
 
 // TartClusterStatus defines the observed state of a TartCluster.
@@ -64,7 +78,7 @@ type TartClusterStatus struct {
 // TartClusterInitializationStatus tracks initial provisioning milestones.
 type TartClusterInitializationStatus struct {
 	// +optional
-	Provisioned bool `json:"provisioned,omitempty"`
+	Provisioned *bool `json:"provisioned,omitempty"`
 }
 
 // +kubebuilder:object:root=true

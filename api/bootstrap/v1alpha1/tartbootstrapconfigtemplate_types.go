@@ -15,13 +15,24 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartBootstrapConfigTemplateResource describes the data needed to create a
 // TartBootstrapConfig from a template.
 type TartBootstrapConfigTemplateResource struct {
-	Spec TartBootstrapConfigSpec `json:"spec"`
+	// ObjectMeta is propagated to the generated BootstrapConfig and its Secret.
+	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
+	Spec       TartBootstrapConfigTemplateResourceSpec `json:"spec,omitempty,omitzero"`
+}
+
+// TartBootstrapConfigTemplateResourceSpec contains the immutable Secret input
+// shared by concrete BootstrapConfigs created from the template.
+type TartBootstrapConfigTemplateResourceSpec struct {
+	// +optional
+	ConfigSecretRef *corev1.LocalObjectReference `json:"configSecretRef,omitempty"`
 }
 
 // TartBootstrapConfigTemplateSpec defines the desired state of a TartBootstrapConfigTemplate.

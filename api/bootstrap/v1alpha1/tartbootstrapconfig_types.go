@@ -62,7 +62,7 @@ type TartBootstrapConfigStatus struct {
 // TartBootstrapConfigInitializationStatus tracks initial Secret creation.
 type TartBootstrapConfigInitializationStatus struct {
 	// +optional
-	DataSecretCreated bool `json:"dataSecretCreated,omitempty"`
+	DataSecretCreated *bool `json:"dataSecretCreated,omitempty"`
 }
 
 // +kubebuilder:object:root=true

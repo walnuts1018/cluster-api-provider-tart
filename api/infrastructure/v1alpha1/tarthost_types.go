@@ -61,8 +61,8 @@ const (
 	// ReuseModeAdopt keeps existing Talos installation and data. It requires identity,
 	// cluster ID, secret generation, ProviderID and role/version compatibility to match.
 	ReuseModeAdopt ReuseMode = "Adopt"
-	// ReuseModeReprovision explicitly discards data via Talos reset/installer before
-	// the next claim.
+	// ReuseModeReprovision explicitly claims the Host first, rechecks its identity,
+	// and then delegates data destruction to the Talos reset/installer lifecycle.
 	ReuseModeReprovision ReuseMode = "Reprovision"
 )
 
@@ -83,8 +83,10 @@ type RedfishPowerConfig struct {
 	// systemID is the Redfish ComputerSystem identifier. If empty, the first system is used.
 	// +optional
 	SystemID string `json:"systemID,omitempty"`
-	// credentialSecretRef references a Secret with "username" and "password" keys.
-	CredentialSecretRef corev1.LocalObjectReference `json:"credentialSecretRef"`
+	// credentialSecretRef references a namespaced Secret with "username" and
+	// "password" keys. The controller restricts the reference to the configured
+	// management namespace.
+	CredentialSecretRef corev1.SecretReference `json:"credentialSecretRef"`
 	// insecureSkipVerify disables TLS certificate verification for the Redfish endpoint.
 	// +optional
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
@@ -102,6 +104,7 @@ type WakeOnLANPowerConfig struct {
 // PowerSpec describes the Host's power capability.
 type PowerSpec struct {
 	// backend selects which power capability implementation to use.
+	// +kubebuilder:validation:XValidation:rule="(self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN)) || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) && !has(self.redfish)) || (self.backend == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN))",message="backend must select exactly its matching power configuration"
 	Backend PowerBackend `json:"backend"`
 	// +optional
 	Redfish *RedfishPowerConfig `json:"redfish,omitempty"`
@@ -126,13 +129,21 @@ type ReuseApproval struct {
 	RetainedFromUID types.UID `json:"retainedFromUID"`
 }
 
+// ForgetApproval authorizes forgetting one specific Host state. The controller
+// accepts it only when both UIDs match the current binding and retained record.
+type ForgetApproval struct {
+	ConsumerUID     types.UID `json:"consumerUID,omitempty"`
+	RetainedFromUID types.UID `json:"retainedFromUID,omitempty"`
+}
+
 // TartHostSpec defines the desired state of a physical or virtual Host inventory entry.
 type TartHostSpec struct {
 	// id is an immutable random UUID that identifies this Host independently of
 	// metadata.uid, so backups of the management cluster can recreate the same
 	// physical Host identity and ProviderID.
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="id is immutable"
-	ID string `json:"id"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="id may only be initialized once and is immutable afterwards"
+	// +optional
+	ID string `json:"id,omitempty"`
 
 	// macAddress is the primary enrollment identity used to bind an observed boot
 	// attempt to this Host before any other inventory is known.
@@ -174,23 +185,33 @@ type TartHostSpec struct {
 	// +optional
 	ReuseMode ReuseMode `json:"reuseMode,omitempty"`
 
-	// forgetApproved must be set before a Claimed or Retained Host can be deleted. It
-	// authorizes removing the Host from inventory only; it never triggers power off,
-	// Talos reset, or disk wipe.
+	// forgetApproval must match the current Host state before a Claimed or Retained
+	// Host can be deleted. It authorizes removing the Host from inventory only; it
+	// never triggers power off, Talos reset, or disk wipe.
 	// +optional
-	ForgetApproved bool `json:"forgetApproved,omitempty"`
+	ForgetApproval *ForgetApproval `json:"forgetApproval,omitempty"`
 }
 
 // DiskInventory is an observed disk on the Host, identified by a stable Talos disk
 // selector rather than an unstable Linux device path.
 type DiskInventory struct {
-	Selector  string `json:"selector"`
-	SizeBytes int64  `json:"sizeBytes,omitempty"`
+	Selector string `json:"selector"`
+	SizeBytes  int64    `json:"sizeBytes"`
+	DevPath    string   `json:"devPath,omitempty"`
+	Model      string   `json:"model,omitempty"`
+	Serial     string   `json:"serial,omitempty"`
+	WWID       string   `json:"wwid,omitempty"`
+	BusPath    string   `json:"busPath,omitempty"`
+	Transport  string   `json:"transport,omitempty"`
+	Rotational bool     `json:"rotational"`
+	ReadOnly   bool     `json:"readonly"`
+	Symlinks   []string `json:"symlinks,omitempty"`
 }
 
 // HostInventory is the hardware inventory observed via maintenance Talos discovery.
 type HostInventory struct {
 	SystemUUID string          `json:"systemUUID,omitempty"`
+	Architecture string        `json:"architecture,omitempty"`
 	Disks      []DiskInventory `json:"disks,omitempty"`
 }
 

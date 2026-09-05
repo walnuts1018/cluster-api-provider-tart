@@ -8,6 +8,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
+
+	"github.com/cosi-project/runtime/pkg/safe"
+	"github.com/siderolabs/talos/pkg/machinery/api/machine"
+	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
+	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
 
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
@@ -60,6 +67,87 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 		SHA:      v.GetSha(),
 		Platform: messages[0].GetPlatform().GetName(),
 	}, nil
+}
+
+// ApplyConfiguration submits a complete Talos machine configuration through the
+// maintenance API. Talos performs the installation and reboot according to the
+// machine.install section; Tart does not write disks or reimplement that lifecycle.
+func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if len(configuration) == 0 {
+		return errors.New("talos machine configuration is empty")
+	}
+	if _, err := c.raw.ApplyConfiguration(ctx, &machine.ApplyConfigurationRequest{Data: configuration}); err != nil {
+		return fmt.Errorf("apply talos machine configuration: %w", err)
+	}
+	return nil
+}
+
+// Inventory contains the stable hardware identity observed through the Talos
+// maintenance API. It deliberately hides Talos resource types from callers.
+type Inventory struct {
+	SystemUUID   string
+	MACAddresses []string
+}
+
+// HasMAC reports whether the observed physical links contain the expected Host
+// enrollment identity.
+func (i Inventory) HasMAC(expected string) bool {
+	want, err := net.ParseMAC(strings.TrimSpace(expected))
+	if err != nil {
+		return false
+	}
+	for _, observed := range i.MACAddresses {
+		got, err := net.ParseMAC(strings.TrimSpace(observed))
+		if err == nil && got.String() == want.String() {
+			return true
+		}
+	}
+	return false
+}
+
+// Inventory reads the hardware identity available before authentication. The MAC
+// address is used to bind a configured endpoint to the claimed TartHost.
+func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
+	if c == nil || c.raw == nil {
+		return Inventory{}, ErrClientUnavailable
+	}
+	links, err := safe.ReaderListAll[*machinerynetwork.LinkStatus](ctx, c.raw.COSI)
+	if err != nil {
+		return Inventory{}, fmt.Errorf("list talos network links: %w", err)
+	}
+
+	observed := Inventory{}
+	for link := range links.All() {
+		if !link.TypedSpec().Physical() {
+			continue
+		}
+		for _, address := range []net.HardwareAddr{
+			net.HardwareAddr(link.TypedSpec().HardwareAddr),
+			net.HardwareAddr(link.TypedSpec().PermanentAddr),
+		} {
+			if len(address) != 0 {
+				observed.MACAddresses = append(observed.MACAddresses, address.String())
+			}
+		}
+	}
+	if len(observed.MACAddresses) == 0 {
+		return Inventory{}, errors.New("talos maintenance inventory has no physical MAC address")
+	}
+
+	systems, err := safe.ReaderListAll[*machineryhardware.SystemInformation](ctx, c.raw.COSI)
+	if err == nil {
+		for system := range systems.All() {
+			if uuid := strings.TrimSpace(system.TypedSpec().UUID); uuid != "" {
+				observed.SystemUUID = uuid
+				break
+			}
+		}
+	}
+
+	return observed, nil
 }
 
 // ShutdownはTalosの通常のshutdownを要求する。forceオプションは使わず、停止確認は呼び出し側が別途観測する。

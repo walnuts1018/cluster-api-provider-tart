@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,17 +16,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/boot"
+	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const (
 	tartMachineFinalizer        = "tart.cluster.x-k8s.io/machine-lifecycle"
 	shutdownConfirmationRequeue = 30 * time.Second
+	talosReconcileTimeout       = 20 * time.Second
+	talosRequeue                = 30 * time.Second
 )
 
-// TartMachineReconcilerはHost claimとProviderIDの確立を担当する。Talosへの副作用は
-// まだUpdate Extensionへ委譲する段階なので、初回provisioning後のoperationは開始しない。
+var (
+	errBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
+)
+
+// TartMachineReconcilerはHost claim、Talosの初回configuration apply、認証済みAPIの
+// 起動確認を担当する。初回provisioning後のmutableな変更はUpdate Extensionへ委譲する。
 type TartMachineReconciler struct {
 	client.Client
 }
@@ -32,6 +46,9 @@ type TartMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch
+// +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups=,resources=secrets,verbs=get;list;watch
 
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var machine infrav1alpha1.TartMachine
@@ -114,12 +131,267 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 
 	statusOriginal := machine.DeepCopy()
 	machine.Status.HostRef = &corev1.LocalObjectReference{Name: selected.Name}
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonNotImplemented, "Host allocation and ProviderID are established; Talos provisioning is not implemented yet.", machine.Generation)
-	machine.Status.ObservedGeneration = machine.Generation
 	if err := r.Status().Patch(ctx, &machine, client.MergeFrom(statusOriginal)); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	configuration, err := r.bootstrapConfiguration(ctx, &machine)
+	if err != nil {
+		if errors.Is(err, errBootstrapDataUnavailable) {
+			return r.reportTalosStatus(ctx, &machine,
+				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
+				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
+				"BootstrapDataUnavailable", "Talos version cannot be verified before provisioning.",
+				"BootstrapDataUnavailable", "The immutable Bootstrap Secret is not available yet.",
+				talosRequeue)
+		}
+		return ctrl.Result{}, err
+	}
+
+	return r.reconcileTalos(ctx, &machine, selected, configuration)
+}
+
+func (r *TartMachineReconciler) bootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
+	var owner *metav1.OwnerReference
+	for index := range machine.OwnerReferences {
+		candidate := &machine.OwnerReferences[index]
+		if candidate.Kind == "Machine" && candidate.APIVersion == clusterv1.GroupVersion.String() {
+			owner = candidate
+			break
+		}
+	}
+	if owner == nil {
+		return nil, errBootstrapDataUnavailable
+	}
+
+	clusterMachine := &clusterv1.Machine{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: owner.Name}, clusterMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapDataUnavailable
+		}
+		return nil, err
+	}
+	if owner.UID != "" && clusterMachine.UID != owner.UID {
+		return nil, errBootstrapDataUnavailable
+	}
+	ref := clusterMachine.Spec.Bootstrap.ConfigRef
+	if ref.Name == "" || ref.Kind != tartBootstrapConfigKind || ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group {
+		return nil, errBootstrapDataUnavailable
+	}
+
+	config := &bootstrapv1alpha1.TartBootstrapConfig{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapDataUnavailable
+		}
+		return nil, err
+	}
+	if config.Status.DataSecretName == nil || strings.TrimSpace(*config.Status.DataSecretName) == "" {
+		return nil, errBootstrapDataUnavailable
+	}
+
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: *config.Status.DataSecretName}, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, errBootstrapDataUnavailable
+		}
+		return nil, err
+	}
+	clusterName := config.Labels[bootstrap.ClusterNameLabel]
+	if !bootstrap.IsContractSecret(secret, clusterName, config.UID) {
+		return nil, errBootstrapDataUnavailable
+	}
+	configuration, ok := secret.Data[bootstrap.BootstrapSecretKey]
+	if !ok || len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errBootstrapDataUnavailable
+	}
+	return bytes.Clone(configuration), nil
+}
+
+func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, configuration []byte) (ctrl.Result, error) {
+	endpoint := hostTalosEndpoint(selected)
+	if endpoint == "" {
+		if err := powerOnHost(ctx, selected); err != nil {
+			return r.reportTalosStatus(ctx, machine,
+				metav1.ConditionFalse, "PowerUnavailable", "Talos maintenance endpoint is unavailable and the Host could not be powered on.",
+				metav1.ConditionFalse, "PowerUnavailable", "Talos provisioning is waiting for the Host power capability.",
+				"PowerUnavailable", "Talos version cannot be verified before the Host is reachable.",
+				"PowerUnavailable", "The Host does not expose a reachable Talos endpoint.",
+				talosRequeue)
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "EndpointUnavailable", "The Host was powered on; waiting for a Talos maintenance endpoint.",
+			metav1.ConditionFalse, "EndpointUnavailable", "Talos installation has not started because the Host endpoint is not observed.",
+			"EndpointUnavailable", "Talos version cannot be verified before the Host is reachable.",
+			"EndpointUnavailable", "The Host Talos endpoint is not available yet.",
+			talosRequeue)
+	}
+
+	connectionContext, cancel := context.WithTimeout(ctx, talosReconcileTimeout)
+	authenticated, authErr := talos.DialAuthenticatedFromConfiguration(connectionContext, endpoint, configuration)
+	cancel()
+	if authErr == nil {
+		versionContext, versionCancel := context.WithTimeout(ctx, talosReconcileTimeout)
+		version, versionErr := authenticated.Version(versionContext)
+		versionCancel()
+		if closeErr := authenticated.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		if versionErr != nil {
+			return r.reportTalosStatus(ctx, machine,
+				metav1.ConditionFalse, "TalosUnreachable", "The authenticated Talos API could not be queried.",
+				metav1.ConditionFalse, "TalosUnreachable", "Talos provisioning has not been confirmed.",
+				"TalosUnreachable", "The desired Talos version cannot be verified.",
+				"TalosUnreachable", "The authenticated Talos API is not reachable.",
+				talosRequeue)
+		}
+
+		if machine.Spec.TalosImage.Version != "" && version.Tag == machine.Spec.TalosImage.Version {
+			return r.reportTalosStatusWithVersion(ctx, machine, version.Tag,
+				metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+				metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+				metav1.ConditionTrue, "UpToDate", "The observed Talos version matches the desired version.",
+				metav1.ConditionTrue, "Ready", "The Host is running the desired Talos version.",
+				0)
+		}
+		return r.reportTalosStatusWithVersion(ctx, machine, version.Tag,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionFalse, "VersionMismatch", "The observed Talos version does not match the desired version.",
+			metav1.ConditionFalse, "VersionMismatch", "The Host is running Talos, but not the desired version.",
+			0)
+	}
+
+	if isProvisioned(machine) {
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "TalosUnreachable", "The authenticated Talos API is not reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation was previously observed.",
+			"TalosUnreachable", "The desired Talos version cannot be verified.",
+			"TalosUnreachable", "The provisioned Host is temporarily unreachable.",
+			talosRequeue)
+	}
+
+	maintenance, maintenanceErr := talos.DialMaintenance(ctx, endpoint)
+	if maintenanceErr != nil {
+		if powerErr := powerOnHost(ctx, selected); powerErr != nil {
+			return r.reportTalosStatus(ctx, machine,
+				metav1.ConditionFalse, "MaintenanceUnavailable", "The Talos maintenance API is unavailable and the Host could not be powered on.",
+				metav1.ConditionFalse, "MaintenanceUnavailable", "Talos installation is waiting for a reachable maintenance API.",
+				"MaintenanceUnavailable", "Talos version cannot be verified before installation.",
+				"MaintenanceUnavailable", "The Talos maintenance API is not reachable.",
+				talosRequeue)
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "MaintenanceUnavailable", "The Host was powered on; waiting for the Talos maintenance API.",
+			metav1.ConditionFalse, "MaintenanceUnavailable", "Talos installation is waiting for a reachable maintenance API.",
+			"MaintenanceUnavailable", "Talos version cannot be verified before installation.",
+			"MaintenanceUnavailable", "The Talos maintenance API is not reachable yet.",
+			talosRequeue)
+	}
+
+	identity, identityErr := maintenance.Inventory(ctx)
+	if identityErr != nil {
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "MaintenanceUnavailable", "The Talos maintenance identity could not be observed.",
+			metav1.ConditionFalse, "MaintenanceUnavailable", "Talos installation is waiting for verified Host identity.",
+			"MaintenanceUnavailable", "Talos version cannot be verified before installation.",
+			"MaintenanceUnavailable", "The Talos maintenance inventory is not available.",
+			talosRequeue)
+	}
+	if !identity.HasMAC(selected.Spec.MACAddress) {
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, infrav1alpha1.ReasonIdentityConflict, "The Talos endpoint MAC address does not match the claimed Host.",
+			metav1.ConditionFalse, infrav1alpha1.ReasonIdentityConflict, "Talos configuration apply is stopped until Host identity matches.",
+			infrav1alpha1.ReasonIdentityConflict, "Talos version cannot be trusted for a different Host.",
+			infrav1alpha1.ReasonIdentityConflict, "The Talos endpoint belongs to a different Host identity.",
+			0)
+	}
+
+	if err := maintenance.ApplyConfiguration(ctx, configuration); err != nil {
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, "ConfigurationApplyFailed", "The complete Talos machine configuration could not be applied.",
+			metav1.ConditionFalse, "ConfigurationApplyFailed", "Talos installation has not been confirmed.",
+			"ConfigurationApplyFailed", "Talos version cannot be verified before installation.",
+			"ConfigurationApplyFailed", "The Talos maintenance API rejected the machine configuration.",
+			talosRequeue)
+	}
+	if closeErr := maintenance.Close(); closeErr != nil {
+		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+	}
+	return r.reportTalosStatus(ctx, machine,
+		metav1.ConditionTrue, "MaintenanceReachable", "The Talos maintenance API accepted the machine configuration.",
+		metav1.ConditionFalse, "Provisioning", "Talos is installing the machine configuration and will reboot.",
+		"Provisioning", "The authenticated Talos version will be checked after reboot.",
+		"Provisioning", "Talos installation is in progress.",
+		talosRequeue)
+}
+
+func hostTalosEndpoint(host *infrav1alpha1.TartHost) string {
+	if endpoint := strings.TrimSpace(host.Spec.TalosEndpoint); endpoint != "" {
+		return endpoint
+	}
+	for _, addressType := range []clusterv1.MachineAddressType{clusterv1.MachineInternalIP, clusterv1.MachineExternalIP, clusterv1.MachineHostName} {
+		for _, address := range host.Status.Addresses {
+			if address.Type == addressType && strings.TrimSpace(address.Address) != "" {
+				return strings.TrimSpace(address.Address)
+			}
+		}
+	}
+	return ""
+}
+
+func powerOnHost(ctx context.Context, host *infrav1alpha1.TartHost) error {
+	if host.Spec.Power.Backend != infrav1alpha1.PowerBackendWakeOnLAN || host.Spec.Power.WakeOnLAN == nil {
+		return fmt.Errorf("host power backend %q cannot power on through the normal path", host.Spec.Power.Backend)
+	}
+	backend := boot.NewWakeOnLAN(host.Spec.MACAddress, host.Spec.Power.WakeOnLAN.BroadcastAddress)
+	return backend.PowerOn(ctx)
+}
+
+func isProvisioned(machine *infrav1alpha1.TartMachine) bool {
+	return machine.Status.Initialization.Provisioned != nil && *machine.Status.Initialization.Provisioned
+}
+
+func (r *TartMachineReconciler) reportTalosStatus(ctx context.Context, machine *infrav1alpha1.TartMachine,
+	reachableStatus metav1.ConditionStatus, reachableReason, reachableMessage string,
+	provisionedStatus metav1.ConditionStatus, provisionedReason, provisionedMessage string,
+	upToDateReason, upToDateMessage, readyReason, readyMessage string,
+	requeueAfter time.Duration,
+) (ctrl.Result, error) {
+	return r.reportTalosStatusWithVersion(ctx, machine, "", reachableStatus, reachableReason, reachableMessage, provisionedStatus, provisionedReason, provisionedMessage, metav1.ConditionFalse, upToDateReason, upToDateMessage, metav1.ConditionFalse, readyReason, readyMessage, requeueAfter)
+}
+
+func (r *TartMachineReconciler) reportTalosStatusWithVersion(ctx context.Context, machine *infrav1alpha1.TartMachine, talosVersion string,
+	reachableStatus metav1.ConditionStatus, reachableReason, reachableMessage string,
+	provisionedStatus metav1.ConditionStatus, provisionedReason, provisionedMessage string,
+	upToDateStatus metav1.ConditionStatus, upToDateReason, upToDateMessage string,
+	readyStatus metav1.ConditionStatus, readyReason, readyMessage string,
+	requeueAfter time.Duration,
+) (ctrl.Result, error) {
+	original := machine.DeepCopy()
+	if talosVersion != "" {
+		machine.Status.TalosVersion = talosVersion
+	}
+	if provisionedStatus == metav1.ConditionTrue {
+		machine.Status.Initialization.Provisioned = new(true)
+	}
+	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosReachableCondition, reachableStatus, reachableReason, reachableMessage, machine.Generation)
+	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineProvisionedCondition, provisionedStatus, provisionedReason, provisionedMessage, machine.Generation)
+	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineUpToDateCondition, upToDateStatus, upToDateReason, upToDateMessage, machine.Generation)
+	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, readyStatus, readyReason, readyMessage, machine.Generation)
+	machine.Status.ObservedGeneration = machine.Generation
+	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: requeueAfter}, nil
 }
 
 func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, machine *infrav1alpha1.TartMachine, hosts []infrav1alpha1.TartHost) (*infrav1alpha1.TartHost, error) {

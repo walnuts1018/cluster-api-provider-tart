@@ -141,6 +141,13 @@ type TartHostSpec struct {
 	// attempt to this Host before any other inventory is known.
 	MACAddress string `json:"macAddress"`
 
+	// talosEndpoint is an optional address or DNS name where the Talos API for this
+	// Host can be reached. It is a reachability hint only; the controller still
+	// verifies the observed MAC address before applying configuration.
+	// +kubebuilder:validation:MaxLength=512
+	// +optional
+	TalosEndpoint string `json:"talosEndpoint,omitempty"`
+
 	// architecture is a Host selector criterion.
 	// +optional
 	Architecture string `json:"architecture,omitempty"`

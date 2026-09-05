@@ -257,6 +257,13 @@ spec:
                 - Retain
                 - Reusable
                 type: string
+              talosEndpoint:
+                description: |-
+                  talosEndpoint is an optional address or DNS name where the Talos API for this
+                  Host can be reached. It is a reachability hint only; the controller still
+                  verifies the observed MAC address before applying configuration.
+                maxLength: 512
+                type: string
             required:
             - macAddress
             - power

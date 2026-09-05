@@ -7,6 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	"github.com/siderolabs/talos/pkg/machinery/role"
 )
 
 // ErrEndpointEmptyはTalos接続先が空でdialできないことを示す。
@@ -49,6 +54,36 @@ func DialAuthenticated(ctx context.Context, endpoint string, clientCertPEM, clie
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      pool,
 	})
+}
+
+// DialAuthenticatedFromConfiguration derives a short-lived admin client
+// certificate from the immutable complete machine configuration and connects to
+// the authenticated Talos API. The configuration and generated credentials stay
+// in memory for the duration of the dial.
+func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, configuration []byte) (*Client, error) {
+	if err := validateEndpoint(endpoint); err != nil {
+		return nil, err
+	}
+	if len(configuration) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+
+	config, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	bundle, err := secrets.NewBundleFromConfig(secrets.NewFixedClock(time.Now()), config)
+	if err != nil {
+		return nil, fmt.Errorf("derive talos credentials from machine configuration: %w", err)
+	}
+	if bundle.Certs == nil || bundle.Certs.OS == nil {
+		return nil, errors.New("talos machine configuration has no OS certificate authority")
+	}
+	certificate, err := bundle.GenerateTalosAPIClientCertificate(role.MakeSet(role.Admin))
+	if err != nil {
+		return nil, fmt.Errorf("generate talos API client certificate: %w", err)
+	}
+	return DialAuthenticated(ctx, endpoint, certificate.Crt, certificate.Key, bundle.Certs.OS.Crt)
 }
 
 func validateEndpoint(endpoint string) error {

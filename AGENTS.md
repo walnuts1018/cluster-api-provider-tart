@@ -14,6 +14,14 @@
 - 何かしらの外部ツールやパッケージなどのバージョンをファイルとして記述する場合は必ず適切にrenovateで管理・アップデートできるようにしてください。複数の場所でバージョンを整合させる必要がある場合も、それをうまくrenovateで扱えるようにしてください。
 - 並列に複数のCoding Agentが作業することがあります。他のエージェントの作業を上書きしないように、他のエージェントが作業している箇所を編集しないようにしてください。
 - ダミーやテスト用のドメインには`test.walnuts.dev`や`sample.walnuts.dev`を使う。また、テストなどでのMACアドレスは00-00-5E-00-53-00から00-00-5E-00-53-FFの範囲を使う。IPアドレスはRFC 5737で予約された範囲を使う。
+- sub-agentを積極的に活用してください。ただし、毎回親と同じモデルを使うのではなく、基本的にはgpt-5.6-luna (high, extra high, max)やSonnet 5 low などを活用し、なるべく低コストで済むようにしてください。重たいモデルで複数のSubAgentを使うのはなるべく避けてください。
+  - When using subagents:
+    - Do not repeatedly poll or wait for subagents.
+    - While subagents are running, continue any useful non-overlapping work.
+    - Call wait_agent only when the main task is genuinely blocked on a subagent result.
+    - Prefer the longest practical wait timeout rather than frequent short polling.
+    - If a wait times out and the agent is still running, do not immediately enter a repeated wait loop unless there is no other productive work available.
+    - Collect and integrate completed subagent results in batches where possible.
 
 ## ディレクトリ構成
 

@@ -45,6 +45,7 @@ var (
 	ErrBundleDataIncomplete    = errors.New("bundle data is incomplete")
 	ErrRotationTargetMismatch  = errors.New("rotation target mismatch")
 	ErrBundleOwnerIncomplete   = errors.New("bundle owner reference is incomplete")
+	ErrBundleOwnerInvalid      = errors.New("bundle owner reference is invalid")
 	ErrBundleSecretInvalid     = errors.New("bundle Secret does not satisfy its contract")
 )
 
@@ -123,6 +124,9 @@ func BuildPendingSecret(namespace, clusterName, clusterID string, generation int
 	}
 	if namespace == "" || owner.APIVersion == "" || owner.Kind == "" || owner.Name == "" || owner.UID == "" {
 		return nil, ErrBundleOwnerIncomplete
+	}
+	if owner.APIVersion != infrav1alpha1.GroupVersion.String() || owner.Kind != "TartCluster" || owner.Name != clusterName {
+		return nil, ErrBundleOwnerInvalid
 	}
 	cloned, err := cloneCompleteData(data)
 	if err != nil {

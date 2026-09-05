@@ -31,9 +31,9 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 	t.Parallel()
 
 	owner := metav1.OwnerReference{
-		APIVersion: "controlplane.cluster.x-k8s.io/v1alpha1",
-		Kind:       "TartControlPlane",
-		Name:       "control-plane",
+		APIVersion: infrav1alpha1.GroupVersion.String(),
+		Kind:       "TartCluster",
+		Name:       "cluster-a",
 		UID:        types.UID("control-plane-uid"),
 	}
 	data := map[string][]byte{"talos.ca": []byte("ca"), "kubernetes.ca": []byte("kube-ca")}
@@ -49,6 +49,11 @@ func TestBundleNameAndPendingSecret(t *testing.T) {
 	}
 	if secret.Labels[BundleStateLabel] != BundleStatePending {
 		t.Errorf("bundle state = %q, want %q", secret.Labels[BundleStateLabel], BundleStatePending)
+	}
+	wrongOwner := owner
+	wrongOwner.Kind = "TartControlPlane"
+	if _, err := BuildPendingSecret("cluster-a", "cluster-a", "018f3c5e-5f8a-7c1b-9a2d-123456789abc", 2, wrongOwner, data); !errors.Is(err, ErrBundleOwnerInvalid) {
+		t.Fatalf("BuildPendingSecret() error = %v, want ErrBundleOwnerInvalid", err)
 	}
 	data["talos.ca"][0] = 'X'
 	if bytes.Equal(secret.Data["talos.ca"], data["talos.ca"]) {

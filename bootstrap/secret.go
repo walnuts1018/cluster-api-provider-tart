@@ -22,6 +22,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 )
 
 const (
@@ -36,6 +38,7 @@ var (
 	ErrConfigSecretEmpty          = errors.New("bootstrap configuration Secret has no data")
 	ErrInvalidSecretMetadata      = errors.New("bootstrap Secret metadata is incomplete")
 	ErrOwnerReferenceIncomplete   = errors.New("bootstrap Secret owner reference is incomplete")
+	ErrOwnerReferenceInvalid      = errors.New("bootstrap Secret owner reference is invalid")
 	ErrCompleteConfigurationEmpty = errors.New("complete machine configuration is empty")
 )
 
@@ -65,6 +68,9 @@ func BuildSecret(namespace, name, clusterName string, owner metav1.OwnerReferenc
 	if owner.APIVersion == "" || owner.Kind == "" || owner.Name == "" || owner.UID == "" {
 		return nil, ErrOwnerReferenceIncomplete
 	}
+	if owner.APIVersion != bootstrapv1alpha1.GroupVersion.String() || owner.Kind != "TartBootstrapConfig" {
+		return nil, ErrOwnerReferenceInvalid
+	}
 	if len(bytes.TrimSpace(completeConfiguration)) == 0 {
 		return nil, ErrCompleteConfigurationEmpty
 	}
@@ -87,7 +93,7 @@ func BuildSecret(namespace, name, clusterName string, owner metav1.OwnerReferenc
 // IsContractSecretは既存SecretがBootstrap contractを満たすかを判定する。
 // Secretのdataは比較せず、存在とcontractだけを確認する。
 func IsContractSecret(secret *corev1.Secret, clusterName string, ownerUID types.UID) bool {
-	if secret == nil || secret.Type != BootstrapSecretType || clusterName == "" {
+	if secret == nil || secret.Type != BootstrapSecretType || secret.Immutable == nil || !*secret.Immutable || clusterName == "" {
 		return false
 	}
 	if len(secret.Data) != 1 || len(secret.Data[BootstrapSecretKey]) == 0 {
@@ -96,7 +102,7 @@ func IsContractSecret(secret *corev1.Secret, clusterName string, ownerUID types.
 	if secret.Labels[ClusterNameLabel] != clusterName {
 		return false
 	}
-	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].Controller == nil || !*secret.OwnerReferences[0].Controller {
+	if len(secret.OwnerReferences) != 1 || secret.OwnerReferences[0].APIVersion != bootstrapv1alpha1.GroupVersion.String() || secret.OwnerReferences[0].Kind != "TartBootstrapConfig" || secret.OwnerReferences[0].Name == "" || secret.OwnerReferences[0].UID == "" || secret.OwnerReferences[0].Controller == nil || !*secret.OwnerReferences[0].Controller {
 		return false
 	}
 	return ownerUID == "" || secret.OwnerReferences[0].UID == ownerUID

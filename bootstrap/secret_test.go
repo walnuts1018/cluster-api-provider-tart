@@ -74,6 +74,30 @@ func TestBuildSecret(t *testing.T) {
 	if !IsContractSecret(secret, "cluster-a", ownerUID) {
 		t.Fatal("BuildSecret() produced a Secret outside the Bootstrap contract")
 	}
+	mutable := secret.DeepCopy()
+	mutable.Immutable = new(false)
+	if IsContractSecret(mutable, "cluster-a", ownerUID) {
+		t.Fatal("IsContractSecret() accepted a mutable Secret")
+	}
+	incompleteOwner := secret.DeepCopy()
+	incompleteOwner.OwnerReferences[0].UID = ""
+	if IsContractSecret(incompleteOwner, "cluster-a", ownerUID) {
+		t.Fatal("IsContractSecret() accepted an incomplete OwnerReference")
+	}
+	wrongOwnerKind := secret.DeepCopy()
+	wrongOwnerKind.OwnerReferences[0].Kind = "TartCluster"
+	if IsContractSecret(wrongOwnerKind, "cluster-a", ownerUID) {
+		t.Fatal("IsContractSecret() accepted an OwnerReference for another resource")
+	}
+	wrongOwner := metav1.OwnerReference{
+		APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1",
+		Kind:       "TartCluster",
+		Name:       "cluster-a",
+		UID:        types.UID("cluster-uid"),
+	}
+	if _, err := BuildSecret("cluster-a", "bootstrap-a", "cluster-a", wrongOwner, configuration); !errors.Is(err, ErrOwnerReferenceInvalid) {
+		t.Fatalf("BuildSecret() error = %v, want ErrOwnerReferenceInvalid", err)
+	}
 	configuration[0] = 'X'
 	if bytes.Equal(secret.Data[BootstrapSecretKey], configuration) {
 		t.Fatal("BuildSecret() retained the caller's mutable byte slice")

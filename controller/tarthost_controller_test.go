@@ -3,9 +3,11 @@ package controller
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -13,7 +15,38 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
+
+func TestRecordBootAttemptMaintainsBoundedObservedHistory(t *testing.T) {
+	t.Parallel()
+
+	first := metav1.NewTime(time.Unix(10, 0))
+	second := metav1.NewTime(time.Unix(20, 0))
+	attempts := []infrav1alpha1.BootAttempt{{BootID: "boot-old", FirstObservedAt: first, LastObservedAt: first}}
+	inventory := talos.Inventory{BootID: "boot-new"}
+	attempts = recordBootAttempt(attempts, inventory, "192.0.2.10:50000", second)
+	attempts = recordBootAttempt(attempts, inventory, "192.0.2.11:50000", metav1.NewTime(time.Unix(30, 0)))
+	if len(attempts) != 2 {
+		t.Fatalf("recordBootAttempt() returned %d attempts, want 2", len(attempts))
+	}
+	if attempts[1].BootID != "boot-new" || attempts[1].FirstObservedAt != second || attempts[1].Endpoint != "192.0.2.11:50000" {
+		t.Fatalf("recordBootAttempt() new attempt = %#v", attempts[1])
+	}
+	if attempts[1].LastObservedAt.Unix() != 30 {
+		t.Fatalf("recordBootAttempt() lastObservedAt = %s, want unix 30", attempts[1].LastObservedAt.Time)
+	}
+
+	for index := range maxBootAttempts + 3 {
+		attempts = recordBootAttempt(attempts, talos.Inventory{BootID: fmt.Sprintf("boot-%d", index)}, "192.0.2.20:50000", second)
+	}
+	if len(attempts) != maxBootAttempts {
+		t.Fatalf("recordBootAttempt() returned %d attempts after overflow, want %d", len(attempts), maxBootAttempts)
+	}
+	if attempts[0].BootID != "boot-3" {
+		t.Fatalf("recordBootAttempt() oldest retained boot = %q, want boot-3", attempts[0].BootID)
+	}
+}
 
 func TestDeletionApproved(t *testing.T) {
 	t.Parallel()

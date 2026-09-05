@@ -23,8 +23,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartClusterTemplate is the Schema for the tartclustertemplates
-          API.
+        description: TartClusterTemplateはtartclustertemplates APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -44,15 +43,13 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartClusterTemplateSpec defines the desired state of a TartClusterTemplate.
+            description: TartClusterTemplateSpecはTartClusterTemplateのdesired stateを定義する。
             properties:
               template:
-                description: TartClusterTemplateResource describes the data needed
-                  to create a TartCluster from a template.
+                description: TartClusterTemplateResourceはtemplateからTartClusterを作成するためのdataを定義する。
                 properties:
                   metadata:
-                    description: ObjectMeta is propagated to the generated Cluster
-                      and its descendants.
+                    description: ObjectMetaは生成されるClusterとその子リソースへ伝播する。
                     minProperties: 1
                     properties:
                       annotations:
@@ -75,19 +72,17 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: |-
-                      TartClusterTemplateResourceSpec contains only fields that are meaningful for
-                      every concrete TartCluster created from the template. Cluster identity is
-                      always generated on the concrete resource after creation.
+                    description: TartClusterTemplateResourceSpecはtemplateから作成される全ての具体的なTartClusterで意味を持つfieldだけを定義する。Cluster
+                      identityは具体的なresourceの作成後に常に生成する。
                     properties:
                       updatePolicy:
-                        description: TartUpdatePolicy defines the availability policy
-                          for node-disruptive updates.
+                        description: TartUpdatePolicyはnode-disruptive updateのavailability
+                          policyを定義する。
                         properties:
                           disruptionPolicy:
                             default: Block
-                            description: disruptionPolicy controls how drain failures
-                              are handled during node-disruptive updates.
+                            description: disruptionPolicyはnode-disruptive update中のdrain
+                              failureを処理する方法を制御する。
                             enum:
                             - Block
                             - AllowDowntime

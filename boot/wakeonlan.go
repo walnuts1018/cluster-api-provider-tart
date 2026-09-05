@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"syscall"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
@@ -16,10 +17,7 @@ const (
 	magicPacketRepeatCount           = 16
 )
 
-// WakeOnLAN sends a Wake-on-LAN magic packet to power on a Host. It cannot confirm
-// power-on or observe stop; stop confirmation for this backend relies on the
-// authenticated Talos API becoming unreachable after a Shutdown RPC is accepted, which
-// is not proof of physical power-off. See .agents/skills/host-lifecycle/SKILL.md.
+// WakeOnLANはWake-on-LANマジックパケットを送信してHostの電源投入を要求する。電源投入や停止を確認できないため、停止確認はShutdown RPC受理後にauthenticated Talos APIが到達不能になることへ依存するが、物理的な電源断の証明にはならない。詳細は.agents/skills/host-lifecycle/SKILL.mdを参照する。
 type WakeOnLAN struct {
 	macAddress       network.MACAddress
 	broadcastAddress network.UDPAddress
@@ -47,15 +45,14 @@ func NewWakeOnLAN(macAddress network.MACAddress, broadcastAddress network.UDPAdd
 	return WakeOnLAN{macAddress: macAddress, broadcastAddress: broadcastAddress}, nil
 }
 
-// PowerOn sends the magic packet. See PowerOn interface documentation for what success
-// does and does not confirm.
+// PowerOnはマジックパケットを送信する。成功が確認する範囲はPowerOnインターフェースの説明に従う。
 func (w WakeOnLAN) PowerOn(ctx context.Context) error {
 	packet, err := magicPacket(w.macAddress)
 	if err != nil {
 		return err
 	}
 
-	dialer := &net.Dialer{}
+	dialer := &net.Dialer{Control: enableBroadcast}
 	conn, err := dialer.DialContext(ctx, "udp", w.broadcastAddress.String())
 	if err != nil {
 		return fmt.Errorf("dial wake-on-lan address: %w", err)
@@ -71,6 +68,16 @@ func (w WakeOnLAN) PowerOn(ctx context.Context) error {
 		return fmt.Errorf("send wake-on-lan magic packet: %w", err)
 	}
 	return conn.Close()
+}
+
+func enableBroadcast(_, _ string, connection syscall.RawConn) error {
+	var controlErr error
+	if err := connection.Control(func(fileDescriptor uintptr) {
+		controlErr = syscall.SetsockoptInt(int(fileDescriptor), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+	}); err != nil {
+		return err
+	}
+	return controlErr
 }
 
 func magicPacket(macAddress network.MACAddress) ([]byte, error) {

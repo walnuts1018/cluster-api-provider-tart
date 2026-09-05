@@ -10,10 +10,10 @@ import (
 
 var ErrInvalidHTTPSURL = errors.New("invalid HTTPS URL")
 
-// HTTPSURLはHTTPS schemeとhostを持つURLを表す値オブジェクトである。
+// HTTPSURLはHTTPSスキームとホストを持つURLを表す値オブジェクトである。
 type HTTPSURL string
 
-// ParseHTTPSURLはRedfish endpointなどのHTTPS URLを検証する。
+// ParseHTTPSURLはRedfishエンドポイントなどのHTTPS URLを検証する。
 func ParseHTTPSURL(value string) (HTTPSURL, error) {
 	value = strings.TrimSpace(value)
 	parsed, err := url.ParseRequestURI(value)

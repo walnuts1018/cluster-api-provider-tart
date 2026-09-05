@@ -23,8 +23,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartControlPlaneTemplate is the Schema for the tartcontrolplanetemplates
-          API.
+        description: TartControlPlaneTemplateはtartcontrolplanetemplates APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -44,13 +43,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartControlPlaneTemplateSpec defines the desired state of
-              a TartControlPlaneTemplate.
+            description: TartControlPlaneTemplateSpecはTartControlPlaneTemplateのdesired
+              stateを定義する。
             properties:
               template:
-                description: |-
-                  TartControlPlaneTemplateResource describes the data needed to create a
-                  TartControlPlane from a template.
+                description: TartControlPlaneTemplateResourceはtemplateからTartControlPlaneを作成するためのdataを定義する。
                 properties:
                   metadata:
                     description: ObjectMetaは生成されるTartControlPlaneのmetadataへ伝播する。各control-plane
@@ -77,9 +74,7 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: |-
-                      TartControlPlaneTemplateResourceSpec omits values calculated or injected by
-                      ClusterClass, such as version, replicas, and infrastructureRef.
+                    description: TartControlPlaneTemplateResourceSpecはClusterClassが計算または注入するversion、replicas、infrastructureRefなどの値を含めない。
                     properties:
                       bootstrapConfigTemplateRef:
                         description: ContractVersionedObjectReference is a reference
@@ -118,10 +113,8 @@ spec:
                         - name
                         type: object
                       machineTemplate:
-                        description: |-
-                          TartControlPlaneTemplateMachineTemplate is the template-specific form of the
-                          control-plane Machine template. The infrastructure reference is injected by
-                          ClusterClass or the concrete TartControlPlane.
+                        description: TartControlPlaneTemplateMachineTemplateはcontrol-plane
+                          Machine templateのtemplate専用形式である。infrastructure referenceはClusterClassまたは具体的なTartControlPlaneが注入する。
                         properties:
                           metadata:
                             description: |-
@@ -168,14 +161,11 @@ spec:
                                 type: object
                             type: object
                           spec:
-                            description: |-
-                              TartControlPlaneTemplateMachineTemplateSpec contains fields that can be
-                              shared without fixing the infrastructure template reference.
+                            description: TartControlPlaneTemplateMachineTemplateSpecはinfrastructure
+                              template referenceを固定せずに共有できるfieldを定義する。
                             properties:
                               deletion:
-                                description: |-
-                                  TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
-                                  timeouts, kept separate from fields that must not trigger a rollout.
+                                description: TartControlPlaneMachineTemplateDeletionSpecはnode-disruptiveな削除timeoutを保持する。rolloutを発生させないfieldとは分離する。
                                 minProperties: 1
                                 properties:
                                   nodeDeletionTimeoutSeconds:
@@ -192,8 +182,7 @@ spec:
                                     type: integer
                                 type: object
                               readinessGates:
-                                description: readinessGates specifies additional conditions
-                                  to evaluate for Machine readiness.
+                                description: readinessGatesはMachine readinessを評価する追加Conditionを指定する。
                                 items:
                                   description: MachineReadinessGate contains the type
                                     of a Machine condition to be used as a readiness
@@ -224,8 +213,7 @@ spec:
                                   type: object
                                 type: array
                               taints:
-                                description: taints specifies node taints applied
-                                  to the created Machine.
+                                description: taintsは作成したMachineへ適用するnode taintを指定する。
                                 items:
                                   description: MachineTaint defines a taint equivalent
                                     to corev1.Taint, but additionally having a propagation

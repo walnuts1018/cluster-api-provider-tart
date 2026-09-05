@@ -1,36 +1,25 @@
-// Package host contains the pure Host selection and allocation-eligibility policy, and
-// the atomic compare-and-swap claim adapter for TartHost.spec.consumerRef. See
-// .agents/skills/host-lifecycle/SKILL.md.
+// Package hostはHost選択とallocation eligibilityの純粋なpolicy、およびTartHost.spec.consumerRefのatomic compare-and-swap claim adapterを提供する。詳細は.agents/skills/host-lifecycle/SKILL.mdを参照する。
 package host
 
 import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
-// Eligibility is an observation of whether a Host may be selected for allocation. It is
-// never stored as a workflow phase; it is always recomputed from spec.consumerRef,
-// spec.retainedFrom, spec.reusePolicy, spec.reuseApproval and spec.reuseMode.
+// EligibilityはHostをallocation対象にできるかという観測結果である。workflow phaseとして保存せず、spec.consumerRef、spec.retainedFrom、spec.reusePolicy、spec.reuseApproval、spec.reuseModeから常に再計算する。
 type Eligibility string
 
 const (
-	// Available Hosts have no consumerRef and no retainedFrom, so they may be claimed by
-	// the deterministic Host allocator.
+	// Available HostにはconsumerRefとretainedFromがないため、決定論的なHost allocatorがclaimできる。
 	Available Eligibility = "Available"
-	// Claimed Hosts have a consumerRef and are bound to a specific TartMachine.
+	// Claimed HostにはconsumerRefがあり、特定のTartMachineへbindされている。
 	Claimed Eligibility = "Claimed"
-	// Retained Hosts held data or Talos identity from a previous Machine and must not be
-	// auto-allocated until an explicit reuse approval matches the current retainedFrom.
+	// Retained Hostは以前のMachineのdataまたはTalos identityを保持するため、現在のretainedFromに一致する明示的なreuse approvalがあるまで自動allocationしない。
 	Retained Eligibility = "Retained"
-	// Reusable Hosts are Retained Hosts with a matching reuse approval and reuse mode;
-	// they may be selected for Adopt or Reprovision, but never for a normal claim path
-	// that ignores reuseMode.
+	// Reusable Hostは一致するreuse approvalとreuse modeを持つRetained Hostである。AdoptまたはReprovisionの対象にはできるが、reuseModeを無視した通常のclaim経路では選択しない。
 	Reusable Eligibility = "Reusable"
 )
 
-// Classify computes the current allocation eligibility of a Host from its Spec only.
-// It never performs an external side effect and never treats reusePolicy/reuseApproval
-// set while the Host is still fresh or Claimed as a future deletion approval: those
-// fields only take effect once the Host is Retained and previousConsumerRef is present.
+// ClassifyはHostのSpecだけから現在のallocation eligibilityを計算する。外部副作用を実行せず、HostがfreshまたはClaimedの間に設定されたreusePolicyやreuseApprovalを将来の削除承認として扱わない。これらのfieldはHostがRetainedとなりpreviousConsumerRefが存在した場合だけ有効になる。
 func Classify(spec infrav1alpha1.TartHostSpec) Eligibility {
 	if spec.ConsumerRef != nil {
 		return Claimed

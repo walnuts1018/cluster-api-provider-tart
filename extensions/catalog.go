@@ -1,8 +1,4 @@
-// Package extensions implements the CAPI Runtime Extension wire protocol for the
-// in-place update hooks (CanUpdateMachineSet, CanUpdateMachine, UpdateMachine). The
-// real safe-diff decision logic is not implemented yet: every handler returns Failure,
-// which CAPI and Tart both treat as a veto, never as permission to fall back to a
-// replacement rollout. See .agents/skills/reconcile/SKILL.md#runtime-extension.
+// Package extensionsはCAPI Runtime Extensionのwire protocolとTalos image in-place update hookを実装する。安全に完全評価できない差分はpatchなしで拒否し、実行時には現行Host bindingとimmutable Bootstrap Secretを再観測してからTalos APIへ委譲する。
 package extensions
 
 import (
@@ -12,8 +8,7 @@ import (
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 )
 
-// NewCatalog creates a Runtime Extension catalog with the in-place update hooks
-// registered.
+// NewCatalogはin-place update hookを登録したRuntime Extension catalogを生成する。
 func NewCatalog() (*runtimecatalog.Catalog, error) {
 	catalog := runtimecatalog.New()
 	if err := runtimehooksv1.AddToCatalog(catalog); err != nil {

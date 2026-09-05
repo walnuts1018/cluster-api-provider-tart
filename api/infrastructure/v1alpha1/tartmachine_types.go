@@ -8,7 +8,7 @@ import (
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 )
 
-// TartMachine Condition types.
+// TartMachineのCondition typeを定義する。
 const (
 	TartMachineReadyCondition          = "Ready"
 	TartMachineTalosReachableCondition = "TalosReachable"
@@ -16,48 +16,33 @@ const (
 	TartMachineTalosUpToDateCondition  = "TalosUpToDate"
 )
 
-// TalosImageSpec is the single source of truth for the Talos OS version and system
-// extension set. The same schematic is used for both the boot asset and the installer
-// image.
+// TalosImageSpecはTalos OS versionとsystem extension setの唯一の正本である。同じschematicをboot assetとinstaller imageの双方に使用する。
 type TalosImageSpec struct {
-	// version is the desired Talos OS version. It must follow semantic versioning with a leading "v".
+	// versionはdesired Talos OS versionである。先頭にvを付けたsemantic versioningに従わなければならない。
 	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
 	Version string `json:"version"`
-	// schematicID is the Image Factory schematic identifier, which also determines the
-	// installed system extension set.
+	// schematicIDはImage Factory schematic identifierであり、installされるsystem extension setも決定する。
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern="^[A-Za-z0-9][A-Za-z0-9._-]*$"
 	SchematicID string `json:"schematicID"`
 }
 
-// TartMachineSpec defines the desired state of a TartMachine.
-// Field classification:
-// - hostRef: initial-only / user-owned (immutable after claim)
-// - hostSelector: initial-only / user-owned (safe-stop after claim)
-// - image: mutable / Update Extension-owned lifecycle (in-place Talos updates are handled via Update Extension, not by normal TartMachine reconciler)
-// - providerID: controller-written
-//
+// TartMachineSpecはTartMachineのdesired stateを定義する。field classificationは、hostRefがinitial-onlyかつuser-ownedでclaim後immutable、hostSelectorがinitial-onlyかつuser-ownedでclaim後の変更はsafe-stop、imageがmutableかつUpdate Extension-owned lifecycle、providerIDがcontroller-writtenである。
 // +kubebuilder:validation:XValidation:rule="!(has(self.hostRef) && has(self.hostSelector))",message="hostRef and hostSelector are mutually exclusive"
 type TartMachineSpec struct {
-	// hostRef explicitly selects a TartHost (initial-only, user-owned). Immutable after Host claim succeeds.
-	// Mutually exclusive with hostSelector.
+	// hostRefはTartHostを明示的に選択する(initial-onlyかつuser-owned)。Host claim成功後はimmutableであり、hostSelectorとは相互排他的である。
 	// +optional
 	HostRef *corev1.LocalObjectReference `json:"hostRef,omitempty"`
 
-	// hostSelector deterministically narrows Host allocation when hostRef is not set (initial-only, user-owned).
-	// Changing it after claim is a safe-stop, not an in-place update.
-	// Mutually exclusive with hostRef.
+	// hostSelectorはhostRef未指定時にHost allocation対象を決定論的に絞り込む(initial-onlyかつuser-owned)。claim後の変更はin-place updateではなくsafe-stopとして扱い、hostRefとは相互排他的である。
 	// +optional
 	HostSelector *HostSelector `json:"hostSelector,omitempty"`
 
-	// image is the desired Talos OS version and schematic identity (mutable, Update Extension-owned).
-	// Normal TartMachine reconciler does not trigger Talos upgrades on live nodes directly;
-	// upgrades are driven by the CAPI Update Extension lifecycle (CanUpdateMachine -> UpdateMachine).
+	// imageはdesired Talos OS versionとschematic identityを指定する(mutableかつUpdate Extension-owned)。通常のTartMachine reconcilerは稼働中nodeのTalos upgradeを直接開始せず、CAPI Update Extension lifecycle(CanUpdateMachineからUpdateMachine)がupgradeを実行する。
 	Image TalosImageSpec `json:"image"`
 
-	// providerID is derived deterministically from the claimed TartHost.spec.hostID as
-	// tart://host/<TartHost.spec.hostID> once Host allocation succeeds (controller-written).
-	// Invariant: TartHost.spec.hostID -> tart://host/<hostID> -> TartMachine.spec.providerID == Node.spec.providerID.
+	// providerIDはHost allocation成功後にclaimed TartHost.spec.hostIDからtart://host/<TartHost.spec.hostID>として決定論的に導出する(controller-written)。不変条件はTartHost.spec.hostIDからtart://host/<hostID>を経てTartMachine.spec.providerIDとNode.spec.providerIDが一致することである。
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
@@ -65,7 +50,7 @@ type TartMachineSpec struct {
 	ProviderID hostdomain.ProviderID `json:"providerID,omitempty,omitzero"`
 }
 
-// HostSelector narrows Host allocation to Hosts matching all given criteria.
+// HostSelectorは指定された全ての条件に一致するHostへallocation対象を絞り込む。
 type HostSelector struct {
 	// +optional
 	Architecture string `json:"architecture,omitempty"`
@@ -73,7 +58,7 @@ type HostSelector struct {
 	Selector metav1.LabelSelector `json:"selector,omitempty,omitzero"`
 }
 
-// TartMachineStatus defines the observed state of a TartMachine.
+// TartMachineStatusはTartMachineのobserved stateを定義する。
 type TartMachineStatus struct {
 	// +optional
 	Initialization TartMachineInitializationStatus `json:"initialization,omitempty,omitzero"`
@@ -86,14 +71,17 @@ type TartMachineStatus struct {
 	// +kubebuilder:validation:MaxLength=256
 	FailureDomain string `json:"failureDomain,omitempty"`
 
-	// hostRef is the observed Host binding, i.e. the Host currently claimed via
-	// TartHost.spec.consumerRef for this Machine.
+	// hostRefはobserved Host bindingであり、このMachineのためにTartHost.spec.consumerRefを通じて現在claimしているHostを示す。
 	// +optional
 	HostRef *corev1.LocalObjectReference `json:"hostRef,omitempty"`
 
-	// talosVersion is the observed actual Talos OS version.
+	// talosVersionは観測した実際のTalos OS versionである。
 	// +optional
 	TalosVersion string `json:"talosVersion,omitempty"`
+
+	// talosSchematicIDは観測したImage Factory schematic identityである。versionが同じでもsystem extension setがrollbackしたことを検知するために保持する。
+	// +optional
+	TalosSchematicID string `json:"talosSchematicID,omitempty"`
 
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
@@ -104,7 +92,7 @@ type TartMachineStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// TartMachineInitializationStatus tracks initial provisioning milestones.
+// TartMachineInitializationStatusは初回provisioningの到達点を追跡する。
 // +kubebuilder:validation:MinProperties=1
 type TartMachineInitializationStatus struct {
 	// +optional
@@ -118,7 +106,7 @@ type TartMachineInitializationStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="ProviderID",type=string,JSONPath=".spec.providerID"
 
-// TartMachine is the Schema for the tartmachines API.
+// TartMachineはtartmachines APIのschemaである。
 type TartMachine struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -129,7 +117,7 @@ type TartMachine struct {
 
 // +kubebuilder:object:root=true
 
-// TartMachineList contains a list of TartMachine.
+// TartMachineListはTartMachineのlistである。
 type TartMachineList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

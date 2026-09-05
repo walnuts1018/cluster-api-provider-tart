@@ -5,9 +5,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartControlPlane Condition types, per docs/development/api-contract.md.
-// In accordance with CAPI v1beta2 ControlPlane contract, Available is the primary condition
-// bubble-up to Cluster.status.
+// TartControlPlaneのCondition typeをdocs/development/api-contract.mdに従って定義する。CAPI v1beta2 ControlPlane contractに従い、AvailableをCluster.statusへbubble-upする主Conditionとする。
 const (
 	TartControlPlaneAvailableCondition            = "Available"
 	TartControlPlaneUpToDateCondition             = "UpToDate"
@@ -21,8 +19,7 @@ const (
 	TartControlPlanePausedCondition               = "Paused"
 )
 
-// TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
-// timeouts, kept separate from fields that must not trigger a rollout.
+// TartControlPlaneMachineTemplateDeletionSpecはnode-disruptiveな削除timeoutを保持する。rolloutを発生させないfieldとは分離する。
 // +kubebuilder:validation:MinProperties=1
 type TartControlPlaneMachineTemplateDeletionSpec struct {
 	// +optional
@@ -36,8 +33,7 @@ type TartControlPlaneMachineTemplateDeletionSpec struct {
 	NodeDeletionTimeoutSeconds *int32 `json:"nodeDeletionTimeoutSeconds,omitempty"`
 }
 
-// TartControlPlaneMachineTemplate is the template used to create each
-// control-plane CAPI Machine.
+// TartControlPlaneMachineTemplateは各control-plane CAPI Machineを作成するtemplateである。
 type TartControlPlaneMachineTemplate struct {
 	// +optional
 	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
@@ -46,17 +42,16 @@ type TartControlPlaneMachineTemplate struct {
 	Spec TartControlPlaneMachineTemplateSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartControlPlaneMachineTemplateSpec is the template used to create each
-// control-plane CAPI Machine's infrastructureRef, deletion behavior, readiness gates, and taints.
+// TartControlPlaneMachineTemplateSpecは各control-plane CAPI MachineのinfrastructureRef、削除動作、readiness gate、taintを作成するtemplateである。
 type TartControlPlaneMachineTemplateSpec struct {
-	// infrastructureRef refers to a TartMachineTemplate.
+	// infrastructureRefはTartMachineTemplateを参照する。
 	InfrastructureRef clusterv1.ContractVersionedObjectReference `json:"infrastructureRef"`
 
-	// readinessGates specifies additional conditions to evaluate for Machine readiness.
+	// readinessGatesはMachine readinessを評価する追加Conditionを指定する。
 	// +optional
 	ReadinessGates []clusterv1.MachineReadinessGate `json:"readinessGates,omitempty,omitzero"`
 
-	// taints specifies node taints applied to the created Machine.
+	// taintsは作成したMachineへ適用するnode taintを指定する。
 	// +optional
 	Taints []clusterv1.MachineTaint `json:"taints,omitempty,omitzero"`
 
@@ -64,40 +59,30 @@ type TartControlPlaneMachineTemplateSpec struct {
 	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
-// TartControlPlaneSpec defines the desired state of a TartControlPlane.
-//
-// Control Plane endpoint note: Tart does not provision control plane endpoints (VIP, LB).
-// The endpoint is expected to be provided externally via Cluster.spec.controlPlaneEndpoint.
-//
-// In-place update note: Control plane in-place updates follow the CAPI KCP pattern:
-// CanUpdateMachine verification -> update Machine/InfraMachine/BootstrapConfig desired specs ->
-// in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation -> UpdateMachine hook pending ->
-// Machine controller coordination.
+// TartControlPlaneSpecはTartControlPlaneのdesired stateを定義する。Tartはcontrol plane endpoint(VIPやLB)をprovisionせず、endpointはCluster.spec.controlPlaneEndpointから外部に供給される。control planeのin-place updateはCAPI KCP patternに従い、CanUpdateMachine検証、Machine/InfraMachine/BootstrapConfigのdesired spec更新、in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation設定、UpdateMachine hook pending設定、Machine controller連携の順で扱う。
 type TartControlPlaneSpec struct {
-	// version is the desired Kubernetes version. It must follow semantic versioning with a leading "v".
+	// versionはdesired Kubernetes versionである。先頭にvを付けたsemantic versioningに従わなければならない。
 	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
 	Version string `json:"version"`
 
-	// replicas is the desired number of control plane Machines.
+	// replicasはdesired control plane Machine数である。
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
 	MachineTemplate TartControlPlaneMachineTemplate `json:"machineTemplate"`
 
-	// bootstrapConfigTemplateRef refers to a TartBootstrapConfigTemplate used to render
-	// each control-plane Machine's TartBootstrapConfig.
+	// bootstrapConfigTemplateRefは各control-plane MachineのTartBootstrapConfigをrenderするTartBootstrapConfigTemplateを参照する。
 	BootstrapConfigTemplateRef clusterv1.ContractVersionedObjectReference `json:"bootstrapConfigTemplateRef"`
 }
 
-// TartControlPlaneStatus defines the observed state of a TartControlPlane.
+// TartControlPlaneStatusはTartControlPlaneのobserved stateを定義する。
 type TartControlPlaneStatus struct {
 	// +optional
 	Initialization TartControlPlaneInitializationStatus `json:"initialization,omitempty,omitzero"`
 
-	// versions lists observed actual Kubernetes versions across control-plane Machines,
-	// oldest to newest. There is no separate top-level status.version.
+	// versionsはcontrol-plane Machine群で観測した実際のKubernetes versionを古い順に並べる。top-levelのstatus.versionは持たない。
 	// +optional
 	// +listType=map
 	// +listMapKey=version
@@ -125,11 +110,10 @@ type TartControlPlaneStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// TartControlPlaneInitializationStatus tracks initial etcd/API server bootstrap.
+// TartControlPlaneInitializationStatusは初回etcd/API server bootstrapを追跡する。
 // +kubebuilder:validation:MinProperties=1
 type TartControlPlaneInitializationStatus struct {
-	// controlPlaneInitialized becomes true once the workload Kubernetes API server
-	// accepts requests. It does not imply all Nodes are Ready or that CNI is installed.
+	// controlPlaneInitializedはworkload Kubernetes API serverがrequestを受理した時点でtrueになる。全NodeがReadyであることやCNIがinstall済みであることは意味しない。
 	// +optional
 	ControlPlaneInitialized *bool `json:"controlPlaneInitialized,omitempty"`
 }
@@ -142,7 +126,7 @@ type TartControlPlaneInitializationStatus struct {
 // +kubebuilder:printcolumn:name="Available",type=string,JSONPath=".status.conditions[?(@.type=='Available')].status"
 // +kubebuilder:printcolumn:name="Replicas",type=integer,JSONPath=".status.replicas"
 
-// TartControlPlane is the Schema for the tartcontrolplanes API.
+// TartControlPlaneはtartcontrolplanes APIのschemaである。
 type TartControlPlane struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -153,7 +137,7 @@ type TartControlPlane struct {
 
 // +kubebuilder:object:root=true
 
-// TartControlPlaneList contains a list of TartControlPlane.
+// TartControlPlaneListはTartControlPlaneのlistである。
 type TartControlPlaneList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

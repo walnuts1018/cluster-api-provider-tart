@@ -11,7 +11,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 )
 
-// RedactedConfigurationValueはhash計算前にsecret-bearing configuration valueを置換するmarkerである。
+// RedactedConfigurationValueはハッシュ計算前に機密を含むconfiguration valueを置換するmarkerである。
 const RedactedConfigurationValue = "<redacted>"
 
 var (
@@ -19,8 +19,8 @@ var (
 	ErrEffectiveConfigurationInvalid    = errors.New("effective machine configuration is invalid")
 )
 
-// DigestEffectiveConfigurationはTalosが解釈したeffective configurationを正規化し、secret-bearing valueをredaction markerへ置換してSHA-256を返す。
-// 引数はraw patchではなく、Talos machine configurationのrender後の完全な文書でなければならない。
+// DigestEffectiveConfigurationはTalosが解釈したeffective configurationを正規化し、機密を含むvalueをredaction markerへ置換してSHA-256を返す。
+// 引数はraw patchではなく、Talos machine configurationをrenderした後の完全な文書でなければならない。
 func DigestEffectiveConfiguration(completeConfiguration []byte) (string, error) {
 	if len(bytes.TrimSpace(completeConfiguration)) == 0 {
 		return "", ErrCompleteConfigurationEmpty

@@ -17,12 +17,7 @@ import (
 // ErrEndpointEmptyはTalos接続先が空でdialできないことを示す。
 var ErrEndpointEmpty = errors.New("talos endpoint is empty")
 
-// DialMaintenance connects to an unconfigured Talos node's maintenance API. The
-// connection is TLS-encrypted but not authenticated: the server certificate is
-// self-signed and there is no mutual identity verification. Callers must bind the
-// endpoint to an expected Host identity (MAC/DHCP, boot attempt, observed system UUID)
-// before trusting any response, and must not send configuration apply requests over
-// this connection without that binding. See .agents/skills/talos/SKILL.md#maintenance-api.
+// DialMaintenanceは未構成Talos nodeのmaintenance APIへ接続する。connectionはTLSで暗号化されるが、server certificateが自己署名で相互identity検証もないため認証されない。呼び出し側は応答を信頼する前にendpointをexpected Host identity(MAC/DHCP、boot attempt、observed system UUID)へbindし、そのbindなしにこのconnectionでconfiguration apply requestを送信しない。詳細は.agents/skills/talos/SKILL.md#maintenance-apiを参照する。
 func DialMaintenance(ctx context.Context, endpoint string) (*Client, error) {
 	if err := validateEndpoint(endpoint); err != nil {
 		return nil, err
@@ -33,10 +28,7 @@ func DialMaintenance(ctx context.Context, endpoint string) (*Client, error) {
 	})
 }
 
-// DialAuthenticated connects to a Talos node using a client certificate issued from the
-// cluster's Talos PKI. clientCertPEM/clientKeyPEM/caPEM are PEM-encoded and are expected
-// to come from the Cluster's immutable, generation-scoped secret bundle; callers must
-// never log or persist them outside that Secret.
+// DialAuthenticatedはclusterのTalos PKIから発行されたclient certificateを使ってTalos nodeへ接続する。clientCertPEM、clientKeyPEM、caPEMはPEM encodedで、Clusterのimmutableなgeneration-scoped secret bundleから取得する。呼び出し側はそれらをSecretの外へlogまたは永続化しない。
 func DialAuthenticated(ctx context.Context, endpoint string, clientCertPEM, clientKeyPEM, caPEM []byte) (*Client, error) {
 	if err := validateEndpoint(endpoint); err != nil {
 		return nil, err
@@ -56,10 +48,7 @@ func DialAuthenticated(ctx context.Context, endpoint string, clientCertPEM, clie
 	})
 }
 
-// DialAuthenticatedFromConfiguration derives a short-lived admin client
-// certificate from the immutable complete machine configuration and connects to
-// the authenticated Talos API. The configuration and generated credentials stay
-// in memory for the duration of the dial.
+// DialAuthenticatedFromConfigurationはimmutableなcomplete machine configurationから短命なadmin client certificateを導出してauthenticated Talos APIへ接続する。configurationと生成したcredentialはdial中だけメモリに保持する。
 func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, configuration []byte) (*Client, error) {
 	if err := validateEndpoint(endpoint); err != nil {
 		return nil, err

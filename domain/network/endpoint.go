@@ -11,10 +11,10 @@ import (
 
 var ErrInvalidEndpoint = errors.New("invalid network endpoint")
 
-// EndpointはTalos APIなどへ接続するhostまたはhost:portを表す値オブジェクトである。
+// EndpointはTalos APIなどへ接続するホストまたはホストとポートの組み合わせを表す値オブジェクトである。
 type Endpoint string
 
-// ParseEndpointはschemeやpathを含まないhost endpointを正規化する。
+// ParseEndpointはスキームやパスを含まないホストエンドポイントを正規化する。
 func ParseEndpoint(value string) (Endpoint, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || strings.ContainsAny(value, " \t\r\n/?#") || strings.Contains(value, "://") {

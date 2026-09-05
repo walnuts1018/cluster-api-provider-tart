@@ -25,8 +25,7 @@ import (
 	"path/filepath"
 )
 
-// DumpClusterState collects comprehensive debug information from the cluster
-// and writes it to files in the specified artifacts directory.
+// DumpClusterStateはclusterの包括的なdebug情報を収集し、指定されたartifacts directoryへfileとして保存する。
 func DumpClusterState(artifactDir string) error {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create artifact directory: %w", err)
@@ -63,14 +62,13 @@ func DumpClusterState(artifactDir string) error {
 	return nil
 }
 
-// DumpControllerLogs collects logs from all controller-manager pods
-// and writes them to a file in the specified artifacts directory.
+// DumpControllerLogsは全controller-manager podのlogを収集し、指定されたartifacts directoryのfileへ保存する。
 func DumpControllerLogs(artifactDir string) error {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create artifact directory: %w", err)
 	}
 
-	// Get controller pod names
+	// controller pod名を取得する。
 	cmd := exec.Command("kubectl", "get", "pods", "-l", "control-plane=controller-manager",
 		"-o", "go-template={{ range .items }}{{ .metadata.name }}{{ \"\\n\" }}{{ end }}",
 		"-n", "cluster-api-provider-tart-system")
@@ -88,7 +86,7 @@ func DumpControllerLogs(artifactDir string) error {
 	for _, podName := range podNames {
 		logFile := filepath.Join(artifactDir, fmt.Sprintf("controller-logs-%s.log", podName))
 
-		// Get current container logs
+		// 現在のcontainer logを取得する。
 		cmd = exec.Command("kubectl", "logs", podName, "-n", "cluster-api-provider-tart-system", "--tail=500")
 		logOutput, err := cmd.CombinedOutput()
 		if err != nil {
@@ -99,7 +97,7 @@ func DumpControllerLogs(artifactDir string) error {
 			}
 		}
 
-		// Get previous container logs (if container crashed/restarted)
+		// containerがcrashまたはrestartしていれば、直前のcontainer logを取得する。
 		prevLogFile := filepath.Join(artifactDir, fmt.Sprintf("controller-logs-%s-previous.log", podName))
 		cmd = exec.Command("kubectl", "logs", podName, "-n", "cluster-api-provider-tart-system",
 			"--previous", "--tail=500")
@@ -110,7 +108,7 @@ func DumpControllerLogs(artifactDir string) error {
 			}
 		}
 
-		// Get pod description
+		// pod descriptionを取得する。
 		descFile := filepath.Join(artifactDir, fmt.Sprintf("pod-description-%s.txt", podName))
 		cmd = exec.Command("kubectl", "describe", "pod", podName, "-n", "cluster-api-provider-tart-system")
 		descOutput, err := cmd.CombinedOutput()
@@ -122,7 +120,7 @@ func DumpControllerLogs(artifactDir string) error {
 			}
 		}
 
-		// Get pod events
+		// pod Eventを取得する。
 		eventsFile := filepath.Join(artifactDir, fmt.Sprintf("pod-events-%s.txt", podName))
 		cmd = exec.Command("kubectl", "get", "events", "--field-selector", fmt.Sprintf("involvedObject.name=%s", podName),
 			"-n", "cluster-api-provider-tart-system", "--sort-by=.lastTimestamp")
@@ -170,7 +168,7 @@ func DumpDnsmasqState(artifactDir string) error {
 	return nil
 }
 
-// dumpResource executes a command and writes the output to a file.
+// dumpResourceはcommandを実行し、出力をfileへ保存する。
 func dumpResource(filename, title, cmd string, args []string, artifactDir string) error {
 	output, err := exec.Command(cmd, args...).CombinedOutput()
 	if err != nil {

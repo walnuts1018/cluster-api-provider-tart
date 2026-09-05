@@ -31,6 +31,45 @@ func TestSelectFresh(t *testing.T) {
 	}
 }
 
+func TestSelectFreshForFailureDomain(t *testing.T) {
+	t.Parallel()
+
+	hosts := []infrav1alpha1.TartHost{
+		{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String(), FailureDomain: "zone-b"}},
+		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd").String(), FailureDomain: "zone-a"}},
+	}
+
+	selected, err := SelectFreshForFailureDomain(hosts, nil, "zone-a")
+	if err != nil {
+		t.Fatalf("SelectFreshForFailureDomain() error = %v", err)
+	}
+	if selected.Name != "host-a" {
+		t.Fatalf("SelectFreshForFailureDomain() selected %q, want host-a", selected.Name)
+	}
+	if _, err := SelectFreshForFailureDomain(hosts, nil, "zone-c"); !errors.Is(err, ErrNoEligibleHost) {
+		t.Fatalf("SelectFreshForFailureDomain() error = %v, want ErrNoEligibleHost", err)
+	}
+}
+
+func TestFailureDomains(t *testing.T) {
+	t.Parallel()
+
+	hosts := []infrav1alpha1.TartHost{
+		{Spec: infrav1alpha1.TartHostSpec{FailureDomain: "zone-b"}},
+		{Spec: infrav1alpha1.TartHostSpec{FailureDomain: "zone-a"}},
+		{Spec: infrav1alpha1.TartHostSpec{FailureDomain: "zone-b"}},
+		{Spec: infrav1alpha1.TartHostSpec{}},
+	}
+
+	got := FailureDomains(hosts)
+	if len(got) != 2 || got[0].Name != "zone-a" || got[1].Name != "zone-b" {
+		t.Fatalf("FailureDomains() = %#v, want sorted unique domains", got)
+	}
+	if got[0].ControlPlane == nil || !*got[0].ControlPlane || got[1].ControlPlane == nil || !*got[1].ControlPlane {
+		t.Fatal("FailureDomains() must mark observed domains as control-plane capable")
+	}
+}
+
 func mustHostID(t *testing.T, value string) hostdomain.HostID {
 	t.Helper()
 	id, err := hostdomain.ParseHostID(value)

@@ -1,6 +1,4 @@
-// Package talos adapts the Talos machinery gRPC client to the small set of
-// observations and operations Tart needs, so that generated Talos API types never
-// leak into controller or policy packages. See .agents/skills/talos/SKILL.md.
+// Package talosはTartが必要とする観測と操作だけをTalos machineryのgRPCクライアントへ適合させ、生成されたTalos API型をcontrollerやpolicy packageへ漏らさない。詳細は.agents/skills/talos/SKILL.mdを参照する。
 package talos
 
 import (
@@ -9,13 +7,17 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"slices"
 	"strings"
 	"uuid"
 
+	"github.com/blang/semver/v4"
 	"github.com/cosi-project/runtime/pkg/safe"
+	common "github.com/siderolabs/talos/pkg/machinery/api/common"
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
+	"github.com/siderolabs/talos/pkg/machinery/compatibility"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
 	"github.com/siderolabs/talos/pkg/machinery/config/container"
@@ -26,6 +28,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/resources/block"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
+	machineryruntime "github.com/siderolabs/talos/pkg/machinery/resources/runtime"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
@@ -37,24 +40,32 @@ var (
 	ErrProviderIDConflict = errors.New("talos kubelet provider ID conflicts with the allocated Host")
 )
 
-// InstallerImage returns the Image Factory installer reference for a desired
-// Talos image identity.
+// InstallerImageはdesired Talos image identityに対応するImage Factory installer referenceを返す。
 func InstallerImage(version, schematicID string) (string, error) {
 	version = strings.TrimSpace(version)
 	schematicID = strings.TrimSpace(schematicID)
 	if version == "" {
 		return "", errors.New("talos image version is empty")
 	}
+	if !strings.HasPrefix(version, "v") {
+		return "", errors.New("talos image version must start with v")
+	}
+	if _, err := semver.ParseTolerant(version); err != nil {
+		return "", fmt.Errorf("parse Talos image version: %w", err)
+	}
 	if schematicID == "" {
 		return "", errors.New("talos image schematic ID is empty")
+	}
+	for _, character := range schematicID {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '.' && character != '_' && character != '-' {
+			return "", errors.New("talos image schematic ID contains an invalid character")
+		}
 	}
 
 	return fmt.Sprintf("factory.talos.dev/metal-installer/%s:%s", schematicID, version), nil
 }
 
-// SetInstallerImage updates only the Talos installer image in a complete
-// machine configuration. Talos machinery owns the document merge and
-// serialization so existing disk, PKI, and machine settings remain intact.
+// SetInstallerImageはcomplete machine configuration内のTalos installer imageだけを更新する。documentのmergeとserializationはTalos machineryへ委譲し、既存のdisk、PKI、machine settingを保持する。
 func SetInstallerImage(configuration []byte, version, schematicID string) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
@@ -99,7 +110,6 @@ func SetInstallerImage(configuration []byte, version, schematicID string) ([]byt
 		if config.MachineConfig == nil {
 			config.MachineConfig = &v1alpha1config.MachineConfig{}
 		}
-		// TODO: 旧Talos設定形式はサポートしなくていいのでは？最新のtalosで動作すればいいです。
 		if config.MachineConfig.MachineInstall == nil { //nolint:staticcheck // 旧Talos設定形式を扱うため。
 			config.MachineConfig.MachineInstall = &v1alpha1config.InstallConfig{} //nolint:staticcheck // 旧Talos設定形式を扱うため。
 		}
@@ -118,9 +128,7 @@ func SetInstallerImage(configuration []byte, version, schematicID string) ([]byt
 	return result, nil
 }
 
-// SetProviderID writes the provider ID derived from the allocated TartHost into
-// the kubelet configuration. The value is checked before applying the patch so
-// a user-owned conflicting provider ID cannot silently be replaced.
+// SetProviderIDはallocation済みTartHostから導出したProviderIDをkubelet configurationへ書き込む。patch適用前に値を確認し、ユーザー所有の競合するProviderIDを黙って置換しない。
 func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
@@ -190,13 +198,12 @@ func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
 	return result, nil
 }
 
-// Client is a thin wrapper around the Talos machinery gRPC client. It exposes only the
-// observations and operations Tart's reconcile and policy packages need.
+// ClientはTalos machineryのgRPC clientを薄くwrapする。Tartのreconcileとpolicy packageが必要とする観測と操作だけを公開する。
 type Client struct {
 	raw *talosclient.Client
 }
 
-// Close releases the underlying gRPC connection.
+// Closeは内部のgRPC connectionを解放する。
 func (c *Client) Close() error {
 	if c == nil || c.raw == nil {
 		return nil
@@ -204,8 +211,7 @@ func (c *Client) Close() error {
 	return c.raw.Close()
 }
 
-// Version is the observed Talos OS version and platform reported by the machine's
-// authenticated or maintenance API.
+// Versionはmachineのauthenticatedまたはmaintenance APIが返したTalos OS versionとplatformの観測値である。
 type Version struct {
 	Tag      string
 	SHA      string
@@ -213,10 +219,7 @@ type Version struct {
 	Arch     string
 }
 
-// Version fetches the observed Talos OS version from the connected node.
-//
-// TODO: 深い安全ロジック(schematic比較、health判定、reboot後の再接続判断)は次セッションで
-// host/controlplane側のpolicyへ実装する。ここではTalos APIから値を取得するだけに留める。
+// Versionは接続中のnodeからTalos OS versionの観測値を取得する。reconcileの呼び出し側は結果をdesired imageと比較し、不一致ならMachineをunreadyのままにする。
 func (c *Client) Version(ctx context.Context) (Version, error) {
 	if c == nil || c.raw == nil {
 		return Version{}, ErrClientUnavailable
@@ -239,6 +242,45 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	}, nil
 }
 
+// ValidateUpgradeはTalos公式のversion compatibility判定へ委譲し、直接のdowngradeや未対応minorへの更新を拒否する。
+func ValidateUpgrade(current, desired string) error {
+	current = strings.TrimSpace(current)
+	desired = strings.TrimSpace(desired)
+	if current == "" || desired == "" {
+		return errors.New("talos upgrade versions are required")
+	}
+	currentSemanticVersion, err := semver.ParseTolerant(current)
+	if err != nil {
+		return fmt.Errorf("parse current Talos semantic version: %w", err)
+	}
+	desiredSemanticVersion, err := semver.ParseTolerant(desired)
+	if err != nil {
+		return fmt.Errorf("parse desired Talos semantic version: %w", err)
+	}
+	if desiredSemanticVersion.LT(currentSemanticVersion) {
+		return fmt.Errorf("talos downgrade from %s to %s is not supported", current, desired)
+	}
+	if desiredSemanticVersion.EQ(currentSemanticVersion) {
+		return nil
+	}
+	minimumLifecycleVersion, err := semver.Parse("1.13.0")
+	if err != nil {
+		return fmt.Errorf("parse minimum Talos Lifecycle version: %w", err)
+	}
+	if currentSemanticVersion.LT(minimumLifecycleVersion) {
+		return fmt.Errorf("talos upgrade requires Lifecycle API support from v1.13.0; current version is %s", current)
+	}
+	currentVersion, err := compatibility.ParseTalosVersion(&machine.VersionInfo{Tag: current})
+	if err != nil {
+		return fmt.Errorf("parse current Talos version: %w", err)
+	}
+	desiredVersion, err := compatibility.ParseTalosVersion(&machine.VersionInfo{Tag: desired})
+	if err != nil {
+		return fmt.Errorf("parse desired Talos version: %w", err)
+	}
+	return desiredVersion.UpgradeableFrom(currentVersion)
+}
+
 // ApplyConfigurationはcomplete Talos machine configurationをmaintenance APIへ渡す。TalosはconfigurationのUnattendedInstallConfigまたはnative設定に従ってinstallationとrebootを実行する。
 func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) error {
 	if c == nil || c.raw == nil {
@@ -256,8 +298,52 @@ func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) e
 	return nil
 }
 
-// Bootstrap starts the Talos control-plane etcd bootstrap operation. The caller
-// must invoke it only after the authenticated control-plane machine is reachable.
+// UpgradeはTalos公式のLifecycle APIへdesired installer imageを渡し、upgrade完了のexit statusを確認する。既存データの保持と再起動はTalosのupgrade semanticsへ委譲する。
+func (c *Client) Upgrade(ctx context.Context, image string) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	image = strings.TrimSpace(image)
+	if image == "" {
+		return errors.New("talos upgrade image is empty")
+	}
+	stream, err := c.raw.LifecycleClient.Upgrade(ctx, &machine.LifecycleServiceUpgradeRequest{
+		Containerd: &common.ContainerdInstance{
+			Driver:    common.ContainerDriver_CRI,
+			Namespace: common.ContainerdNamespace_NS_SYSTEM,
+		},
+		Source: &machine.InstallArtifactsSource{ImageName: image},
+	})
+	if err != nil {
+		return fmt.Errorf("upgrade Talos OS: %w", err)
+	}
+	exitStatusObserved := false
+	for {
+		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("receive Talos OS upgrade progress: %w", err)
+		}
+		progress := response.GetProgress()
+		if progress == nil {
+			continue
+		}
+		if exitCode, ok := progress.GetResponse().(*machine.LifecycleServiceInstallProgress_ExitCode); ok {
+			exitStatusObserved = true
+			if exitCode.ExitCode != 0 {
+				return fmt.Errorf("upgrade Talos OS exited with code %d", exitCode.ExitCode)
+			}
+		}
+	}
+	if !exitStatusObserved {
+		return errors.New("upgrade Talos OS ended without an exit status")
+	}
+	return nil
+}
+
+// BootstrapはTalos control-plane etcd bootstrap operationを開始する。呼び出し側はauthenticated control-plane machineへ到達できることを確認してから呼び出す。
 func (c *Client) Bootstrap(ctx context.Context) error {
 	if c == nil || c.raw == nil {
 		return ErrClientUnavailable
@@ -268,15 +354,22 @@ func (c *Client) Bootstrap(ctx context.Context) error {
 	return nil
 }
 
-// EtcdStatus is the small etcd observation needed to distinguish a running
-// control-plane member from a machine that has only finished OS installation.
+// EtcdStatusはOS installationだけを完了したmachineと稼働中のcontrol-plane memberを区別するために必要なetcd観測値である。
 type EtcdStatus struct {
 	MemberID uint64
 	Leader   uint64
 	Errors   []string
 }
 
-// EtcdStatus observes the local etcd member through the authenticated Talos API.
+// EtcdMemberはTalosから観測したetcd memberの非機密identityである。
+type EtcdMember struct {
+	ID       uint64
+	Hostname string
+	PeerURLs []string
+	Learner  bool
+}
+
+// EtcdStatusはauthenticated Talos APIを通じてローカルetcd memberを観測する。
 func (c *Client) EtcdStatus(ctx context.Context) (EtcdStatus, error) {
 	if c == nil || c.raw == nil {
 		return EtcdStatus{}, ErrClientUnavailable
@@ -297,9 +390,57 @@ func (c *Client) EtcdStatus(ctx context.Context) (EtcdStatus, error) {
 	}, nil
 }
 
-// Kubeconfig returns the workload-cluster kubeconfig from the authenticated
-// Talos API. The caller must keep the bytes in memory and must not expose them
-// through status, events, logs, or metrics.
+// EtcdMembersはauthenticated Talos APIからetcdの現在のmember集合を取得する。member removal前のquorum判定とremove後の完了確認に使用する。
+func (c *Client) EtcdMembers(ctx context.Context) ([]EtcdMember, error) {
+	if c == nil || c.raw == nil {
+		return nil, ErrClientUnavailable
+	}
+	response, err := c.raw.EtcdMemberList(ctx, &machine.EtcdMemberListRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list talos etcd members: %w", err)
+	}
+	messages := response.GetMessages()
+	if len(messages) == 0 {
+		return nil, errors.New("list talos etcd members: empty response")
+	}
+	if len(messages[0].GetMembers()) == 0 {
+		return nil, errors.New("list talos etcd members: membership is empty")
+	}
+	members := make([]EtcdMember, 0, len(messages[0].GetMembers()))
+	seen := make(map[uint64]struct{}, len(messages[0].GetMembers()))
+	for _, member := range messages[0].GetMembers() {
+		if member == nil || member.GetId() == 0 {
+			return nil, errors.New("list talos etcd members: member identity is invalid")
+		}
+		if _, exists := seen[member.GetId()]; exists {
+			return nil, errors.New("list talos etcd members: duplicate member identity")
+		}
+		seen[member.GetId()] = struct{}{}
+		members = append(members, EtcdMember{
+			ID:       member.GetId(),
+			Hostname: member.GetHostname(),
+			PeerURLs: append([]string(nil), member.GetPeerUrls()...),
+			Learner:  member.GetIsLearner(),
+		})
+	}
+	return members, nil
+}
+
+// RemoveEtcdMemberはTalos公式APIへmember IDによるetcd member removalを委譲する。quorum維持の判定は呼び出し側がremove前に完了させる。
+func (c *Client) RemoveEtcdMember(ctx context.Context, memberID uint64) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if memberID == 0 {
+		return errors.New("talos etcd member ID is empty")
+	}
+	if err := c.raw.EtcdRemoveMemberByID(ctx, &machine.EtcdRemoveMemberByIDRequest{MemberId: memberID}); err != nil {
+		return fmt.Errorf("remove Talos etcd member: %w", err)
+	}
+	return nil
+}
+
+// Kubeconfigはauthenticated Talos APIからworkload clusterのkubeconfigを返す。呼び出し側はbytesをメモリ内だけで保持し、Status、Event、log、metricsへ出力しない。
 func (c *Client) Kubeconfig(ctx context.Context) ([]byte, error) {
 	if c == nil || c.raw == nil {
 		return nil, ErrClientUnavailable
@@ -311,9 +452,9 @@ func (c *Client) Kubeconfig(ctx context.Context) ([]byte, error) {
 	return configuration, nil
 }
 
-// Inventory contains the stable hardware identity observed through the Talos
-// maintenance API. It deliberately hides Talos resource types from callers.
+// InventoryはTalos maintenance APIを通じて観測したstable hardware identityを含む。呼び出し側にはTalos resource typeを公開しない。
 type Inventory struct {
+	BootID            string
 	SystemUUID        uuid.UUID
 	Architecture      string
 	MACAddresses      []network.MACAddress
@@ -345,8 +486,7 @@ type NetworkInterfaceInventory struct {
 	Addresses  []string
 }
 
-// HasMAC reports whether the observed physical links contain the expected Host
-// enrollment identity.
+// HasMACは観測した物理linkにexpected Host enrollment identityが含まれるかを返す。
 func (i Inventory) HasMAC(expected network.MACAddress) bool {
 	if expected.IsZero() {
 		return false
@@ -354,8 +494,7 @@ func (i Inventory) HasMAC(expected network.MACAddress) bool {
 	return slices.Contains(i.MACAddresses, expected)
 }
 
-// Inventory reads the hardware identity available before authentication. The MAC
-// address is used to bind a configured endpoint to the claimed TartHost.
+// Inventoryは認証前に取得可能なhardware identityを読み取る。MAC addressを使ってconfigured endpointをclaimed TartHostへbindする。
 func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	if c == nil || c.raw == nil {
 		return Inventory{}, ErrClientUnavailable
@@ -366,6 +505,9 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	}
 
 	observed := Inventory{}
+	if bootID, bootIDErr := safe.ReaderGetByID[*machineryruntime.BootID](ctx, c.raw.COSI, machineryruntime.BootIDID); bootIDErr == nil {
+		observed.BootID = strings.TrimSpace(bootID.TypedSpec().BootID)
+	}
 	addressesByLink := make(map[string][]string)
 	addressStatuses, addressErr := safe.ReaderListAll[*machinerynetwork.AddressStatus](ctx, c.raw.COSI)
 	if addressErr == nil {
@@ -480,6 +622,22 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	return observed, nil
 }
 
+// SchematicIDはImage Factoryがnodeへ注入したsystem extension setのidentityを観測する。観測できない場合はdesired schematicとの一致を証明できないためerrorを返す。
+func (c *Client) SchematicID(ctx context.Context) (string, error) {
+	if c == nil || c.raw == nil {
+		return "", ErrClientUnavailable
+	}
+	resource, err := safe.ReaderGetByID[*machineryruntime.ImageFactorySchematic](ctx, c.raw.COSI, machineryruntime.ImageFactorySchematicID)
+	if err != nil {
+		return "", fmt.Errorf("get Talos Image Factory schematic: %w", err)
+	}
+	schematicID := strings.TrimSpace(resource.TypedSpec().SchematicID)
+	if schematicID == "" {
+		return "", errors.New("get Talos Image Factory schematic: schematic ID is unavailable")
+	}
+	return schematicID, nil
+}
+
 func parseHardwareAddress(value []byte) (network.MACAddress, error) {
 	if len(value) == 0 {
 		return network.MACAddress(""), nil
@@ -524,10 +682,7 @@ func (c *Client) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// dial establishes a gRPC connection to a single Talos endpoint using the given TLS
-// configuration. Maintenance connections are TLS-encrypted but not authenticated
-// (self-signed, no client certificate); see DialMaintenance. Authenticated connections
-// present a client certificate; see DialAuthenticated.
+// dialは指定されたTLS configurationを使って単一のTalos endpointへのgRPC connectionを確立する。maintenance connectionはTLSで暗号化されるが自己署名証明書とclient certificateなしのため認証されない。DialMaintenanceとDialAuthenticatedを参照する。
 func dial(ctx context.Context, endpoint string, tlsConfig *tls.Config) (*Client, error) {
 	raw, err := talosclient.New(ctx,
 		talosclient.WithTLSConfig(tlsConfig),

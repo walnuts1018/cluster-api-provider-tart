@@ -1,11 +1,14 @@
 package bootstrap
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 
+	"github.com/siderolabs/crypto/x509"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
@@ -20,14 +23,14 @@ var (
 )
 
 // MachineConfigurationContextはclusterとCAPI Machineから導出したTalos設定生成の入力である。
-// SecretsBundleはKubernetes Secretから検証済みの値だけを渡し、呼び出し側で外部へ出力しない。
+// SecretsBundleにはKubernetes Secretから検証済みの値だけを渡し、呼び出し側は外部へ出力しない。
 type MachineConfigurationContext struct {
 	ClusterName          string
 	ControlPlaneEndpoint string
 	KubernetesVersion    string
 	MachineType          machine.Type
 	SecretsBundle        *secrets.Bundle
-	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合、user patchまたはcomplete configurationがinstall targetを含んでいなければならない。
+	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はuser patchまたはcomplete configurationがinstall targetを含まなければならない。
 	InstallDisk *InstallDisk
 }
 
@@ -79,7 +82,43 @@ func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...
 	if err := validateProviderOwnedConfiguration(provider, effectiveProvider, input.ClusterName, endpoint, input.MachineType); err != nil {
 		return nil, err
 	}
+	if err := ValidateMachineConfiguration(configuration); err != nil {
+		return nil, fmt.Errorf("validate generated Talos machine configuration: %w", err)
+	}
 	return configuration, nil
+}
+
+// ValidateProviderOwnedConfigurationはユーザーが指定したcomplete configurationを、同じcluster contextから生成したprovider-owned基準と比較する。value入力がprovider invariantを迂回しないよう、configurationの保存またはTalos APIへの送信前に呼び出す。
+func ValidateProviderOwnedConfiguration(configuration []byte, input MachineConfigurationContext) error {
+	if len(bytes.TrimSpace(configuration)) == 0 || strings.TrimSpace(input.ClusterName) == "" || input.SecretsBundle == nil {
+		return fmt.Errorf("%w: configuration context is incomplete", ErrConfigurationConflict)
+	}
+	endpoint, err := canonicalEndpoint(input.ControlPlaneEndpoint)
+	if err != nil {
+		return fmt.Errorf("%w: control-plane endpoint: %w", ErrConfigurationConflict, err)
+	}
+	kubernetesVersion := strings.TrimPrefix(strings.TrimSpace(input.KubernetesVersion), "v")
+	if kubernetesVersion == "" {
+		return fmt.Errorf("%w: Kubernetes version is empty", ErrConfigurationConflict)
+	}
+	generation, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(input.SecretsBundle))
+	if err != nil {
+		return fmt.Errorf("%w: create provider-owned configuration: %w", ErrConfigurationConflict, err)
+	}
+	base, err := generation.Config(input.MachineType)
+	if err != nil {
+		return fmt.Errorf("%w: generate provider-owned configuration: %w", ErrConfigurationConflict, err)
+	}
+	effective, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return fmt.Errorf("%w: load effective configuration: %w", ErrConfigurationConflict, err)
+	}
+	if input.InstallDisk != nil {
+		if err := validateInstallDiskConfiguration(effective, *input.InstallDisk); err != nil {
+			return fmt.Errorf("%w: install disk: %w", ErrConfigurationConflict, err)
+		}
+	}
+	return validateProviderOwnedConfiguration(base, effective, input.ClusterName, endpoint, input.MachineType)
 }
 
 func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, clusterName, endpoint string, machineType machine.Type) error {
@@ -88,6 +127,17 @@ func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, cl
 	}
 	if effective.Machine() == nil || effective.Machine().Type() != machineType {
 		return fmt.Errorf("%w: machine type", ErrConfigurationConflict)
+	}
+	if base.Machine() == nil || !sameCertificateAndKey(base.Machine().Security().IssuingCA(), effective.Machine().Security().IssuingCA()) || base.Machine().Security().Token() != effective.Machine().Security().Token() {
+		return fmt.Errorf("%w: machine PKI or token", ErrConfigurationConflict)
+	}
+	baseCluster := base.Cluster()
+	effectiveCluster := effective.Cluster()
+	if baseCluster == nil || effectiveCluster == nil || baseCluster.Token().ID() != effectiveCluster.Token().ID() || baseCluster.Token().Secret() != effectiveCluster.Token().Secret() || !sameCertificateAndKey(baseCluster.Etcd().CA(), effectiveCluster.Etcd().CA()) {
+		return fmt.Errorf("%w: cluster PKI or token", ErrConfigurationConflict)
+	}
+	if !reflect.DeepEqual(base.K8sAPIServerCAConfig(), effective.K8sAPIServerCAConfig()) || !reflect.DeepEqual(base.K8sAggregatorCAConfig(), effective.K8sAggregatorCAConfig()) || !reflect.DeepEqual(base.K8sServiceAccountConfig(), effective.K8sServiceAccountConfig()) {
+		return fmt.Errorf("%w: Kubernetes PKI", ErrConfigurationConflict)
 	}
 
 	cluster := effective.K8sClusterConfig()
@@ -110,8 +160,14 @@ func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, cl
 			return fmt.Errorf("%w: Kubernetes component image", ErrConfigurationConflict)
 		}
 	}
-
 	return nil
+}
+
+func sameCertificateAndKey(left, right *x509.PEMEncodedCertificateAndKey) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return bytes.Equal(left.Crt, right.Crt) && bytes.Equal(left.Key, right.Key)
 }
 
 func componentImages(provider talosconfig.Provider) [5]string {

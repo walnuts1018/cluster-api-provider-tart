@@ -23,8 +23,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartMachineTemplate is the Schema for the tartmachinetemplates
-          API.
+        description: TartMachineTemplateはtartmachinetemplates APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -44,11 +43,10 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartMachineTemplateSpec defines the desired state of a TartMachineTemplate.
+            description: TartMachineTemplateSpecはTartMachineTemplateのdesired stateを定義する。
             properties:
               template:
-                description: TartMachineTemplateResource describes the data needed
-                  to create a TartMachine from a template.
+                description: TartMachineTemplateResourceはtemplateからTartMachineを作成するためのdataを定義する。
                 properties:
                   metadata:
                     description: ObjectMetaは生成されるTartMachineのmetadataへ伝播する。CAPI Machineのmetadataは別途管理される。
@@ -74,14 +72,11 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: |-
-                      TartMachineTemplateResourceSpec contains only fields that can be shared by
-                      all concrete Machines created from the template. Host claims and ProviderIDs
-                      are assigned on each concrete TartMachine and cannot be fixed here.
+                    description: TartMachineTemplateResourceSpecはtemplateから作成する全ての具体的なMachineで共有できるfieldだけを定義する。Host
+                      claimとProviderIDは各TartMachineに割り当てるため、ここでは固定できない。
                     properties:
                       hostSelector:
-                        description: hostSelector narrows allocation without naming
-                          a particular Host.
+                        description: hostSelectorは特定のHost名を指定せずallocation対象を絞り込む。
                         properties:
                           architecture:
                             type: string
@@ -136,19 +131,19 @@ spec:
                             x-kubernetes-map-type: atomic
                         type: object
                       image:
-                        description: image is the desired Talos OS version and system
-                          extension set.
+                        description: imageはdesired Talos OS versionとsystem extension
+                          setを指定する。
                         properties:
                           schematicID:
-                            description: |-
-                              schematicID is the Image Factory schematic identifier, which also determines the
-                              installed system extension set.
+                            description: schematicIDはImage Factory schematic identifierであり、installされるsystem
+                              extension setも決定する。
                             maxLength: 128
                             minLength: 1
+                            pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
                             type: string
                           version:
-                            description: version is the desired Talos OS version.
-                              It must follow semantic versioning with a leading "v".
+                            description: versionはdesired Talos OS versionである。先頭にvを付けたsemantic
+                              versioningに従わなければならない。
                             pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
                             type: string
                         required:

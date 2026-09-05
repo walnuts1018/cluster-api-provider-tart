@@ -30,7 +30,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartMachine is the Schema for the tartmachines API.
+        description: TartMachineはtartmachines APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -50,18 +50,12 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              TartMachineSpec defines the desired state of a TartMachine.
-              Field classification:
-              - hostRef: initial-only / user-owned (immutable after claim)
-              - hostSelector: initial-only / user-owned (safe-stop after claim)
-              - image: mutable / Update Extension-owned lifecycle (in-place Talos updates are handled via Update Extension, not by normal TartMachine reconciler)
-              - providerID: controller-written
+            description: TartMachineSpecはTartMachineのdesired stateを定義する。field classificationは、hostRefがinitial-onlyかつuser-ownedでclaim後immutable、hostSelectorがinitial-onlyかつuser-ownedでclaim後の変更はsafe-stop、imageがmutableかつUpdate
+              Extension-owned lifecycle、providerIDがcontroller-writtenである。
             properties:
               hostRef:
-                description: |-
-                  hostRef explicitly selects a TartHost (initial-only, user-owned). Immutable after Host claim succeeds.
-                  Mutually exclusive with hostSelector.
+                description: hostRefはTartHostを明示的に選択する(initial-onlyかつuser-owned)。Host
+                  claim成功後はimmutableであり、hostSelectorとは相互排他的である。
                 properties:
                   name:
                     default: ""
@@ -75,10 +69,8 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               hostSelector:
-                description: |-
-                  hostSelector deterministically narrows Host allocation when hostRef is not set (initial-only, user-owned).
-                  Changing it after claim is a safe-stop, not an in-place update.
-                  Mutually exclusive with hostRef.
+                description: hostSelectorはhostRef未指定時にHost allocation対象を決定論的に絞り込む(initial-onlyかつuser-owned)。claim後の変更はin-place
+                  updateではなくsafe-stopとして扱い、hostRefとは相互排他的である。
                 properties:
                   architecture:
                     type: string
@@ -133,21 +125,20 @@ spec:
                     x-kubernetes-map-type: atomic
                 type: object
               image:
-                description: |-
-                  image is the desired Talos OS version and schematic identity (mutable, Update Extension-owned).
-                  Normal TartMachine reconciler does not trigger Talos upgrades on live nodes directly;
-                  upgrades are driven by the CAPI Update Extension lifecycle (CanUpdateMachine -> UpdateMachine).
+                description: imageはdesired Talos OS versionとschematic identityを指定する(mutableかつUpdate
+                  Extension-owned)。通常のTartMachine reconcilerは稼働中nodeのTalos upgradeを直接開始せず、CAPI
+                  Update Extension lifecycle(CanUpdateMachineからUpdateMachine)がupgradeを実行する。
                 properties:
                   schematicID:
-                    description: |-
-                      schematicID is the Image Factory schematic identifier, which also determines the
-                      installed system extension set.
+                    description: schematicIDはImage Factory schematic identifierであり、installされるsystem
+                      extension setも決定する。
                     maxLength: 128
                     minLength: 1
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._-]*$
                     type: string
                   version:
-                    description: version is the desired Talos OS version. It must
-                      follow semantic versioning with a leading "v".
+                    description: versionはdesired Talos OS versionである。先頭にvを付けたsemantic
+                      versioningに従わなければならない。
                     pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
                     type: string
                 required:
@@ -155,10 +146,7 @@ spec:
                 - version
                 type: object
               providerID:
-                description: |-
-                  providerID is derived deterministically from the claimed TartHost.spec.hostID as
-                  tart://host/<TartHost.spec.hostID> once Host allocation succeeds (controller-written).
-                  Invariant: TartHost.spec.hostID -> tart://host/<hostID> -> TartMachine.spec.providerID == Node.spec.providerID.
+                description: providerIDはHost allocation成功後にclaimed TartHost.spec.hostIDからtart://host/<TartHost.spec.hostID>として決定論的に導出する(controller-written)。不変条件はTartHost.spec.hostIDからtart://host/<hostID>を経てTartMachine.spec.providerIDとNode.spec.providerIDが一致することである。
                 maxLength: 512
                 minLength: 1
                 type: string
@@ -169,7 +157,7 @@ spec:
             - message: hostRef and hostSelector are mutually exclusive
               rule: '!(has(self.hostRef) && has(self.hostSelector))'
           status:
-            description: TartMachineStatus defines the observed state of a TartMachine.
+            description: TartMachineStatusはTartMachineのobserved stateを定義する。
             properties:
               addresses:
                 description: MachineAddresses is a slice of MachineAddress items to
@@ -264,9 +252,7 @@ spec:
                 minLength: 1
                 type: string
               hostRef:
-                description: |-
-                  hostRef is the observed Host binding, i.e. the Host currently claimed via
-                  TartHost.spec.consumerRef for this Machine.
+                description: hostRefはobserved Host bindingであり、このMachineのためにTartHost.spec.consumerRefを通じて現在claimしているHostを示す。
                 properties:
                   name:
                     default: ""
@@ -280,8 +266,7 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               initialization:
-                description: TartMachineInitializationStatus tracks initial provisioning
-                  milestones.
+                description: TartMachineInitializationStatusは初回provisioningの到達点を追跡する。
                 minProperties: 1
                 properties:
                   provisioned:
@@ -290,8 +275,12 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              talosSchematicID:
+                description: talosSchematicIDは観測したImage Factory schematic identityである。versionが同じでもsystem
+                  extension setがrollbackしたことを検知するために保持する。
+                type: string
               talosVersion:
-                description: talosVersion is the observed actual Talos OS version.
+                description: talosVersionは観測した実際のTalos OS versionである。
                 type: string
             type: object
         type: object

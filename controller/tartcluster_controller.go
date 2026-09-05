@@ -15,15 +15,18 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartClusterReconciler reconciles a TartCluster object.
+// TartClusterReconcilerはTartCluster objectをreconcileする。
 type TartClusterReconciler struct {
 	client.Client
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -41,9 +44,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, nil
 	}
 
-	// TartCluster.spec.id must be generated exactly once, after the concrete
-	// (non-dry-run) Resource is created, and must never be regenerated. Secret bundle
-	// generation, Host claim and provisioning must not start before it is set.
+	// TartCluster.spec.idは具体的な(non-dry-run)Resource作成後に一度だけ生成し、再生成しない。設定前にsecret bundle生成、Host claim、provisioningを開始しない。
 	if cluster.Spec.ClusterID == "" {
 		original := cluster.DeepCopy()
 		cluster.Spec.ClusterID = clusterdomain.NewClusterID().String()
@@ -64,9 +65,14 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err := r.ensureBundle(ctx, &cluster, clusterID, generation); err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
 	}
+	failureDomains, err := r.observeFailureDomains(ctx)
+	if err != nil {
+		return r.reportFailureDomainError(ctx, &cluster, err)
+	}
 
 	original := cluster.DeepCopy()
 	cluster.Status.Initialization.Provisioned = new(true)
+	cluster.Status.FailureDomains = failureDomains
 	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", cluster.Generation)
 	cluster.Status.ActiveSecretGeneration = generation
 	cluster.Status.ObservedGeneration = cluster.Generation
@@ -75,6 +81,14 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *TartClusterReconciler) observeFailureDomains(ctx context.Context) ([]clusterv1.FailureDomain, error) {
+	hosts := &infrav1alpha1.TartHostList{}
+	if err := r.List(ctx, hosts); err != nil {
+		return nil, err
+	}
+	return host.FailureDomains(hosts.Items), nil
 }
 
 func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32) error {
@@ -92,7 +106,7 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 		}
 		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, clusterID, generation, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
-			Kind:       "TartCluster",
+			Kind:       tartClusterKind,
 			Name:       cluster.Name,
 			UID:        cluster.UID,
 		}, data)
@@ -130,10 +144,22 @@ func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *
 	return ctrl.Result{}, bundleErr
 }
 
+func (r *TartClusterReconciler) reportFailureDomainError(ctx context.Context, cluster *infrav1alpha1.TartCluster, observeErr error) (ctrl.Result, error) {
+	original := cluster.DeepCopy()
+	cluster.Status.FailureDomains = nil
+	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, "FailureDomainsUnavailable", "The complete Host inventory could not be observed; failure domains are not surfaced.", cluster.Generation)
+	cluster.Status.ObservedGeneration = cluster.Generation
+	if err := r.Status().Patch(ctx, cluster, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, observeErr
+}
+
 func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.TartCluster{}).
 		Owns(&corev1.Secret{}).
+		Watches(&infrav1alpha1.TartHost{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllClusters)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
 			clusterName := obj.GetLabels()[controlplane.ClusterNameLabel]
 			if clusterName == "" {
@@ -143,4 +169,16 @@ func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		})).
 		Named("tartcluster").
 		Complete(r)
+}
+
+func (r *TartClusterReconciler) enqueueAllClusters(ctx context.Context, _ client.Object) []reconcile.Request {
+	clusters := &infrav1alpha1.TartClusterList{}
+	if err := r.List(ctx, clusters); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(clusters.Items))
+	for index := range clusters.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&clusters.Items[index])})
+	}
+	return requests
 }

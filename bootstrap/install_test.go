@@ -109,6 +109,31 @@ func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 	}
 }
 
+func TestEnsureInstallDiskRejectsTargetForAnotherDisk(t *testing.T) {
+	t.Parallel()
+
+	selected := InstallDisk{
+		DevicePath: "/dev/vda",
+		SizeBytes:  64 * 1024 * 1024 * 1024,
+		Serial:     "disk-a",
+		Transport:  "virtio",
+	}
+	configuration, err := EnsureInstallDisk([]byte(renderBaseConfiguration), selected)
+	if err != nil {
+		t.Fatalf("EnsureInstallDisk() error = %v", err)
+	}
+
+	other := InstallDisk{
+		DevicePath: "/dev/vdb",
+		SizeBytes:  128 * 1024 * 1024 * 1024,
+		Serial:     "disk-b",
+		Transport:  "virtio",
+	}
+	if _, err := EnsureInstallDisk(configuration, other); !errors.Is(err, ErrInstallConfigurationInvalid) {
+		t.Fatalf("EnsureInstallDisk() error = %v, want ErrInstallConfigurationInvalid", err)
+	}
+}
+
 func TestGenerateMachineConfigurationIncludesInstallTarget(t *testing.T) {
 	t.Parallel()
 

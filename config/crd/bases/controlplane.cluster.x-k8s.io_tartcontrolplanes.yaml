@@ -30,7 +30,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartControlPlane is the Schema for the tartcontrolplanes API.
+        description: TartControlPlaneはtartcontrolplanes APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -50,21 +50,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              TartControlPlaneSpec defines the desired state of a TartControlPlane.
-
-              Control Plane endpoint note: Tart does not provision control plane endpoints (VIP, LB).
-              The endpoint is expected to be provided externally via Cluster.spec.controlPlaneEndpoint.
-
-              In-place update note: Control plane in-place updates follow the CAPI KCP pattern:
-              CanUpdateMachine verification -> update Machine/InfraMachine/BootstrapConfig desired specs ->
-              in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation -> UpdateMachine hook pending ->
-              Machine controller coordination.
+            description: TartControlPlaneSpecはTartControlPlaneのdesired stateを定義する。Tartはcontrol
+              plane endpoint(VIPやLB)をprovisionせず、endpointはCluster.spec.controlPlaneEndpointから外部に供給される。control
+              planeのin-place updateはCAPI KCP patternに従い、CanUpdateMachine検証、Machine/InfraMachine/BootstrapConfigのdesired
+              spec更新、in-place-updates.internal.cluster.x-k8s.io/update-in-progress
+              annotation設定、UpdateMachine hook pending設定、Machine controller連携の順で扱う。
             properties:
               bootstrapConfigTemplateRef:
-                description: |-
-                  bootstrapConfigTemplateRef refers to a TartBootstrapConfigTemplate used to render
-                  each control-plane Machine's TartBootstrapConfig.
+                description: bootstrapConfigTemplateRefは各control-plane MachineのTartBootstrapConfigをrenderするTartBootstrapConfigTemplateを参照する。
                 properties:
                   apiGroup:
                     description: |-
@@ -98,9 +91,7 @@ spec:
                 - name
                 type: object
               machineTemplate:
-                description: |-
-                  TartControlPlaneMachineTemplate is the template used to create each
-                  control-plane CAPI Machine.
+                description: TartControlPlaneMachineTemplateは各control-plane CAPI Machineを作成するtemplateである。
                 properties:
                   metadata:
                     description: |-
@@ -147,14 +138,11 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: |-
-                      TartControlPlaneMachineTemplateSpec is the template used to create each
-                      control-plane CAPI Machine's infrastructureRef, deletion behavior, readiness gates, and taints.
+                    description: TartControlPlaneMachineTemplateSpecは各control-plane
+                      CAPI MachineのinfrastructureRef、削除動作、readiness gate、taintを作成するtemplateである。
                     properties:
                       deletion:
-                        description: |-
-                          TartControlPlaneMachineTemplateDeletionSpec carries node-disruptive deletion
-                          timeouts, kept separate from fields that must not trigger a rollout.
+                        description: TartControlPlaneMachineTemplateDeletionSpecはnode-disruptiveな削除timeoutを保持する。rolloutを発生させないfieldとは分離する。
                         minProperties: 1
                         properties:
                           nodeDeletionTimeoutSeconds:
@@ -171,7 +159,7 @@ spec:
                             type: integer
                         type: object
                       infrastructureRef:
-                        description: infrastructureRef refers to a TartMachineTemplate.
+                        description: infrastructureRefはTartMachineTemplateを参照する。
                         properties:
                           apiGroup:
                             description: |-
@@ -205,8 +193,7 @@ spec:
                         - name
                         type: object
                       readinessGates:
-                        description: readinessGates specifies additional conditions
-                          to evaluate for Machine readiness.
+                        description: readinessGatesはMachine readinessを評価する追加Conditionを指定する。
                         items:
                           description: MachineReadinessGate contains the type of a
                             Machine condition to be used as a readiness gate.
@@ -236,8 +223,7 @@ spec:
                           type: object
                         type: array
                       taints:
-                        description: taints specifies node taints applied to the created
-                          Machine.
+                        description: taintsは作成したMachineへ適用するnode taintを指定する。
                         items:
                           description: MachineTaint defines a taint equivalent to
                             corev1.Taint, but additionally having a propagation field.
@@ -289,12 +275,12 @@ spec:
                     type: object
                 type: object
               replicas:
-                description: replicas is the desired number of control plane Machines.
+                description: replicasはdesired control plane Machine数である。
                 format: int32
                 type: integer
               version:
-                description: version is the desired Kubernetes version. It must follow
-                  semantic versioning with a leading "v".
+                description: versionはdesired Kubernetes versionである。先頭にvを付けたsemantic
+                  versioningに従わなければならない。
                 maxLength: 256
                 minLength: 1
                 pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
@@ -305,7 +291,7 @@ spec:
             - version
             type: object
           status:
-            description: TartControlPlaneStatus defines the observed state of a TartControlPlane.
+            description: TartControlPlaneStatusはTartControlPlaneのobserved stateを定義する。
             properties:
               availableReplicas:
                 format: int32
@@ -370,14 +356,12 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               initialization:
-                description: TartControlPlaneInitializationStatus tracks initial etcd/API
-                  server bootstrap.
+                description: TartControlPlaneInitializationStatusは初回etcd/API server
+                  bootstrapを追跡する。
                 minProperties: 1
                 properties:
                   controlPlaneInitialized:
-                    description: |-
-                      controlPlaneInitialized becomes true once the workload Kubernetes API server
-                      accepts requests. It does not imply all Nodes are Ready or that CNI is installed.
+                    description: controlPlaneInitializedはworkload Kubernetes API serverがrequestを受理した時点でtrueになる。全NodeがReadyであることやCNIがinstall済みであることは意味しない。
                     type: boolean
                 type: object
               observedGeneration:
@@ -395,9 +379,7 @@ spec:
                 format: int32
                 type: integer
               versions:
-                description: |-
-                  versions lists observed actual Kubernetes versions across control-plane Machines,
-                  oldest to newest. There is no separate top-level status.version.
+                description: versionsはcontrol-plane Machine群で観測した実際のKubernetes versionを古い順に並べる。top-levelのstatus.versionは持たない。
                 items:
                   description: StatusVersion groups version-related status information.
                   properties:

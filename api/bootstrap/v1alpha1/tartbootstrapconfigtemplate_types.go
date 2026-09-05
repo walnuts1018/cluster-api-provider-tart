@@ -6,22 +6,20 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartBootstrapConfigTemplateResource describes the data needed to create a
-// TartBootstrapConfig from a template.
+// TartBootstrapConfigTemplateResourceはtemplateからTartBootstrapConfigを作成するためのdataを定義する。
 type TartBootstrapConfigTemplateResource struct {
-	// ObjectMeta is propagated to the generated BootstrapConfig and its Secret.
+	// ObjectMetaは生成されるBootstrapConfigとそのSecretへ伝播する。
 	ObjectMeta clusterv1.ObjectMeta                    `json:"metadata,omitempty,omitzero"`
 	Spec       TartBootstrapConfigTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartBootstrapConfigTemplateResourceSpec contains the immutable Secret input
-// shared by concrete BootstrapConfigs created from the template.
+// TartBootstrapConfigTemplateResourceSpecはtemplateから作成される具体的なBootstrapConfigで共有するimmutable Secret inputを定義する。
 type TartBootstrapConfigTemplateResourceSpec struct {
 	// +optional
 	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
 }
 
-// TartBootstrapConfigTemplateSpec defines the desired state of a TartBootstrapConfigTemplate.
+// TartBootstrapConfigTemplateSpecはTartBootstrapConfigTemplateのdesired stateを定義する。
 type TartBootstrapConfigTemplateSpec struct {
 	Template TartBootstrapConfigTemplateResource `json:"template"`
 }
@@ -30,7 +28,7 @@ type TartBootstrapConfigTemplateSpec struct {
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 // +kubebuilder:resource:categories=cluster-api,shortName=tbcfgt
 
-// TartBootstrapConfigTemplate is the Schema for the tartbootstrapconfigtemplates API.
+// TartBootstrapConfigTemplateはtartbootstrapconfigtemplates APIのschemaである。
 type TartBootstrapConfigTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -40,7 +38,7 @@ type TartBootstrapConfigTemplate struct {
 
 // +kubebuilder:object:root=true
 
-// TartBootstrapConfigTemplateList contains a list of TartBootstrapConfigTemplate.
+// TartBootstrapConfigTemplateListはTartBootstrapConfigTemplateのlistである。
 type TartBootstrapConfigTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

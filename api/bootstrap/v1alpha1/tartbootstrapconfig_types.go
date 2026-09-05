@@ -5,44 +5,31 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// TartBootstrapConfig Condition types.
+// TartBootstrapConfigのCondition typeを定義する。
 const (
 	TartBootstrapConfigReadyCondition = "Ready"
 )
 
-// TartBootstrapConfigSpec defines the desired state of a TartBootstrapConfig. All
-// user-owned raw Talos configuration patches are supplied via an immutable
-// Secret-backed input; no raw patch is ever stored inline in this Spec.
-//
-// Field classification:
-//   - configPatchesSecretRef: mutable / Update Extension-owned lifecycle.
-//     The normal Bootstrap reconciler generates the initial Bootstrap Secret only and
-//     does NOT apply in-place changes to running Nodes; live updates are driven by Update Extension.
+// TartBootstrapConfigSpecはTartBootstrapConfigのdesired stateを定義する。ユーザー所有のraw Talos configuration patchは全てimmutableなSecret-backed inputから供給し、このSpecへinline保存しない。
+// field classification: configPatchesSecretRefはmutableかつUpdate Extensionが所有するlifecycleである。通常のBootstrap reconcilerは初回Bootstrap Secretだけを生成し、稼働中Nodeへin-place変更を適用せず、live updateはUpdate Extensionが実行する。
 type TartBootstrapConfigSpec struct {
-	// configPatchesSecretRef optionally references an immutable Secret holding user-owned raw
-	// Talos configuration patches. The referenced Secret must set immutable: true.
-	// Contract for referenced Secret:
-	// - "patches": Talos multi-document YAML or JSON patches
-	// - "value": complete Talos machine configuration
+	// configPatchesSecretRefはユーザー所有のraw Talos configuration patchを保持するimmutable Secretを任意に参照する。参照先Secretはimmutable: trueを設定しなければならない。参照先Secretのcontractは、patches keyがTalos multi-document YAMLまたはJSON patch、value keyがcomplete Talos machine configurationである。
 	// +optional
 	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
 }
 
-// TartBootstrapConfigStatus defines the observed state of a TartBootstrapConfig.
+// TartBootstrapConfigStatusはTartBootstrapConfigのobserved stateを定義する。
 type TartBootstrapConfigStatus struct {
 	// +optional
 	Initialization TartBootstrapConfigInitializationStatus `json:"initialization,omitempty,omitzero"`
 
-	// dataSecretName is the deterministically derived name of the generated Bootstrap
-	// Secret satisfying the CAPI contract (single "value" key, cluster name label, owner reference).
+	// dataSecretNameはCAPI contract(single value key、cluster name label、owner reference)を満たす生成済みBootstrap Secretの決定論的な名前である。
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +optional
 	DataSecretName string `json:"dataSecretName,omitempty"`
 
-	// configurationDigest is the SHA-256 of the canonical semantic representation of
-	// the effective Talos machine configuration, with secret-bearing values redacted.
-	// It is an observation only and is not the source of truth for update safety.
+	// configurationDigestはsecret-bearing valueをredactしたeffective Talos machine configurationのcanonical semantic representationに対するSHA-256である。観測値であり、update safetyの正本ではない。
 	// +optional
 	ConfigurationDigest string `json:"configurationDigest,omitempty"`
 
@@ -55,7 +42,7 @@ type TartBootstrapConfigStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// TartBootstrapConfigInitializationStatus tracks initial Secret creation.
+// TartBootstrapConfigInitializationStatusは初回Secret作成を追跡する。
 // +kubebuilder:validation:MinProperties=1
 type TartBootstrapConfigInitializationStatus struct {
 	// +optional
@@ -69,7 +56,7 @@ type TartBootstrapConfigInitializationStatus struct {
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="DataSecretName",type=string,JSONPath=".status.dataSecretName"
 
-// TartBootstrapConfig is the Schema for the tartbootstrapconfigs API.
+// TartBootstrapConfigはtartbootstrapconfigs APIのschemaである。
 type TartBootstrapConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -80,7 +67,7 @@ type TartBootstrapConfig struct {
 
 // +kubebuilder:object:root=true
 
-// TartBootstrapConfigList contains a list of TartBootstrapConfig.
+// TartBootstrapConfigListはTartBootstrapConfigのlistである。
 type TartBootstrapConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

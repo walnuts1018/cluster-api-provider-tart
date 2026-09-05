@@ -73,7 +73,7 @@ Tartでは、同一のMachine、TartMachine、TartHost、diskを維持したin-p
 | --- | --- | --- |
 | **Talos OS version/image** | Talos upgrade APIを呼出 | desired image、再起動後の接続性、健全性で完了判定 |
 | **Talos machine configuration** | Talos APIでapply | effective configurationのdiffを評価し、安全な場合のみ適用 |
-| **Kubernetes version** | Talos cluster-wide upgrade | Control Plane Providerがcluster-wideにsequenceする |
+| **Kubernetes version** | 未実装のため安全停止 | cluster-wide orchestrationと完了観測を実装するまでRuntime Extensionがpatchなしで拒否 |
 | **Host identity / 破壊的disk変更** | 自動更新不可 | `UnsafeChange` として安全停止 |
 
 ### Update Extensionによる保護
@@ -89,9 +89,9 @@ Tartでは、同一のMachine、TartMachine、TartHost、diskを維持したin-p
 - `OnDelete` strategyは自動worker in-place update lifecycleとしてサポートしない。
 - Control PlaneはMachineDeploymentへ委譲せず、常に1台ずつ更新してetcd、API、Node healthを確認する。
 
-### Kubernetes Upgradeの収束規則
+### Kubernetes Upgradeの収束規則（実装前の契約）
 
-Talosの `upgrade-k8s` はcluster-wide operationであるため、以下の規則でCAPIのdesired stateと収束させる。
+Talosの`upgrade-k8s`はcluster-wide operationであり、現在のProviderはMachine単位のRuntime Extensionから実行しない。以下はcluster-wide orchestrationを実装する際の契約であり、現状のKubernetes version差分はpatchなしで安全停止する。
 
 ```text
 Topology managed cluster:
@@ -140,7 +140,7 @@ TartHost.spec.consumerRefを解除し、HostをRetainedとして保持
 
 ### 停止確認の責務
 
-- **BMC / VM backend**: out-of-bandで電源状態（`PowerOff`）を確認する。
+- **BMC / VM backend**: out-of-bandで電源状態（Redfishでは`PowerState=Off`）を確認する。
 - **WoL-only / manual backend**: authenticated Talos `Shutdown` RPCの受理後に、Talos API endpointが一定時間消失したことを観測する（物理電源OFFの証明ではなく、旧clusterへ接続可能なTalosが動作し続けていないことの確認）。
 - 停止が確認できない場合はclaimとfinalizerを保持し、`Ready=False`、`Reason=ShutdownUnconfirmed` を設定する。
 - **Cluster全体の削除**: 個別のscale-downではquorum維持とmember removalが必須だが、Cluster全体の削除では削除不能を避けるためmember removal完了を必須とせず、hookを安全に完了させる。

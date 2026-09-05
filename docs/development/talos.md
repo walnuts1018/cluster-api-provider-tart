@@ -27,7 +27,7 @@ effective configurationをシリアライズし、SHA-256 digestを計算
 - Tartが生成したProviderID（`tart://host/<ID>`）
 - `TartMachine.spec.talosImage` のinstaller image identity
 
-`patches` keyのraw patchはBootstrap Providerがactive bundleとCAPI Machine contextから生成したbaseへ適用する。未実装のProvider-owned invariant競合検出は[実装タスク一覧 (タスク5)](tasks.md)を参照。
+`patches` keyのraw patchはBootstrap Providerがactive bundleとCAPI Machine contextから生成したbaseへ適用する。Provider-owned invariantとの競合は`Ready=False`、`Reason=ConfigurationConflict`として安全停止する。
 
 ---
 
@@ -52,6 +52,7 @@ effective configurationをシリアライズし、SHA-256 digestを計算
 
 - ユーザーにinstall前の `/dev/sda`、`/dev/nvme0n1`、NIC名、disk UUID等の事前調査を要求しない。
 - Bootstrap SecretなしのDiscovery bootにより、maintenance Talos APIからCPUアーキテクチャ、system UUID、NIC、アドレス、disk詳細を取得し、`TartHost.status.inventory` へ観測として保存する。
+- 現在の組み込みcontrollerはDHCP、TFTP、PXEのendpoint discoveryを持たないため、maintenance APIのendpointは`TartHost.spec.talosAPIAddress`または外部boot連携が設定した`status.addresses`から供給する。
 - disk identityの重複を観測した場合は、関係するHostをallocationとconfiguration applyから除外する。
 
 ---
@@ -77,8 +78,8 @@ expected TartHost
 ## Installation と Upgrade の委譲
 
 - **OSインストール**: Tart自身はブロックデバイスへのimage書き込みやパーティション分割を行わず、Talos installerへconfigurationを渡して委譲する。
-- **In-place Upgrade**: Talos upgrade APIを呼び出してOSアップデートを行う。Talosが古いバージョンへロールバックした場合はdesired Specを追従させず、`UpdateMachine` を `Failure`、`Reason=RolledBack` として安全停止する。
-- **Kubernetes Upgrade**: Talosのcluster-wide `upgrade-k8s` を利用する。古いconfigurationの再applyによってKubernetesコンポーネントがダウングレードされないよう、CAPI desired versionを常に反映する。
+- **In-place Upgrade**: Talos v1.13以降のLifecycle APIへdesired installer imageを渡してOSアップデートを行う。controllerは認証済みAPIで観測したversionとschematic identityを`TartMachine.status`へ保存し、Talosが古いversionまたはsystem extension setへロールバックした場合はdesired Specを追従させず、`UpdateMachine`を`Failure`、`Reason=RolledBack`として安全停止する。Lifecycle APIを利用できない古いversionや完了statusを取得できない応答は更新を開始しない。
+- **Kubernetes Upgrade**: Talosのcluster-wide `upgrade-k8s` を利用する経路は、cluster-wide orchestrationと完了観測を実装するまでRuntime Extensionで安全停止する。古いconfigurationの再applyやMachine単位のOS upgradeでKubernetesコンポーネントを変更しない。
 
 ---
 

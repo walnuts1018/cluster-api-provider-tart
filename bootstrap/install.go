@@ -214,6 +214,13 @@ func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
 		return nil, err
 	}
 	if configured {
+		provider, err := configloader.NewFromBytes(configuration)
+		if err != nil {
+			return nil, fmt.Errorf("load Talos machine configuration: %w", err)
+		}
+		if err := validateInstallDiskConfiguration(provider, disk); err != nil {
+			return nil, err
+		}
 		return bytes.Clone(configuration), nil
 	}
 	if strings.TrimSpace(disk.DevicePath) == "" {
@@ -262,6 +269,118 @@ func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
 		return nil, fmt.Errorf("load Talos configuration with install disk selector: %w", err)
 	}
 	return canonical.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
+}
+
+func validateInstallDiskConfiguration(provider talosconfig.Provider, disk InstallDisk) error {
+	if provider == nil || strings.TrimSpace(disk.DevicePath) == "" || disk.SizeBytes == 0 || disk.ReadOnly {
+		return ErrInstallDiskUnavailable
+	}
+
+	expected, err := expectedInstallSelector(disk)
+	if err != nil {
+		return err
+	}
+
+	if unattended := provider.UnattendedInstallConfig(); unattended != nil {
+		if err := validateInstallSelector(unattended.VolumeSelector()); err != nil {
+			return err
+		}
+		if unattended.VolumeWipe() {
+			return fmt.Errorf("%w: unattended install target enables volume wipe", ErrInstallConfigurationInvalid)
+		}
+		matches, err := equivalentInstallSelectors(unattended.VolumeSelector(), expected)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return fmt.Errorf("%w: unattended install target does not match the provider-selected disk", ErrInstallConfigurationInvalid)
+		}
+		return nil
+	}
+
+	machine := provider.Machine()
+	if machine == nil || machine.Install() == nil {
+		return ErrInstallConfigurationInvalid
+	}
+	install := machine.Install()
+	if install.Zero() {
+		return fmt.Errorf("%w: legacy install target enables disk wipe", ErrInstallConfigurationInvalid)
+	}
+	if strings.TrimSpace(install.Disk()) != "" {
+		if install.Disk() != disk.DevicePath {
+			return fmt.Errorf("%w: legacy install disk does not match the provider-selected disk", ErrInstallConfigurationInvalid)
+		}
+		return nil
+	}
+
+	// 旧形式のselectorだけでは観測したdeviceが選択されたことを証明できないため、明示的なdevice pathを要求して別diskへのinstallを防ぐ。
+	if expression, err := install.DiskMatchExpression(); err != nil {
+		return fmt.Errorf("%w: read Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+	} else if expression != nil && !expression.IsZero() {
+		return fmt.Errorf("%w: legacy install selector must identify the provider-selected device path", ErrInstallConfigurationInvalid)
+	}
+
+	return ErrInstallConfigurationInvalid
+}
+
+func expectedInstallSelector(disk InstallDisk) (cel.Expression, error) {
+	selectors := selectorsFor(disk)
+	if len(selectors) == 0 {
+		return cel.Expression{}, ErrInstallDiskUnavailable
+	}
+	expression, err := cel.ParseBooleanExpression(selectors[0].expression, celenv.DiskLocator())
+	if err != nil {
+		return cel.Expression{}, fmt.Errorf("%w: parse provider install disk selector: %w", ErrInstallConfigurationInvalid, err)
+	}
+	return expression, nil
+}
+
+func equivalentInstallSelectors(actual, expected cel.Expression) (bool, error) {
+	actualText, err := actual.MarshalText()
+	if err != nil {
+		return false, fmt.Errorf("%w: encode Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+	}
+	actualParsed, err := cel.ParseBooleanExpression(string(actualText), celenv.DiskLocator())
+	if err != nil {
+		return false, fmt.Errorf("%w: parse Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+	}
+	return actualParsed.String() == expected.String(), nil
+}
+
+type clientValidationMode struct{}
+
+func (clientValidationMode) String() string {
+	return "client"
+}
+
+func (clientValidationMode) RequiresInstall() bool {
+	return false
+}
+
+func (clientValidationMode) InContainer() bool {
+	return false
+}
+
+// ValidateMachineConfigurationはBootstrap Secretへ保存する前、またはTalos maintenance APIへ送信する前に完全なconfigurationを検証する。
+func ValidateMachineConfiguration(configuration []byte) error {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return ErrCompleteConfigurationEmpty
+	}
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return fmt.Errorf("load Talos machine configuration: %w", err)
+	}
+	return validateClientConfiguration(provider)
+}
+
+func validateClientConfiguration(provider talosconfig.Provider) error {
+	if provider == nil {
+		return fmt.Errorf("%w: configuration provider is unavailable", ErrEffectiveConfigurationInvalid)
+	}
+	if _, err := provider.ValidateAsClient(clientValidationMode{}); err != nil {
+		return fmt.Errorf("%w: Talos client-side validation failed: %w", ErrEffectiveConfigurationInvalid, err)
+	}
+	return nil
 }
 
 func unattendedInstallPatch(disk InstallDisk) (talosconfig.Provider, error) {

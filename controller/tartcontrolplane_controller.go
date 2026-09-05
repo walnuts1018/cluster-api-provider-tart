@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -18,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -34,9 +36,14 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
-const controlPlaneOrdinalLabel = "tart.cluster.x-k8s.io/control-plane-index"
+const (
+	controlPlaneOrdinalLabel     = "tart.cluster.x-k8s.io/control-plane-index"
+	controlPlaneEtcdMemberID     = "tart.cluster.x-k8s.io/etcd-member-id"
+	controlPlaneEtcdDeleteHook   = clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/tart-etcd-member"
+	controlPlaneScaleDownRequeue = 30 * time.Second
+)
 
-// TartControlPlaneReconciler reconciles a TartControlPlane object.
+// TartControlPlaneReconcilerはTartControlPlane objectをreconcileする。
 type TartControlPlaneReconciler struct {
 	client.Client
 }
@@ -55,6 +62,8 @@ type controlPlaneBootstrapState struct {
 	requeueAfter  time.Duration
 }
 
+var errControlPlaneScaleDownPending = errors.New("control-plane scale-down is waiting for etcd member removal")
+
 func (f *controlPlaneFailure) Error() string {
 	return f.reason + ": " + f.message
 }
@@ -62,7 +71,7 @@ func (f *controlPlaneFailure) Error() string {
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
-// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachinetemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;create
@@ -127,15 +136,9 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if err := r.getBootstrapTemplate(ctx, cp.Namespace, &cp.Spec.BootstrapConfigTemplateRef, &bootstrapTemplate); err != nil {
 		return r.reportFailure(ctx, &cp, err)
 	}
-	if bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef == nil || bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef.Name == "" {
-		return r.reportFailure(ctx, &cp, &controlPlaneFailure{
-			reason:  reasonBootstrapTemplateInvalid,
-			message: "The BootstrapConfigTemplate must reference an immutable configuration Secret.",
-		})
-	}
-
-	machines, err := r.ensureMachines(ctx, &cp, clusterName, desiredReplicas, &machineTemplate, &bootstrapTemplate)
-	if err != nil {
+	machines, err := r.ensureMachines(ctx, &cp, clusterName, desiredReplicas, tartCluster.Status.FailureDomains, &machineTemplate, &bootstrapTemplate)
+	scaleDownPending := errors.Is(err, errControlPlaneScaleDownPending)
+	if err != nil && !scaleDownPending {
 		if failure, ok := errors.AsType[*controlPlaneFailure](err); ok {
 			return r.reportFailure(ctx, &cp, failure)
 		}
@@ -152,6 +155,9 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
+	if scaleDownPending && bootstrapState.requeueAfter == 0 {
+		bootstrapState.requeueAfter = controlPlaneScaleDownRequeue
+	}
 	return ctrl.Result{RequeueAfter: bootstrapState.requeueAfter}, nil
 }
 
@@ -212,10 +218,10 @@ func desiredControlPlaneReplicas(cp *controlplanev1alpha1.TartControlPlane) (int
 	if cp.Spec.Replicas == nil {
 		return 1, nil
 	}
-	if *cp.Spec.Replicas < 0 {
+	if *cp.Spec.Replicas < 1 {
 		return 0, &controlPlaneFailure{
 			reason:  "InvalidSpec",
-			message: "The control-plane replica count cannot be negative.",
+			message: "The control-plane replica count must be at least one to preserve an etcd member.",
 		}
 	}
 	return *cp.Spec.Replicas, nil
@@ -223,7 +229,7 @@ func desiredControlPlaneReplicas(cp *controlplanev1alpha1.TartControlPlane) (int
 
 func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster *clusterv1.Cluster) (*infrav1alpha1.TartCluster, error) {
 	ref := cluster.Spec.InfrastructureRef
-	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != "TartCluster" || ref.Name == "" {
+	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != tartClusterKind || ref.Name == "" {
 		return nil, &controlPlaneFailure{
 			reason:  reasonClusterUnavailable,
 			message: "The CAPI Cluster does not reference a TartCluster infrastructure resource.",
@@ -333,12 +339,15 @@ func (r *TartControlPlaneReconciler) getBootstrapTemplate(ctx context.Context, n
 	return nil
 }
 
-func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machineTemplate *infrav1alpha1.TartMachineTemplate, bootstrapTemplate *bootstrapv1alpha1.TartBootstrapConfigTemplate) ([]clusterv1.Machine, error) {
+func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, failureDomains []clusterv1.FailureDomain, machineTemplate *infrav1alpha1.TartMachineTemplate, bootstrapTemplate *bootstrapv1alpha1.TartBootstrapConfigTemplate) ([]clusterv1.Machine, error) {
 	var list clusterv1.MachineList
 	if err := r.List(ctx, &list, client.InNamespace(cp.Namespace), client.MatchingLabels{
 		clusterv1.ClusterNameLabel:             clusterName,
 		clusterv1.MachineControlPlaneNameLabel: cp.Name,
 	}); err != nil {
+		return nil, err
+	}
+	if err := validateControlPlaneMachineOwners(list.Items, cp); err != nil {
 		return nil, err
 	}
 	byName := make(map[string]*clusterv1.Machine, len(list.Items))
@@ -348,13 +357,17 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 
 	for ordinal := range int(desired) {
 		ordinal32 := int32(ordinal)
+		failureDomain, failureDomainOK := controlPlaneFailureDomain(failureDomains, ordinal)
+		if len(failureDomains) > 0 && !failureDomainOK {
+			return nil, &controlPlaneFailure{reason: "FailureDomainInvalid", message: "The TartCluster exposes no Failure Domain suitable for control-plane Machines."}
+		}
 		machineName, err := controlPlaneChildName(cp.Name, ordinal32, "")
 		if err != nil {
 			return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
 		}
 		machine, ok := byName[machineName]
 		if !ok {
-			machine, err = r.createMachine(ctx, cp, clusterName, ordinal32, machineName, bootstrapTemplate)
+			machine, err = r.createMachine(ctx, cp, clusterName, ordinal32, failureDomain, machineName)
 			if err != nil {
 				return nil, err
 			}
@@ -365,6 +378,12 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 			return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: bootstrapConfigNameInvalidMessage}
 		}
 		if err := validateMachineReference(machine, cp, clusterName, machineName, bootstrapName, cp.Spec.Version); err != nil {
+			return nil, err
+		}
+		if machine.Spec.FailureDomain != "" && !containsControlPlaneFailureDomain(failureDomains, machine.Spec.FailureDomain) {
+			return nil, &controlPlaneFailure{reason: "FailureDomainInvalid", message: "An existing control-plane Machine references a Failure Domain no longer exposed by TartCluster."}
+		}
+		if err := r.ensureMachineTemplateFields(ctx, machine, cp); err != nil {
 			return nil, err
 		}
 		if err := r.ensureProviderResources(ctx, cp, clusterName, ordinal32, machine, machineTemplate, bootstrapTemplate); err != nil {
@@ -379,7 +398,433 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 	}); err != nil {
 		return nil, err
 	}
+	if err := validateControlPlaneMachineOwners(refreshed.Items, cp); err != nil {
+		return nil, err
+	}
+	if int32(len(refreshed.Items)) > desired {
+		pending, err := r.reconcileScaleDown(ctx, refreshed.Items, desired)
+		if err != nil {
+			return refreshed.Items, err
+		}
+		if pending {
+			return refreshed.Items, errControlPlaneScaleDownPending
+		}
+	}
 	return refreshed.Items, nil
+}
+
+func controlPlaneFailureDomain(failureDomains []clusterv1.FailureDomain, ordinal int) (string, bool) {
+	eligible := make([]string, 0, len(failureDomains))
+	for index := range failureDomains {
+		if failureDomains[index].Name == "" || (failureDomains[index].ControlPlane != nil && !*failureDomains[index].ControlPlane) {
+			continue
+		}
+		if !slices.Contains(eligible, failureDomains[index].Name) {
+			eligible = append(eligible, failureDomains[index].Name)
+		}
+	}
+	if len(eligible) == 0 {
+		return "", false
+	}
+	slices.Sort(eligible)
+	return eligible[ordinal%len(eligible)], true
+}
+
+func containsControlPlaneFailureDomain(failureDomains []clusterv1.FailureDomain, name string) bool {
+	return slices.ContainsFunc(failureDomains, func(domain clusterv1.FailureDomain) bool {
+		return domain.Name == name && (domain.ControlPlane == nil || *domain.ControlPlane)
+	})
+}
+
+func validateControlPlaneMachineOwners(machines []clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane) error {
+	for index := range machines {
+		if !hasControllerOwner(&machines[index], cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind) {
+			return &controlPlaneFailure{
+				reason:  "MachineOwnershipMismatch",
+				message: "A labeled control-plane Machine is not owned by this TartControlPlane; scale-down is stopped.",
+			}
+		}
+	}
+	return nil
+}
+
+func (r *TartControlPlaneReconciler) ensureMachineTemplateFields(ctx context.Context, machine *clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane) error {
+	if !machine.DeletionTimestamp.IsZero() {
+		return nil
+	}
+	expectedReadinessGates := slices.Clone(cp.Spec.MachineTemplate.Spec.ReadinessGates)
+	expectedTaints := slices.Clone(cp.Spec.MachineTemplate.Spec.Taints)
+	expectedDeletion := machineDeletionSpec(cp.Spec.MachineTemplate.Spec.Deletion)
+	if reflect.DeepEqual(machine.Spec.ReadinessGates, expectedReadinessGates) && reflect.DeepEqual(machine.Spec.Taints, expectedTaints) && reflect.DeepEqual(machine.Spec.Deletion, expectedDeletion) {
+		return nil
+	}
+	original := machine.DeepCopy()
+	machine.Spec.ReadinessGates = expectedReadinessGates
+	machine.Spec.Taints = expectedTaints
+	machine.Spec.Deletion = expectedDeletion
+	return r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func machineDeletionSpec(spec controlplanev1alpha1.TartControlPlaneMachineTemplateDeletionSpec) clusterv1.MachineDeletionSpec {
+	return clusterv1.MachineDeletionSpec{
+		NodeDrainTimeoutSeconds:        cloneInt32(spec.NodeDrainTimeoutSeconds),
+		NodeVolumeDetachTimeoutSeconds: cloneInt32(spec.NodeVolumeDetachTimeoutSeconds),
+		NodeDeletionTimeoutSeconds:     cloneInt32(spec.NodeDeletionTimeoutSeconds),
+	}
+}
+
+func cloneInt32(value *int32) *int32 {
+	if value == nil {
+		return nil
+	}
+	return new(*value)
+}
+
+// reconcileScaleDownは一度に一台だけを選び、etcd member removalが観測できるまでCAPI Machineのpre-terminate hookを保持する。
+func (r *TartControlPlaneReconciler) reconcileScaleDown(ctx context.Context, machines []clusterv1.Machine, desired int32) (bool, error) {
+	if int32(len(machines)) <= desired {
+		return false, nil
+	}
+	candidates := make([]clusterv1.Machine, 0, len(machines))
+	deleting := make([]clusterv1.Machine, 0, len(machines))
+	for index := range machines {
+		if machines[index].DeletionTimestamp.IsZero() {
+			candidates = append(candidates, machines[index])
+		} else {
+			deleting = append(deleting, machines[index])
+		}
+	}
+	if len(deleting) > 0 {
+		slices.SortFunc(deleting, compareControlPlaneMachineOrder)
+		target := &deleting[0]
+		if target.Annotations[controlPlaneEtcdDeleteHook] != controlPlaneEtcdDeleteHookValue {
+			if err := r.ensureEtcdDeleteHook(ctx, target); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+		return r.reconcileEtcdMemberRemoval(ctx, target, machines)
+	}
+	if len(candidates) == 0 {
+		return false, nil
+	}
+	slices.SortFunc(candidates, compareControlPlaneMachineOrder)
+	target := &candidates[0]
+	if err := r.ensureEtcdDeleteHook(ctx, target); err != nil {
+		return false, err
+	}
+	if err := r.Delete(ctx, target); err != nil && !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	return true, nil
+}
+
+func compareControlPlaneMachineOrder(left, right clusterv1.Machine) int {
+	leftOrdinal, leftErr := strconv.ParseInt(left.Labels[controlPlaneOrdinalLabel], 10, 32)
+	rightOrdinal, rightErr := strconv.ParseInt(right.Labels[controlPlaneOrdinalLabel], 10, 32)
+	if leftErr == nil && rightErr == nil && leftOrdinal != rightOrdinal {
+		return int(rightOrdinal - leftOrdinal)
+	}
+	return strings.Compare(right.Name, left.Name)
+}
+
+func (r *TartControlPlaneReconciler) ensureEtcdDeleteHook(ctx context.Context, machine *clusterv1.Machine) error {
+	if machine.Annotations[controlPlaneEtcdDeleteHook] == controlPlaneEtcdDeleteHookValue {
+		return nil
+	}
+	original := machine.DeepCopy()
+	machine.Annotations = maps.Clone(machine.Annotations)
+	if machine.Annotations == nil {
+		machine.Annotations = make(map[string]string)
+	}
+	machine.Annotations[controlPlaneEtcdDeleteHook] = controlPlaneEtcdDeleteHookValue
+	return r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+type etcdMachineObservation struct {
+	machine *clusterv1.Machine
+	host    *infrav1alpha1.TartHost
+	config  []byte
+	status  talos.EtcdStatus
+}
+
+func (r *TartControlPlaneReconciler) reconcileEtcdMemberRemoval(ctx context.Context, target *clusterv1.Machine, machines []clusterv1.Machine) (bool, error) {
+	if !machineWaitingForPreTerminateHook(target) {
+		// CAPI Machine controllerがdrainとvolume detachを終えてpre-terminate hook待ちに
+		// 遷移するまでは、etcd member removalを開始しない。
+		return true, nil
+	}
+	annotatedID, annotated, handled, err := r.reconcileAnnotatedEtcdMember(ctx, target, machines)
+	if handled || err != nil {
+		return handled, err
+	}
+
+	observations, observationsReady := r.observeEtcdMachineObservations(ctx, machines)
+	if !observationsReady {
+		return true, nil
+	}
+	targetObservation, healthyMembers, observationsUnique := summarizeEtcdObservations(observations, target.UID)
+	if !observationsUnique || targetObservation == nil {
+		return true, nil
+	}
+	memberID := targetObservation.status.MemberID
+	if annotated {
+		parsed, err := strconv.ParseUint(annotatedID, 10, 64)
+		if err != nil || parsed != memberID {
+			return false, &controlPlaneFailure{reason: "EtcdMemberIdentityChanged", message: "The deleting control-plane Machine etcd member identity no longer matches Talos observation."}
+		}
+	} else if err := r.annotateEtcdMemberID(ctx, target, memberID); err != nil {
+		return true, err
+	}
+
+	survivor := firstEtcdObservation(observations, target.UID)
+	if survivor == nil {
+		return true, nil
+	}
+	members, err := r.observeEtcdMembersFromConfiguration(ctx, survivor.host, survivor.config)
+	if err != nil {
+		return true, nil //nolint:nilerr // removal must wait until a survivor exposes stable membership.
+	}
+	if !canRemoveObservedEtcdMember(members, observations, memberID, healthyMembers, targetObservation) {
+		return true, nil
+	}
+	return r.removeObservedEtcdMember(ctx, survivor, memberID)
+}
+
+func (r *TartControlPlaneReconciler) observeEtcdMachineObservations(ctx context.Context, machines []clusterv1.Machine) ([]etcdMachineObservation, bool) {
+	observations := make([]etcdMachineObservation, 0, len(machines))
+	for index := range machines {
+		machine := &machines[index]
+		hostObject, configuration, err := r.observeMachineIdentity(ctx, machine)
+		if err != nil {
+			return nil, false
+		}
+		status, err := r.observeEtcdStatus(ctx, hostObject, configuration)
+		if err != nil || status.MemberID == 0 {
+			return nil, false
+		}
+		observations = append(observations, etcdMachineObservation{machine: machine, host: hostObject, config: configuration, status: status})
+	}
+	return observations, true
+}
+
+func summarizeEtcdObservations(observations []etcdMachineObservation, targetUID types.UID) (*etcdMachineObservation, int, bool) {
+	var targetObservation *etcdMachineObservation
+	memberIDs := make(map[uint64]struct{}, len(observations))
+	healthyMembers := 0
+	for index := range observations {
+		observation := &observations[index]
+		if _, exists := memberIDs[observation.status.MemberID]; exists {
+			return nil, 0, false
+		}
+		memberIDs[observation.status.MemberID] = struct{}{}
+		if etcdStatusHealthy(observation.status) {
+			healthyMembers++
+		}
+		if observation.machine.UID == targetUID {
+			targetObservation = observation
+		}
+	}
+	return targetObservation, healthyMembers, true
+}
+
+func canRemoveObservedEtcdMember(members []talos.EtcdMember, observations []etcdMachineObservation, memberID uint64, healthyMembers int, targetObservation *etcdMachineObservation) bool {
+	if len(members) != len(observations) || !containsEtcdMember(members, memberID) || !allEtcdMembersAreVoting(members) {
+		return false
+	}
+	for _, observation := range observations {
+		if !containsEtcdMember(members, observation.status.MemberID) {
+			return false
+		}
+	}
+	return controlplane.CanRemoveMember(controlplane.RemovalObservation{
+		MemberCount:          len(members),
+		HealthyMemberCount:   healthyMembers,
+		TargetHealthy:        etcdStatusHealthy(targetObservation.status),
+		TargetHealthObserved: true,
+	})
+}
+
+func (r *TartControlPlaneReconciler) removeObservedEtcdMember(ctx context.Context, survivor *etcdMachineObservation, memberID uint64) (bool, error) {
+	removalClient, err := r.dialAuthenticated(ctx, survivor.host, survivor.config)
+	if err != nil {
+		return true, nil //nolint:nilerr // a survivor connection failure must retain the deletion hook.
+	}
+	removeErr := removalClient.RemoveEtcdMember(ctx, memberID)
+	if closeErr := removalClient.Close(); closeErr != nil && removeErr == nil {
+		return true, closeErr
+	}
+	if removeErr != nil {
+		return true, nil //nolint:nilerr // Talos removal is retried from observed membership on the next reconcile.
+	}
+	return true, nil
+}
+
+func (r *TartControlPlaneReconciler) reconcileAnnotatedEtcdMember(ctx context.Context, target *clusterv1.Machine, machines []clusterv1.Machine) (string, bool, bool, error) {
+	annotatedID, annotated := target.Annotations[controlPlaneEtcdMemberID]
+	if !annotated {
+		return "", false, false, nil
+	}
+	memberID, err := strconv.ParseUint(annotatedID, 10, 64)
+	if err != nil || memberID == 0 {
+		return annotatedID, true, false, &controlPlaneFailure{reason: "EtcdMemberIdentityInvalid", message: "The deleting control-plane Machine has an invalid etcd member identity annotation."}
+	}
+	survivor := firstControlPlaneSurvivor(machines, target.UID)
+	if survivor == nil {
+		return annotatedID, true, true, nil
+	}
+	members, err := r.observeEtcdMembers(ctx, survivor)
+	if err != nil {
+		return annotatedID, true, true, nil //nolint:nilerr // etcd observation is transient while the deleting Machine is waiting.
+	}
+	if !containsEtcdMember(members, memberID) {
+		result, removeErr := r.removeEtcdDeleteHook(ctx, target)
+		return annotatedID, true, result, removeErr
+	}
+	return annotatedID, true, false, nil
+}
+
+func etcdStatusHealthy(status talos.EtcdStatus) bool {
+	return status.MemberID != 0 && status.Leader != 0 && len(status.Errors) == 0
+}
+
+func machineWaitingForPreTerminateHook(machine *clusterv1.Machine) bool {
+	if machine == nil || machine.DeletionTimestamp.IsZero() {
+		return false
+	}
+	condition := meta.FindStatusCondition(machine.Status.Conditions, clusterv1.MachineDeletingCondition)
+	return condition != nil && condition.Status == metav1.ConditionTrue && condition.Reason == clusterv1.MachineDeletingWaitingForPreTerminateHookReason
+}
+
+func (r *TartControlPlaneReconciler) observeMachineIdentity(ctx context.Context, machine *clusterv1.Machine) (*infrav1alpha1.TartHost, []byte, error) {
+	if machine == nil {
+		return nil, nil, errors.New("control-plane Machine is nil")
+	}
+	ref := machine.Spec.InfrastructureRef
+	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != tartMachineKind || ref.Name == "" {
+		return nil, nil, errors.New("control-plane Machine infrastructure reference is invalid")
+	}
+	provider := &infrav1alpha1.TartMachine{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, provider); err != nil {
+		return nil, nil, err
+	}
+	if err := validateProviderOwner(provider, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+		return nil, nil, err
+	}
+	if provider.Status.HostRef == nil || provider.Status.HostRef.Name == "" {
+		return nil, nil, errors.New("control-plane Machine Host reference is unavailable")
+	}
+	hostObject := &infrav1alpha1.TartHost{}
+	if err := r.Get(ctx, client.ObjectKey{Name: provider.Status.HostRef.Name}, hostObject); err != nil {
+		return nil, nil, err
+	}
+	if hostObject.Spec.ConsumerRef == nil || hostObject.Spec.ConsumerRef.UID != provider.UID {
+		return nil, nil, errors.New("control-plane Host binding does not match provider Machine")
+	}
+	endpoint := hostTalosEndpoint(hostObject)
+	if endpoint == "" {
+		return nil, nil, errors.New("control-plane Host Talos endpoint is unavailable")
+	}
+	configuration, err := (&TartMachineReconciler{Client: r.Client}).bootstrapConfiguration(ctx, provider)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hostObject, configuration, nil
+}
+
+func (r *TartControlPlaneReconciler) observeEtcdStatus(ctx context.Context, hostObject *infrav1alpha1.TartHost, configuration []byte) (talos.EtcdStatus, error) {
+	client, err := r.dialAuthenticated(ctx, hostObject, configuration)
+	if err != nil {
+		return talos.EtcdStatus{}, err
+	}
+	status, statusErr := client.EtcdStatus(ctx)
+	if closeErr := client.Close(); closeErr != nil && statusErr == nil {
+		return talos.EtcdStatus{}, closeErr
+	}
+	return status, statusErr
+}
+
+func (r *TartControlPlaneReconciler) observeEtcdMembers(ctx context.Context, machine *clusterv1.Machine) ([]talos.EtcdMember, error) {
+	hostObject, configuration, err := r.observeMachineIdentity(ctx, machine)
+	if err != nil {
+		return nil, err
+	}
+	return r.observeEtcdMembersFromConfiguration(ctx, hostObject, configuration)
+}
+
+func (r *TartControlPlaneReconciler) observeEtcdMembersFromConfiguration(ctx context.Context, hostObject *infrav1alpha1.TartHost, configuration []byte) ([]talos.EtcdMember, error) {
+	client, err := r.dialAuthenticated(ctx, hostObject, configuration)
+	if err != nil {
+		return nil, err
+	}
+	members, membersErr := client.EtcdMembers(ctx)
+	if closeErr := client.Close(); closeErr != nil && membersErr == nil {
+		return nil, closeErr
+	}
+	return members, membersErr
+}
+
+func (r *TartControlPlaneReconciler) dialAuthenticated(ctx context.Context, hostObject *infrav1alpha1.TartHost, configuration []byte) (*talos.Client, error) {
+	connectionContext, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return talos.DialAuthenticatedFromConfiguration(connectionContext, hostTalosEndpoint(hostObject), configuration)
+}
+
+func (r *TartControlPlaneReconciler) annotateEtcdMemberID(ctx context.Context, machine *clusterv1.Machine, memberID uint64) error {
+	original := machine.DeepCopy()
+	machine.Annotations = maps.Clone(machine.Annotations)
+	if machine.Annotations == nil {
+		machine.Annotations = make(map[string]string)
+	}
+	machine.Annotations[controlPlaneEtcdMemberID] = strconv.FormatUint(memberID, 10)
+	return r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func firstControlPlaneSurvivor(machines []clusterv1.Machine, targetUID types.UID) *clusterv1.Machine {
+	for index := range machines {
+		if machines[index].UID != targetUID && machines[index].DeletionTimestamp.IsZero() {
+			return &machines[index]
+		}
+	}
+	return nil
+}
+
+func firstEtcdObservation(observations []etcdMachineObservation, targetUID types.UID) *etcdMachineObservation {
+	for index := range observations {
+		if observations[index].machine.UID != targetUID {
+			return &observations[index]
+		}
+	}
+	return nil
+}
+
+func containsEtcdMember(members []talos.EtcdMember, memberID uint64) bool {
+	for _, member := range members {
+		if member.ID == memberID {
+			return true
+		}
+	}
+	return false
+}
+
+func allEtcdMembersAreVoting(members []talos.EtcdMember) bool {
+	for _, member := range members {
+		if member.Learner {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *TartControlPlaneReconciler) removeEtcdDeleteHook(ctx context.Context, machine *clusterv1.Machine) (bool, error) {
+	original := machine.DeepCopy()
+	machine.Annotations = maps.Clone(machine.Annotations)
+	delete(machine.Annotations, controlPlaneEtcdDeleteHook)
+	delete(machine.Annotations, controlPlaneEtcdMemberID)
+	if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
+		return true, err
+	}
+	return false, nil
 }
 
 func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, cluster *clusterv1.Cluster, machines []clusterv1.Machine) (controlPlaneBootstrapState, error) {
@@ -387,15 +832,6 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 		reason:       "MachinesUnavailable",
 		message:      "The first control-plane Machine is not running the desired Talos version yet.",
 		requeueAfter: 30 * time.Second,
-	}
-	if cp.Status.Initialization.ControlPlaneInitialized != nil && *cp.Status.Initialization.ControlPlaneInitialized {
-		return controlPlaneBootstrapState{
-			initialized:   true,
-			etcdReady:     true,
-			workloadReady: true,
-			reason:        "EtcdClusterAvailable",
-			message:       "The workload Kubernetes API is ready and the control-plane etcd bootstrap has been observed.",
-		}, nil
 	}
 	firstName, err := controlPlaneChildName(cp.Name, 0, "")
 	if err != nil {
@@ -411,22 +847,47 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 	if firstMachine == nil {
 		return state, nil
 	}
+	return r.reconcileFirstControlPlane(ctx, cp, cluster, firstMachine, state)
+}
 
-	var providerMachine infrav1alpha1.TartMachine
-	if err := r.Get(ctx, client.ObjectKey{Namespace: cp.Namespace, Name: firstMachine.Name}, &providerMachine); err != nil {
-		if apierrors.IsNotFound(err) {
-			return state, nil
-		}
+func (r *TartControlPlaneReconciler) reconcileFirstControlPlane(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, cluster *clusterv1.Cluster, machine *clusterv1.Machine, state controlPlaneBootstrapState) (controlPlaneBootstrapState, error) {
+	observation, state, ready, err := r.observeFirstControlPlane(ctx, machine, state)
+	if err != nil {
 		return controlPlaneBootstrapState{}, err
+	}
+	if !ready {
+		return state, nil
+	}
+	return r.reconcileFirstControlPlaneTalos(ctx, cp, cluster, observation, state)
+}
+
+type firstControlPlaneObservation struct {
+	endpoint      string
+	configuration []byte
+}
+
+func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Context, machine *clusterv1.Machine, state controlPlaneBootstrapState) (firstControlPlaneObservation, controlPlaneBootstrapState, bool, error) {
+	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The first control-plane Machine has an invalid infrastructure reference."}
+	}
+	var providerMachine infrav1alpha1.TartMachine
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: machine.Spec.InfrastructureRef.Name}, &providerMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return firstControlPlaneObservation{}, state, false, nil
+		}
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
+	}
+	if err := validateProviderOwner(&providerMachine, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
 	ready := meta.FindStatusCondition(providerMachine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if ready == nil || ready.Status != metav1.ConditionTrue {
-		return state, nil
+		return firstControlPlaneObservation{}, state, false, nil
 	}
 	if providerMachine.Status.HostRef == nil {
 		state.reason = "HostUnavailable"
 		state.message = "The first control-plane Machine has no observed TartHost binding yet."
-		return state, nil
+		return firstControlPlaneObservation{}, state, false, nil
 	}
 
 	var providerHost infrav1alpha1.TartHost
@@ -434,34 +895,40 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 		if apierrors.IsNotFound(err) {
 			state.reason = "HostUnavailable"
 			state.message = "The first control-plane Machine Host is not available yet."
-			return state, nil
+			return firstControlPlaneObservation{}, state, false, nil
 		}
-		return controlPlaneBootstrapState{}, err
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
+	}
+	if providerHost.Spec.ConsumerRef == nil || providerHost.Spec.ConsumerRef.UID != providerMachine.UID {
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, &controlPlaneFailure{reason: "HostBindingMismatch", message: "The first control-plane Machine Host binding does not match the provider Machine."}
 	}
 	endpoint := hostTalosEndpoint(&providerHost)
 	if endpoint == "" {
 		state.reason = "EndpointUnavailable"
 		state.message = "The first control-plane Machine has no reachable Talos endpoint yet."
-		return state, nil
+		return firstControlPlaneObservation{}, state, false, nil
 	}
 	configuration, err := (&TartMachineReconciler{Client: r.Client}).bootstrapConfiguration(ctx, &providerMachine)
 	if err != nil {
 		if errors.Is(err, errBootstrapDataUnavailable) {
 			state.reason = "BootstrapDataUnavailable"
 			state.message = "The immutable Bootstrap Secret is not available for the first control-plane Machine yet."
-			return state, nil
+			return firstControlPlaneObservation{}, state, false, nil
 		}
-		return controlPlaneBootstrapState{}, err
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
+	return firstControlPlaneObservation{endpoint: endpoint, configuration: configuration}, state, true, nil
+}
 
-	authenticated, err := talos.DialAuthenticatedFromConfiguration(ctx, endpoint, configuration)
+func (r *TartControlPlaneReconciler) reconcileFirstControlPlaneTalos(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, cluster *clusterv1.Cluster, observation firstControlPlaneObservation, state controlPlaneBootstrapState) (controlPlaneBootstrapState, error) {
+	authenticated, err := talos.DialAuthenticatedFromConfiguration(ctx, observation.endpoint, observation.configuration)
 	if err != nil {
 		state.reason = "TalosUnavailable"
 		state.message = "The authenticated Talos API is not reachable on the first control-plane Machine."
 		return state, nil //nolint:nilerr // an unavailable node is a normal reconcile observation.
 	}
 	etcdStatus, etcdErr := authenticated.EtcdStatus(ctx)
-	if etcdErr == nil && etcdStatus.MemberID != 0 && etcdStatus.Leader != 0 && len(etcdStatus.Errors) == 0 {
+	if etcdErr == nil && etcdStatusHealthy(etcdStatus) {
 		kubeconfig, kubeconfigErr := authenticated.Kubeconfig(ctx)
 		if kubeconfigErr != nil {
 			if closeErr := authenticated.Close(); closeErr != nil {
@@ -508,6 +975,19 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 			message:       "The workload Kubernetes API is ready and the first control-plane Machine reports a healthy etcd member and leader.",
 		}, nil
 	}
+	if cp.Status.Initialization.ControlPlaneInitialized != nil && *cp.Status.Initialization.ControlPlaneInitialized {
+		// 初回bootstrap後は、etcd観測が失敗してもBootstrap RPCを再実行しない。
+		// 再bootstrapは既存clusterのmembershipやdataを壊す可能性があるため、
+		// Talosとworkload APIの復旧を観測しながら安全停止する。
+		if closeErr := authenticated.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return controlPlaneBootstrapState{
+			reason:       "EtcdClusterUnavailable",
+			message:      "The control plane was initialized previously, but a healthy etcd member and leader are not currently observed.",
+			requeueAfter: 30 * time.Second,
+		}, nil
+	}
 
 	bootstrapErr := authenticated.Bootstrap(ctx)
 	if closeErr := authenticated.Close(); closeErr != nil {
@@ -532,14 +1012,12 @@ func (r *TartControlPlaneReconciler) ensureKubeconfigSecret(ctx context.Context,
 		return errors.New("workload kubeconfig identity or data is incomplete")
 	}
 	expected := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:       cluster.Namespace,
-			Name:            cluster.Name + "-kubeconfig",
-			Labels:          map[string]string{clusterv1.ClusterNameLabel: cluster.Name},
-			OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cluster, clusterv1.GroupVersion.String(), "Cluster")},
-		},
-		Type: clusterv1.ClusterSecretType,
-		Data: map[string][]byte{"value": bytes.Clone(kubeconfig)},
+		Namespace:       cluster.Namespace,
+		Name:            cluster.Name + "-kubeconfig",
+		Labels:          map[string]string{clusterv1.ClusterNameLabel: cluster.Name},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cluster, clusterv1.GroupVersion.String(), "Cluster")},
+		Type:            clusterv1.ClusterSecretType,
+		Data:            map[string][]byte{"value": bytes.Clone(kubeconfig)},
 	}
 
 	actual := &corev1.Secret{}
@@ -584,7 +1062,7 @@ func workloadAPIReady(ctx context.Context, kubeconfig []byte, endpoint clusterv1
 	return nil
 }
 
-func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, ordinal int32, name string, bootstrapTemplate *bootstrapv1alpha1.TartBootstrapConfigTemplate) (*clusterv1.Machine, error) {
+func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, ordinal int32, failureDomain, name string) (*clusterv1.Machine, error) {
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
 	if err != nil {
 		return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: bootstrapConfigNameInvalidMessage}
@@ -599,8 +1077,12 @@ func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *cont
 		Annotations:     annotations,
 		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind)},
 		Spec: clusterv1.MachineSpec{
-			ClusterName: clusterName,
-			Version:     cp.Spec.Version,
+			ClusterName:    clusterName,
+			Version:        cp.Spec.Version,
+			FailureDomain:  failureDomain,
+			ReadinessGates: slices.Clone(cp.Spec.MachineTemplate.Spec.ReadinessGates),
+			Taints:         slices.Clone(cp.Spec.MachineTemplate.Spec.Taints),
+			Deletion:       machineDeletionSpec(cp.Spec.MachineTemplate.Spec.Deletion),
 			Bootstrap: clusterv1.Bootstrap{ConfigRef: clusterv1.ContractVersionedObjectReference{
 				APIGroup: bootstrapv1alpha1.GroupVersion.Group,
 				Kind:     tartBootstrapConfigKind,
@@ -612,9 +1094,6 @@ func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *cont
 				Name:     name,
 			},
 		},
-	}
-	if bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef == nil {
-		return nil, &controlPlaneFailure{reason: reasonBootstrapTemplateInvalid, message: "The BootstrapConfigTemplate has no configuration Secret reference."}
 	}
 	if err := r.Create(ctx, machine); err != nil && !apierrors.IsAlreadyExists(err) {
 		return nil, err
@@ -660,7 +1139,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		return err
 	}
 	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.Image != expectedMachine.Spec.Image {
-		return &controlPlaneFailure{reason: "MachineSpecMismatch", message: "The existing TartMachine does not match its immutable control-plane template."}
+		return &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The existing TartMachine does not match its immutable control-plane template."}
 	}
 
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
@@ -694,7 +1173,9 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	if err := validateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), tartBootstrapConfigKind); err != nil {
 		return err
 	}
-	if bootstrapConfig.Spec.ConfigPatchesSecretRef == nil || expectedBootstrap.Spec.ConfigPatchesSecretRef == nil || bootstrapConfig.Spec.ConfigPatchesSecretRef.Name != expectedBootstrap.Spec.ConfigPatchesSecretRef.Name {
+	actualRef := bootstrapConfig.Spec.ConfigPatchesSecretRef
+	expectedRef := expectedBootstrap.Spec.ConfigPatchesSecretRef
+	if (actualRef == nil) != (expectedRef == nil) || (actualRef != nil && actualRef.Name != expectedRef.Name) {
 		return &controlPlaneFailure{reason: "BootstrapConfigMismatch", message: "The existing TartBootstrapConfig does not match its immutable template."}
 	}
 	return nil
@@ -702,7 +1183,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 
 func validateMachineReference(machine *clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane, clusterName, machineName, bootstrapName, version string) error {
 	if !hasControllerOwner(machine, cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind) || machine.Spec.ClusterName != clusterName || machine.Spec.Version != version || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name != machineName || machine.Spec.Bootstrap.ConfigRef.APIGroup != bootstrapv1alpha1.GroupVersion.Group || machine.Spec.Bootstrap.ConfigRef.Kind != tartBootstrapConfigKind || machine.Spec.Bootstrap.ConfigRef.Name != bootstrapName {
-		return &controlPlaneFailure{reason: "MachineSpecMismatch", message: "The existing control-plane Machine does not match the TartControlPlane references."}
+		return &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The existing control-plane Machine does not match the TartControlPlane references."}
 	}
 	return nil
 }
@@ -813,7 +1294,7 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, conditionStatus(upToDateReady), upToDateReason, upToDateMessage, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneRollingOutCondition, metav1.ConditionFalse, "NotRollingOut", "The control plane is not performing a rollout.", cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingUpCondition, conditionStatus(actual < desired), scalingReason(actual < desired, "ScalingUp"), scalingMessage(actual < desired, "Control-plane Machines are being created.", "The desired control-plane replica count is satisfied."), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down requires the not-yet-implemented etcd safety path.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down is waiting for quorum-safe etcd member removal.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)

@@ -28,10 +28,8 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: |-
-          TartHost is the Schema for the tarthosts API. TartHost is a management-cluster-wide,
-          cluster-scoped inventory of a physical or virtual Host that outlives any single CAPI
-          Machine.
+        description: TartHostはtarthosts APIのschemaである。TartHostは単一のCAPI Machineより長く存続する、物理または仮想Hostのmanagement
+          cluster全体にわたるcluster-scoped inventoryである。
         properties:
           apiVersion:
             description: |-
@@ -51,17 +49,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartHostSpec defines the desired state of a physical or virtual
-              Host inventory entry.
+            description: TartHostSpecは物理または仮想Host inventory entryのdesired stateを定義する。
             properties:
               architecture:
-                description: architecture is a Host selector criterion.
+                description: architectureはHost selectorの条件である。
                 type: string
               consumerRef:
-                description: |-
-                  consumerRef is the controller-managed exclusive allocation binding. It is
-                  established via an atomic compare-and-swap (resourceVersion-checked Update or a
-                  JSON Patch "test") and must not be treated as a normal user-editable field.
+                description: consumerRefはcontrollerが管理するexclusive allocation bindingである。atomic
+                  compare-and-swap(resourceVersionを確認するUpdateまたはJSON Patchのtest)で確立し、通常のユーザー編集fieldとして扱わない。
                 properties:
                   apiVersion:
                     description: API version of the referent.
@@ -104,10 +99,9 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               deletionApproval:
-                description: |-
-                  deletionApproval must match the current Host state before a Claimed or Retained
-                  Host can be deleted. It authorizes removing the Host from inventory only; it
-                  never triggers power off, Talos reset, or disk wipe.
+                description: deletionApprovalはClaimedまたはRetained Hostを削除する前に現在のHost
+                  stateと一致しなければならない。Hostをinventoryから除去することだけを承認し、power off、Talos reset、disk
+                  wipeは実行しない。
                 properties:
                   consumerUID:
                     description: |-
@@ -123,118 +117,91 @@ spec:
                     type: string
                 type: object
               failureDomain:
-                description: failureDomain is a Host selector criterion matched against
-                  Machine.spec.failureDomain.
+                description: failureDomainはMachine.spec.failureDomainと照合するHost selectorの条件である。
                 type: string
               hostID:
-                description: |-
-                  hostID is an immutable random UUID that identifies this Host independently of
-                  metadata.uid, so backups of the management cluster can recreate the same
-                  physical Host identity and ProviderID. This is a controller-owned spec field.
+                description: hostIDはmetadata.uidとは独立してHostを識別するimmutableなrandom UUIDである。management
+                  clusterのbackupから同じ物理Host identityとProviderIDを復元するために使い、controllerが所有するspec
+                  fieldである。
                 pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                 type: string
                 x-kubernetes-validations:
                 - message: hostID may only be initialized once and is immutable afterwards
                   rule: self == oldSelf || (oldSelf == '' && self != '')
               macAddress:
-                description: |-
-                  macAddress is the primary enrollment identity used to bind an observed boot
-                  attempt to this Host before any other inventory is known.
+                description: macAddressは他のinventoryが未知の段階でobserved boot attemptをこのHostへbindするための主enrollment
+                  identityである。
                 pattern: ^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$
                 type: string
               power:
-                description: power describes this Host's power control and stop-confirmation
-                  capability.
+                description: powerはこのHostの電源制御と停止確認の機能を定義する。
                 properties:
                   backend:
-                    description: backend selects which power capability implementation
-                      to use.
+                    description: backendは使用する電源機能の実装を選択する。
                     enum:
                     - Redfish
                     - WakeOnLAN
                     - Manual
                     type: string
-                    x-kubernetes-validations:
-                    - message: backend must select exactly its matching power configuration
-                      rule: (self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN))
-                        || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) &&
-                        !has(self.redfish)) || (self.backend == 'Manual' && !has(self.redfish)
-                        && !has(self.wakeOnLAN))
                   redfish:
-                    description: RedfishPowerConfig configures out-of-band power control
-                      and stop confirmation via Redfish.
+                    description: RedfishPowerConfigはRedfish経由のout-of-band電源制御と停止確認を設定する。
                     properties:
                       address:
-                        description: address is the Redfish service root base URL.
+                        description: addressはRedfish service rootのbase URLである。
                         type: string
                       caSecretRef:
-                        description: |-
-                          caSecretRef optionally references a Secret containing a custom CA certificate bundle
-                          under the "ca.crt" key for verifying the Redfish endpoint TLS certificate.
-                          When omitted, the system trust bundle is used unless insecureSkipVerify is true.
+                        description: caSecretRefはRedfish endpointのTLS certificateを検証するcustom
+                          CA certificate bundleをca.crt keyに持つSecretを任意に参照する。provider管理namespaceから解決し、省略時はinsecureSkipVerifyがtrueでない限りsystem
+                          trust bundleを使う。
                         properties:
                           name:
-                            description: name is unique within a namespace to reference
-                              a secret resource.
                             type: string
-                          namespace:
-                            description: namespace defines the space within which
-                              the secret name must be unique.
-                            type: string
+                        required:
+                        - name
                         type: object
-                        x-kubernetes-map-type: atomic
                       credentialSecretRef:
-                        description: |-
-                          credentialSecretRef references a Secret with "username" and "password" keys.
-                          Because TartHost is a cluster-scoped resource, the controller restricts reference
-                          resolution strictly to the configured provider management namespace.
+                        description: credentialSecretRefはusernameとpassword keyを持つSecretをprovider管理namespaceから参照する。
                         properties:
                           name:
-                            description: name is unique within a namespace to reference
-                              a secret resource.
                             type: string
-                          namespace:
-                            description: namespace defines the space within which
-                              the secret name must be unique.
-                            type: string
+                        required:
+                        - name
                         type: object
-                        x-kubernetes-map-type: atomic
                       insecureSkipVerify:
-                        description: |-
-                          insecureSkipVerify disables TLS certificate verification for the Redfish endpoint.
-                          It should only be used when custom CA verification is not feasible.
+                        description: insecureSkipVerifyはRedfish endpointのTLS certificate検証を無効化する。custom
+                          CA検証が実行できない場合だけ使用する。
                         type: boolean
                       systemID:
-                        description: systemID is the Redfish ComputerSystem identifier.
-                          If empty, the first system is used.
+                        description: systemIDはRedfish ComputerSystemのidentifierである。空にできるのはSystems
+                          collectionが単一memberの場合だけである。
                         type: string
                     required:
                     - address
                     - credentialSecretRef
                     type: object
                   wakeOnLAN:
-                    description: |-
-                      WakeOnLANPowerConfig configures Wake-on-LAN power-on. Stop confirmation for this backend
-                      relies on observing that the authenticated Talos API becomes unreachable after a Shutdown
-                      RPC is accepted, which is not proof of physical power-off.
+                    description: WakeOnLANPowerConfigはWake-on-LANによる電源投入を設定する。このbackendの停止確認はShutdown
+                      RPC受理後にauthenticated Talos APIが到達不能になることを観測するが、物理的な電源断の証明にはならない。
                     properties:
                       broadcastAddress:
-                        description: broadcastAddress is the network broadcast address
-                          used to send the magic packet.
+                        description: broadcastAddressはマジックパケット送信に使用するnetwork broadcast
+                          addressである。
                         type: string
                     type: object
                 required:
                 - backend
                 type: object
+                x-kubernetes-validations:
+                - message: backend must select exactly its matching power configuration
+                  rule: (self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN))
+                    || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) && !has(self.redfish))
+                    || (self.backend == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN))
               previousConsumerRef:
-                description: |-
-                  previousConsumerRef is the controller-managed record of the previous consumer, kept
-                  after Machine deletion so this Host is not auto-allocated again until an explicit
-                  reuse approval is given.
+                description: previousConsumerRefはcontrollerが管理する直前consumerのrecordである。Machine削除後も保持し、明示的なreuse
+                  approvalがあるまでこのHostを再度自動allocationしない。
                 properties:
                   clusterID:
-                    description: clusterID is the TartCluster.spec.clusterID the previous
-                      consumer belonged to.
+                    description: clusterIDは直前consumerが所属していたTartCluster.spec.clusterIDである。
                     type: string
                   name:
                     type: string
@@ -253,8 +220,7 @@ spec:
                 - uid
                 type: object
               reuseApproval:
-                description: reuseApproval must match the current previousConsumerRef.uid
-                  before this Host becomes eligible for reuse.
+                description: reuseApprovalはこのHostを再利用可能にする前に現在のpreviousConsumerRef.uidと一致しなければならない。
                 properties:
                   previousConsumerUID:
                     description: |-
@@ -266,25 +232,22 @@ spec:
                 - previousConsumerUID
                 type: object
               reuseMode:
-                description: reuseMode selects Adopt or Reprovision once the Host
-                  is approved for reuse.
+                description: reuseModeはHostの再利用承認後にAdoptまたはReprovisionを選択する。
                 enum:
                 - Adopt
                 - Reprovision
                 type: string
               reusePolicy:
                 default: Retain
-                description: reusePolicy is the user intent for whether a Retained
-                  Host may be reused.
+                description: reusePolicyはRetained Hostを再利用できるかというユーザーの意図である。
                 enum:
                 - Retain
                 - AllowReuse
                 type: string
               talosAPIAddress:
-                description: |-
-                  talosAPIAddress is an optional address or DNS name where the Talos API for this
-                  Host can be reached. It is a reachability hint / override only; the controller
-                  still verifies the observed MAC address before applying configuration.
+                description: talosAPIAddressはこのHostのTalos APIへ到達できる任意のaddressまたはDNS
+                  nameである。到達性のhintまたはoverrideに過ぎず、controllerはconfiguration apply前にobserved
+                  MAC addressを検証する。
                 maxLength: 512
                 type: string
             required:
@@ -292,7 +255,7 @@ spec:
             - power
             type: object
           status:
-            description: TartHostStatus defines the observed state of a TartHost.
+            description: TartHostStatusはTartHostのobserved stateを定義する。
             properties:
               addresses:
                 description: MachineAddresses is a slice of MachineAddress items to
@@ -323,6 +286,40 @@ spec:
                 maxItems: 256
                 type: array
                 x-kubernetes-list-type: atomic
+              bootAttempts:
+                description: bootAttemptsは直近のboot identity観測をboundedに保持する。古いattemptを現在のHost
+                  identityとして再利用せず、現在のinventoryと照合するための観測履歴である。
+                items:
+                  description: BootAttemptはHost inventoryで観測したTalos kernel bootの履歴である。履歴はboundedであり、allocationのidentityは常に現在のMAC、system
+                    UUID、disk観測で検証する。
+                  properties:
+                    bootID:
+                      description: bootIDはTalos kernel bootのstable identifierである。
+                      type: string
+                    endpoint:
+                      description: endpointはこのbootのinventoryへ接続したendpointであり、credentialや秘密情報を含まない。
+                      type: string
+                    firstObservedAt:
+                      description: firstObservedAtはこのbootを最初に観測した時刻である。
+                      format: date-time
+                      type: string
+                    lastObservedAt:
+                      description: lastObservedAtはこのbootを最後に観測した時刻である。
+                      format: date-time
+                      type: string
+                    systemUUID:
+                      description: systemUUIDはboot時に観測したsystem UUIDであり、空の場合がある。
+                      type: string
+                  required:
+                  - bootID
+                  - firstObservedAt
+                  - lastObservedAt
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - bootID
+                x-kubernetes-list-type: map
               conditions:
                 items:
                   description: Condition contains details for one aspect of the current
@@ -383,19 +380,20 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               inventory:
-                description: |-
-                  HostInventory is the hardware inventory observed via maintenance Talos discovery.
-                  Note that systemUUID is treated as one piece of identity evidence and is not solely
-                  relied upon due to potential BIOS omissions, all-zero values, or duplicates in DIY hardware.
+                description: HostInventoryはmaintenance Talos discoveryで観測したhardware
+                  inventoryである。systemUUIDはidentity evidenceの一つとして扱い、BIOSでの欠落、全て0の値、DIY
+                  hardwareでの重複があり得るため単独では信頼しない。
                 properties:
                   architecture:
                     type: string
+                  bootID:
+                    description: bootIDはこのinventoryを取得したTalos kernel bootの識別子である。再起動をまたいだ古いmaintenance
+                      endpointの観測を現在のbootと混同しないために使う。
+                    type: string
                   disks:
                     items:
-                      description: |-
-                        DiskInventory is an observed disk on the Host raw hardware inventory.
-                        Stable Talos CEL disk selectors are generated by CLI or helper tools rather than
-                        hardcoded into this inventory schema.
+                      description: DiskInventoryはHostのraw hardware inventoryから観測したdiskである。stableなTalos
+                        CEL disk selectorはCLIまたはhelper toolが生成し、このinventory schemaへhardcodeしない。
                       properties:
                         busPath:
                           type: string
@@ -428,8 +426,7 @@ spec:
                     type: array
                   networkInterfaces:
                     items:
-                      description: NetworkInterfaceInventory is an observed network
-                        interface on the Host.
+                      description: NetworkInterfaceInventoryはHostで観測したnetwork interfaceである。
                       properties:
                         addresses:
                           items:

@@ -31,6 +31,7 @@ Go test（単体テスト）は、外部依存を持たずにテスト可能な*
 - etcd quorum計算および安全なレプリカ数判定（[`controlplane/`](../../controlplane)）
 - 不変条件の競合検知（Provider-owned fieldとuser patchの不整合）
 - Bootstrap SecretのCAPI契約整合性検証
+- Redfish Service Root、System選択、Reset action、TLS/credential検証および`PowerState=Off`停止確認のHTTP契約
 
 ### E2E / 実環境で検証する境界
 モックの呼び出し順だけを検証する脆い単体テストは作成せず、以下のような実機・実API依存の処理はE2Eテスト（またはenvtest/統合環境）で検証する。
@@ -38,6 +39,7 @@ Go test（単体テスト）は、外部依存を持たずにテスト可能な*
 - Talos OSインストールおよびHost再起動後の認証済み相互TLS API復帰
 - 実環境でのin-place update、drain、およびロールバック検知
 - 削除時の実際のTalos shutdownと停止確認
+- 実機BMCのvendorごとのRedfish互換性、GracefulShutdown後の電源断およびcredential/CA rotation
 
 ---
 

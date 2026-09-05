@@ -19,10 +19,11 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/host"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartBootstrapConfigReconciler reconciles a TartBootstrapConfig object.
+// TartBootstrapConfigReconcilerはTartBootstrapConfig objectをreconcileする。
 type TartBootstrapConfigReconciler struct {
 	client.Client
 }
@@ -48,16 +49,18 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	if config.Spec.ConfigPatchesSecretRef == nil {
-		return r.report(ctx, &config, "ConfigurationSecretUnavailable", "An immutable configuration Secret reference is required before Bootstrap data can be generated.")
-	}
-
-	input := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigPatchesSecretRef.Name}, input); err != nil {
-		if apierrors.IsNotFound(err) {
-			return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
+	var input *corev1.Secret
+	if config.Spec.ConfigPatchesSecretRef != nil {
+		if config.Spec.ConfigPatchesSecretRef.Name == "" {
+			return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The configuration Secret reference has no name.")
 		}
-		return ctrl.Result{}, err
+		input = &corev1.Secret{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigPatchesSecretRef.Name}, input); err != nil {
+			if apierrors.IsNotFound(err) {
+				return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
+			}
+			return ctrl.Result{}, err
+		}
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
@@ -68,6 +71,9 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			}
 			result.RequeueAfter = 15 * time.Second
 			return result, nil
+		}
+		if errors.Is(err, errBootstrapIdentityConflict) {
+			return r.report(ctx, &config, infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped.")
 		}
 		if errors.Is(err, bootstrap.ErrConfigurationConflict) {
 			return r.report(ctx, &config, "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant.")
@@ -119,8 +125,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 	}
 
-	// Bootstrap Secretは一度作成したら書き換えず、同じdesired stateの再concileでは
-	// 既存Secretを観測してStatusだけを更新する。
+	// Bootstrap Secretは一度作成したら書き換えず、同じdesired stateの再concileでは既存Secretを観測してStatusだけを更新する。
 	original := config.DeepCopy()
 	config.Status.Initialization.DataSecretCreated = new(true)
 	config.Status.DataSecretName = actual.Name
@@ -135,85 +140,108 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 var errBootstrapContextUnavailable = errors.New("bootstrap cluster context is unavailable")
+var errBootstrapIdentityConflict = errors.New("bootstrap Host identity conflict")
 
 func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, input *corev1.Secret) ([]byte, error) {
+	if input == nil {
+		return r.configurationFromPatches(ctx, config, nil)
+	}
 	if err := bootstrap.ValidateConfigSecret(input); err != nil {
 		return nil, err
 	}
-	// valueは既存の完全configuration契約を維持する。patchesだけを持つSecretだけがcluster bundleとCAPI contextからの生成経路へ進む。
 	if len(input.Data[bootstrap.ConfigurationInputKey]) > 0 || len(input.Data[bootstrap.ConfigurationPatchesKey]) == 0 {
-		configuration, completeErr := bootstrap.CompleteConfigurationFromSecret(input)
-		if completeErr != nil {
-			return nil, completeErr
-		}
-		configured, configErr := bootstrap.HasInstallDiskConfiguration(configuration)
-		if configErr != nil {
-			return nil, configErr
-		}
-		if configured {
-			return configuration, nil
-		}
-		clusterMachine, machineErr := findCAPIMachineForBootstrap(ctx, r.Client, config)
-		if machineErr != nil {
-			return nil, machineErr
-		}
-		disk, diskErr := r.installDiskForMachine(ctx, clusterMachine)
-		if diskErr != nil {
-			return nil, diskErr
-		}
-		return bootstrap.EnsureInstallDisk(configuration, disk)
+		return r.configurationFromValue(ctx, config, input)
 	}
+	return r.configurationFromPatches(ctx, config, input.Data[bootstrap.ConfigurationPatchesKey])
+}
 
-	clusterMachine, err := findCAPIMachineForBootstrap(ctx, r.Client, config)
+func (r *TartBootstrapConfigReconciler) configurationFromValue(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, input *corev1.Secret) ([]byte, error) {
+	configurationContext, err := r.machineConfigurationContext(ctx, config)
 	if err != nil {
 		return nil, err
+	}
+	configuration, err := bootstrap.CompleteConfigurationFromSecret(input)
+	if err != nil {
+		return nil, err
+	}
+	configured, err := bootstrap.HasInstallDiskConfiguration(configuration)
+	if err != nil {
+		return nil, err
+	}
+	if !configured {
+		configuration, err = bootstrap.EnsureInstallDisk(configuration, *configurationContext.InstallDisk)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := bootstrap.ValidateProviderOwnedConfiguration(configuration, configurationContext); err != nil {
+		return nil, err
+	}
+	if err := bootstrap.ValidateMachineConfiguration(configuration); err != nil {
+		return nil, err
+	}
+	return configuration, nil
+}
+
+func (r *TartBootstrapConfigReconciler) configurationFromPatches(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, patches []byte) ([]byte, error) {
+	configurationContext, err := r.machineConfigurationContext(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	return bootstrap.GenerateMachineConfiguration(configurationContext, patches)
+}
+
+func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (bootstrap.MachineConfigurationContext, error) {
+	clusterMachine, err := findCAPIMachineForBootstrap(ctx, r.Client, config)
+	if err != nil {
+		return bootstrap.MachineConfigurationContext{}, err
 	}
 	cluster := &clusterv1.Cluster{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: clusterMachine.Spec.ClusterName}, cluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapContextUnavailable
+			return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 		}
-		return nil, err
+		return bootstrap.MachineConfigurationContext{}, err
 	}
 	clusterRef := cluster.Spec.InfrastructureRef
 	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != tartClusterKind || clusterRef.Name == "" {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 
 	providerCluster := &infrav1alpha1.TartCluster{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: clusterRef.Name}, providerCluster); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapContextUnavailable
+			return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 		}
-		return nil, err
+		return bootstrap.MachineConfigurationContext{}, err
 	}
 	if providerCluster.Spec.ClusterID == "" || providerCluster.Status.ActiveSecretGeneration < 1 {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 	clusterID, err := parseClusterID(providerCluster.Spec.ClusterID)
 	if err != nil {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 	if !cluster.Spec.ControlPlaneEndpoint.IsValid() || clusterMachine.Spec.Version == "" {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 	bundleName, err := controlplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
 	if err != nil {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 	bundleSecret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: providerCluster.Namespace, Name: bundleName}, bundleSecret); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapContextUnavailable
+			return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 		}
-		return nil, err
+		return bootstrap.MachineConfigurationContext{}, err
 	}
 	if err := controlplane.ValidateBundleSecretContract(bundleSecret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive, providerCluster.UID); err != nil {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 	bundle, err := controlplane.DecodeBundleData(bundleSecret.Data, clusterID)
 	if err != nil {
-		return nil, errBootstrapContextUnavailable
+		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 
 	machineType := talosmachine.TypeWorker
@@ -222,16 +250,16 @@ func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, confi
 	}
 	disk, err := r.installDiskForMachine(ctx, clusterMachine)
 	if err != nil {
-		return nil, err
+		return bootstrap.MachineConfigurationContext{}, err
 	}
-	return bootstrap.GenerateMachineConfiguration(bootstrap.MachineConfigurationContext{
+	return bootstrap.MachineConfigurationContext{
 		ClusterName:          cluster.Name,
 		ControlPlaneEndpoint: cluster.Spec.ControlPlaneEndpoint.String(),
 		KubernetesVersion:    clusterMachine.Spec.Version,
 		MachineType:          machineType,
 		SecretsBundle:        bundle,
 		InstallDisk:          &disk,
-	}, input.Data[bootstrap.ConfigurationPatchesKey])
+	}, nil
 }
 
 func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Context, machine *clusterv1.Machine) (bootstrap.InstallDisk, error) {
@@ -261,6 +289,13 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 	consumer := host.Spec.ConsumerRef
 	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != tartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
 		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+	}
+	allHosts := &infrav1alpha1.TartHostList{}
+	if err := r.List(ctx, allHosts); err != nil {
+		return bootstrap.InstallDisk{}, err
+	}
+	if hostpolicy.HasIdentityConflictForAny(allHosts.Items) {
+		return bootstrap.InstallDisk{}, errBootstrapIdentityConflict
 	}
 	if host.Status.Inventory == nil || len(host.Status.Inventory.Disks) == 0 {
 		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable

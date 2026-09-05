@@ -1,4 +1,4 @@
-// Package controller contains the thin Kubernetes watch/reconcile entrypoints for Tart resources.
+// Package controllerはTart resourceのKubernetes watchおよびreconcile entrypointを提供する。
 package controller
 
 import (
@@ -23,14 +23,16 @@ import (
 
 const tartHostFinalizer = "tart.cluster.x-k8s.io/host-lifecycle"
 
-// TartHostReconcilerはHost identity、maintenance Talos discovery、削除時のretention
-// gateを管理する。configuration applyやpower操作はTartMachineへ委譲する。
+// TartHostReconcilerはHost identity、maintenance Talos discovery、削除時のretention gateを管理する。configuration applyはTartMachineへ委譲し、Discoveryのためのpower操作だけを担当する。
 type TartHostReconciler struct {
 	client.Client
+	// ManagementNamespaceはRedfish credential Secretを解決するprovider管理namespaceである。TartHostのSpecからnamespaceを受け取らない。
+	ManagementNamespace string
 }
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
 
 func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var current infrav1alpha1.TartHost
@@ -75,11 +77,38 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	eligibility := host.Classify(current.Spec)
 	original := current.DeepCopy()
 	endpoint := hostTalosEndpoint(&current)
-	inventory, observationErr := observeHost(ctx, &current)
+	var observationErr error
+	if current.Status.Inventory == nil && (current.Spec.Power.Backend == infrav1alpha1.PowerBackendWakeOnLAN || current.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish) {
+		if err := r.powerOnHost(ctx, &current); err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "power on Host for maintenance discovery")
+			observationErr = errHostPowerUnavailable
+		}
+	}
+	var inventory talos.Inventory
+	if observationErr == nil {
+		inventory, observationErr = observeHost(ctx, &current)
+	}
 	if observationErr == nil {
 		current.Status.Inventory = hostInventory(inventory)
+		current.Status.BootAttempts = recordBootAttempt(current.Status.BootAttempts, inventory, endpoint, metav1.Now())
 		if endpoint != "" {
 			current.Status.Addresses = hostAddresses(endpoint)
+		}
+		observedHosts := make([]infrav1alpha1.TartHost, len(hosts.Items))
+		copy(observedHosts, hosts.Items)
+		foundCurrent := false
+		for index := range observedHosts {
+			if observedHosts[index].Name == current.Name && observedHosts[index].Namespace == current.Namespace {
+				observedHosts[index] = current
+				foundCurrent = true
+				break
+			}
+		}
+		if !foundCurrent {
+			observedHosts = append(observedHosts, current)
+		}
+		if host.HasIdentityConflictForAny(observedHosts) {
+			return r.reportIdentityConflicts(ctx, observedHosts)
 		}
 	}
 	setEligibilityConditions(&current, eligibility)
@@ -89,6 +118,10 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	} else {
 		reason := "TalosUnavailable"
 		message := "The Talos maintenance API is not reachable; allocation remains independent from this observation."
+		if errors.Is(observationErr, errHostPowerUnavailable) {
+			reason = "PowerUnavailable"
+			message = "The Host could not be powered on for maintenance discovery."
+		}
 		if errors.Is(observationErr, errHostEndpointUnavailable) {
 			reason = "EndpointUnavailable"
 			message = "A Talos endpoint is not configured or observed for this Host."
@@ -109,6 +142,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
 	result := &infrav1alpha1.HostInventory{
+		BootID:            inventory.BootID,
 		SystemUUID:        inventory.SystemUUID.String(),
 		Architecture:      inventory.Architecture,
 		Disks:             make([]infrav1alpha1.DiskInventory, 0, len(inventory.Disks)),
@@ -141,8 +175,38 @@ func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
 	return result
 }
 
+const maxBootAttempts = 16
+
+func recordBootAttempt(attempts []infrav1alpha1.BootAttempt, inventory talos.Inventory, endpoint string, observedAt metav1.Time) []infrav1alpha1.BootAttempt {
+	bootID := strings.TrimSpace(inventory.BootID)
+	if bootID == "" {
+		return attempts
+	}
+	for index := range attempts {
+		if attempts[index].BootID != bootID {
+			continue
+		}
+		attempts[index].LastObservedAt = observedAt
+		attempts[index].SystemUUID = inventory.SystemUUID.String()
+		attempts[index].Endpoint = endpoint
+		return attempts
+	}
+	attempts = append(attempts, infrav1alpha1.BootAttempt{
+		BootID:          bootID,
+		FirstObservedAt: observedAt,
+		LastObservedAt:  observedAt,
+		SystemUUID:      inventory.SystemUUID.String(),
+		Endpoint:        endpoint,
+	})
+	if len(attempts) > maxBootAttempts {
+		attempts = attempts[len(attempts)-maxBootAttempts:]
+	}
+	return attempts
+}
+
 var errHostIdentityMismatch = errors.New("talos maintenance identity does not match host")
 var errHostEndpointUnavailable = errors.New("talos endpoint is unavailable")
+var errHostPowerUnavailable = errors.New("host power-on is unavailable")
 
 func observeHost(ctx context.Context, current *infrav1alpha1.TartHost) (talos.Inventory, error) {
 	endpoint := hostTalosEndpoint(current)

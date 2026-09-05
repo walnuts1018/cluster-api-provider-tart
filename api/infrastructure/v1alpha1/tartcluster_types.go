@@ -5,56 +5,45 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartCluster Condition types.
+// TartClusterのCondition typeを定義する。
 const (
 	TartClusterReadyCondition = "Ready"
 )
 
-// DisruptionPolicy defines how drain failures are handled during node-disruptive updates.
+// DisruptionPolicyはnode-disruptive update中のdrain failureを処理する方法を定義する。
 // +kubebuilder:validation:Enum=Block;AllowDowntime
 type DisruptionPolicy string
 
 const (
-	// DisruptionPolicyBlock halts node-disruptive updates when drain fails for any reason. This is the default.
+	// DisruptionPolicyBlockは理由を問わずdrainに失敗した場合にnode-disruptive updateを停止する。既定値である。
 	DisruptionPolicyBlock DisruptionPolicy = "Block"
-	// DisruptionPolicyAllowDowntime allows graceful shutdown or reboot when drain fails only
-	// for availability, PDB, or capacity reasons. It never relaxes data, identity, Host, etcd,
-	// or quorum safety checks.
+	// DisruptionPolicyAllowDowntimeはavailability、PDB、capacityだけが理由でdrainに失敗した場合に限りgraceful shutdownまたはrebootを許可する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。
 	DisruptionPolicyAllowDowntime DisruptionPolicy = "AllowDowntime"
 )
 
-// TartClusterSpec defines the desired state of a TartCluster.
-// Note on control plane endpoint: Tart does not provision control plane endpoints (VIP, load balancer).
-// The control plane endpoint must be provided by the user, ClusterClass, or surrounding topology via
-// Cluster.spec.controlPlaneEndpoint; Tart reconcilers wait until this endpoint is available.
+// TartClusterSpecはTartClusterのdesired stateを定義する。control plane endpointについて、Tartはcontrol plane endpoint(VIPやload balancer)をprovisionしないため、ユーザー、ClusterClass、または周辺TopologyがCluster.spec.controlPlaneEndpointを通じて供給する。Tart reconcilerはendpointが利用可能になるまで待機する。
 type TartClusterSpec struct {
-	// clusterID is an immutable random UUID that identifies this workload cluster independently
-	// of Cluster.metadata.uid. It is generated once by the controller on first
-	// non-dry-run creation and is never regenerated for the same object; a cluster
-	// recreated under the same name gets a new clusterID and must not reuse old secret bundles
-	// or Retained Hosts. This is a controller-owned spec field.
+	// clusterIDはCluster.metadata.uidとは独立してworkload clusterを識別するimmutableなrandom UUIDである。controllerが最初のnon-dry-run作成時に一度だけ生成し、同じobjectに対して再生成しない。同じ名前で再作成したclusterには新しいclusterIDを割り当て、古いsecret bundleやRetained Hostを再利用しない。controller所有のspec fieldである。
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="clusterID may only be initialized once and is immutable afterwards"
 	// +optional
 	// +kubebuilder:validation:Type=string
 	ClusterID string `json:"clusterID,omitempty"`
 
-	// updatePolicy controls whether availability-only drain failures may be
-	// relaxed for node-disruptive updates. It never relaxes data, identity,
-	// Host, etcd, or quorum safety checks.
+	// updatePolicyはnode-disruptive updateでavailabilityだけを理由とするdrain failureを緩和できるか制御する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。
 	// +optional
 	UpdatePolicy TartUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
 }
 
-// TartUpdatePolicy defines the availability policy for node-disruptive updates.
+// TartUpdatePolicyはnode-disruptive updateのavailability policyを定義する。
 type TartUpdatePolicy struct {
-	// disruptionPolicy controls how drain failures are handled during node-disruptive updates.
+	// disruptionPolicyはnode-disruptive update中のdrain failureを処理する方法を制御する。
 	// +kubebuilder:default=Block
 	// +optional
 	DisruptionPolicy DisruptionPolicy `json:"disruptionPolicy,omitempty,omitzero"`
 }
 
-// TartClusterStatus defines the observed state of a TartCluster.
+// TartClusterStatusはTartClusterのobserved stateを定義する。
 type TartClusterStatus struct {
 	// +optional
 	Initialization TartClusterInitializationStatus `json:"initialization,omitempty,omitzero"`
@@ -66,11 +55,7 @@ type TartClusterStatus struct {
 	// +kubebuilder:validation:MaxItems=100
 	FailureDomains []clusterv1.FailureDomain `json:"failureDomains,omitempty"`
 
-	// activeSecretGeneration is the currently active cluster secret bundle generation,
-	// starting at 1 and monotonically increasing on CA rotation.
-	// Note: Although status is not preserved across clusterctl move / backup restores,
-	// the active generation can be deterministically reconstructed by inspecting the
-	// existing immutable bundle Secrets in the cluster namespace.
+	// activeSecretGenerationは現在activeなcluster secret bundleのgenerationであり、1から始まりCA rotationごとに単調増加する。clusterctl moveやbackup restoreではStatusが保持されない場合があるが、cluster namespace内の既存immutable bundle Secretを調べることでactive generationを決定論的に再構築できる。
 	// +optional
 	ActiveSecretGeneration int32 `json:"activeSecretGeneration,omitempty"`
 
@@ -83,7 +68,7 @@ type TartClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// TartClusterInitializationStatus tracks initial provisioning milestones.
+// TartClusterInitializationStatusは初回provisioningの到達点を追跡する。
 // +kubebuilder:validation:MinProperties=1
 type TartClusterInitializationStatus struct {
 	// +optional
@@ -96,7 +81,7 @@ type TartClusterInitializationStatus struct {
 // +kubebuilder:resource:categories=cluster-api,shortName=tcl
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
 
-// TartCluster is the Schema for the tartclusters API.
+// TartClusterはtartclusters APIのschemaである。
 type TartCluster struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -107,7 +92,7 @@ type TartCluster struct {
 
 // +kubebuilder:object:root=true
 
-// TartClusterList contains a list of TartCluster.
+// TartClusterListはTartClusterのlistである。
 type TartClusterList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

@@ -5,16 +5,14 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartControlPlaneTemplateResource describes the data needed to create a
-// TartControlPlane from a template.
+// TartControlPlaneTemplateResourceはtemplateからTartControlPlaneを作成するためのdataを定義する。
 type TartControlPlaneTemplateResource struct {
 	// ObjectMetaは生成されるTartControlPlaneのmetadataへ伝播する。各control-plane Machineのmetadataは内側のmachineTemplate.metadataで指定する。
 	ObjectMeta clusterv1.ObjectMeta                 `json:"metadata,omitempty,omitzero"`
 	Spec       TartControlPlaneTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartControlPlaneTemplateResourceSpec omits values calculated or injected by
-// ClusterClass, such as version, replicas, and infrastructureRef.
+// TartControlPlaneTemplateResourceSpecはClusterClassが計算または注入するversion、replicas、infrastructureRefなどの値を含めない。
 type TartControlPlaneTemplateResourceSpec struct {
 	// +optional
 	MachineTemplate TartControlPlaneTemplateMachineTemplate `json:"machineTemplate,omitempty,omitzero"`
@@ -23,9 +21,7 @@ type TartControlPlaneTemplateResourceSpec struct {
 	BootstrapConfigTemplateRef *clusterv1.ContractVersionedObjectReference `json:"bootstrapConfigTemplateRef,omitempty"`
 }
 
-// TartControlPlaneTemplateMachineTemplate is the template-specific form of the
-// control-plane Machine template. The infrastructure reference is injected by
-// ClusterClass or the concrete TartControlPlane.
+// TartControlPlaneTemplateMachineTemplateはcontrol-plane Machine templateのtemplate専用形式である。infrastructure referenceはClusterClassまたは具体的なTartControlPlaneが注入する。
 type TartControlPlaneTemplateMachineTemplate struct {
 	// +optional
 	ObjectMeta clusterv1.ObjectMeta `json:"metadata,omitempty,omitzero"`
@@ -34,14 +30,13 @@ type TartControlPlaneTemplateMachineTemplate struct {
 	Spec TartControlPlaneTemplateMachineTemplateSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartControlPlaneTemplateMachineTemplateSpec contains fields that can be
-// shared without fixing the infrastructure template reference.
+// TartControlPlaneTemplateMachineTemplateSpecはinfrastructure template referenceを固定せずに共有できるfieldを定義する。
 type TartControlPlaneTemplateMachineTemplateSpec struct {
-	// readinessGates specifies additional conditions to evaluate for Machine readiness.
+	// readinessGatesはMachine readinessを評価する追加Conditionを指定する。
 	// +optional
 	ReadinessGates []clusterv1.MachineReadinessGate `json:"readinessGates,omitempty,omitzero"`
 
-	// taints specifies node taints applied to the created Machine.
+	// taintsは作成したMachineへ適用するnode taintを指定する。
 	// +optional
 	Taints []clusterv1.MachineTaint `json:"taints,omitempty,omitzero"`
 
@@ -49,7 +44,7 @@ type TartControlPlaneTemplateMachineTemplateSpec struct {
 	Deletion TartControlPlaneMachineTemplateDeletionSpec `json:"deletion,omitempty,omitzero"`
 }
 
-// TartControlPlaneTemplateSpec defines the desired state of a TartControlPlaneTemplate.
+// TartControlPlaneTemplateSpecはTartControlPlaneTemplateのdesired stateを定義する。
 type TartControlPlaneTemplateSpec struct {
 	Template TartControlPlaneTemplateResource `json:"template"`
 }
@@ -58,7 +53,7 @@ type TartControlPlaneTemplateSpec struct {
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 // +kubebuilder:resource:categories=cluster-api,shortName=tcpt
 
-// TartControlPlaneTemplate is the Schema for the tartcontrolplanetemplates API.
+// TartControlPlaneTemplateはtartcontrolplanetemplates APIのschemaである。
 type TartControlPlaneTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -68,7 +63,7 @@ type TartControlPlaneTemplate struct {
 
 // +kubebuilder:object:root=true
 
-// TartControlPlaneTemplateList contains a list of TartControlPlaneTemplate.
+// TartControlPlaneTemplateListはTartControlPlaneTemplateのlistである。
 type TartControlPlaneTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

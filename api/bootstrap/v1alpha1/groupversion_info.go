@@ -1,5 +1,4 @@
-// Package v1alpha1 contains the Tart Bootstrap Provider API
-// (bootstrap.cluster.x-k8s.io/v1alpha1): TartBootstrapConfig, TartBootstrapConfigTemplate.
+// Package v1alpha1はTart Bootstrap Provider API(bootstrap.cluster.x-k8s.io/v1alpha1)のTartBootstrapConfigとTartBootstrapConfigTemplateを定義する。
 //
 // +kubebuilder:object:generate=true
 // +groupName=bootstrap.cluster.x-k8s.io
@@ -12,13 +11,13 @@ import (
 )
 
 var (
-	// GroupVersion is group version used to register these objects.
+	// GroupVersionはこれらのオブジェクトを登録するgroup versionである。
 	GroupVersion = schema.GroupVersion{Group: "bootstrap.cluster.x-k8s.io", Version: "v1alpha1"}
 
-	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
+	// SchemeBuilderはGo型をGroupVersionKind schemeへ追加するために使う。
 	SchemeBuilder = runtime.NewSchemeBuilder(addKnownTypes)
 
-	// AddToScheme adds the types in this group-version to the given scheme.
+	// AddToSchemeはこのgroup versionの型を指定されたschemeへ追加する。
 	AddToScheme = SchemeBuilder.AddToScheme
 )
 

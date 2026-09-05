@@ -8,8 +8,7 @@ import (
 	"os"
 	"time"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
+	// Kubernetes clientの全auth pluginをimportし、exec-entrypointとrunから利用できるようにする。
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/go-logr/logr"
@@ -73,8 +72,7 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&enableRuntimeExtension, "enable-runtime-extension", false,
-		"Enable the CAPI Runtime Extension HTTPS server for in-place update hooks. "+
-			"Every hook currently returns Failure; see extensions package documentation.")
+		"Enable the CAPI Runtime Extension HTTPS server for Talos in-place update hooks.")
 	flag.StringVar(&runtimeExtensionCertPath, "runtime-extension-cert-path", "",
 		"The directory that contains the Runtime Extension server certificate.")
 	flag.BoolVar(&secureMetrics, "metrics-secure", true,
@@ -110,12 +108,9 @@ func main() {
 	klog.SetLogger(logrLogger)
 	ctrl.SetLogger(logrLogger)
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
+	// enable-http2 flagがfalse(既定値)の場合は脆弱性を持つHTTP/2を無効化する。これによりHTTP/2 Stream CancellationとRapid ResetのCVEに該当する状態を避ける。詳細は次のCVE advisoryを参照する。
+	// https://github.com/advisories/GHSA-qppj-fm5r-hxr3
+	// https://github.com/advisories/GHSA-4374-p667-p6c8
 	disableHTTP2 := func(c *tls.Config) {
 		setupLog.Info("Disabling HTTP/2")
 		c.NextProtos = []string{"http/1.1"}
@@ -125,10 +120,9 @@ func main() {
 		tlsOpts = append(tlsOpts, disableHTTP2)
 	}
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
+	// Metrics endpointはconfig/default/kustomization.yamlで有効化する。Metrics optionsはserverを設定する。詳細は次のdocumentationを参照する。
+	// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/metrics/server
+	// https://book.kubebuilder.io/reference/metrics.html
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   metricsAddr,
 		SecureServing: secureMetrics,
@@ -136,7 +130,7 @@ func main() {
 	}
 
 	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// FilterProviderはmetrics endpointをauthn/authzで保護するために使用する。
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
@@ -168,6 +162,9 @@ func main() {
 	}
 
 	reconcilers := kessoku.InitializeReconcilers(mgr.GetClient())
+	managementNamespace := os.Getenv("POD_NAMESPACE")
+	reconcilers.TartHost.ManagementNamespace = managementNamespace
+	reconcilers.TartMachine.ManagementNamespace = managementNamespace
 
 	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "TartHost")
@@ -196,7 +193,7 @@ func main() {
 			setupLog.Error(err, "Failed to create Runtime Extension catalog")
 			os.Exit(1)
 		}
-		extManager, err := extensions.NewManager(catalog, runtimeExtensionCertPath)
+		extManager, err := extensions.NewManager(catalog, runtimeExtensionCertPath, mgr.GetClient())
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension manager")
 			os.Exit(1)

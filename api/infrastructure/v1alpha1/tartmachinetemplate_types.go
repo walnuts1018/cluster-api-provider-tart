@@ -5,26 +5,24 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartMachineTemplateResource describes the data needed to create a TartMachine from a template.
+// TartMachineTemplateResourceはtemplateからTartMachineを作成するためのdataを定義する。
 type TartMachineTemplateResource struct {
 	// ObjectMetaは生成されるTartMachineのmetadataへ伝播する。CAPI Machineのmetadataは別途管理される。
 	ObjectMeta clusterv1.ObjectMeta            `json:"metadata,omitempty,omitzero"`
 	Spec       TartMachineTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartMachineTemplateResourceSpec contains only fields that can be shared by
-// all concrete Machines created from the template. Host claims and ProviderIDs
-// are assigned on each concrete TartMachine and cannot be fixed here.
+// TartMachineTemplateResourceSpecはtemplateから作成する全ての具体的なMachineで共有できるfieldだけを定義する。Host claimとProviderIDは各TartMachineに割り当てるため、ここでは固定できない。
 type TartMachineTemplateResourceSpec struct {
-	// hostSelector narrows allocation without naming a particular Host.
+	// hostSelectorは特定のHost名を指定せずallocation対象を絞り込む。
 	// +optional
 	HostSelector *HostSelector `json:"hostSelector,omitempty"`
 
-	// image is the desired Talos OS version and system extension set.
+	// imageはdesired Talos OS versionとsystem extension setを指定する。
 	Image TalosImageSpec `json:"image"`
 }
 
-// TartMachineTemplateSpec defines the desired state of a TartMachineTemplate.
+// TartMachineTemplateSpecはTartMachineTemplateのdesired stateを定義する。
 type TartMachineTemplateSpec struct {
 	Template TartMachineTemplateResource `json:"template"`
 }
@@ -33,7 +31,7 @@ type TartMachineTemplateSpec struct {
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 // +kubebuilder:resource:categories=cluster-api,shortName=tmt
 
-// TartMachineTemplate is the Schema for the tartmachinetemplates API.
+// TartMachineTemplateはtartmachinetemplates APIのschemaである。
 type TartMachineTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -43,7 +41,7 @@ type TartMachineTemplate struct {
 
 // +kubebuilder:object:root=true
 
-// TartMachineTemplateList contains a list of TartMachineTemplate.
+// TartMachineTemplateListはTartMachineTemplateのlistである。
 type TartMachineTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

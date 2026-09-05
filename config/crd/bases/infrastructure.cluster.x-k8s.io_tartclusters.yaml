@@ -27,7 +27,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartCluster is the Schema for the tartclusters API.
+        description: TartClusterはtartclusters APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -47,19 +47,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              TartClusterSpec defines the desired state of a TartCluster.
-              Note on control plane endpoint: Tart does not provision control plane endpoints (VIP, load balancer).
-              The control plane endpoint must be provided by the user, ClusterClass, or surrounding topology via
-              Cluster.spec.controlPlaneEndpoint; Tart reconcilers wait until this endpoint is available.
+            description: TartClusterSpecはTartClusterのdesired stateを定義する。control plane
+              endpointについて、Tartはcontrol plane endpoint(VIPやload balancer)をprovisionしないため、ユーザー、ClusterClass、または周辺TopologyがCluster.spec.controlPlaneEndpointを通じて供給する。Tart
+              reconcilerはendpointが利用可能になるまで待機する。
             properties:
               clusterID:
-                description: |-
-                  clusterID is an immutable random UUID that identifies this workload cluster independently
-                  of Cluster.metadata.uid. It is generated once by the controller on first
-                  non-dry-run creation and is never regenerated for the same object; a cluster
-                  recreated under the same name gets a new clusterID and must not reuse old secret bundles
-                  or Retained Hosts. This is a controller-owned spec field.
+                description: clusterIDはCluster.metadata.uidとは独立してworkload clusterを識別するimmutableなrandom
+                  UUIDである。controllerが最初のnon-dry-run作成時に一度だけ生成し、同じobjectに対して再生成しない。同じ名前で再作成したclusterには新しいclusterIDを割り当て、古いsecret
+                  bundleやRetained Hostを再利用しない。controller所有のspec fieldである。
                 pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                 type: string
                 x-kubernetes-validations:
@@ -67,15 +62,12 @@ spec:
                     afterwards
                   rule: self == oldSelf || (oldSelf == '' && self != '')
               updatePolicy:
-                description: |-
-                  updatePolicy controls whether availability-only drain failures may be
-                  relaxed for node-disruptive updates. It never relaxes data, identity,
-                  Host, etcd, or quorum safety checks.
+                description: updatePolicyはnode-disruptive updateでavailabilityだけを理由とするdrain
+                  failureを緩和できるか制御する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。
                 properties:
                   disruptionPolicy:
                     default: Block
-                    description: disruptionPolicy controls how drain failures are
-                      handled during node-disruptive updates.
+                    description: disruptionPolicyはnode-disruptive update中のdrain failureを処理する方法を制御する。
                     enum:
                     - Block
                     - AllowDowntime
@@ -83,15 +75,12 @@ spec:
                 type: object
             type: object
           status:
-            description: TartClusterStatus defines the observed state of a TartCluster.
+            description: TartClusterStatusはTartClusterのobserved stateを定義する。
             properties:
               activeSecretGeneration:
-                description: |-
-                  activeSecretGeneration is the currently active cluster secret bundle generation,
-                  starting at 1 and monotonically increasing on CA rotation.
-                  Note: Although status is not preserved across clusterctl move / backup restores,
-                  the active generation can be deterministically reconstructed by inspecting the
-                  existing immutable bundle Secrets in the cluster namespace.
+                description: activeSecretGenerationは現在activeなcluster secret bundleのgenerationであり、1から始まりCA
+                  rotationごとに単調増加する。clusterctl moveやbackup restoreではStatusが保持されない場合があるが、cluster
+                  namespace内の既存immutable bundle Secretを調べることでactive generationを決定論的に再構築できる。
                 format: int32
                 type: integer
               conditions:
@@ -184,8 +173,7 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               initialization:
-                description: TartClusterInitializationStatus tracks initial provisioning
-                  milestones.
+                description: TartClusterInitializationStatusは初回provisioningの到達点を追跡する。
                 minProperties: 1
                 properties:
                   provisioned:

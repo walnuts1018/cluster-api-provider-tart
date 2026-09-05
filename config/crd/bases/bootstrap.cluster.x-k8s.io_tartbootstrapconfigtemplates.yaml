@@ -23,8 +23,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: TartBootstrapConfigTemplate is the Schema for the tartbootstrapconfigtemplates
-          API.
+        description: TartBootstrapConfigTemplateはtartbootstrapconfigtemplates APIのschemaである。
         properties:
           apiVersion:
             description: |-
@@ -44,17 +43,14 @@ spec:
           metadata:
             type: object
           spec:
-            description: TartBootstrapConfigTemplateSpec defines the desired state
-              of a TartBootstrapConfigTemplate.
+            description: TartBootstrapConfigTemplateSpecはTartBootstrapConfigTemplateのdesired
+              stateを定義する。
             properties:
               template:
-                description: |-
-                  TartBootstrapConfigTemplateResource describes the data needed to create a
-                  TartBootstrapConfig from a template.
+                description: TartBootstrapConfigTemplateResourceはtemplateからTartBootstrapConfigを作成するためのdataを定義する。
                 properties:
                   metadata:
-                    description: ObjectMeta is propagated to the generated BootstrapConfig
-                      and its Secret.
+                    description: ObjectMetaは生成されるBootstrapConfigとそのSecretへ伝播する。
                     minProperties: 1
                     properties:
                       annotations:
@@ -77,9 +73,8 @@ spec:
                         type: object
                     type: object
                   spec:
-                    description: |-
-                      TartBootstrapConfigTemplateResourceSpec contains the immutable Secret input
-                      shared by concrete BootstrapConfigs created from the template.
+                    description: TartBootstrapConfigTemplateResourceSpecはtemplateから作成される具体的なBootstrapConfigで共有するimmutable
+                      Secret inputを定義する。
                     properties:
                       configPatchesSecretRef:
                         description: |-

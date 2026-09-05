@@ -5,22 +5,20 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartClusterTemplateResource describes the data needed to create a TartCluster from a template.
+// TartClusterTemplateResourceはtemplateからTartClusterを作成するためのdataを定義する。
 type TartClusterTemplateResource struct {
-	// ObjectMeta is propagated to the generated Cluster and its descendants.
+	// ObjectMetaは生成されるClusterとその子リソースへ伝播する。
 	ObjectMeta clusterv1.ObjectMeta            `json:"metadata,omitempty,omitzero"`
 	Spec       TartClusterTemplateResourceSpec `json:"spec,omitempty,omitzero"`
 }
 
-// TartClusterTemplateResourceSpec contains only fields that are meaningful for
-// every concrete TartCluster created from the template. Cluster identity is
-// always generated on the concrete resource after creation.
+// TartClusterTemplateResourceSpecはtemplateから作成される全ての具体的なTartClusterで意味を持つfieldだけを定義する。Cluster identityは具体的なresourceの作成後に常に生成する。
 type TartClusterTemplateResourceSpec struct {
 	// +optional
 	UpdatePolicy TartUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
 }
 
-// TartClusterTemplateSpec defines the desired state of a TartClusterTemplate.
+// TartClusterTemplateSpecはTartClusterTemplateのdesired stateを定義する。
 type TartClusterTemplateSpec struct {
 	Template TartClusterTemplateResource `json:"template"`
 }
@@ -29,7 +27,7 @@ type TartClusterTemplateSpec struct {
 // +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 // +kubebuilder:resource:categories=cluster-api,shortName=tclt
 
-// TartClusterTemplate is the Schema for the tartclustertemplates API.
+// TartClusterTemplateはtartclustertemplates APIのschemaである。
 type TartClusterTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -39,7 +37,7 @@ type TartClusterTemplate struct {
 
 // +kubebuilder:object:root=true
 
-// TartClusterTemplateList contains a list of TartClusterTemplate.
+// TartClusterTemplateListはTartClusterTemplateのlistである。
 type TartClusterTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`

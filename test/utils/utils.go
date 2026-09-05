@@ -28,7 +28,7 @@ func WarnError(err error) {
 	}
 }
 
-// Run executes the provided command within this context
+// Runは指定されたcommandをこのcontextで実行する。
 func Run(cmd *exec.Cmd) (string, error) {
 	dir, _ := GetProjectDir()
 	cmd.Dir = dir
@@ -56,7 +56,7 @@ func Run(cmd *exec.Cmd) (string, error) {
 	return string(output), nil
 }
 
-// UninstallCertManager uninstalls the cert manager
+// UninstallCertManagerはcert-managerを削除する。
 func UninstallCertManager() {
 	ctx := context.Background()
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
@@ -65,7 +65,7 @@ func UninstallCertManager() {
 		WarnError(err)
 	}
 
-	// Delete leftover leases in kube-system (not cleaned by default)
+	// 既定では削除されないkube-systemの残存leaseを削除する。
 	kubeSystemLeases := []string{
 		"cert-manager-cainjector-leader-election",
 		"cert-manager-controller",
@@ -79,7 +79,7 @@ func UninstallCertManager() {
 	}
 }
 
-// InstallCertManager installs the cert manager bundle.
+// InstallCertManagerはcert-manager bundleをinstallする。
 func InstallCertManager() error {
 	ctx := context.Background()
 	url := fmt.Sprintf(certmanagerURLTmpl, certmanagerVersion)
@@ -87,8 +87,7 @@ func InstallCertManager() error {
 	if _, err := Run(cmd); err != nil {
 		return err
 	}
-	// Wait for cert-manager-webhook to be ready, which can take time if cert-manager
-	// was re-installed after uninstalling on a cluster.
+	// clusterからcert-managerを削除した後に再installした場合は時間がかかるため、cert-manager-webhookがReadyになるまで待機する。
 	cmd = exec.CommandContext(ctx, "kubectl", "wait", "deployment.apps/cert-manager-webhook",
 		"--for", "condition=Available",
 		"--namespace", "cert-manager",
@@ -137,10 +136,9 @@ func waitCertManagerWebhookCABundle(ctx context.Context) error {
 	return nil
 }
 
-// IsCertManagerCRDsInstalled checks if any Cert Manager CRDs are installed
-// by verifying the existence of key CRDs related to Cert Manager.
+// IsCertManagerCRDsInstalledはcert-managerに関連する主要なCRDの存在を確認し、cert-manager CRDがinstall済みかを返す。
 func IsCertManagerCRDsInstalled() bool {
-	// List of common Cert Manager CRDs
+	// 一般的なcert-manager CRDのlist。
 	certManagerCRDs := []string{
 		"certificates.cert-manager.io",
 		"issuers.cert-manager.io",
@@ -150,14 +148,14 @@ func IsCertManagerCRDsInstalled() bool {
 		"challenges.acme.cert-manager.io",
 	}
 
-	// Execute the kubectl command to get all CRDs
+	// 全CRDを取得するkubectl commandを実行する。
 	cmd := exec.CommandContext(context.Background(), "kubectl", "get", "crds")
 	output, err := Run(cmd)
 	if err != nil {
 		return false
 	}
 
-	// Check if any of the Cert Manager CRDs are present
+	// cert-manager CRDが存在するか確認する。
 	crdList := GetNonEmptyLines(output)
 	for _, crd := range certManagerCRDs {
 		for _, line := range crdList {
@@ -170,7 +168,7 @@ func IsCertManagerCRDsInstalled() bool {
 	return false
 }
 
-// LoadImageToKindClusterWithName loads a local docker image to the kind cluster
+// LoadImageToKindClusterWithNameはlocal Docker imageをkind clusterへloadする。
 func LoadImageToKindClusterWithName(name string) error {
 	cluster := defaultKindCluster
 	if v, ok := os.LookupEnv("KIND_CLUSTER"); ok {
@@ -186,8 +184,7 @@ func LoadImageToKindClusterWithName(name string) error {
 	return err
 }
 
-// GetNonEmptyLines converts given command output string into individual objects
-// according to line breakers, and ignores the empty elements in it.
+// GetNonEmptyLinesはcommand outputの文字列を改行ごとの要素へ分解し、空要素を無視する。
 func GetNonEmptyLines(output string) []string {
 	var res []string
 	elements := strings.SplitSeq(output, "\n")
@@ -200,7 +197,7 @@ func GetNonEmptyLines(output string) []string {
 	return res
 }
 
-// GetProjectDir will return the directory where the project is
+// GetProjectDirはproject directoryを返す。
 func GetProjectDir() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -210,10 +207,9 @@ func GetProjectDir() (string, error) {
 	return wd, nil
 }
 
-// UncommentCode searches for target in the file and remove the comment prefix
-// of the target content. The target content may span multiple lines.
+// UncommentCodeはfileからtargetを検索し、target contentのcomment prefixを除去する。target contentは複数行にまたがってよい。
 func UncommentCode(filename, target, prefix string) error {
-	// false positive
+	// gosecのfalse positive。
 	//nolint:gosec
 	content, err := os.ReadFile(filename)
 	if err != nil {
@@ -240,7 +236,7 @@ func UncommentCode(filename, target, prefix string) error {
 		if _, err = out.WriteString(strings.TrimPrefix(scanner.Text(), prefix)); err != nil {
 			return fmt.Errorf("failed to write to output: %w", err)
 		}
-		// Avoid writing a newline in case the previous line was the last in target.
+		// targetの直前の行が最後の行である場合に改行を書き込まない。
 		if !scanner.Scan() {
 			break
 		}
@@ -253,7 +249,7 @@ func UncommentCode(filename, target, prefix string) error {
 		return fmt.Errorf("failed to write to output: %w", err)
 	}
 
-	// false positive
+	// gosecのfalse positive。
 	//nolint:gosec
 	if err = os.WriteFile(filename, out.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write file %q: %w", filename, err)

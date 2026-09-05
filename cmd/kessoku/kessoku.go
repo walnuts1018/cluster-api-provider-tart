@@ -9,12 +9,7 @@ import (
 	controller "github.com/walnuts1018/cluster-api-provider-tart/controller"
 )
 
-// TODO: ProvideXXXという関数は作らず、それぞれの型に適切なコンストラクタを用意する
-// TODO: Reconcilersみたいにまとめる必要があるなら、それは他の場所で定義すべきで、ここではない。kessoku packageはDIのための最小限のコードしか書いてはいけない
-
-// Reconcilers holds the reconcilers wired for cmd/controller-manager. As the policy
-// packages (host, talos, bootstrap, controlplane, boot) grow real implementations in
-// later sessions, their adapters will be added as additional kessoku providers here.
+// Reconcilersはcmd/controller-managerへ接続するreconcilerを保持する。policy packageと外部adapterの依存関係をDI wiringへ限定し、controllerの実装をここへ置かない。
 type Reconcilers struct {
 	TartHost            *controller.TartHostReconciler
 	TartCluster         *controller.TartClusterReconciler

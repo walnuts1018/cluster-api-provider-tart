@@ -10,10 +10,10 @@ import (
 
 var ErrInvalidUDPAddress = errors.New("invalid UDP address")
 
-// UDPAddressはIPアドレスとUDP portを組み合わせた送信先を表す値オブジェクトである。
+// UDPAddressはIPアドレスとUDPポートを組み合わせた送信先を表す値オブジェクトである。
 type UDPAddress string
 
-// ParseUDPAddressはIPだけの入力にはWake-on-LAN標準port 9を補う。
+// ParseUDPAddressはIPだけの入力にWake-on-LAN標準ポート9を補う。
 func ParseUDPAddress(value string) (UDPAddress, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {

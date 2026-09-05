@@ -26,6 +26,9 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		UID:  types.UID("host-a"),
@@ -42,7 +45,17 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 			Image: infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
+	capiMachine := &clusterv1.Machine{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+		Spec: clusterv1.MachineSpec{InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+			APIGroup: infrav1alpha1.GroupVersion.Group,
+			Kind:     tartMachineKind,
+			Name:     machine.Name,
+		}},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine, capiMachine).Build()
 	reconciler := &TartMachineReconciler{Client: fakeClient}
 
 	for range 3 {
@@ -67,6 +80,71 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 	}
 	if observed.Status.HostRef == nil || observed.Status.HostRef.Name != host.Name {
 		t.Errorf("status.hostRef = %#v, want %q", observed.Status.HostRef, host.Name)
+	}
+}
+
+func TestTartMachineReconcilerDoesNotClaimWrongFailureDomain(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	host := &infrav1alpha1.TartHost{
+		Name: "host-a",
+		Spec: infrav1alpha1.TartHostSpec{
+			HostID:        mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abe").String(),
+			MACAddress:    mustMACAddress(t, "00:00:5e:00:53:02"),
+			FailureDomain: "zone-a",
+		},
+	}
+	machine := &infrav1alpha1.TartMachine{
+		Namespace: "cluster-a",
+		Name:      "machine-a",
+		UID:       types.UID("machine-a"),
+		Spec: infrav1alpha1.TartMachineSpec{
+			Image: infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
+		},
+	}
+	capiMachine := &clusterv1.Machine{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+		Spec: clusterv1.MachineSpec{
+			FailureDomain: "zone-b",
+			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+				APIGroup: infrav1alpha1.GroupVersion.Group,
+				Kind:     tartMachineKind,
+				Name:     machine.Name,
+			},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine, capiMachine).Build()
+	reconciler := &TartMachineReconciler{Client: fakeClient}
+
+	for range 2 {
+		if _, err := reconciler.Reconcile(t.Context(), ctrl.Request{Namespace: machine.Namespace, Name: machine.Name}); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+	}
+
+	claimed := &infrav1alpha1.TartHost{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: host.Name}, claimed); err != nil {
+		t.Fatalf("Get(TartHost) error = %v", err)
+	}
+	if claimed.Spec.ConsumerRef != nil {
+		t.Fatalf("TartHost consumerRef = %#v, want no claim for a different Failure Domain", claimed.Spec.ConsumerRef)
+	}
+	observed := &infrav1alpha1.TartMachine{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Namespace: machine.Namespace, Name: machine.Name}, observed); err != nil {
+		t.Fatalf("Get(TartMachine) error = %v", err)
+	}
+	condition := meta.FindStatusCondition(observed.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
+	if condition == nil || condition.Reason != infrav1alpha1.ReasonNoEligibleHost {
+		t.Fatalf("Ready condition = %#v, want NoEligibleHost", condition)
 	}
 }
 
@@ -126,6 +204,9 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
@@ -142,7 +223,17 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 			Image:      infrav1alpha1.TalosImageSpec{Version: "v1.9.0", SchematicID: "schematic"},
 		},
 	}
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine).Build()
+	capiMachine := &clusterv1.Machine{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+		Spec: clusterv1.MachineSpec{InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+			APIGroup: infrav1alpha1.GroupVersion.Group,
+			Kind:     tartMachineKind,
+			Name:     machine.Name,
+		}},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine, capiMachine).Build()
 	reconciler := &TartMachineReconciler{Client: fakeClient}
 
 	for range 2 {
@@ -218,6 +309,40 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	condition := meta.FindStatusCondition(observed.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if condition == nil || condition.Reason != infrav1alpha1.ReasonShutdownUnconfirmed {
 		t.Fatalf("Ready condition = %#v, want ShutdownUnconfirmed", condition)
+	}
+}
+
+func TestCAPIMachineDeletionDrainCompleteRequiresInfrastructureDeletionStage(t *testing.T) {
+	t.Parallel()
+
+	deletionTime := metav1.Now()
+	tests := []struct {
+		name   string
+		reason string
+		want   bool
+	}{
+		{name: "not deleting", want: false},
+		{name: "draining", reason: clusterv1.MachineDeletingDrainingNodeReason, want: false},
+		{name: "waiting for infrastructure", reason: clusterv1.MachineDeletingWaitingForInfrastructureDeletionReason, want: true},
+		{name: "waiting for bootstrap", reason: clusterv1.MachineDeletingWaitingForBootstrapDeletionReason, want: true},
+		{name: "internal error", reason: clusterv1.MachineDeletingInternalErrorReason, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			machine := &clusterv1.Machine{}
+			if test.reason != "" {
+				machine.DeletionTimestamp = &deletionTime
+				machine.Status.Conditions = []metav1.Condition{{
+					Type:   clusterv1.MachineDeletingCondition,
+					Status: metav1.ConditionTrue,
+					Reason: test.reason,
+				}}
+			}
+			if got := capiMachineDeletionDrainComplete(machine); got != test.want {
+				t.Errorf("capiMachineDeletionDrainComplete() = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 

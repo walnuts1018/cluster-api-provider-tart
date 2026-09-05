@@ -78,6 +78,57 @@ func TestHasIdentityConflict(t *testing.T) {
 	}
 }
 
+func TestHasIdentityConflictDetectsDiskIdentityReuse(t *testing.T) {
+	t.Parallel()
+
+	base := infrav1alpha1.TartHost{
+		Name: "host-a",
+		Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{
+			Disks: []infrav1alpha1.DiskInventory{{DevicePath: "/dev/vda", SizeBytes: 64, Serial: "serial-a", WWID: "wwid-a"}},
+		}},
+	}
+	tests := []struct {
+		name  string
+		other infrav1alpha1.TartHost
+		want  bool
+	}{
+		{
+			name: "same serial",
+			other: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{
+				Disks: []infrav1alpha1.DiskInventory{{DevicePath: "/dev/vdb", SizeBytes: 128, Serial: "serial-a"}},
+			}}},
+			want: true,
+		},
+		{
+			name: "same wwid with case variation",
+			other: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{
+				Disks: []infrav1alpha1.DiskInventory{{DevicePath: "/dev/vdb", SizeBytes: 128, WWID: "WWID-A"}},
+			}}},
+			want: true,
+		},
+		{
+			name: "same model and size only",
+			other: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{
+				Disks: []infrav1alpha1.DiskInventory{{DevicePath: "/dev/vdb", SizeBytes: 64, Model: "same-model"}},
+			}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := HasIdentityConflict(base, []infrav1alpha1.TartHost{base, tt.other}); got != tt.want {
+				t.Fatalf("HasIdentityConflict() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+
+	duplicate := base.DeepCopy()
+	duplicate.Status.Inventory.Disks = append(duplicate.Status.Inventory.Disks, infrav1alpha1.DiskInventory{DevicePath: "/dev/vdb", Serial: "serial-a"})
+	if !HasIdentityConflictForAny([]infrav1alpha1.TartHost{*duplicate}) {
+		t.Fatal("HasIdentityConflictForAny() = false for duplicate disk identity within one Host")
+	}
+}
+
 func mustMACAddress(t *testing.T, value string) network.MACAddress {
 	t.Helper()
 	address, err := network.ParseMACAddress(value)

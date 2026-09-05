@@ -10,7 +10,7 @@
 - 一時的な実装には、理由と解消条件を含む`TODO:`を残す。`defer`した処理のerrorを握りつぶさず、必要ならlogへ出力する。
 - 変更は同じ目的ごとにまとめ、コミット時は`--signoff`を使う。AI AgentをCo-Authorへ追加しない。mainへ直接コミットしてよい。
 - ツールは可能な限りmiseで管理し、定期的なコマンドはmise taskとして定義する。
-- Kubernetes controller、CRD、Webhookの変更にはKubebuilderまたはcontroller-genを使う。
+- Kubernetes controller、CRD、Webhookの変更にはkubebuilderやcontroller-genを使う。
 - `docs/development/README.md`を開発の入口とし、設計を変えた場合は関連文書とskillを同じ変更で更新する。未実装機能のタスクは`docs/development/tasks.md`で管理する。
 - 何かしらの外部ツールやパッケージなどのバージョンをファイルとして記述する場合は必ず適切にrenovateで管理・アップデートできるようにしてください。複数の場所でバージョンを整合させる必要がある場合も、それをうまくrenovateで扱えるようにしてください。
 - 並列に複数のCoding Agentが作業することがあります。他のエージェントの作業を上書きしないように、他のエージェントが作業している箇所を編集しないようにしてください。

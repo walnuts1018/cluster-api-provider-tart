@@ -97,7 +97,7 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 		}
 		if err := r.Create(ctx, expected); err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				return err
+				return nil
 			}
 			return err
 		}

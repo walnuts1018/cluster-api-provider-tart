@@ -49,7 +49,7 @@ type TartMachineReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
-// +kubebuilder:rbac:groups=,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var machine infrav1alpha1.TartMachine
@@ -360,6 +360,24 @@ func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *inf
 			metav1.ConditionFalse, "ConfigurationInvalid", "Talos installation has not been confirmed.",
 			"ConfigurationInvalid", "Talos version cannot be verified before installation.",
 			"ConfigurationInvalid", "The desired Talos installer image could not be applied to the machine configuration.",
+			talosRequeue)
+	}
+	effectiveConfiguration, err = talos.SetProviderID(effectiveConfiguration, machine.Spec.ProviderID)
+	if err != nil {
+		reason := "ConfigurationInvalid"
+		message := "The Talos machine configuration could not be prepared with the allocated ProviderID."
+		if errors.Is(err, talos.ErrProviderIDConflict) {
+			reason = "ConfigurationConflict"
+			message = "The Talos machine configuration contains a ProviderID that conflicts with the allocated Host."
+		}
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		return r.reportTalosStatus(ctx, machine,
+			metav1.ConditionFalse, reason, message,
+			metav1.ConditionFalse, reason, "Talos installation has not been confirmed.",
+			reason, "Talos version cannot be verified before installation.",
+			reason, message,
 			talosRequeue)
 	}
 	if err := maintenance.ApplyConfiguration(ctx, effectiveConfiguration); err != nil {

@@ -17,6 +17,8 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
 	"github.com/siderolabs/talos/pkg/machinery/config/container"
+	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
+	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
 	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
@@ -26,7 +28,10 @@ import (
 )
 
 // ErrClientUnavailableは接続済みのclientなしでTalos operationが要求されたことを示す。
-var ErrClientUnavailable = errors.New("talos client is unavailable")
+var (
+	ErrClientUnavailable  = errors.New("talos client is unavailable")
+	ErrProviderIDConflict = errors.New("talos kubelet provider ID conflicts with the allocated Host")
+)
 
 // InstallerImage returns the Image Factory installer reference for a desired
 // Talos image identity.
@@ -105,6 +110,78 @@ func SetInstallerImage(configuration []byte, version, schematicID string) ([]byt
 	return result, nil
 }
 
+// SetProviderID writes the provider ID derived from the allocated TartHost into
+// the kubelet configuration. The value is checked before applying the patch so
+// a user-owned conflicting provider ID cannot silently be replaced.
+func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
+	if len(bytes.TrimSpace(configuration)) == 0 {
+		return nil, errors.New("talos machine configuration is empty")
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return nil, errors.New("talos provider ID is empty")
+	}
+
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	kubelet := provider.K8sKubeletConfig()
+	if kubelet == nil {
+		return nil, errors.New("talos machine configuration has no kubelet configuration")
+	}
+	if values := kubelet.ExtraArgs()["provider-id"]; len(values) > 0 && values[0] != providerID {
+		return nil, fmt.Errorf("%w: %q", ErrProviderIDConflict, values[0])
+	}
+
+	if provider.Has(k8sconfig.KubeletConfig) {
+		patch := k8sconfig.NewKubeletConfigV1Alpha1()
+		patch.KubeletImage = kubelet.Image()
+		patch.KubeletArgs = configmeta.Args{
+			"provider-id": configmeta.NewArgValue(providerID, nil),
+		}
+		patchProvider, err := container.New(patch)
+		if err != nil {
+			return nil, fmt.Errorf("build talos kubelet provider ID patch: %w", err)
+		}
+		output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{
+			configpatcher.NewStrategicMergePatch(patchProvider),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("patch talos kubelet provider ID: %w", err)
+		}
+		result, err := output.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("encode talos machine configuration: %w", err)
+		}
+		return result, nil
+	}
+
+	patched, err := provider.PatchV1Alpha1(func(config *v1alpha1config.Config) error {
+		if config.MachineConfig == nil {
+			config.MachineConfig = &v1alpha1config.MachineConfig{}
+		}
+		if config.MachineConfig.MachineKubelet == nil {
+			config.MachineConfig.MachineKubelet = &v1alpha1config.KubeletConfig{}
+		}
+		if config.MachineConfig.MachineKubelet.KubeletExtraArgs == nil {
+			config.MachineConfig.MachineKubelet.KubeletExtraArgs = configmeta.Args{}
+		}
+		config.MachineConfig.MachineKubelet.KubeletExtraArgs["provider-id"] = configmeta.NewArgValue(providerID, nil)
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("patch legacy Talos kubelet provider ID: %w", err)
+	}
+	result, err := patched.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode Talos machine configuration: %w", err)
+	}
+
+	return result, nil
+}
+
 // Client is a thin wrapper around the Talos machinery gRPC client. It exposes only the
 // observations and operations Tart's reconcile and policy packages need.
 type Client struct {
@@ -162,7 +239,10 @@ func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) e
 	if len(configuration) == 0 {
 		return errors.New("talos machine configuration is empty")
 	}
-	if _, err := c.raw.ApplyConfiguration(ctx, &machine.ApplyConfigurationRequest{Data: configuration}); err != nil {
+	if _, err := c.raw.ApplyConfiguration(ctx, &machine.ApplyConfigurationRequest{
+		Data: configuration,
+		Mode: machine.ApplyConfigurationRequest_AUTO,
+	}); err != nil {
 		return fmt.Errorf("apply talos machine configuration: %w", err)
 	}
 	return nil

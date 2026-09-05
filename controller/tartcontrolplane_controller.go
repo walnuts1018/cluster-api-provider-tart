@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -67,7 +68,7 @@ func (f *controlPlaneFailure) Error() string {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigtemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
 
 func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cp controlplanev1alpha1.TartControlPlane
@@ -471,6 +472,18 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 				requeueAfter: 30 * time.Second,
 			}, nil
 		}
+		if kubeconfigErr := r.ensureKubeconfigSecret(ctx, cluster, kubeconfig); kubeconfigErr != nil {
+			if closeErr := authenticated.Close(); closeErr != nil {
+				ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+			}
+			return controlPlaneBootstrapState{
+				etcdReady:     true,
+				workloadReady: false,
+				reason:        "KubeconfigUnavailable",
+				message:       "The workload Kubernetes API is ready, but the workload kubeconfig Secret could not be persisted.",
+				requeueAfter:  15 * time.Second,
+			}, kubeconfigErr
+		}
 		if closeErr := authenticated.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 		}
@@ -499,6 +512,41 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 		message:      "Talos etcd bootstrap was requested; waiting for a healthy member and leader.",
 		requeueAfter: 15 * time.Second,
 	}, nil
+}
+
+func (r *TartControlPlaneReconciler) ensureKubeconfigSecret(ctx context.Context, cluster *clusterv1.Cluster, kubeconfig []byte) error {
+	if cluster == nil || cluster.Namespace == "" || cluster.Name == "" || cluster.UID == "" || len(kubeconfig) == 0 {
+		return errors.New("workload kubeconfig identity or data is incomplete")
+	}
+	expected := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace:       cluster.Namespace,
+			Name:            cluster.Name + "-kubeconfig",
+			Labels:          map[string]string{clusterv1.ClusterNameLabel: cluster.Name},
+			OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cluster, clusterv1.GroupVersion.String(), "Cluster")},
+		},
+		Type: clusterv1.ClusterSecretType,
+		Data: map[string][]byte{"value": bytes.Clone(kubeconfig)},
+	}
+
+	actual := &corev1.Secret{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: expected.Namespace, Name: expected.Name}, actual)
+	if apierrors.IsNotFound(err) {
+		return r.Create(ctx, expected)
+	}
+	if err != nil {
+		return err
+	}
+	if actual.Type != clusterv1.ClusterSecretType || actual.Labels[clusterv1.ClusterNameLabel] != cluster.Name || !hasControllerOwner(actual, cluster, clusterv1.GroupVersion.String(), "Cluster") {
+		return errors.New("existing workload kubeconfig Secret does not satisfy the CAPI contract")
+	}
+	if bytes.Equal(actual.Data["value"], kubeconfig) && len(actual.Data) == 1 {
+		return nil
+	}
+	original := actual.DeepCopy()
+	actual.Data = map[string][]byte{"value": bytes.Clone(kubeconfig)}
+	actual.Type = clusterv1.ClusterSecretType
+	return r.Patch(ctx, actual, client.MergeFrom(original))
 }
 
 func workloadAPIReady(ctx context.Context, kubeconfig []byte, endpoint clusterv1.APIEndpoint) error {

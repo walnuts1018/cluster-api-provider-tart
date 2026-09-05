@@ -1,5 +1,0 @@
-# StateとDataを不変OSイメージから分離し、OS slot変更後もnode identityと
-# Kubernetes runtime dataを保持する。
-LABEL=tart-state /var/lib/tart ext4 defaults 0 2
-LABEL=tart-data /var/lib/containerd ext4 defaults 0 2
-LABEL=tart-data /var/lib/kubelet ext4 defaults 0 2

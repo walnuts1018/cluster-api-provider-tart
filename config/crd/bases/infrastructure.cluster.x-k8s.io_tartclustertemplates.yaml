@@ -3,25 +3,22 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
-  labels:
-    cluster.x-k8s.io/v1beta1: v1beta1
-    cluster.x-k8s.io/v1beta2: v1beta1
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: tartclustertemplates.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
-    categories:
-    - cluster-api
     kind: TartClusterTemplate
     listKind: TartClusterTemplateList
     plural: tartclustertemplates
     singular: tartclustertemplate
   scope: Namespaced
   versions:
-  - name: v1beta1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: TartClusterTemplate is the Schema for the tartclustertemplates
+          API.
         properties:
           apiVersion:
             description: |-
@@ -41,76 +38,26 @@ spec:
           metadata:
             type: object
           spec:
+            description: TartClusterTemplateSpec defines the desired state of a TartClusterTemplate.
             properties:
               template:
-                description: template is the TartCluster object template used by Cluster
-                  API controllers.
+                description: TartClusterTemplateResource describes the data needed
+                  to create a TartCluster from a template.
                 properties:
-                  metadata:
-                    description: metadata is applied to the generated TartCluster.
-                    minProperties: 1
-                    properties:
-                      annotations:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          annotations is an unstructured key value map stored with a resource that may be
-                          set by external tools to store and retrieve arbitrary metadata. They are not
-                          queryable and should be preserved when modifying objects.
-                          More info: http://kubernetes.io/docs/user-guide/annotations
-                        type: object
-                      labels:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          labels is a map of string keys and values that can be used to organize and categorize
-                          (scope and select) objects. May match selectors of replication controllers
-                          and services.
-                          More info: http://kubernetes.io/docs/user-guide/labels
-                        type: object
-                    type: object
                   spec:
-                    description: spec defines the desired state of the generated TartCluster.
+                    description: TartClusterSpec defines the desired state of a TartCluster.
                     properties:
-                      artifactPolicy:
-                        description: artifactPolicy limits the registries from which
-                          this cluster may obtain artifacts.
-                        properties:
-                          allowedRegistries:
-                            description: allowedRegistries contains the exact registry
-                              hostnames or hostname:port pairs allowed for OCI artifacts.
-                            items:
-                              maxLength: 253
-                              minLength: 1
-                              type: string
-                            maxItems: 64
-                            minItems: 1
-                            type: array
-                            x-kubernetes-list-type: set
-                        required:
-                        - allowedRegistries
-                        type: object
-                      controlPlaneEndpoint:
-                        description: controlPlaneEndpoint represents the endpoint
-                          used to communicate with the control plane.
-                        minProperties: 1
-                        properties:
-                          host:
-                            description: host is the hostname or IP address on which
-                              the API server is serving.
-                            maxLength: 512
-                            minLength: 1
-                            type: string
-                          port:
-                            description: port is the port on which the API server
-                              is serving.
-                            format: int32
-                            maximum: 65535
-                            minimum: 1
-                            type: integer
-                        type: object
-                    required:
-                    - artifactPolicy
+                      id:
+                        description: |-
+                          id is an immutable random UUID that identifies this workload cluster independently
+                          of Cluster.metadata.uid. It is generated once by the controller on first
+                          non-dry-run creation and is never regenerated for the same object; a cluster
+                          recreated under the same name gets a new id and must not reuse old secret bundles
+                          or Retained Hosts.
+                        type: string
+                        x-kubernetes-validations:
+                        - message: id is immutable
+                          rule: self == oldSelf
                     type: object
                 required:
                 - spec
@@ -118,8 +65,6 @@ spec:
             required:
             - template
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

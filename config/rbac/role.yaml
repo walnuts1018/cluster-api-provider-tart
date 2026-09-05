@@ -5,69 +5,45 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
-  - ""
+  - bootstrap.cluster.x-k8s.io
   resources:
-  - namespaces
+  - tartbootstrapconfigs
   verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
   - get
   - list
   - patch
+  - update
   - watch
 - apiGroups:
-  - cluster.x-k8s.io
+  - bootstrap.cluster.x-k8s.io
   resources:
-  - clusters
-  - machines
+  - tartbootstrapconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - tartcontrolplanes
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
+- apiGroups:
+  - controlplane.cluster.x-k8s.io
+  resources:
+  - tartcontrolplanes/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:
   - tartclusters
-  - tarthostoperations
-  - tartmachinetemplates
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - tartclusters/finalizers
-  - tartmachines/finalizers
-  - tartmachinetemplates/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - tartclusters/status
-  - tarthostoperations/status
-  - tarthosts/status
-  - tartmachines/status
-  - tartmachinetemplates/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
   - tarthosts
   - tartmachines
   verbs:
@@ -76,3 +52,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - infrastructure.cluster.x-k8s.io
+  resources:
+  - tartclusters/status
+  - tarthosts/status
+  - tartmachines/status
+  verbs:
+  - get
+  - patch
+  - update

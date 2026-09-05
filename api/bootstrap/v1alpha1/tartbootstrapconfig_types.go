@@ -1,0 +1,93 @@
+// Copyright 2026.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package v1alpha1
+
+import (
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// TartBootstrapConfig Condition types.
+const (
+	TartBootstrapConfigReadyCondition = "Ready"
+)
+
+// TartBootstrapConfigSpec defines the desired state of a TartBootstrapConfig. All
+// user-owned raw Talos configuration patches are supplied via an immutable
+// Secret-backed input; no raw patch is ever stored inline in this Spec.
+type TartBootstrapConfigSpec struct {
+	// configSecretRef optionally references an immutable Secret holding user-owned raw
+	// Talos configuration patches. The referenced Secret must set immutable: true.
+	// +optional
+	ConfigSecretRef *corev1.LocalObjectReference `json:"configSecretRef,omitempty"`
+}
+
+// TartBootstrapConfigStatus defines the observed state of a TartBootstrapConfig.
+type TartBootstrapConfigStatus struct {
+	// +optional
+	Initialization TartBootstrapConfigInitializationStatus `json:"initialization,omitempty"`
+
+	// dataSecretName is the deterministically derived name of the generated Bootstrap
+	// Secret.
+	// +optional
+	DataSecretName *string `json:"dataSecretName,omitempty"`
+
+	// configurationDigest is the SHA-256 of the canonical semantic representation of
+	// the effective Talos machine configuration, with secret-bearing values redacted.
+	// It is an observation only and is not the source of truth for update safety.
+	// +optional
+	ConfigurationDigest string `json:"configurationDigest,omitempty"`
+
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// TartBootstrapConfigInitializationStatus tracks initial Secret creation.
+type TartBootstrapConfigInitializationStatus struct {
+	// +optional
+	DataSecretCreated bool `json:"dataSecretCreated,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="DataSecretName",type=string,JSONPath=".status.dataSecretName"
+
+// TartBootstrapConfig is the Schema for the tartbootstrapconfigs API.
+type TartBootstrapConfig struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   TartBootstrapConfigSpec   `json:"spec,omitempty"`
+	Status TartBootstrapConfigStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// TartBootstrapConfigList contains a list of TartBootstrapConfig.
+type TartBootstrapConfigList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []TartBootstrapConfig `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&TartBootstrapConfig{}, &TartBootstrapConfigList{})
+}

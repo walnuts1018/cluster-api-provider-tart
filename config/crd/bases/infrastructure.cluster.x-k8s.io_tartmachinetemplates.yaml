@@ -3,25 +3,22 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.21.0
-  labels:
-    cluster.x-k8s.io/v1beta1: v1beta1
-    cluster.x-k8s.io/v1beta2: v1beta1
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: tartmachinetemplates.infrastructure.cluster.x-k8s.io
 spec:
   group: infrastructure.cluster.x-k8s.io
   names:
-    categories:
-    - cluster-api
     kind: TartMachineTemplate
     listKind: TartMachineTemplateList
     plural: tartmachinetemplates
     singular: tartmachinetemplate
   scope: Namespaced
   versions:
-  - name: v1beta1
+  - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: TartMachineTemplate is the Schema for the tartmachinetemplates
+          API.
         properties:
           apiVersion:
             description: |-
@@ -41,91 +38,67 @@ spec:
           metadata:
             type: object
           spec:
+            description: TartMachineTemplateSpec defines the desired state of a TartMachineTemplate.
             properties:
               template:
-                description: template is the TartMachine object template used by Cluster
-                  API controllers.
+                description: TartMachineTemplateResource describes the data needed
+                  to create a TartMachine from a template.
                 properties:
-                  metadata:
-                    description: metadata is applied to the generated TartMachine.
-                    minProperties: 1
-                    properties:
-                      annotations:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          annotations is an unstructured key value map stored with a resource that may be
-                          set by external tools to store and retrieve arbitrary metadata. They are not
-                          queryable and should be preserved when modifying objects.
-                          More info: http://kubernetes.io/docs/user-guide/annotations
-                        type: object
-                      labels:
-                        additionalProperties:
-                          type: string
-                        description: |-
-                          labels is a map of string keys and values that can be used to organize and categorize
-                          (scope and select) objects. May match selectors of replication controllers
-                          and services.
-                          More info: http://kubernetes.io/docs/user-guide/labels
-                        type: object
-                    type: object
                   spec:
-                    description: spec defines fields copied to a generated TartMachine.
+                    description: TartMachineSpec defines the desired state of a TartMachine.
                     properties:
-                      deletionPolicy:
-                        description: deletionPolicy controls how State and Data are
-                          handled when the machine is deleted.
-                        enum:
-                        - WipeAll
-                        - RetainData
-                        - RetainState
-                        type: string
-                      hostSelector:
-                        description: hostSelector selects TartHosts by label.
+                      hostRef:
+                        description: hostRef explicitly selects a TartHost. Immutable
+                          after the Host claim succeeds.
                         properties:
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      hostSelector:
+                        description: |-
+                          hostSelector deterministically narrows Host allocation when hostRef is not set.
+                          Changing it after claim is a safe-stop, not an in-place update.
+                        properties:
+                          architecture:
+                            type: string
+                          failureDomain:
+                            type: string
                           matchLabels:
                             additionalProperties:
                               type: string
-                            description: matchLabels selects hosts containing all
-                              listed labels.
-                            maxProperties: 64
                             type: object
                         type: object
-                      image:
-                        description: image identifies the digest-pinned OS artifact
-                          to install.
+                      providerID:
+                        description: |-
+                          providerID is derived deterministically from the claimed TartHost.spec.id as
+                          tart://host/<TartHost.spec.id> once Host allocation succeeds.
+                        type: string
+                      talosImage:
+                        description: talosImage is the desired Talos OS version and
+                          schematic identity.
                         properties:
-                          ref:
-                            description: ref is an OCI image reference.
+                          schematicID:
+                            description: |-
+                              schematicID is the Image Factory schematic identifier, which also determines the
+                              installed system extension set.
+                            type: string
+                          version:
+                            description: version is the desired Talos OS version.
                             type: string
                         required:
-                        - ref
-                        type: object
-                      platformProfile:
-                        description: platformProfile identifies the versioned platform
-                          configuration required by the machine.
-                        maxLength: 128
-                        minLength: 1
-                        type: string
-                      updatePolicy:
-                        default:
-                          mode: Replace
-                        description: updatePolicy selects replacement or experimental
-                          in-place updates.
-                        properties:
-                          mode:
-                            default: Replace
-                            description: mode selects machine replacement or an experimental
-                              in-place update.
-                            enum:
-                            - Replace
-                            - InPlace
-                            type: string
+                        - schematicID
+                        - version
                         type: object
                     required:
-                    - deletionPolicy
-                    - image
-                    - platformProfile
+                    - talosImage
                     type: object
                 required:
                 - spec
@@ -133,8 +106,6 @@ spec:
             required:
             - template
             type: object
-        required:
-        - spec
         type: object
     served: true
     storage: true

@@ -26,6 +26,7 @@ go.work.sum
 
 # Local tool binaries
 /bin/
+/controller-manager
 
 # env file
 .env

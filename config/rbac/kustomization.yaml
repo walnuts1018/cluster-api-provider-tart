@@ -18,28 +18,8 @@ resources:
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
-# For each CRD, "Admin", "Editor" and "Viewer" roles are scaffolded by
-# default, aiding admins in cluster management. Those roles are
-# not used by the cluster-api-provider-tart itself. You can comment the following lines
-# if you do not want those helpers be installed with your Project.
-- tartmachinetemplate_admin_role.yaml
-- tartmachinetemplate_editor_role.yaml
-- tartmachinetemplate_viewer_role.yaml
-- tartclustertemplate_admin_role.yaml
-- tartclustertemplate_editor_role.yaml
-- tartclustertemplate_viewer_role.yaml
-- tartcluster_admin_role.yaml
-- tartcluster_editor_role.yaml
-- tartcluster_viewer_role.yaml
-- tarthostoperation_admin_role.yaml
-- tarthostoperation_editor_role.yaml
-- tarthostoperation_viewer_role.yaml
-- tartmachine_admin_role.yaml
-- tartmachine_editor_role.yaml
-- tartmachine_viewer_role.yaml
-- tarthost_admin_role.yaml
-- tarthost_editor_role.yaml
-- tarthost_viewer_role.yaml
+# TODO: 新api/*/v1alpha1のkindが確定次第、各CRDのAdmin/Editor/Viewer roleを
+# controller-genで再生成してここへ追加する。旧v1beta1向けroleは削除済み。
 
 labels:
 - includeSelectors: true

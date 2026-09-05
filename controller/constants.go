@@ -8,5 +8,6 @@ const (
 	reasonBootstrapTemplateInvalid    = "BootstrapTemplateInvalid"
 	reasonSecretBundleUnavailable     = "SecretBundleUnavailable"
 	reasonMachineNameInvalid          = "MachineNameInvalid"
+	reasonWorkloadAPIUnavailable      = "WorkloadAPIUnavailable"
 	bootstrapConfigNameInvalidMessage = "A deterministic BootstrapConfig name is invalid."
 )

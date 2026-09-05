@@ -126,6 +126,20 @@ func (c *Client) EtcdStatus(ctx context.Context) (EtcdStatus, error) {
 	}, nil
 }
 
+// Kubeconfig returns the workload-cluster kubeconfig from the authenticated
+// Talos API. The caller must keep the bytes in memory and must not expose them
+// through status, events, logs, or metrics.
+func (c *Client) Kubeconfig(ctx context.Context) ([]byte, error) {
+	if c == nil || c.raw == nil {
+		return nil, ErrClientUnavailable
+	}
+	configuration, err := c.raw.Kubeconfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get workload kubeconfig from talos: %w", err)
+	}
+	return configuration, nil
+}
+
 // Inventory contains the stable hardware identity observed through the Talos
 // maintenance API. It deliberately hides Talos resource types from callers.
 type Inventory struct {

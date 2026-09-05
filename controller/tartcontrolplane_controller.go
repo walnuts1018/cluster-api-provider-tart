@@ -18,6 +18,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,11 +46,12 @@ type controlPlaneFailure struct {
 }
 
 type controlPlaneBootstrapState struct {
-	initialized  bool
-	etcdReady    bool
-	reason       string
-	message      string
-	requeueAfter time.Duration
+	initialized   bool
+	etcdReady     bool
+	workloadReady bool
+	reason        string
+	message       string
+	requeueAfter  time.Duration
 }
 
 func (f *controlPlaneFailure) Error() string {
@@ -137,7 +140,7 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 		return ctrl.Result{}, err
 	}
-	bootstrapState, err := r.reconcileControlPlaneBootstrap(ctx, &cp, machines)
+	bootstrapState, err := r.reconcileControlPlaneBootstrap(ctx, &cp, &cluster, machines)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -365,7 +368,7 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 	return refreshed.Items, nil
 }
 
-func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, machines []clusterv1.Machine) (controlPlaneBootstrapState, error) {
+func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, cluster *clusterv1.Cluster, machines []clusterv1.Machine) (controlPlaneBootstrapState, error) {
 	state := controlPlaneBootstrapState{
 		reason:       "MachinesUnavailable",
 		message:      "The first control-plane Machine is not running the desired Talos version yet.",
@@ -373,10 +376,11 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 	}
 	if cp.Status.Initialization.ControlPlaneInitialized != nil && *cp.Status.Initialization.ControlPlaneInitialized {
 		return controlPlaneBootstrapState{
-			initialized: true,
-			etcdReady:   true,
-			reason:      "EtcdClusterAvailable",
-			message:     "The control-plane etcd bootstrap has been observed.",
+			initialized:   true,
+			etcdReady:     true,
+			workloadReady: true,
+			reason:        "EtcdClusterAvailable",
+			message:       "The workload Kubernetes API is ready and the control-plane etcd bootstrap has been observed.",
 		}, nil
 	}
 	firstName, err := controlPlaneChildName(cp.Name, 0, "")
@@ -444,14 +448,38 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 	}
 	etcdStatus, etcdErr := authenticated.EtcdStatus(ctx)
 	if etcdErr == nil && etcdStatus.MemberID != 0 && etcdStatus.Leader != 0 && len(etcdStatus.Errors) == 0 {
+		kubeconfig, kubeconfigErr := authenticated.Kubeconfig(ctx)
+		if kubeconfigErr != nil {
+			if closeErr := authenticated.Close(); closeErr != nil {
+				ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+			}
+			return controlPlaneBootstrapState{
+				etcdReady:    true,
+				reason:       reasonWorkloadAPIUnavailable,
+				message:      "Talos etcd is healthy, but the workload kubeconfig is not available yet.",
+				requeueAfter: 30 * time.Second,
+			}, nil
+		}
+		if apiErr := workloadAPIReady(ctx, kubeconfig, cluster.Spec.ControlPlaneEndpoint); apiErr != nil {
+			if closeErr := authenticated.Close(); closeErr != nil {
+				ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+			}
+			return controlPlaneBootstrapState{
+				etcdReady:    true,
+				reason:       reasonWorkloadAPIUnavailable,
+				message:      "Talos etcd is healthy, but the workload Kubernetes API is not ready yet.",
+				requeueAfter: 30 * time.Second,
+			}, nil
+		}
 		if closeErr := authenticated.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 		}
 		return controlPlaneBootstrapState{
-			initialized: true,
-			etcdReady:   true,
-			reason:      "EtcdClusterAvailable",
-			message:     "The first control-plane Machine reports a healthy etcd member and leader.",
+			initialized:   true,
+			etcdReady:     true,
+			workloadReady: true,
+			reason:        "EtcdClusterAvailable",
+			message:       "The workload Kubernetes API is ready and the first control-plane Machine reports a healthy etcd member and leader.",
 		}, nil
 	}
 
@@ -471,6 +499,28 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 		message:      "Talos etcd bootstrap was requested; waiting for a healthy member and leader.",
 		requeueAfter: 15 * time.Second,
 	}, nil
+}
+
+func workloadAPIReady(ctx context.Context, kubeconfig []byte, endpoint clusterv1.APIEndpoint) error {
+	if len(kubeconfig) == 0 {
+		return errors.New("workload kubeconfig is empty")
+	}
+	config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("parse workload kubeconfig: %w", err)
+	}
+	if endpoint.IsValid() {
+		config.Host = "https://" + endpoint.String()
+	}
+	config.Timeout = 10 * time.Second
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return fmt.Errorf("create workload Kubernetes client: %w", err)
+	}
+	if err := clientset.Discovery().RESTClient().Get().AbsPath("/readyz").Do(ctx).Error(); err != nil {
+		return fmt.Errorf("check workload Kubernetes API readiness: %w", err)
+	}
+	return nil
 }
 
 func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, ordinal int32, name string, bootstrapTemplate *bootstrapv1alpha1.TartBootstrapConfigTemplate) (*clusterv1.Machine, error) {
@@ -678,9 +728,38 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 		cp.Status.Initialization.ControlPlaneInitialized = new(false)
 	}
 
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, metav1.ConditionFalse, "WorkloadAPIUnavailable", "Talos control-plane bootstrap is observed, but workload Kubernetes API readiness is not observed yet.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "WorkloadAPIUnavailable", "Workload Kubernetes API availability is not observed yet.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, metav1.ConditionFalse, "ConfigurationUnavailable", "Effective control-plane configuration and workload API state are not observed yet.", cp.Generation)
+	controlPlaneReady := bootstrapState.workloadReady && desired > 0 && ready == desired
+	readyReason := "MachinesNotReady"
+	readyMessage := "Not all desired control-plane Machines report Ready."
+	if !bootstrapState.workloadReady {
+		readyReason = reasonWorkloadAPIUnavailable
+		readyMessage = "The workload Kubernetes API is not ready yet."
+	} else if controlPlaneReady {
+		readyReason = "Ready"
+		readyMessage = "All desired control-plane Machines and the workload Kubernetes API are ready."
+	}
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, conditionStatus(controlPlaneReady), readyReason, readyMessage, cp.Generation)
+	availableReason := "MachinesNotAvailable"
+	availableMessage := "Not all desired control-plane Machines are available."
+	if !bootstrapState.workloadReady {
+		availableReason = reasonWorkloadAPIUnavailable
+		availableMessage = "The workload Kubernetes API is not available yet."
+	} else if controlPlaneReady {
+		availableReason = "Available"
+		availableMessage = "All desired control-plane Machines and the workload Kubernetes API are available."
+	}
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, conditionStatus(controlPlaneReady), availableReason, availableMessage, cp.Generation)
+	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired
+	upToDateReason := "MachinesNotUpToDate"
+	upToDateMessage := "Not all desired control-plane Machines report UpToDate."
+	if !bootstrapState.workloadReady {
+		upToDateReason = reasonWorkloadAPIUnavailable
+		upToDateMessage = "The workload Kubernetes API is not ready yet."
+	} else if upToDateReady {
+		upToDateReason = "UpToDate"
+		upToDateMessage = "All desired control-plane Machines and the workload Kubernetes API are up to date."
+	}
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, conditionStatus(upToDateReady), upToDateReason, upToDateMessage, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneRollingOutCondition, metav1.ConditionFalse, "NotRollingOut", "The control plane is not performing a rollout.", cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingUpCondition, conditionStatus(actual < desired), scalingReason(actual < desired, "ScalingUp"), scalingMessage(actual < desired, "Control-plane Machines are being created.", "The desired control-plane replica count is satisfied."), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down requires the not-yet-implemented etcd safety path.", "The desired control-plane replica count is not above the observed count."), cp.Generation)

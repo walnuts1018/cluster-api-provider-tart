@@ -14,7 +14,7 @@ Talos imageのdesired identityは`TartMachine.spec.talosImage`の`{version, sche
 
 ## configuration
 
-Bootstrap ProviderはTalos machineryが提供するcluster secret bundle、cluster endpoint、CAPI Machineから導出したmachine role/Kubernetes version、TartMachineのimage identity、Secret-backed raw configuration patch modelを利用する。cluster secret bundleはCluster IDを含むgeneration単位でimmutable Secretを生成し、active generationを永続的な参照から選択する。CA rotationではTalosの準備結果から得た新しいsecret materialで次generationを`Pending`として先に永続化し、その後に段階的なCA rotation operationを開始する。accepted CA追加、issuing CA切替、certificate refresh、旧CA削除の正常完了を観測してから新generationをactiveに確定する。rotation中は新しいMachineのprovisioningとAdoptを開始しない。BootstrapConfigごとにgenerateしない。
+Bootstrap ProviderはTalos machineryが提供するcluster secret bundle、cluster endpoint、CAPI Machineから導出したmachine role/Kubernetes version、TartMachineのimage identity、Secret-backed raw configuration patch modelを利用する。cluster secret bundleはCluster IDを含むgeneration単位でimmutable Secretを生成し、active generationを永続的な参照から選択する。CA rotationではgeneration Nを基にrotation対象のTalos/Kubernetes CAだけを更新した完全なgeneration N+1 bundleを`Pending`として先に永続化する。その後、Talos公式のaccepted CA追加、issuing CA切替、certificate refresh、旧CA削除のsemanticsをTalos machine configuration/APIでreconcileする。自動`rotate-ca`をブラックボックスとして完了後にmaterialを回収せず、Pending bundleとTalosのobserved accepted/issuing CAから再開する。generation N+1でrotation対象外のetcd CA、service account keyなどを意図せず変更しない。正常完了を観測してから新generationをactiveに確定する。rotation中は新しいMachineのprovisioningとAdoptを開始しない。BootstrapConfigごとにgenerateしない。
 
 configurationの合成順序はbase、user-owned patch、Provider-owned invariantである。user patchは全てimmutable Secret-backed inputから読み込み、CRD Specへraw patchをinline保存しない。user patchがcluster identity、Talos PKI/token、cluster endpoint、machine role、CAPI version-managed field、ProviderID、installer image identityへ触れた場合は黙って上書きせず`Ready=False`、`Reason=ConfigurationConflict`にする。
 
@@ -46,7 +46,7 @@ configuration digestはraw YAML bytesではなく、Talosが解釈したeffectiv
 
 ## Node-disruptive update
 
-configuration applyやOS upgradeがrebootを要求する場合、Update Extensionは先にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainする。multi-node clusterではdrain成功を必須とし、失敗時はoperationを開始しない。single-node clusterではcordonとgraceful evictionを可能な範囲で試し、`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合だけavailabilityを理由に永久blockせず、persistent data preservationを優先してoperationを開始できる。未指定または`false`なら安全停止する。具体的な強制drain flagをAPI contractへ固定しない。
+configuration applyやOS upgradeがrebootを要求する場合、Update Extensionは先にNodeをquiesceする。Talos operation自身が安全なdrainを提供する場合はそれを利用し、提供しない場合はworkload cluster側でcordon/drainを試す。drain失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合はgraceful shutdown/rebootを許可し、未指定または`false`ならavailability理由でも安全停止する。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは`allowDowntime`で緩和しない。具体的な強制drain flagをAPI contractへ固定しない。
 
 ## client境界
 

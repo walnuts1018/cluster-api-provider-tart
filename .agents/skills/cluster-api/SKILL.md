@@ -28,8 +28,8 @@ Tart独自APIは次のgroup/versionへ分けて`v1alpha1`へリセットする�
 - Control Planeは`spec.version`、`spec.replicas`、`spec.machineTemplate.spec.infrastructureRef`、`spec.machineTemplate.spec.deletion`、provider-specificな`spec.bootstrapConfigTemplate`、`status.versions`、`status.initialization.controlPlaneInitialized`、`replicas`、`readyReplicas`、`availableReplicas`、`upToDateReplicas`、`selector`、scale subresource、workload kubeconfig Secretをcontractに従って扱う。`status.version`は新設しない。`nodeDrainTimeoutSeconds`、`nodeVolumeDetachTimeoutSeconds`、`nodeDeletionTimeoutSeconds`は`spec.machineTemplate.spec.deletion`へ置く。
 - `controlPlaneInitialized`はAPI serverがrequestを受け付ける状態を表し、全Node ReadyやCNI導入を待たない。
 - `TartHost`はCAPI Machineより長寿命なので、CAPI MachineのOwnerReferenceを設定しない。`TartHost.spec.id`はKubernetes metadata UIDから独立したimmutableな永続Host identityとし、`TartCluster.spec.id`もCAPI `Cluster.metadata.uid`から独立したimmutableなworkload cluster identityとする。`TartMachine`とBootstrap resourceは対応するCAPI resourceとのOwnerReferenceとCAPI labelを正しく設定する。
-- `TartHost.spec.id`と`TartCluster.spec.id`はTemplateやSSA dry-runのdefaultingで生成しない。concrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化し、DR復元では既存値を保持する。ID確定前にbundle生成、Host claim、provisioningを開始しない。
-- `TartClusterTemplate.spec.template.spec`に`id`を持たせず、`updatePolicy.allowDowntime`だけをconcrete Clusterへ伝播可能なcluster-level policyとして扱う。single-nodeで停止を許可する場合の正本は`TartCluster.spec.updatePolicy.allowDowntime: true`であり、未指定または`false`ならnode-disruptive updateを開始しない。
+- `TartHost.spec.id`と`TartCluster.spec.id`はTemplateやSSA dry-runのdefaultingで生成しない。通常CREATEでは空値をprovider controllerがnon-dry-run CREATE後に一度だけ生成して永続化し、指定済みのIDは拒否する。DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ既存値を保持する。ID確定前にbundle生成、Host claim、provisioningを開始しない。
+- `TartClusterTemplate.spec.template.spec`に`id`を持たせず、`updatePolicy.allowDowntime`だけをconcrete Clusterへ伝播可能なcluster-level policyとして扱う。`TartCluster.spec.updatePolicy.allowDowntime: true`はavailability、PDB、capacityによるdrain失敗を緩和する正本であり、未指定または`false`ならavailability理由でも開始しない。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。
 - CAPI contractへ参加するResourceはnamespace-scopedとし、`TartHost`だけはmanagement cluster全体で一意なcluster-scoped inventoryとする。Claim中またはRetainedの`TartHost`直接削除は明示的なforget annotationなしに許可せず、forgetしてもpower off、reset、disk wipeを行わない。
 
 ## Host allocation
@@ -40,7 +40,7 @@ Tart独自APIは次のgroup/versionへ分けて`v1alpha1`へリセットする�
 
 ## Bootstrap Secretとcluster secret
 
-Bootstrap Secretは決定論的な名前（初期実装ではBootstrapConfig名）、type `cluster.x-k8s.io/secret`、single `value` key、cluster label、BootstrapConfigのcontroller OwnerReferenceを持つ。`value`にはcomplete Talos machine configurationだけを格納する。Talos/Kubernetes cluster secret bundleはCluster IDを含むgeneration単位でimmutable Secretを生成し、active generationを切り替えられるようにする。CA rotationではTalosの準備結果から得た新しいsecret materialで次generationを`Pending`として先に永続化し、その後にTalosの段階的なCA rotation operationを開始する。正常完了を観測してから新generationをactiveに確定し、Cluster存続中は過去generationをGCしない。BootstrapConfigごとにcluster secretsをgenerateしない。
+Bootstrap Secretは決定論的な名前（初期実装ではBootstrapConfig名）、type `cluster.x-k8s.io/secret`、single `value` key、cluster label、BootstrapConfigのcontroller OwnerReferenceを持つ。`value`にはcomplete Talos machine configurationだけを格納する。Talos/Kubernetes cluster secret bundleはCluster IDを含むgeneration単位でimmutable Secretを生成し、active generationを切り替えられるようにする。CA rotationではgeneration Nを基にrotation対象のTalos/Kubernetes CAだけを更新した完全なgeneration N+1 bundleを`Pending` SecretとしてTalos operation開始前に永続化し、Talos公式のaccepted/issuing CAとcertificate refreshのsemanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`を完了後にmaterial回収するブラックボックスとして扱わず、Pending bundleとobserved stateから再開する。generation N+1でrotation対象外のetcd CA、service account keyなどを意図せず変更しない。正常完了を観測してから新generationをactiveに確定し、Cluster存続中は過去generationをGCしない。BootstrapConfigごとにcluster secretsをgenerateしない。
 
 ユーザーのraw configuration patchは全て`TartBootstrapConfig.spec.configSecretRef`のSecret-backed inputへ格納し、inline fieldは提供しない。参照先Secretは`immutable: true`を必須とし、Secretには非機密configurationを含めてもよい。同じSecretの内容だけを書き換えてBootstrapConfigのdesired diffを隠してはならない。`CanUpdateMachineSet`と`CanUpdateMachine`はold/new双方のSecretをresolveしてeffective configurationをrenderし、Secret参照名だけでなくsemantic diff全体を判定する。Bootstrap Secret生成後のmutableな変更はUpdate Extensionだけが実行し、Bootstrap controllerは再生成しない。
 
@@ -58,7 +58,7 @@ Transient errorはrequeueし、identity mismatch、unsafe storage change、quoru
 
 Infrastructure、Bootstrap、Control Planeの各Providerは、CAPIが読むreference、labels、OwnerReference、readiness Conditions、deletion semanticsを満たす。ClusterClassからtemplate resourceを通常のCAPI resourceとして参照できるようにし、Tart専用installation pathを要求しない。
 
-Control Planeのreplica、Kubernetes version、etcd membership、cluster secret bundle、workload kubeconfigはControl Plane Providerが所有する。cluster secret bundleはCluster IDを含むgeneration単位でimmutableに生成し、active generationを切り替え可能な永続参照から選択する。CA rotationはTalosへ委譲し、完了観測後にだけactive generationを確定する。Cluster存続中は過去generationをGCしない。Bootstrap Providerはread-onlyで参照し、Infrastructure Providerがcontrol planeのquorumやadd-onを管理しない。CNI、CSI、kube-vip、observabilityなどはTalos configurationまたはKubernetes addon layerへ委譲する。
+Control Planeのreplica、Kubernetes version、etcd membership、cluster secret bundle、workload kubeconfigはControl Plane Providerが所有する。cluster secret bundleはCluster IDを含むgeneration単位でimmutableに生成し、active generationを切り替え可能な永続参照から選択する。CA rotationではrotation対象のCAだけを更新した次generationのPending Secretを先に永続化し、Talos公式の段階的semanticsをmachine configuration/APIでreconcileする。自動`rotate-ca`をブラックボックスとして扱わず、rotation完了観測後にだけactive generationを確定する。Cluster存続中は過去generationをGCしない。Bootstrap Providerはread-onlyで参照し、Infrastructure Providerがcontrol planeのquorumやadd-onを管理しない。CNI、CSI、kube-vip、observabilityなどはTalos configurationまたはKubernetes addon layerへ委譲する。
 
 ## Runtime Extensionとrollout
 
@@ -70,12 +70,12 @@ CAPIのin-place update hookを使う場合、management clusterで`RuntimeSDK=tr
 
 Talos machine secrets、Kubernetes PKI private key、Talos client key、Bootstrap Data、kubeconfig、BMC credentialはStatus、Event、通常log、metrics labelへ出さない。Bootstrap dataはBootstrap ProviderがSecretへ格納し、Infrastructure Providerは必要なdataを取得してTalos APIへ渡すだけにする。
 
-Tartはlocal volumeやadd-onの有無を安全に判定できないため、すべてのTart-managed MachineでMHCのdelete-and-recreate remediationを既定で許可しない。初期運用ではMachineSetまたはControl PlaneのMachine templateへ生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementのopt-inを提供せず、再構築はMachineの明示的削除とRetained Hostの`Reprovision`承認で開始する。将来のexternal remediationは同じMachineを維持するpower cycle/Talos recovery方式とする。
+Tartはlocal volumeやadd-onの有無を安全に判定できないため、すべてのTart-managed MachineでMHCのdelete-and-recreate remediationを既定で許可しない。初期運用ではMachineSetまたはControl PlaneのMachine templateへ生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。将来のexternal remediationは同じMachineを維持するpower cycle/Talos recovery方式とする。
 
 ## Control Plane deletionとupgrade
 
-Control Planeのscale-downではpre-terminate delete hook（`pre-terminate.delete.hook.machine.cluster.x-k8s.io/...`）でetcd member removalとquorumを確認してからMachine deletionを進める。Cluster全体のdeletionではmember removalを必須にせず、hookを安全に完了させる。control planeのin-place updateは常に一台ずつとし、次のMachineへ進む前にetcd、Kubernetes API、Node healthを再観測する。node-disruptive operationの前にはTalosのdrain、またはworkload cluster側のcordon/drainを完了させ、multi-nodeではdrain成功を必須とする。single nodeではcordonとgraceful evictionを可能な範囲で試し、明示的なdowntime policyがあればavailabilityを理由に永久blockせずdata preservationを優先する。
-single-nodeでavailabilityよりdata preservationを優先する明示的なdowntime policyの正本は`TartCluster.spec.updatePolicy.allowDowntime: true`とする。未指定または`false`ならnode-disruptive updateを開始しない。Tart v1alpha1では自動replacementのopt-inを提供せず、必要な再構築はMachineの明示的削除とRetained Hostの`Reprovision`承認で開始する。
+Control Planeのscale-downではpre-terminate delete hook（`pre-terminate.delete.hook.machine.cluster.x-k8s.io/...`）でetcd member removalとquorumを確認してからMachine deletionを進める。Cluster全体のdeletionではmember removalを必須にせず、hookを安全に完了させる。control planeのin-place updateは常に一台ずつとし、次のMachineへ進む前にetcd、Kubernetes API、Node healthを再観測する。node-disruptive operationの前にはTalosのdrain、またはworkload cluster側のcordon/drainを試す。drain失敗がavailability、PDB、capacityだけの理由で`TartCluster.spec.updatePolicy.allowDowntime: true`が明示されている場合はgraceful shutdown/rebootを許可し、未指定または`false`なら開始しない。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和しない。
+Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
 
 ## ClusterClassとSSA dry-run
 

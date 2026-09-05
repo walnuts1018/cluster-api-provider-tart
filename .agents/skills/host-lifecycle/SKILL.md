@@ -8,7 +8,7 @@ when_to_use: TartHost、TartMachineのclaim、hardware discovery、power/boot ba
 
 ## Hostの寿命
 
-`TartHost`はCAPI Machineより長く存続するmanagement cluster全体で一意なcluster-scoped inventoryである。Kubernetes metadata UIDとは別にimmutableな`spec.id`を持ち、concrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化する。TemplateやSSA dry-runのdefaultingでrandom IDを生成せず、DR復元ではバックアップ済みの値を保持する。MAC address、system UUIDなどのstable identityは一意であることを期待する。Workload cluster側の永続identityには`TartCluster.spec.id`を使い、CAPI `Cluster.metadata.uid`へ依存しない。ただしadmission webhookの全体list検査をatomic uniquenessの根拠にせず、重複を観測した場合は関係するHostをfail closedにする。Machineの削除やscale downでHost resourceを削除せず、Host上のTalos installation、disk、local persistent dataを保持する。
+`TartHost`はCAPI Machineより長く存続するmanagement cluster全体で一意なcluster-scoped inventoryである。Kubernetes metadata UIDとは別にimmutableな`spec.id`を持ち、通常CREATEでは空値をconcrete Resourceのnon-dry-run CREATE後にprovider controllerが一度だけ生成して永続化する。TemplateやSSA dry-runのdefaultingでrandom IDを生成せず、presetされたIDは通常CREATEで拒否する。DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけバックアップ済みの値を保持する。MAC address、system UUIDなどのstable identityは一意であることを期待する。Workload cluster側の永続identityには`TartCluster.spec.id`を使い、CAPI `Cluster.metadata.uid`へ依存しない。ただしadmission webhookの全体list検査をatomic uniquenessの根拠にせず、重複を観測した場合は関係するHostをfail closedにする。Machineの削除やscale downでHost resourceを削除せず、Host上のTalos installation、disk、local persistent dataを保持する。
 
 ## registrationとdiscovery
 
@@ -46,8 +46,8 @@ management clusterのバックアップには、`TartHost.spec.id`、stable hard
 
 停止確認後にclaimを解除してもHostは`Retained`としてdataを保持する。`Adopt`は既存installation、same cluster ID、same secret generation、same Host identity、same ProviderID、compatible role/version、expected disk identity、desired configurationが一致する場合だけdataを保持してclaimする。control-plane Adoptではetcd membershipとNode identityも検証する。`Reprovision`はdata破棄を明示承認する別lifecycleであり、Talos reset/installerへ委譲する。cleaning、reprovisioning、disk wipe、force releaseは通常updateや通常deleteの副作用にせず、別の明示的な操作、権限、監査、確認を必要とする。
 
-`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを`tart.cluster.x-k8s.io/forget-approved: "true"` annotationなしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。Tart v1alpha1では自動replacementのopt-inを提供せず、再構築は利用者によるMachineの明示的削除と`Reprovision`承認で開始する。
+`TartHost`の直接削除はforgetであり、Claim中またはRetainedのHostを`tart.cluster.x-k8s.io/forget-approved: "true"` annotationなしに削除しない。forgetが承認されてもpower off、Talos reset、disk wipeは行わず、inventoryからだけ削除する。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。
 
 ## MHC
 
-すべてのTart-managed MachineでMachineHealthCheckのdelete-and-recreate remediationを安全な既定値とみなさない。初期運用ではMachineSetまたはControl PlaneのMachine templateへ生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementのopt-inを提供せず、再構築は利用者によるMachineの明示的削除と`Reprovision`承認で開始する。将来のexternal remediationは同じMachineとHostを維持するpower cycle/Talos recovery方式とする。MHC、rollout、手動削除の全経路でRetained gateとshutdown確認を通す。
+すべてのTart-managed MachineでMachineHealthCheckのdelete-and-recreate remediationを安全な既定値とみなさない。初期運用ではMachineSetまたはControl PlaneのMachine templateへ生成前から`cluster.x-k8s.io/skip-remediation`を設定し、Machine作成後の後追いannotationだけに依存しない。Tart v1alpha1では自動replacementやguided reprovisionのopt-inを提供しない。利用者のMachine削除はCAPIの通常replacement semanticsを発生させ得て、別のAvailable Hostをclaimする可能性がある。Retained Hostの`Reprovision`承認はdata破棄だけを許可し、Machine削除や同じHostへの再割り当てを開始しない。将来のexternal remediationは同じMachineとHostを維持するpower cycle/Talos recovery方式とする。MHC、rollout、手動削除の全経路でRetained gateとshutdown確認を通す。

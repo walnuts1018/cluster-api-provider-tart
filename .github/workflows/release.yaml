@@ -96,7 +96,7 @@ jobs:
       # clusterctl/cluster-api-operatorはmetadata.yaml、infrastructure-components.yamlという
       # 固定ファイル名のリリースassetを前提にしているため、ここでは名前を変更しない。
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             out/infrastructure-components.yaml

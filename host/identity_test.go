@@ -71,6 +71,7 @@ func TestHasIdentityConflict(t *testing.T) {
 		want  bool
 	}{
 		{name: "同じMACは競合", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "aa:bb:cc:dd:ee:ff"}}, want: true},
+		{name: "MACの区切り文字が異なっても競合", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "aa-bb-cc-dd-ee-ff"}}, want: true},
 		{name: "異なるMACは競合しない", other: infrav1alpha1.TartHost{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{MACAddress: "00:11:22:33:44:55"}}, want: false},
 		{name: "空のMACは競合しない", other: infrav1alpha1.TartHost{Name: "host-b"}, want: false},
 	}

@@ -59,6 +59,26 @@ func TestClassify(t *testing.T) {
 			want: Retained,
 		},
 		{
+			name: "retainedFromと承認のUIDが空でもReusableにしない",
+			spec: infrav1alpha1.TartHostSpec{
+				RetainedFrom:  &infrav1alpha1.RetainedFrom{},
+				ReusePolicy:   infrav1alpha1.ReusePolicyReusable,
+				ReuseApproval: &infrav1alpha1.ReuseApproval{},
+				ReuseMode:     infrav1alpha1.ReuseModeAdopt,
+			},
+			want: Retained,
+		},
+		{
+			name: "承認のUIDが空ならReusableにしない",
+			spec: infrav1alpha1.TartHostSpec{
+				RetainedFrom:  &infrav1alpha1.RetainedFrom{UID: types.UID("prev")},
+				ReusePolicy:   infrav1alpha1.ReusePolicyReusable,
+				ReuseApproval: &infrav1alpha1.ReuseApproval{},
+				ReuseMode:     infrav1alpha1.ReuseModeAdopt,
+			},
+			want: Retained,
+		},
+		{
 			name: "承認のretainedFromUIDが古いretainedFromと一致しなければRetainedのまま",
 			spec: infrav1alpha1.TartHostSpec{
 				RetainedFrom:  &infrav1alpha1.RetainedFrom{UID: types.UID("prev-2")},

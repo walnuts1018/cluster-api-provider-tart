@@ -16,6 +16,7 @@ package host
 
 import (
 	"errors"
+	"net"
 	"strings"
 	"uuid"
 
@@ -40,7 +41,7 @@ func HasIdentityConflict(host infrav1alpha1.TartHost, hosts []infrav1alpha1.Tart
 		if other.Name == host.Name && other.Namespace == host.Namespace {
 			continue
 		}
-		if sameIdentity(host.Spec.MACAddress, other.Spec.MACAddress) {
+		if sameMACAddress(host.Spec.MACAddress, other.Spec.MACAddress) {
 			return true
 		}
 		if host.Status.Inventory != nil && other.Status.Inventory != nil &&
@@ -66,4 +67,13 @@ func sameIdentity(left, right string) bool {
 	left = strings.TrimSpace(left)
 	right = strings.TrimSpace(right)
 	return left != "" && right != "" && strings.EqualFold(left, right)
+}
+
+func sameMACAddress(left, right string) bool {
+	leftMAC, leftErr := net.ParseMAC(strings.TrimSpace(left))
+	rightMAC, rightErr := net.ParseMAC(strings.TrimSpace(right))
+	if leftErr == nil && rightErr == nil {
+		return leftMAC.String() == rightMAC.String()
+	}
+	return sameIdentity(left, right)
 }

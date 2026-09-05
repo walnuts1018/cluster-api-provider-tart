@@ -11,18 +11,18 @@ Go testを全面禁止しない。実装と同時に、失敗時の影響が大�
 静的検証とGo testを分け、次の確認をCIとローカルで共通化する。
 
 | 対象 | 確認 |
-|---|---|
+| --- | --- |
 | format | `mise run fmt`または同等の`gofmt` |
 | 生成 | `mise run generate`でDeepCopyなどを再生成 |
 | CRD/RBAC | `mise run manifests`でcontroller-genとkustomizeの結果を確認 |
 | compile | `mise run build`または`go build ./...` |
 | 重要な判断 | Host claim race、Retained gate、unsafe diff、resolved Secretのsemantic diff、reuse approval、quorum、configuration invariant、redacted semantic digestの必要最小限のGo test |
-| 静的解析 | `mise run lint`、`go vet ./...`、必要なlint task |
-| 差分 | `git --no-pager diff --check` |
+| 静的解析 | `mise run lint:fix`、`go vet ./...`、必要なlint task |
 | 旧設計の残存 | `rg`で`v1beta1`、`TartHostOperation`、agent、workflow、旧artifact、`internal`、`pkg`を確認 |
 | secret境界 | log、Event、Status、metrics label、manifestへcredentialが含まれないことを目視確認 |
 
 API groupを変更した場合は、Infrastructure、Bootstrap、Control PlaneのCRD group、scope、reference、aggregated RBACが一致していることを確認する。CAPI contractへ参加するCRDの`cluster.x-k8s.io/v1beta2: v1alpha1` label、`TartCluster.spec.id`、Control Planeの`spec.machineTemplate.spec.infrastructureRef`、`spec.machineTemplate.spec.deletion`、`status.versions`、scale subresource、Bootstrap Config templateの入力元、ClusterClassのSSA dry-run対応も確認する。`TartHost.spec.id`がmetadata UIDから独立し、stable identityの重複時にallocationとmaintenance applyをfail closedし、claimがSSAではなくatomic CASであることも確認する。Bootstrap Secretのtype、single `value` key、決定論的なname、label、OwnerReference、Secret-backed raw configuration、Cluster ID付きgeneration単位のcluster secretとTalos CA rotationの完了後切替、workload kubeconfig Secretの維持も契約確認の対象とする。
+
 - `TartHost.spec.id`と`TartCluster.spec.id`がTemplateやSSA dry-runで生成されず、通常CREATEでは空値からconcrete Resourceのnon-dry-run CREATE後に一度だけ永続化される。指定済みIDは通常CREATEで拒否され、DR復元では`tart.cluster.x-k8s.io/restore-approved: "true"` annotationとinfra administratorの権限境界を満たす場合だけ既存IDを保持し、同名Cluster再作成では新IDになる。ID確定前にbundle生成、Host claim、provisioningが開始されない。
 - `TartCluster.spec.updatePolicy.allowDowntime`がavailability、PDB、capacityによるdrain失敗を緩和する唯一のdesired-state契約であり、未指定または`false`ならavailability理由でも開始しない。destructive disk change、identity mismatch、Host mismatch、unsafe etcd membership change、quorum violationは緩和されない。Tart v1alpha1に自動replacementやguided reprovisionのopt-inがなく、Machine削除が別Hostのclaimを発生させ得ることを確認する。
 

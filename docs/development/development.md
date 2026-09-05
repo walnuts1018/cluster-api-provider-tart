@@ -35,9 +35,7 @@ CRD、RBAC、DeepCopy、manifestsを変更した場合は、実装で使用す�
 MISE_OFFLINE=1 mise run fmt
 MISE_OFFLINE=1 mise run generate
 MISE_OFFLINE=1 mise run manifests
-MISE_OFFLINE=1 mise run build
-MISE_OFFLINE=1 mise run lint
-git --no-pager diff --check
+MISE_OFFLINE=1 mise run lint:fix
 ```
 
 実際のtask名が変更された場合は、この文書とCI workflowを同じ変更で更新する。生成、build、lintが旧`domain`、`infrastructure`、agent、artifact packageを参照しないことを確認する。

@@ -1,16 +1,12 @@
 package v1alpha1
 
 import (
-	"uuid"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
-	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
@@ -135,7 +131,7 @@ type PreviousConsumerRef struct {
 	Name      string    `json:"name"`
 	UID       types.UID `json:"uid"`
 	// clusterID is the TartCluster.spec.clusterID the previous consumer belonged to.
-	ClusterID cluster.ClusterID `json:"clusterID"`
+	ClusterID ClusterID `json:"clusterID"`
 }
 
 // ReuseApproval is an explicit, user-provided approval to reuse a Retained Host. It is
@@ -161,7 +157,7 @@ type TartHostSpec struct {
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="hostID may only be initialized once and is immutable afterwards"
 	// +optional
-	HostID hostdomain.HostID `json:"hostID,omitempty,omitzero"`
+	HostID HostID `json:"hostID,omitempty,omitzero"`
 
 	// macAddress is the primary enrollment identity used to bind an observed boot
 	// attempt to this Host before any other inventory is known.
@@ -253,7 +249,7 @@ type NetworkInterfaceInventory struct {
 type HostInventory struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-	SystemUUID        uuid.UUID                   `json:"systemUUID,omitempty,omitzero"`
+	SystemUUID        string                      `json:"systemUUID,omitempty,omitzero"`
 	Architecture      string                      `json:"architecture,omitempty"`
 	Disks             []DiskInventory             `json:"disks,omitempty"`
 	NetworkInterfaces []NetworkInterfaceInventory `json:"networkInterfaces,omitempty"`

@@ -46,7 +46,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// generation, Host claim and provisioning must not start before it is set.
 	if cluster.Spec.ClusterID.IsZero() {
 		original := cluster.DeepCopy()
-		cluster.Spec.ClusterID = clusterdomain.NewClusterID()
+		cluster.Spec.ClusterID = infrav1alpha1.ClusterID(clusterdomain.NewClusterID().String())
 		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -57,7 +57,11 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if generation == 0 {
 		generation = 1
 	}
-	if err := r.ensureBundle(ctx, &cluster, generation); err != nil {
+	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	if err != nil {
+		return r.reportBundleError(ctx, &cluster, err)
+	}
+	if err := r.ensureBundle(ctx, &cluster, clusterID, generation); err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
 	}
 
@@ -73,8 +77,8 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
-func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, generation int32) error {
-	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ClusterID, generation)
+func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32) error {
+	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
 		return err
 	}
@@ -82,11 +86,11 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	secret := &corev1.Secret{}
 	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
 	if apierrors.IsNotFound(err) {
-		data, generateErr := controlplane.GenerateBundleData(cluster.Spec.ClusterID)
+		data, generateErr := controlplane.GenerateBundleData(clusterID)
 		if generateErr != nil {
 			return generateErr
 		}
-		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, metav1.OwnerReference{
+		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, clusterID, generation, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
 			Kind:       "TartCluster",
 			Name:       cluster.Name,
@@ -106,10 +110,10 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	if err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ClusterID); err != nil {
+	if err := controlplane.ValidateBundleData(secret.Data, clusterID); err != nil {
 		return err
 	}
 

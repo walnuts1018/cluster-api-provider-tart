@@ -43,6 +43,7 @@ effective configurationをシリアライズし、SHA-256 digestを計算
 
 - **Talos-native セマンティクス**: Tart独自のpartition DSLやdisk writerを作らず、Talosのsystem volume、user volume、raw volume、disk selector、encryption、installer diskの仕組みをそのまま利用する。
 - **安定したディスク識別子**: Linuxの `/dev/sda` や `/dev/nvme0n1` などのデバイス名は起動順序で変わり得る一時的な観測値とし、serial、WWID、model、transport、bus情報などのstable attributeを識別・セレクターの基盤とする。
+- **初回install target**: `TartBootstrapConfig`はclaimed `TartHost.status.inventory`から書き込み可能なdiskを一意に選択し、Talos v1.14の`UnattendedInstallConfig`へstable CEL selectorを追加する。候補を一意に選べない場合はconfigurationを生成せず停止する。
 - **永続データの分離**: `EPHEMERAL` パーティションはOSアップグレードや再インストールで揮発し得るため永続データの保持先として扱わない。Longhorn、TopoLVM、アプリケーション永続データはUser VolumeまたはRaw Volumeへ明示的に分離する。
 
 ---

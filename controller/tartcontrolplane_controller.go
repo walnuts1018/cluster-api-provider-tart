@@ -245,12 +245,25 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 			message: "The TartCluster identity and active secret bundle are not ready yet.",
 		}
 	}
+	if _, err := parseClusterID(tartCluster.Spec.ClusterID); err != nil {
+		return nil, &controlPlaneFailure{
+			reason:  reasonSecretBundleUnavailable,
+			message: "The TartCluster identity is invalid.",
+		}
+	}
 	return &tartCluster, nil
 }
 
 func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster) error {
 	generation := cluster.Status.ActiveSecretGeneration
-	name, err := controlplane.BundleName(cluster.Name, cluster.Spec.ClusterID, generation)
+	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	if err != nil {
+		return &controlPlaneFailure{
+			reason:  reasonSecretBundleUnavailable,
+			message: "The TartCluster identity is invalid.",
+		}
+	}
+	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
@@ -267,13 +280,13 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 		}
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle does not satisfy its identity contract.",
 		}
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, cluster.Spec.ClusterID); err != nil {
+	if err := controlplane.ValidateBundleData(secret.Data, clusterID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle data is invalid.",

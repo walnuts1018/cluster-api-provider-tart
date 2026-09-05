@@ -49,7 +49,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	if current.Spec.HostID.IsZero() {
 		original := current.DeepCopy()
-		current.Spec.HostID = hostdomain.NewHostID()
+		current.Spec.HostID = infrav1alpha1.HostID(hostdomain.NewHostID().String())
 		if err := r.Patch(ctx, &current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -109,7 +109,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
 	result := &infrav1alpha1.HostInventory{
-		SystemUUID:        inventory.SystemUUID,
+		SystemUUID:        inventory.SystemUUID.String(),
 		Architecture:      inventory.Architecture,
 		Disks:             make([]infrav1alpha1.DiskInventory, 0, len(inventory.Disks)),
 		NetworkInterfaces: make([]infrav1alpha1.NetworkInterfaceInventory, 0, len(inventory.NetworkInterfaces)),

@@ -24,6 +24,8 @@ CAPI Cluster Ready
 
 OS installation、disk/volume、encryption、system extension、machine configuration、upgrade、rollback、Kubernetes runtimeはTalosへ委譲します。Cilium、Longhorn、TopoLVM、kube-vipなどはTalos configurationとKubernetes addon layerで構成し、Tart専用APIは使用しません。
 
+初回installのdiskはmaintenance APIで観測した`TartHost.status.inventory`から自動選択され、生成したcomplete configurationへstable selectorとして組み込まれます。`TartMachine`はdesired installer imageを設定してmaintenance APIへ渡し、Talosのinstallerによるinstallとrebootの後、authenticated APIのversion観測で起動完了を確認します。
+
 未構成Talosのmaintenance APIはTLSで暗号化されますが認証済みではありません。machine configurationを送る前に`TartHost`、boot attempt、MAC/DHCP、endpoint、system UUID/inventoryを結び付け、曖昧なら停止します。installation後はauthenticated Talos APIへ移行します。Machine削除時はshutdownと停止確認後にclaimを解除し、Hostをdata保持の`Retained`として残します。
 
 ## 安全性

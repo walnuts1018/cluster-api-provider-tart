@@ -21,14 +21,15 @@ const (
 )
 
 var (
-	ErrMissingConfigSecret        = errors.New("bootstrap configuration Secret is missing")
-	ErrConfigSecretNotImmutable   = errors.New("bootstrap configuration Secret must be immutable")
-	ErrConfigSecretEmpty          = errors.New("bootstrap configuration Secret has no data")
-	ErrInvalidSecretMetadata      = errors.New("bootstrap Secret metadata is incomplete")
-	ErrOwnerReferenceIncomplete   = errors.New("bootstrap Secret owner reference is incomplete")
-	ErrOwnerReferenceInvalid      = errors.New("bootstrap Secret owner reference is invalid")
-	ErrCompleteConfigurationEmpty = errors.New("complete machine configuration is empty")
-	ErrConfigurationInputMissing  = errors.New("bootstrap configuration Secret has no usable configuration input")
+	ErrMissingConfigSecret         = errors.New("bootstrap configuration Secret is missing")
+	ErrConfigSecretNotImmutable    = errors.New("bootstrap configuration Secret must be immutable")
+	ErrConfigSecretEmpty           = errors.New("bootstrap configuration Secret has no data")
+	ErrInvalidSecretMetadata       = errors.New("bootstrap Secret metadata is incomplete")
+	ErrOwnerReferenceIncomplete    = errors.New("bootstrap Secret owner reference is incomplete")
+	ErrOwnerReferenceInvalid       = errors.New("bootstrap Secret owner reference is invalid")
+	ErrCompleteConfigurationEmpty  = errors.New("complete machine configuration is empty")
+	ErrConfigurationInputMissing   = errors.New("bootstrap configuration Secret has no usable configuration input")
+	ErrConfigurationInputAmbiguous = errors.New("bootstrap configuration Secret contains both complete configuration and patches")
 )
 
 // ValidateConfigSecretはユーザー所有のraw configuration inputがimmutableであり、空でないことを確認する。
@@ -53,6 +54,9 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 func CompleteConfigurationFromSecret(secret *corev1.Secret) ([]byte, error) {
 	if err := ValidateConfigSecret(secret); err != nil {
 		return nil, err
+	}
+	if len(secret.Data[ConfigurationInputKey]) > 0 && len(secret.Data[ConfigurationPatchesKey]) > 0 {
+		return nil, ErrConfigurationInputAmbiguous
 	}
 
 	configuration, ok := secret.Data[ConfigurationInputKey]

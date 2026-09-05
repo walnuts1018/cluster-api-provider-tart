@@ -3,8 +3,6 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
-
-	"github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 )
 
 // TartCluster Condition types.
@@ -39,7 +37,7 @@ type TartClusterSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="clusterID may only be initialized once and is immutable afterwards"
 	// +optional
 	// +kubebuilder:validation:Type=string
-	ClusterID cluster.ClusterID `json:"clusterID,omitempty,omitzero"`
+	ClusterID ClusterID `json:"clusterID,omitempty,omitzero"`
 
 	// updatePolicy controls whether availability-only drain failures may be
 	// relaxed for node-disruptive updates. It never relaxes data, identity,

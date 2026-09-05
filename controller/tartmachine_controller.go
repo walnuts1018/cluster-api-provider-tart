@@ -101,7 +101,11 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if selected.Spec.HostID.IsZero() {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
-	providerID, err := host.ProviderID(selected.Spec.HostID)
+	hostID, err := parseHostID(selected.Spec.HostID)
+	if err != nil {
+		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
+	}
+	providerID, err := host.ProviderID(hostID)
 	if err != nil {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
@@ -147,6 +151,16 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 	if err := r.Status().Patch(ctx, &machine, client.MergeFrom(statusOriginal)); err != nil {
 		return ctrl.Result{}, err
+	}
+	if !isProvisioned(&machine) && selected.Status.Inventory == nil && selected.Spec.Power.Backend == infrav1alpha1.PowerBackendWakeOnLAN {
+		if err := powerOnHost(ctx, selected); err != nil {
+			return r.reportTalosStatus(ctx, &machine,
+				metav1.ConditionFalse, "PowerUnavailable", "The Host could not be powered on for maintenance discovery.",
+				metav1.ConditionFalse, "PowerUnavailable", "Talos provisioning is waiting for maintenance discovery.",
+				"PowerUnavailable", "Talos version cannot be verified before provisioning.",
+				"PowerUnavailable", "The Host power-on request failed before discovery.",
+				talosRequeue)
+		}
 	}
 	configuration, err := r.bootstrapConfiguration(ctx, &machine)
 	if err != nil {

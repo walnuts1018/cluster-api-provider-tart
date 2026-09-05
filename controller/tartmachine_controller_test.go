@@ -30,7 +30,7 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 		Name: "host-a",
 		UID:  types.UID("host-a"),
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			HostID:     infrav1alpha1.HostID(mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String()),
 			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
@@ -80,7 +80,7 @@ func TestTartMachineReconcilerDoesNotMutatePausedMachine(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			HostID:     infrav1alpha1.HostID(mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String()),
 			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
@@ -129,7 +129,7 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:     mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			HostID:     infrav1alpha1.HostID(mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String()),
 			MACAddress: mustMACAddress(t, "00:00:5e:00:53:01"),
 		},
 	}
@@ -187,7 +187,7 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"),
+			HostID: infrav1alpha1.HostID(mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String()),
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
 				Kind:       tartMachineKind,

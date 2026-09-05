@@ -69,7 +69,11 @@ func SetInstallerImage(configuration []byte, version, schematicID string) ([]byt
 		return nil, fmt.Errorf("load talos machine configuration: %w", err)
 	}
 	if provider.UnattendedInstallConfig() != nil {
-		patch := runtimeconfig.NewUnattendedInstallConfigV1Alpha1()
+		unattended, ok := provider.UnattendedInstallConfig().(*runtimeconfig.UnattendedInstallConfigV1Alpha1)
+		if !ok {
+			return nil, errors.New("talos unattended install configuration has an unsupported type")
+		}
+		patch := unattended.DeepCopy()
 		patch.Installer.Image = image
 		patchProvider, err := container.New(patch)
 		if err != nil {
@@ -235,9 +239,7 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	}, nil
 }
 
-// ApplyConfiguration submits a complete Talos machine configuration through the
-// maintenance API. Talos performs the installation and reboot according to the
-// machine.install section; Tart does not write disks or reimplement that lifecycle.
+// ApplyConfigurationはcomplete Talos machine configurationをmaintenance APIへ渡す。TalosはconfigurationのUnattendedInstallConfigまたはnative設定に従ってinstallationとrebootを実行する。
 func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) error {
 	if c == nil || c.raw == nil {
 		return ErrClientUnavailable

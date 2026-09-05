@@ -49,8 +49,10 @@ func HasIdentityConflictForAny(hosts []infrav1alpha1.TartHost) bool {
 	return false
 }
 
-func sameIdentity(left, right uuid.UUID) bool {
-	return left != uuid.Nil() && right != uuid.Nil() && left == right
+func sameIdentity(left, right string) bool {
+	leftUUID, leftErr := uuid.Parse(left)
+	rightUUID, rightErr := uuid.Parse(right)
+	return leftErr == nil && rightErr == nil && leftUUID != uuid.Nil() && leftUUID == rightUUID
 }
 
 func sameMACAddress(left, right network.MACAddress) bool {

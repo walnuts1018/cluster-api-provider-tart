@@ -27,10 +27,11 @@ type MachineConfigurationContext struct {
 	KubernetesVersion    string
 	MachineType          machine.Type
 	SecretsBundle        *secrets.Bundle
+	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合、user patchまたはcomplete configurationがinstall targetを含んでいなければならない。
+	InstallDisk *InstallDisk
 }
 
-// GenerateMachineConfigurationはTalos machineryのbase configurationへユーザーpatchを適用し、
-// Talos APIへ渡せるcanonical configurationを返す。installer diskは暗黙に選択せず、必要な場合はpatch側で指定する。
+// GenerateMachineConfigurationはTalos machineryのbase configurationへユーザーpatchを適用し、Talos APIへ渡せるcanonical configurationを返す。InstallDiskが指定された場合はproviderが選択したinstall targetを付加する。
 func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...[]byte) ([]byte, error) {
 	if strings.TrimSpace(input.ClusterName) == "" || input.SecretsBundle == nil {
 		return nil, ErrMachineConfigurationContextIncomplete
@@ -64,6 +65,12 @@ func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...
 	configuration, err := RenderEffectiveConfiguration(base, patches...)
 	if err != nil {
 		return nil, fmt.Errorf("render generated Talos machine configuration: %w", err)
+	}
+	if input.InstallDisk != nil {
+		configuration, err = EnsureInstallDisk(configuration, *input.InstallDisk)
+		if err != nil {
+			return nil, fmt.Errorf("set Talos install disk: %w", err)
+		}
 	}
 	effectiveProvider, err := configloader.NewFromBytes(configuration)
 	if err != nil {

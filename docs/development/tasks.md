@@ -29,7 +29,10 @@
 - **実装内容**:
   1. **safe-diff判定エンジン**:
      - `CanUpdateMachineSet` / `CanUpdateMachine`はTartMachineのimage versionとschematicだけを許可し、その他の差分をpatchなしの`Failure`で確実にvetoする（fail-closed）。
-     - effective configurationの差分評価と破壊的でないmachine configuration変更の許可は、Talos configuration read/apply APIの契約を追加した後に拡張する。稼働中nodeから現在のmachine configurationを読み出すAPI（[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)、CA rotationステートマシン実装のために追加済み）は利用可能になったが、`extensions/handlers.go`側のeffective configuration差分評価・許可ロジックへの接続は未着手であり、引き続き本タスクの残作業とする。
+     - effective configurationの差分評価と破壊的でないmachine configuration変更の許可は、Talos configuration read/apply APIの契約を追加した後に拡張する予定だったが、以下の調査により**現時点では安全に実装できないと判断し、着手を見送った**。稼働中nodeから現在のmachine configurationを読み出すAPI（[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)、CA rotationステートマシン実装のために追加済み）自体は利用可能である。
+     - **調査結果と見送りの理由**: Talos machine configurationのfieldごとに「reboot・disk再構成・ネットワーク瞬断なしに安全にapplyできるか」をTalos自身が判定して返す機構があるか確認するため、`github.com/siderolabs/talos/pkg/machinery`が依存するTalos本体v1.14.0の`internal/app/machined/internal/server/v1alpha1/v1alpha1_server.go`の`Server.ApplyConfiguration`実装を読んだ。`ApplyConfigurationRequest_AUTO`モードは、on-diskのfield単位の安全性を判定することなく`ApplyConfigurationRequest_NO_REBOOT`へ無条件で読み替えられるだけであり（`switch in.Mode { case machine.ApplyConfigurationRequest_AUTO: in.Mode = machine.ApplyConfigurationRequest_NO_REBOOT; ... }`）、応答の`ModeDetails`も"Applied configuration without a reboot"という固定文言を返すだけで、実際にその差分がreboot不要で安全に反映されたかどうかを検証・保証しない。つまりTalos側に「この差分は安全」という信頼できる判定根拠が存在しないため、`talos.Client`にconfiguration apply APIを追加してこの応答を安全性判定の根拠に使うことはできない。
+     - Talos machine configurationの各fieldを独自に「安全」「危険」へ分類する案も検討したが、Talos側の裏付けなしに「たぶん安全」なfieldをこちらだけの判断で許可することはfail-closedの原則に反するため採用しない。
+     - **残作業**: Talosの将来versionでfield単位のreboot要否判定APIが追加された場合、または個々のconfiguration documentの反映がreboot-freeであることをTalos公式ドキュメント/ソースから確証できるfield（例: 特定のバージョンのKubeletConfig等）が明確になった場合に、本タスクを再評価する。それまではmachine configuration差分の許可は行わず、Talos image versionとschematicIDの変更のみをin-place updateの対象とする現状を維持する。
   2. **完全パッチ生成**:
      - 安全と判定された場合、CAPI MachineSet / Machineに対する完全なJSON patchを返却する。
   3. **`UpdateMachine` の実行**:
@@ -98,7 +101,7 @@
      - `configSecretRef` から読み出したユーザーのraw patchを適用。
      - machine role、cluster endpoint、Kubernetes versionをTalos machineryのbaseへ反映。
   2. **残タスク**:
-     - Update Extensionで利用するeffective configurationの完全な安全差分判定。
+     - Update Extensionで利用するeffective configurationの完全な安全差分判定。[タスク1](#タスク1-runtime-extension-update-extension-の実装)で調査した通り、Talos v1.14.0の`ApplyConfiguration`はAUTOモードをfield単位の安全性判定なしにNO_REBOOTへ読み替えるだけであり、Talos自身から信頼できる安全性判定根拠を得られなかったため着手を見送った。Talos側に判定機構が追加されるか、個別fieldのreboot-freeさを別途確証できるまで、raw patchの差分はUpdate Extensionでのin-place許可対象に含めない。
 - **解消条件**:
   - ユーザーが任意のTalos raw patchを `configSecretRef` 経由で安全に適用できること。
 
@@ -109,7 +112,13 @@
 - **実装内容**:
   1. **動的インベントリ収集**:
      - maintenance Talos bootしたHostから、MAC、System UUID、CPUアーキテクチャ、Disk詳細（WWID, Serial, Size, Model）を収集し、`TartHost.status.inventory` に反映する。
-  2. **netboot-server（実装済み）**:
+  2. **複数boot attemptの追跡（実装済み）**:
+     - [`TartHost.status.bootAttempts`](../../api/infrastructure/v1alpha1/tarthost_types.go)へ、maintenance boot観測ごとの`bootID`、`firstObservedAt`/`lastObservedAt`、`systemUUID`、`endpoint`を直近16件までboundedに保持する([`controller/tarthost_controller.go`](../../controller/tarthost_controller.go)の`recordBootAttempt`)。同一`bootID`の再観測はタイムスタンプとsystemUUID/endpointを更新するだけで新規entryを追加しない。この履歴はidentity検証の追加材料であり、allocation可否の判定自体は常に現在の`status.inventory`から再計算する。
+  3. **disk identity重複検出によるallocation/configuration apply停止（実装済み）**:
+     - [`host.HasIdentityConflict`](../../host/identity.go)がMAC address、system UUID、disk identity(WWIDまたはserial、大文字小文字を無視して比較)の重複をcluster全体の`TartHost`横断で検出する。同一Host内で複数diskが同じWWID/serialを報告した場合(`diskIdentityConflictWithin`)も検出対象である。
+     - `TartHostReconciler`は`HasIdentityConflictForAny`で重複を検知すると該当する全Hostを`Ready=False`にし、disk identityのみが原因の場合は`Reason=DiskIdentityConflict`、MAC/system UUIDを含む場合は`Reason=IdentityConflict`を設定した上でKubernetes Event(Warning、英語)を発行する。誤って一部Hostだけを除外すると誤ったHostへconfiguration applyしてしまうため、重複が解消するまで関係する全Hostを対象から外す。
+     - `TartMachineReconciler`(host claim前)と`TartBootstrapConfigReconciler`(install disk選択前)も同じ`HasIdentityConflictForAny`判定を経由し、重複解消まで新規allocationとconfiguration生成の両方を安全停止する。
+  4. **netboot-server（実装済み）**:
      - 既存DHCPサーバーと共存するProxyDHCPで、PXE optionを持つrequestにのみiPXEブートローダのTFTP配信先を応答する。
      - TFTPは初期iPXEブートローダ(`ipxe-x86_64.efi`/`ipxe-arm64.efi`)のみを配信し、kernel/initramfsの取得はiPXEが自らHTTP経由で行う。
      - iPXEはHTTPハンドラ(`netboot/httpboot.go`)が返すスクリプトから、PXEクライアントのMACアドレスに対応する`TartHost`/`TartMachine`をKubernetes APIからread-onlyで参照し(`netboot/resolver.go`)、そのdesired Talos version/schematicIDでTalos Image FactoryのPXE配信endpoint(`https://pxe.factory.talos.dev/pxe/<schematicID>/v<version>/metal-<arch>`)へ直接chainする。対応するTartHost/TartMachineが存在しないMAC(初回enrollment boot)は、operator設定のdiscovery用Talos version/schematicIDへfallbackする。netboot-server自身はSecretを読まずStatus/Conditionを書かないstatelessなread-onlyアダプターであり、maintenance mode到達後のconfiguration適用はcontroller-manager側の既存reconcileが担う。

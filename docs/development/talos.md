@@ -79,6 +79,7 @@ expected TartHost
 
 - **OSインストール**: Tart自身はブロックデバイスへのimage書き込みやパーティション分割を行わず、Talos installerへconfigurationを渡して委譲する。
 - **In-place Upgrade**: Talos v1.13以降のLifecycle APIへdesired installer imageを渡してOSアップデートを行う。controllerは認証済みAPIで観測したversionとschematic identityを`TartMachine.status`へ保存し、Talosが古いversionまたはsystem extension setへロールバックした場合はdesired Specを追従させず、`UpdateMachine`を`Failure`、`Reason=RolledBack`として安全停止する。Lifecycle APIを利用できない古いversionや完了statusを取得できない応答は更新を開始しない。
+- **Machine Configuration差分のin-place許可（未実装）**: TartBootstrapConfig経由のraw patch差分についても、reboot・disk再構成・ネットワーク瞬断を伴わない変更はTalos image変更と同様にin-place許可したいが、現時点では見送っている。Talos v1.14.0の`ApplyConfiguration`(`internal/app/machined/internal/server/v1alpha1/v1alpha1_server.go`)を確認したところ、`AUTO`モードはfieldごとの安全性判定なしに`NO_REBOOT`へ無条件で読み替えられるだけで、応答の`ModeDetails`も実際の反映可否を検証しない固定文言である。Talos側に信頼できる安全性判定根拠がない状態で、こちらだけの判断でfieldを「安全」と分類することはfail-closedの原則に反するため、Talos image versionとschematicIDの変更のみをin-place updateの対象とする現状を維持する。詳細と再評価条件は[実装タスク一覧 (タスク1・タスク5)](tasks.md)を参照。
 - **Kubernetes Upgrade**: Talosのcluster-wide `upgrade-k8s` を利用する経路は、cluster-wide orchestrationと完了観測を実装するまでRuntime Extensionで安全停止する。古いconfigurationの再applyやMachine単位のOS upgradeでKubernetesコンポーネントを変更しない。
 
 ---

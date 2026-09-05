@@ -3,6 +3,9 @@ package controller
 
 import (
 	"context"
+	"errors"
+	"net"
+	"strings"
 	"time"
 
 	"uuid"
@@ -15,12 +18,14 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const tartHostFinalizer = "tart.cluster.x-k8s.io/host-lifecycle"
 
-// TartHostReconcilerはHost identityと削除時のretention gateを管理する。Talos discoveryや
-// power操作は観測adapterが接続されるまで開始せず、Statusだけを安全側へ更新する。
+// TartHostReconcilerはHost identity、maintenance Talos discovery、削除時のretention
+// gateを管理する。configuration applyやpower操作はTartMachineへ委譲する。
 type TartHostReconciler struct {
 	client.Client
 }
@@ -70,13 +75,77 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	eligibility := host.Classify(current.Spec)
 	original := current.DeepCopy()
+	endpoint := hostTalosEndpoint(&current)
+	inventory, observationErr := observeHost(ctx, &current)
+	if observationErr == nil {
+		current.Status.Inventory = &infrav1alpha1.HostInventory{SystemUUID: inventory.SystemUUID}
+		if endpoint != "" {
+			current.Status.Addresses = hostAddresses(endpoint)
+		}
+	}
 	setEligibilityConditions(&current, eligibility)
-	setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonNotImplemented, "Host discovery and Talos reachability observation are not implemented yet; no external side effect has been attempted.", current.Generation)
+	if observationErr == nil {
+		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionTrue, "TalosReachable", "The Talos maintenance API is reachable and the Host identity matches.", current.Generation)
+		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionTrue, "Ready", "The Host inventory and Talos maintenance endpoint are available.", current.Generation)
+	} else {
+		reason := "TalosUnavailable"
+		message := "The Talos maintenance API is not reachable; allocation remains independent from this observation."
+		if errors.Is(observationErr, errHostEndpointUnavailable) {
+			reason = "EndpointUnavailable"
+			message = "A Talos endpoint is not configured or observed for this Host."
+		}
+		if errors.Is(observationErr, errHostIdentityMismatch) {
+			reason = infrav1alpha1.ReasonIdentityConflict
+			message = "The Talos maintenance MAC address does not match the Host enrollment identity."
+		}
+		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionFalse, reason, message, current.Generation)
+		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
+	}
 	current.Status.ObservedGeneration = current.Generation
 	if err := r.Status().Patch(ctx, &current, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+var errHostIdentityMismatch = errors.New("talos maintenance identity does not match host")
+var errHostEndpointUnavailable = errors.New("talos endpoint is unavailable")
+
+func observeHost(ctx context.Context, current *infrav1alpha1.TartHost) (talos.Inventory, error) {
+	endpoint := hostTalosEndpoint(current)
+	if endpoint == "" {
+		return talos.Inventory{}, errHostEndpointUnavailable
+	}
+	connectionContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	maintenance, err := talos.DialMaintenance(connectionContext, endpoint)
+	if err != nil {
+		cancel()
+		return talos.Inventory{}, err
+	}
+	inventory, err := maintenance.Inventory(connectionContext)
+	cancel()
+	if closeErr := maintenance.Close(); closeErr != nil {
+		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+	}
+	if err != nil {
+		return talos.Inventory{}, err
+	}
+	if !inventory.HasMAC(current.Spec.MACAddress) {
+		return talos.Inventory{}, errHostIdentityMismatch
+	}
+	return inventory, nil
+}
+
+func hostAddresses(endpoint string) clusterv1.MachineAddresses {
+	address := endpoint
+	if hostPart, _, err := net.SplitHostPort(endpoint); err == nil {
+		address = hostPart
+	}
+	address = strings.Trim(address, "[]")
+	if net.ParseIP(address) != nil {
+		return clusterv1.MachineAddresses{{Type: clusterv1.MachineInternalIP, Address: address}}
+	}
+	return clusterv1.MachineAddresses{{Type: clusterv1.MachineHostName, Address: address}}
 }
 
 func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility host.Eligibility) {

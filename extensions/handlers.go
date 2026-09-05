@@ -266,6 +266,15 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 			return
 		}
 	}
+	// node-disruptiveなTalos restartの前に、workload Podへの影響(availability、PDB)を考慮した
+	// cordon/drainを試みる。allowDowntime policyで緩和されない限り、drain失敗はUpgradeへ進めず安全に中断する。
+	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, &req.Desired.Machine, string(preparation.providerMachine.Spec.ProviderID)); !proceed {
+		if !closeAuthenticatedForUpdate(resp, authenticated) {
+			return
+		}
+		setUpdateRetry(resp, retryMessage)
+		return
+	}
 	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosUpdateTimeout)
 	upgradeErr := authenticated.Upgrade(upgradeContext, preparation.image)
 	upgradeCancel()

@@ -167,18 +167,16 @@
 ### タスク9: node-disruptiveなin-place update前のcordon/drainと`allowDowntime`policyの実装
 
 - **重要度**: 高
-- **現状**: [`docs/development/lifecycle.md`](lifecycle.md)の「Downtime許容ポリシー(`allowDowntime`)」節、[`docs/development/verification.md`](verification.md)の受け入れ確認項目3に定義済みの契約はあるが未実装。`TartCluster.spec.updatePolicy`(`api/infrastructure/v1alpha1/tartcluster_types.go`)というAPI型は既に存在するが、`extensions/handlers.go`の`updateMachineAtTalos`はcordon/drainを一切行わずTalos `Upgrade` APIを直接呼び出しており、control planeについては`controlPlaneUpgradeSafe`でetcd quorumのみ確認している。workload Nodeで稼働しているPodへの影響(availability、PDB)を考慮したcordon/drainが存在しないため、in-place updateのたびにTalos rebootでPodが強制終了され得る。
+- **状態**: 実装済み(`extensions/drain.go`、`extensions/handlers.go`の`updateMachineAtTalos`)。
 - **実装内容**:
-  1. **Workload cluster Kubernetes clientの取得**:
-     - `controller/tartcontrolplane_controller.go`の`ensureKubeconfigSecret`が生成する`<cluster-name>-kubeconfig` Secretを、Update Extension(`extensions/handlers.go`)からも読み出し、workload clusterのNode/Podへアクセスするclient-goクライアントを構築する。
-  2. **対象NodeのCordon**:
-     - Talos Upgrade実行前に、更新対象MachineへbindされたKubernetes Node(`TartMachine.spec.providerID`または`status.nodeRef`相当から特定する。既存の`spec.providerID`同期ロジックを確認する)を`unschedulable`にする。
-  3. **Drainとeviction**:
-     - client-goの`policy/v1` Eviction APIを使い、PodDisruptionBudgetを尊重したdrainを試みる。DaemonSet管理下のPod、mirror Pod等はスキップする(標準的なkubectl drain相当のロジック)。
-  4. **`allowDowntime` policyの適用**:
-     - drainが成功した場合はTalos Upgradeを進める。
-     - drainが失敗し、かつ失敗理由がavailability/PDB/capacityだけに起因する場合、`TartCluster.spec.updatePolicy.allowDowntime`(または相当のfield名。既存API型を確認する)が`true`の場合のみgraceful rebootを許容し、`false`(既定)の場合は更新を安全に中断する(`Ready=False`にはせず、`RetryAfterSeconds`で待機し続けるのが望ましい。既存の`updateRetryError`パターンを参考にする)。
-     - 破壊的disk変更、identity不一致、etcd membership違反、quorum違反はこのpolicyで緩和しない(既存のcontrol plane quorum判定はそのまま維持する)。
+  1. **Workload cluster Kubernetes clientの取得**: `extensions/drain.go`の`workloadClientForMachine`が、`controller/tartcontrolplane_controller.go`の`ensureKubeconfigSecret`が生成する`<cluster-name>-kubeconfig` Secret(`value` key)からclient-go clientsetを構築する。
+  2. **対象NodeのCordon**: `findNodeByProviderID`が、更新対象TartMachineの`spec.providerID`と一致する`Node.spec.providerID`を持つworkload cluster Nodeを検索し、`cordonNode`が`Spec.Unschedulable = true`にする。
+  3. **Drainとeviction**: `drainNode`がpolicy/v1 Eviction APIでNode上のPodをevictする。`podRequiresEviction`がDaemonSet管理下のPodとmirror Podを対象から除外する(kubectl drain相当のフィルタリング)。PDB起因のeviction拒否(429 Too Many Requests)は`drainOutcome.pdbBlockedOnly`として、それ以外の失敗と区別する。
+  4. **`allowDowntime` policyの適用**: `enforceDrainPolicy`が、drain成功時はそのままUpgradeへ進め、PDB/availability起因の失敗時のみ`getUpdateTartCluster`(CAPI Cluster経由でTartClusterを取得)の`Spec.UpdatePolicy.DisruptionPolicy == DisruptionPolicyAllowDowntime`を確認してgraceful rebootを許容する。それ以外の失敗、またはpolicy未許可時は`setUpdateRetry`パターンで安全に中断する(`Ready=False`にはしない)。`updateMachineAtTalos`では、control planeの`controlPlaneUpgradeSafe`(etcd quorum)とcordon/drainの両方を独立に実施し、両方が通らない限りUpgradeへ進めない。
+- **既知の制約・未検証事項**:
+  - workload cluster Nodeが未観測(初回起動直後、kubeconfig Secret未発行等)の場合はcordon/drain対象が存在しないとみなしてそのまま進める設計。実機での動作は未検証。
+  - `enforceDrainPolicy`の各種タイムアウトは`talosUpdateTimeout`(20秒)を共用しており、大規模クラスターでのdrain所要時間には未対応。必要であれば専用のtimeout/backoff設計を追加検討する。
+  - テストコードは追加していない(ユーザー指示によりテスト追加は見送り)。実機・VMでの動作確認も未実施。
 - **解消条件**:
   - `allowDowntime: false`(既定)において、drain失敗時に更新が安全に中断されること(verification.mdの受け入れ確認項目3)。
   - `allowDowntime: true`の場合のみ、availability/PDB/capacity起因のdrain失敗を許容してgraceful rebootが行われること。

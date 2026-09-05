@@ -86,6 +86,7 @@ func SetInstallerImage(configuration []byte, version, schematicID string) ([]byt
 		if config.MachineConfig == nil {
 			config.MachineConfig = &v1alpha1config.MachineConfig{}
 		}
+		// TODO: 旧Talos設定形式はサポートしなくていいのでは？最新のtalosで動作すればいいです。
 		if config.MachineConfig.MachineInstall == nil { //nolint:staticcheck // 旧Talos設定形式を扱うため。
 			config.MachineConfig.MachineInstall = &v1alpha1config.InstallConfig{} //nolint:staticcheck // 旧Talos設定形式を扱うため。
 		}

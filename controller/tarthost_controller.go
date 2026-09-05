@@ -78,7 +78,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	endpoint := hostTalosEndpoint(&current)
 	inventory, observationErr := observeHost(ctx, &current)
 	if observationErr == nil {
-		current.Status.Inventory = &infrav1alpha1.HostInventory{SystemUUID: inventory.SystemUUID}
+		current.Status.Inventory = hostInventory(inventory)
 		if endpoint != "" {
 			current.Status.Addresses = hostAddresses(endpoint)
 		}
@@ -106,6 +106,40 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
+	result := &infrav1alpha1.HostInventory{
+		SystemUUID:        inventory.SystemUUID,
+		Architecture:      inventory.Architecture,
+		Disks:             make([]infrav1alpha1.DiskInventory, 0, len(inventory.Disks)),
+		NetworkInterfaces: make([]infrav1alpha1.NetworkInterfaceInventory, 0, len(inventory.NetworkInterfaces)),
+	}
+	for _, disk := range inventory.Disks {
+		result.Disks = append(result.Disks, infrav1alpha1.DiskInventory{
+			DevicePath: disk.DevicePath,
+			SizeBytes:  int64(disk.SizeBytes),
+			Model:      disk.Model,
+			Serial:     disk.Serial,
+			WWID:       disk.WWID,
+			BusPath:    disk.BusPath,
+			Transport:  disk.Transport,
+			Rotational: disk.Rotational,
+			ReadOnly:   disk.ReadOnly,
+			Symlinks:   append([]string(nil), disk.Symlinks...),
+		})
+	}
+	for _, networkInterface := range inventory.NetworkInterfaces {
+		result.NetworkInterfaces = append(result.NetworkInterfaces, infrav1alpha1.NetworkInterfaceInventory{
+			Name:       networkInterface.Name,
+			MACAddress: networkInterface.MACAddress,
+			LinkState:  networkInterface.LinkState,
+			Driver:     networkInterface.Driver,
+			BusPath:    networkInterface.BusPath,
+			Addresses:  append([]string(nil), networkInterface.Addresses...),
+		})
+	}
+	return result
 }
 
 var errHostIdentityMismatch = errors.New("talos maintenance identity does not match host")

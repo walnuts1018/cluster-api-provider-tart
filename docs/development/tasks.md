@@ -11,11 +11,11 @@
 | 機能エリア | 現状 | 該当コード | 主な未実装内容 |
 | --- | --- | --- | --- |
 | **Runtime Extension (Update)** | 未実装（安全スタブ） | [`extensions/handlers.go`](../../extensions/handlers.go) | safe-diff判定エンジン、パッチ生成、Talos APIによる更新実行 |
-| **Control Plane Reconcile** | 一部仮実装 (`NotImplemented`) | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | Talos Bootstrap RPC呼び出し、kubeconfig生成、etcd監視、CA rotation |
-| **Cluster Reconcile** | 一部仮実装 (`NotImplemented`) | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | Ready条件判定、Failure Domain観測・反映 |
-| **Machine / Talos Reconcile** | 一部仮実装 (TODOあり) | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | Talos maintenance boot時のdiscoveryとinstall実行、reboot待機、認証済みAPI復帰確認、drain/shutdown完了確認 |
-| **Raw Patch 合成** | 基本経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | Provider-owned invariantの競合検出と完全な安全差分判定 |
-| **Hardware Discovery** | 未実装 | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go) | Bare-metal Hostのmaintenance Talosからの動的インベントリ取得 |
+| **Control Plane Reconcile** | 初回経路実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | HA scale-downのetcd安全確認、CA rotation |
+| **Cluster Reconcile** | 初期bundle経路実装済み | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | Ready条件集約、Failure Domain観測・反映 |
+| **Machine / Talos Reconcile** | 初回Install経路実装済み | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`talos/client.go`](../../talos/client.go) | deletion時のdrain/shutdown/retention、Update Extensionとの接続 |
+| **Raw Patch 合成** | 初期経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | 完全な安全差分判定とUpdate Extensionへの接続 |
+| **Hardware Discovery** | 実装済み（初期観測） | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go), [`talos/client.go`](../../talos/client.go) | 複数boot attemptの追跡やdisk identity重複時のallocation停止 |
 | **Power Backend** | WoLのみ実装 | [`boot/`](../../boot) | Redfish等のBMCバックエンド |
 
 ---
@@ -23,6 +23,7 @@
 ## タスク詳細
 
 ### タスク1: Runtime Extension (Update Extension) の実装
+
 - **重要度**: 高
 - **現状**: [`extensions/handlers.go`](../../extensions/handlers.go) 内の `canUpdateMachine`, `canUpdateMachineSet`, `updateMachine` が全て `ResponseStatusFailure`（`notImplementedMessage`）を返す安全スタブとなっている。
 - **実装内容**:
@@ -40,8 +41,9 @@
   - 不安全な変更に対してCAPIがreplacementにfallbackせず安全停止すること。
 
 ### タスク2: TartControlPlane の高度なReconcile実装
+
 - **重要度**: 高
-- **現状**: [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) はdesired replicasに基づく子リソース作成を行うが、Talos etcd membership/quorum監視、初回etcd Bootstrap RPC呼び出し、workload kubeconfig生成、quorum-safe scale down、CA rotationが未実装であり、Conditionsに `NotImplemented` が設定されている。
+- **現状**: [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) はdesired replicasに基づく子リソース作成、初回etcd Bootstrap RPC呼び出し、workload kubeconfig生成、etcd/API readiness観測まで実装済み。quorum-safe scale downとCA rotationは未実装。
 - **実装内容**:
   1. **初回etcd Bootstrap RPC**:
      - 最初のcontrol-plane Machineが起動しmaintenanceから認証済みAPIへ移行した際、Talos `Bootstrap` RPCを一度だけ実行する。
@@ -57,6 +59,7 @@
   - `TartControlPlaneAvailableCondition`, `TartControlPlaneEtcdClusterAvailableCondition` 等が実際の観測に基づいて正常に更新されること。
 
 ### タスク3: TartCluster のReconcile実装
+
 - **重要度**: 中
 - **現状**: [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) では `spec.clusterID` 生成と初期bundle Secret生成のみが行われている。
 - **実装内容**:
@@ -68,8 +71,9 @@
   - Cluster全体の健全性およびInfrastructure readinessがConditionへ正しく反映されること。
 
 ### タスク4: TartMachine のTalosライフサイクル完了処理
+
 - **重要度**: 高
-- **現状**: [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go) はclaimやProviderID同期を行うが、Talos maintenance boot時のdiscoveryとinstall実行、reboot待機、認証済みAPI復帰確認、drain/shutdown完了確認が未実装。[`talos/client.go`](../../talos/client.go) にもTODO（深い安全ロジック）が存在する。
+- **現状**: [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go) はHost claim、ProviderID同期、maintenance APIのidentity照合、Talos configuration apply、再起動後のauthenticated API復帰とversion確認まで実装済み。削除時のdrain/shutdown/retention確認は未実装。[`talos/client.go`](../../talos/client.go) には更新時の深い安全ロジックに関するTODOが残る。
 - **実装内容**:
   1. **Talos Install & Reboot管理**:
      - maintenance modeで起動したHostに対し、Bootstrap Secretから取得したconfigurationをapplyし、installを実行する。
@@ -81,22 +85,23 @@
   - Machine作成からTalos OSインストール、認証済みAPI起動、および削除時の安全停止・Retentionまでが一貫してreconcileされること。
 
 ### タスク5: Raw Patch 合成エンジンの実装
+
 - **重要度**: 中
-- **現状**: `patches` keyを持つimmutable Secretについて、Talos machineryの生成base、active bundle、CAPI Machine contextへraw patchを適用する基本経路を実装済み。`value` keyの完全configuration入力も後方互換として利用できる。
+- **現状**: `patches` keyを持つimmutable Secretについて、Talos machineryの生成base、active bundle、CAPI Machine contextへraw patchを適用し、cluster名、Endpoint、Machine Role、Kubernetes component imageのprovider-owned invariantを検証する経路を実装済み。`value` keyの完全configuration入力も後方互換として利用できる。
 - **実装内容**:
   1. **設定マージパイプライン**（基本経路実装済み）:
      - cluster secret bundleとCAPI/Tart contextからbase configurationを生成。
      - `configSecretRef` から読み出したユーザーのraw patchを適用。
      - machine role、cluster endpoint、Kubernetes versionをTalos machineryのbaseへ反映。
   2. **残タスク**:
-     - Provider-owned invariant（ProviderID、cluster endpoint、machine roleなど）を上書き不可として検証・適用。
-     - 競合がある場合は上書きせず `Ready=False`、`Reason=ConfigurationConflict` を設定。
+     - Update Extensionで利用するeffective configurationの完全な安全差分判定。
 - **解消条件**:
   - ユーザーが任意のTalos raw patchを `configSecretRef` 経由で安全に適用できること。
 
 ### タスク6: Hardware Discovery / Maintenance Boot連携
+
 - **重要度**: 低〜中
-- **現状**: 静的登録情報との照合のみ。
+- **現状**: maintenance Talos APIからMAC、system UUID、architecture、NIC、disk情報を取得して`TartHost.status.inventory`へ反映する初期観測を実装済み。
 - **実装内容**:
   1. **動的インベントリ収集**:
      - maintenance Talos bootしたHostから、MAC、System UUID、CPUアーキテクチャ、Disk詳細（WWID, Serial, Size, Model）を収集し、`TartHost.status.inventory` に反映する。
@@ -104,6 +109,7 @@
   - 事前のハードウェア詳細調査なしにHost登録とインベントリ収集が自動で行われること。
 
 ### タスク7: Power Backend拡張 (Redfish/BMC)
+
 - **重要度**: 低
 - **現状**: Wake-on-LANのみ実装（[`boot/wakeonlan.go`](../../boot/wakeonlan.go)）。
 - **実装内容**:

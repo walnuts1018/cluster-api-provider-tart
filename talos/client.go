@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 
 	"github.com/cosi-project/runtime/pkg/safe"
@@ -21,6 +22,7 @@ import (
 	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
 	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
+	"github.com/siderolabs/talos/pkg/machinery/resources/block"
 	machineryhardware "github.com/siderolabs/talos/pkg/machinery/resources/hardware"
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
 
@@ -202,6 +204,7 @@ type Version struct {
 	Tag      string
 	SHA      string
 	Platform string
+	Arch     string
 }
 
 // Version fetches the observed Talos OS version from the connected node.
@@ -226,6 +229,7 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 		Tag:      v.GetTag(),
 		SHA:      v.GetSha(),
 		Platform: messages[0].GetPlatform().GetName(),
+		Arch:     v.GetArch(),
 	}, nil
 }
 
@@ -306,8 +310,35 @@ func (c *Client) Kubeconfig(ctx context.Context) ([]byte, error) {
 // Inventory contains the stable hardware identity observed through the Talos
 // maintenance API. It deliberately hides Talos resource types from callers.
 type Inventory struct {
-	SystemUUID   string
-	MACAddresses []string
+	SystemUUID        string
+	Architecture      string
+	MACAddresses      []string
+	Disks             []DiskInventory
+	NetworkInterfaces []NetworkInterfaceInventory
+}
+
+// DiskInventoryはTalosから観測した非機密のdisk情報である。
+type DiskInventory struct {
+	DevicePath string
+	SizeBytes  uint64
+	Model      string
+	Serial     string
+	WWID       string
+	BusPath    string
+	Transport  string
+	Rotational bool
+	ReadOnly   bool
+	Symlinks   []string
+}
+
+// NetworkInterfaceInventoryはTalosから観測した非機密の物理NIC情報である。
+type NetworkInterfaceInventory struct {
+	Name       string
+	MACAddress string
+	LinkState  string
+	Driver     string
+	BusPath    string
+	Addresses  []string
 }
 
 // HasMAC reports whether the observed physical links contain the expected Host
@@ -338,18 +369,47 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	}
 
 	observed := Inventory{}
+	addressesByLink := make(map[string][]string)
+	addressStatuses, addressErr := safe.ReaderListAll[*machinerynetwork.AddressStatus](ctx, c.raw.COSI)
+	if addressErr == nil {
+		for address := range addressStatuses.All() {
+			spec := address.TypedSpec()
+			if spec.Address.IsValid() && spec.LinkName != "" {
+				addressesByLink[spec.LinkName] = append(addressesByLink[spec.LinkName], spec.Address.String())
+			}
+		}
+	}
 	for link := range links.All() {
-		if !link.TypedSpec().Physical() {
+		spec := link.TypedSpec()
+		if !spec.Physical() {
 			continue
 		}
 		for _, address := range []net.HardwareAddr{
-			net.HardwareAddr(link.TypedSpec().HardwareAddr),
-			net.HardwareAddr(link.TypedSpec().PermanentAddr),
+			net.HardwareAddr(spec.HardwareAddr),
+			net.HardwareAddr(spec.PermanentAddr),
 		} {
 			if len(address) != 0 {
 				observed.MACAddresses = append(observed.MACAddresses, address.String())
 			}
 		}
+
+		linkName := string(link.Metadata().ID())
+		linkState := "down"
+		if spec.LinkState {
+			linkState = "up"
+		}
+		macAddress := net.HardwareAddr(spec.HardwareAddr)
+		if len(macAddress) == 0 {
+			macAddress = net.HardwareAddr(spec.PermanentAddr)
+		}
+		observed.NetworkInterfaces = append(observed.NetworkInterfaces, NetworkInterfaceInventory{
+			Name:       linkName,
+			MACAddress: macAddress.String(),
+			LinkState:  linkState,
+			Driver:     spec.Driver,
+			BusPath:    spec.BusPath,
+			Addresses:  append([]string(nil), addressesByLink[linkName]...),
+		})
 	}
 	if len(observed.MACAddresses) == 0 {
 		return Inventory{}, errors.New("talos maintenance inventory has no physical MAC address")
@@ -364,8 +424,60 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 			}
 		}
 	}
+	if version, err := c.Version(ctx); err == nil {
+		observed.Architecture = version.Arch
+	}
+	if disks, err := safe.ReaderListAll[*block.Disk](ctx, c.raw.COSI); err == nil {
+		for disk := range disks.All() {
+			spec := disk.TypedSpec()
+			observed.Disks = append(observed.Disks, DiskInventory{
+				DevicePath: spec.DevPath,
+				SizeBytes:  spec.Size,
+				Model:      spec.Model,
+				Serial:     spec.Serial,
+				WWID:       spec.WWID,
+				BusPath:    spec.BusPath,
+				Transport:  spec.Transport,
+				Rotational: spec.Rotational,
+				ReadOnly:   spec.Readonly,
+				Symlinks:   append([]string(nil), spec.Symlinks...),
+			})
+		}
+	}
+
+	slices.Sort(observed.MACAddresses)
+	observed.MACAddresses = uniqueStrings(observed.MACAddresses)
+	slices.SortFunc(observed.NetworkInterfaces, func(left, right NetworkInterfaceInventory) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+	for index := range observed.NetworkInterfaces {
+		slices.Sort(observed.NetworkInterfaces[index].Addresses)
+		observed.NetworkInterfaces[index].Addresses = uniqueStrings(observed.NetworkInterfaces[index].Addresses)
+	}
+	slices.SortFunc(observed.Disks, func(left, right DiskInventory) int {
+		if comparison := strings.Compare(left.DevicePath, right.DevicePath); comparison != 0 {
+			return comparison
+		}
+		if comparison := strings.Compare(left.Serial, right.Serial); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.WWID, right.WWID)
+	})
 
 	return observed, nil
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	result := values[:1]
+	for _, value := range values[1:] {
+		if value != result[len(result)-1] {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // ShutdownはTalosの通常のshutdownを要求する。forceオプションは使わず、停止確認は呼び出し側が別途観測する。

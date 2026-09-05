@@ -67,6 +67,9 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			result.RequeueAfter = 15 * time.Second
 			return result, nil
 		}
+		if errors.Is(err, bootstrap.ErrConfigurationConflict) {
+			return r.report(ctx, &config, "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant.")
+		}
 		return r.report(ctx, &config, "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration.")
 	}
 	digest, err := bootstrap.DigestEffectiveConfiguration(completeConfiguration)

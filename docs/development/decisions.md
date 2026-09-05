@@ -25,6 +25,10 @@
    - ユーザーのraw patchは全て `configSecretRef` のimmutableなSecretから読み込み、CRD Specへのinline保存を行わない。
 7. **Stateless Reconcile**:
    - Resource Statusは外部から観測された状態とConditionsのみを保持し、workflowのステップ番号やプログラムカウンタとして利用しない。
+8. **Bare-metal初回Bootの所有**:
+   - OS未導入のbare-metal HostをTalos maintenance modeまで起動することはInfrastructure Providerの責務とする。
+   - 初回bootにはPXE、iPXE、UEFI HTTP Boot等のnetwork bootを利用できるようにするが、具体的なboot方式やDHCP/TFTP等の実装をProvider APIへ固定しない。
+   - 初回bootでは原則としてTalosのboot assetのみを配信し、Host確認後にTalos API経由でmachine configurationを適用してインストールを開始する。
 
 各仕様の詳細は、[アーキテクチャ](architecture.md)、[API contract](api-contract.md)、[Machine lifecycle](lifecycle.md)を参照すること。
 
@@ -33,19 +37,23 @@
 ## 運用境界と特殊ケースの判断
 
 ### 1. `clusterctl move` の非サポート
+
 - `clusterctl move` によるclaimedな `TartHost` の他management clusterへの移動は、Tart v1alpha1の対応範囲外とする。
 - `TartHost` はCAPI Machineに所有されない長寿命インベントリであり、物理データ、consumer binding、Talos認証情報の自動移動・再接続契約が別途必要なためである。
 - management clusterの復元には、`TartHost.spec.id`、CAPI Resource、consumer/retention binding、全secret bundle generation、電源設定を同一整合点からバックアップ・復元するDR手順を用いる。
 
 ### 2. `cluster.x-k8s.io/paused` への対応
+
 - ClusterまたはProvider resourceに `cluster.x-k8s.io/paused` が付与された場合、コントローラーは外部副作用を即座に停止し、既存のHost claim、Retained記録、Talosインストール、データをそのまま維持する。
 - pause解除後は、外部観測状態から安全にreconcileを再開する。pauseをshutdownやrelease、cleanの指示として解釈しない。
 
 ### 3. Control Plane Endpoint VIPの非所有
+
 - Tart自身はVIPの割り当て（IPAM）やkube-vip等の管理を行わない。
 - 利用者、外部IPAM、または他Providerが設定する `Cluster.spec.controlPlaneEndpoint` をそのまま利用し、未設定の場合は設定されるまでreconcileを進めない。
 
 ### 4. 将来拡張における早期抽象化の回避
+
 - Proxmox VM、ARM64、Raspberry Pi、Secure Boot、TPM、アテステーション等の拡張性を考慮した責務境界を維持するが、具体的ユースケースが確立するまで共通の巨大な抽象化インターフェースを作らない。物理HostとVMの差を不必要な単一インターフェースで隠蔽しない。
 
 ---
@@ -65,7 +73,8 @@ Provisioning Plan
 Cilium / Longhorn / TopoLVM / kube-vip等のadd-on専用API
 ```
 
-- DHCP、TFTP、PXE、BMC、VM APIは必要に応じてアダプターとして統合できるが、TartのResource modelの中心へ固定しない。
+- DHCP、TFTP、PXE等を汎用的なnetwork boot基盤として独自開発することは目的としない。ただし、bare-metal HostをTalos maintenance modeまで自動起動するためのnetwork boot機能または既存基盤との統合はTartの責務とする。
+- BMC、VM API等は必要に応じてアダプターとして統合できるが、TartのResource modelの中心へ固定しない。
 
 ---
 

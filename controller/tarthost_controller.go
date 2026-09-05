@@ -50,6 +50,9 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
+	if isPaused(&current) {
+		return ctrl.Result{}, nil
+	}
 
 	if !current.DeletionTimestamp.IsZero() {
 		return r.reconcileDeletion(ctx, &current)

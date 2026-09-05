@@ -16,6 +16,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime/debug"
 )
@@ -55,6 +56,12 @@ func NewProvider(ctx context.Context) (*Provider, error) {
 		ServiceVersion: p.ServiceVersion,
 	})
 	if err != nil {
+		if shutdownErr := tp.Shutdown(ctx); shutdownErr != nil {
+			return nil, errors.Join(
+				fmt.Errorf("failed to create meter provider: %w", err),
+				fmt.Errorf("failed to shutdown tracer provider after meter setup failed: %w", shutdownErr),
+			)
+		}
 		return nil, fmt.Errorf("failed to create meter provider: %w", err)
 	}
 	p.MeterProvider = mp
@@ -63,6 +70,9 @@ func NewProvider(ctx context.Context) (*Provider, error) {
 }
 
 func (p *Provider) Shutdown(ctx context.Context) error {
+	if p == nil {
+		return nil
+	}
 	var errs []error
 
 	if err := p.TracerProvider.Shutdown(ctx); err != nil {
@@ -74,7 +84,7 @@ func (p *Provider) Shutdown(ctx context.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("shutdown errors: %v", errs)
+		return fmt.Errorf("shutdown errors: %w", errors.Join(errs...))
 	}
 	return nil
 }

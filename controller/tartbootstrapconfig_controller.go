@@ -46,6 +46,9 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
+	if isPaused(&config) {
+		return ctrl.Result{}, nil
+	}
 
 	if config.Spec.ConfigSecretRef != nil {
 		input := &corev1.Secret{}

@@ -42,6 +42,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
+	if isPaused(&cluster) {
+		return ctrl.Result{}, nil
+	}
 	if !cluster.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}

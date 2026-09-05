@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -50,6 +51,9 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
+	}
+	if isPaused(&machine) {
+		return ctrl.Result{}, nil
 	}
 
 	if !machine.DeletionTimestamp.IsZero() {
@@ -93,6 +97,9 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if err != nil {
 		return r.report(ctx, &machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
+	if machine.Spec.ProviderID != "" && machine.Spec.ProviderID != providerID {
+		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The existing ProviderID does not match the allocated TartHost identity.")
+	}
 
 	consumer := corev1.ObjectReference{
 		APIVersion: infrav1alpha1.GroupVersion.String(),
@@ -108,9 +115,6 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{}, err
 	}
 
-	if machine.Spec.ProviderID != "" && machine.Spec.ProviderID != providerID {
-		return r.report(ctx, &machine, infrav1alpha1.ReasonHostMismatch, "The existing ProviderID does not match the allocated TartHost identity.")
-	}
 	if machine.Spec.ProviderID == "" {
 		original := machine.DeepCopy()
 		machine.Spec.ProviderID = providerID
@@ -166,20 +170,12 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	if !controllerutil.ContainsFinalizer(machine, tartMachineFinalizer) {
 		return ctrl.Result{}, nil
 	}
-	if machine.Status.HostRef == nil {
-		original := machine.DeepCopy()
-		controllerutil.RemoveFinalizer(machine, tartMachineFinalizer)
-		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, nil
-	}
 
-	selected := &infrav1alpha1.TartHost{}
-	if err := r.Get(ctx, client.ObjectKey{Name: machine.Status.HostRef.Name}, selected); err != nil {
-		return r.report(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be observed; the Machine finalizer remains until shutdown is confirmed.")
+	selected, err := r.findClaimedHost(ctx, machine)
+	if err != nil {
+		return r.report(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be unambiguously observed; the Machine finalizer remains until shutdown is confirmed.")
 	}
-	if selected.Spec.ConsumerRef == nil || selected.Spec.ConsumerRef.UID != machine.UID {
+	if selected == nil {
 		original := machine.DeepCopy()
 		controllerutil.RemoveFinalizer(machine, tartMachineFinalizer)
 		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
@@ -188,6 +184,48 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		return ctrl.Result{}, nil
 	}
 	return r.report(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "Talos shutdown and Host stop confirmation are not implemented; the Host claim is retained safely.")
+}
+
+var errMachineHasAmbiguousHostClaims = errors.New("machine has ambiguous host claims")
+
+func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *infrav1alpha1.TartMachine) (*infrav1alpha1.TartHost, error) {
+	allHosts := &infrav1alpha1.TartHostList{}
+	if err := r.List(ctx, allHosts); err != nil {
+		return nil, err
+	}
+
+	var statusHost *infrav1alpha1.TartHost
+	if machine.Status.HostRef != nil {
+		for index := range allHosts.Items {
+			candidate := &allHosts.Items[index]
+			if candidate.Name == machine.Status.HostRef.Name {
+				statusHost = candidate
+				break
+			}
+		}
+		if statusHost == nil {
+			return nil, apierrors.NewNotFound(schema.GroupResource{Group: infrav1alpha1.GroupVersion.Group, Resource: "tarthosts"}, machine.Status.HostRef.Name)
+		}
+	}
+
+	var claimed *infrav1alpha1.TartHost
+	for index := range allHosts.Items {
+		candidate := &allHosts.Items[index]
+		if candidate.Spec.ConsumerRef == nil || candidate.Spec.ConsumerRef.UID != machine.UID {
+			continue
+		}
+		if claimed != nil && claimed.Name != candidate.Name {
+			return nil, errMachineHasAmbiguousHostClaims
+		}
+		claimed = candidate
+	}
+	if claimed != nil {
+		return claimed, nil
+	}
+	if statusHost != nil && statusHost.Spec.ConsumerRef != nil && statusHost.Spec.ConsumerRef.UID == machine.UID {
+		return statusHost, nil
+	}
+	return nil, nil
 }
 
 func (r *TartMachineReconciler) report(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string) (ctrl.Result, error) {

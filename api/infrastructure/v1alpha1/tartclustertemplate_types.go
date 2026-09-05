@@ -40,6 +40,7 @@ type TartClusterTemplateSpec struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 
 // TartClusterTemplate is the Schema for the tartclustertemplates API.
 type TartClusterTemplate struct {

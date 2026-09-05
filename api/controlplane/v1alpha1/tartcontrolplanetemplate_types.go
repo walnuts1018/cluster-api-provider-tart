@@ -62,6 +62,7 @@ type TartControlPlaneTemplateSpec struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:metadata:labels="cluster.x-k8s.io/v1beta2=v1alpha1"
 
 // TartControlPlaneTemplate is the Schema for the tartcontrolplanetemplates API.
 type TartControlPlaneTemplate struct {

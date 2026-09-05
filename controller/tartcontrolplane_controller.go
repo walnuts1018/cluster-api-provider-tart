@@ -8,7 +8,10 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -25,6 +28,7 @@ import (
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
 const controlPlaneOrdinalLabel = "tart.cluster.x-k8s.io/control-plane-index"
@@ -37,6 +41,14 @@ type TartControlPlaneReconciler struct {
 type controlPlaneFailure struct {
 	reason  string
 	message string
+}
+
+type controlPlaneBootstrapState struct {
+	initialized  bool
+	etcdReady    bool
+	reason       string
+	message      string
+	requeueAfter time.Duration
 }
 
 func (f *controlPlaneFailure) Error() string {
@@ -125,14 +137,18 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 		return ctrl.Result{}, err
 	}
+	bootstrapState, err := r.reconcileControlPlaneBootstrap(ctx, &cp, machines)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	original := cp.DeepCopy()
-	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines)
+	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState)
 	if err := r.Status().Patch(ctx, &cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: bootstrapState.requeueAfter}, nil
 }
 
 func (r *TartControlPlaneReconciler) reconcilePaused(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane) (ctrl.Result, error) {
@@ -349,6 +365,114 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 	return refreshed.Items, nil
 }
 
+func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, machines []clusterv1.Machine) (controlPlaneBootstrapState, error) {
+	state := controlPlaneBootstrapState{
+		reason:       "MachinesUnavailable",
+		message:      "The first control-plane Machine is not running the desired Talos version yet.",
+		requeueAfter: 30 * time.Second,
+	}
+	if cp.Status.Initialization.ControlPlaneInitialized != nil && *cp.Status.Initialization.ControlPlaneInitialized {
+		return controlPlaneBootstrapState{
+			initialized: true,
+			etcdReady:   true,
+			reason:      "EtcdClusterAvailable",
+			message:     "The control-plane etcd bootstrap has been observed.",
+		}, nil
+	}
+	firstName, err := controlPlaneChildName(cp.Name, 0, "")
+	if err != nil {
+		return controlPlaneBootstrapState{}, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
+	}
+	var firstMachine *clusterv1.Machine
+	for index := range machines {
+		if machines[index].Name == firstName {
+			firstMachine = &machines[index]
+			break
+		}
+	}
+	if firstMachine == nil {
+		return state, nil
+	}
+
+	var providerMachine infrav1alpha1.TartMachine
+	if err := r.Get(ctx, client.ObjectKey{Namespace: cp.Namespace, Name: firstMachine.Name}, &providerMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return state, nil
+		}
+		return controlPlaneBootstrapState{}, err
+	}
+	ready := meta.FindStatusCondition(providerMachine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
+	if ready == nil || ready.Status != metav1.ConditionTrue {
+		return state, nil
+	}
+	if providerMachine.Status.HostRef == nil {
+		state.reason = "HostUnavailable"
+		state.message = "The first control-plane Machine has no observed TartHost binding yet."
+		return state, nil
+	}
+
+	var providerHost infrav1alpha1.TartHost
+	if err := r.Get(ctx, client.ObjectKey{Name: providerMachine.Status.HostRef.Name}, &providerHost); err != nil {
+		if apierrors.IsNotFound(err) {
+			state.reason = "HostUnavailable"
+			state.message = "The first control-plane Machine Host is not available yet."
+			return state, nil
+		}
+		return controlPlaneBootstrapState{}, err
+	}
+	endpoint := hostTalosEndpoint(&providerHost)
+	if endpoint == "" {
+		state.reason = "EndpointUnavailable"
+		state.message = "The first control-plane Machine has no reachable Talos endpoint yet."
+		return state, nil
+	}
+	configuration, err := (&TartMachineReconciler{Client: r.Client}).bootstrapConfiguration(ctx, &providerMachine)
+	if err != nil {
+		if errors.Is(err, errBootstrapDataUnavailable) {
+			state.reason = "BootstrapDataUnavailable"
+			state.message = "The immutable Bootstrap Secret is not available for the first control-plane Machine yet."
+			return state, nil
+		}
+		return controlPlaneBootstrapState{}, err
+	}
+
+	authenticated, err := talos.DialAuthenticatedFromConfiguration(ctx, endpoint, configuration)
+	if err != nil {
+		state.reason = "TalosUnavailable"
+		state.message = "The authenticated Talos API is not reachable on the first control-plane Machine."
+		return state, nil //nolint:nilerr // an unavailable node is a normal reconcile observation.
+	}
+	etcdStatus, etcdErr := authenticated.EtcdStatus(ctx)
+	if etcdErr == nil && etcdStatus.MemberID != 0 && etcdStatus.Leader != 0 && len(etcdStatus.Errors) == 0 {
+		if closeErr := authenticated.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		return controlPlaneBootstrapState{
+			initialized: true,
+			etcdReady:   true,
+			reason:      "EtcdClusterAvailable",
+			message:     "The first control-plane Machine reports a healthy etcd member and leader.",
+		}, nil
+	}
+
+	bootstrapErr := authenticated.Bootstrap(ctx)
+	if closeErr := authenticated.Close(); closeErr != nil {
+		ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+	}
+	if bootstrapErr != nil && status.Code(bootstrapErr) != codes.AlreadyExists {
+		return controlPlaneBootstrapState{
+			reason:       "EtcdBootstrapFailed",
+			message:      "The first control-plane Machine could not start the Talos etcd bootstrap.",
+			requeueAfter: 30 * time.Second,
+		}, nil
+	}
+	return controlPlaneBootstrapState{
+		reason:       "Bootstrapping",
+		message:      "Talos etcd bootstrap was requested; waiting for a healthy member and leader.",
+		requeueAfter: 15 * time.Second,
+	}, nil
+}
+
 func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, ordinal int32, name string, bootstrapTemplate *bootstrapv1alpha1.TartBootstrapConfigTemplate) (*clusterv1.Machine, error) {
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
 	if err != nil {
@@ -534,7 +658,7 @@ func bootstrapConfigName(controlPlaneName string, ordinal int32) (string, error)
 	return controlPlaneChildName(controlPlaneName, ordinal, "bootstrap")
 }
 
-func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine) {
+func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine, bootstrapState controlPlaneBootstrapState) {
 	actual := int32(len(machines))
 	ready := countMachineCondition(machines, clusterv1.MachineReadyCondition)
 	available := countMachineCondition(machines, clusterv1.MachineAvailableCondition)
@@ -548,20 +672,21 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	cp.Status.AvailableReplicas = new(available)
 	cp.Status.UpToDateReplicas = new(upToDate)
 	cp.Status.Versions = machineVersions(machines)
-	if cp.Status.Initialization.ControlPlaneInitialized == nil {
+	if bootstrapState.initialized {
+		cp.Status.Initialization.ControlPlaneInitialized = new(true)
+	} else if cp.Status.Initialization.ControlPlaneInitialized == nil {
 		cp.Status.Initialization.ControlPlaneInitialized = new(false)
 	}
 
-	// TODO: Remove the safe-stop conditions when Talos health, etcd membership, workload API bootstrap, and kubeconfig observation are wired in.
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, metav1.ConditionFalse, "NotImplemented", "Control-plane resources are created, but Talos health and workload Kubernetes API observation are not implemented yet.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "NotImplemented", "Workload control-plane availability is not observed until Talos health integration is implemented.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, metav1.ConditionFalse, "NotImplemented", "Control-plane rollout and effective configuration observation are not implemented yet.", cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneReadyCondition, metav1.ConditionFalse, "WorkloadAPIUnavailable", "Talos control-plane bootstrap is observed, but workload Kubernetes API readiness is not observed yet.", cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "WorkloadAPIUnavailable", "Workload Kubernetes API availability is not observed yet.", cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, metav1.ConditionFalse, "ConfigurationUnavailable", "Effective control-plane configuration and workload API state are not observed yet.", cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneRollingOutCondition, metav1.ConditionFalse, "NotRollingOut", "The control plane is not performing a rollout.", cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingUpCondition, conditionStatus(actual < desired), scalingReason(actual < desired, "ScalingUp"), scalingMessage(actual < desired, "Control-plane Machines are being created.", "The desired control-plane replica count is satisfied."), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down requires the not-yet-implemented etcd safety path.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCond, metav1.ConditionFalse, "NotImplemented", "Talos etcd membership and quorum observation are not implemented yet.", cp.Generation)
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCond, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation

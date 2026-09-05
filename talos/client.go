@@ -85,6 +85,47 @@ func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) e
 	return nil
 }
 
+// Bootstrap starts the Talos control-plane etcd bootstrap operation. The caller
+// must invoke it only after the authenticated control-plane machine is reachable.
+func (c *Client) Bootstrap(ctx context.Context) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if err := c.raw.Bootstrap(ctx, &machine.BootstrapRequest{}); err != nil {
+		return fmt.Errorf("bootstrap talos control plane: %w", err)
+	}
+	return nil
+}
+
+// EtcdStatus is the small etcd observation needed to distinguish a running
+// control-plane member from a machine that has only finished OS installation.
+type EtcdStatus struct {
+	MemberID uint64
+	Leader   uint64
+	Errors   []string
+}
+
+// EtcdStatus observes the local etcd member through the authenticated Talos API.
+func (c *Client) EtcdStatus(ctx context.Context) (EtcdStatus, error) {
+	if c == nil || c.raw == nil {
+		return EtcdStatus{}, ErrClientUnavailable
+	}
+	response, err := c.raw.EtcdStatus(ctx)
+	if err != nil {
+		return EtcdStatus{}, fmt.Errorf("get talos etcd status: %w", err)
+	}
+	messages := response.GetMessages()
+	if len(messages) == 0 || messages[0].GetMemberStatus() == nil {
+		return EtcdStatus{}, errors.New("get talos etcd status: empty response")
+	}
+	status := messages[0].GetMemberStatus()
+	return EtcdStatus{
+		MemberID: status.GetMemberId(),
+		Leader:   status.GetLeader(),
+		Errors:   append([]string(nil), status.GetErrors()...),
+	}, nil
+}
+
 // Inventory contains the stable hardware identity observed through the Talos
 // maintenance API. It deliberately hides Talos resource types from callers.
 type Inventory struct {

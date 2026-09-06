@@ -26,6 +26,14 @@
       "groupName": "Kubernetes"
     },
     {
+      "description": "Talos本体moduleとmachinery moduleを同じreleaseへ更新する。cluster-wide Kubernetes upgradeでupstream実装を直接利用するため、両者のversionは常に一致させる",
+      "matchPackageNames": [
+        "github.com/siderolabs/talos",
+        "github.com/siderolabs/talos/pkg/machinery"
+      ],
+      "groupName": "Talos"
+    },
+    {
       "description": "Go moduleとmiseのGo toolchainを同じtoolchainへ更新する",
       "matchPackageNames": [
         "go",

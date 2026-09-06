@@ -1167,6 +1167,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
 		Spec: bootstrapv1alpha1.TartBootstrapConfigSpec{
 			ConfigPatchesSecretRef: bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef.DeepCopy(),
+			UpdatePolicy:           bootstrapTemplate.Spec.Template.Spec.UpdatePolicy,
 		},
 	}
 	var bootstrapConfig bootstrapv1alpha1.TartBootstrapConfig

@@ -17,6 +17,10 @@ type TartBootstrapConfigTemplateResource struct {
 type TartBootstrapConfigTemplateResourceSpec struct {
 	// +optional
 	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
+
+	// updatePolicyは生成されるTartBootstrapConfigのconfiguration update policyを共有する。
+	// +optional
+	UpdatePolicy TartBootstrapConfigUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
 }
 
 // TartBootstrapConfigTemplateSpecはTartBootstrapConfigTemplateのdesired stateを定義する。

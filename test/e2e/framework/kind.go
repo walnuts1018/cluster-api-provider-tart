@@ -95,11 +95,17 @@ func InstallTartProviders(ctx context.Context) error {
 	}
 
 	for _, manifestDir := range TartProviderManifests {
-		buildCmd := exec.CommandContext(ctx, "kustomize", "build", manifestDir)
+		// config/crd配下はinfrastructure/bootstrap/control-plane用に分割されており、各々が
+		// 兄弟directoryの../bases/*.yamlを参照する(kubebuilder標準の構成)。kustomizeの既定の
+		// load restrictorはこの兄弟参照をsecurity違反として拒否するため、明示的に無効化する
+		// (参照先はすべてこのrepository内のローカルfileであり、外部/remoteは一切関与しない)。
+		buildCmd := exec.CommandContext(ctx, "kustomize", "build", manifestDir, "--load-restrictor", "LoadRestrictionsNone")
 		buildCmd.Dir = projectDir
+		var stderr bytes.Buffer
+		buildCmd.Stderr = &stderr
 		output, err := buildCmd.Output()
 		if err != nil {
-			return fmt.Errorf("kustomize build %q: %w", manifestDir, err)
+			return fmt.Errorf("kustomize build %q: %w: %s", manifestDir, err, stderr.String())
 		}
 
 		applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")

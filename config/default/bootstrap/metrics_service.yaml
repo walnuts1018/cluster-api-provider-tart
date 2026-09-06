@@ -5,7 +5,7 @@ metadata:
     control-plane: bootstrap-controller-manager
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
-  name: bootstrap-controller-manager-metrics-service
+  name: bootstrap-metrics-service
   namespace: system
 spec:
   ports:

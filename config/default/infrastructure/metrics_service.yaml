@@ -5,7 +5,7 @@ metadata:
     control-plane: infrastructure-controller-manager
     app.kubernetes.io/name: cluster-api-provider-tart
     app.kubernetes.io/managed-by: kustomize
-  name: infrastructure-controller-manager-metrics-service
+  name: infrastructure-metrics-service
   namespace: system
 spec:
   ports:

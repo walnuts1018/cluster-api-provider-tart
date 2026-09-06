@@ -18,8 +18,33 @@ resources:
 - metrics_auth_role.yaml
 - metrics_auth_role_binding.yaml
 - metrics_reader_role.yaml
-# TODO: 新api/*/v1alpha1のkindが確定次第、各CRDのAdmin/Editor/Viewer roleを
-# controller-genで再生成してここへ追加する。旧v1beta1向けroleは削除済み。
+- tart-host_admin_role.yaml
+- tart-host_editor_role.yaml
+- tart-host_viewer_role.yaml
+- tart-machine_admin_role.yaml
+- tart-machine_editor_role.yaml
+- tart-machine_viewer_role.yaml
+- tart-machine-template_admin_role.yaml
+- tart-machine-template_editor_role.yaml
+- tart-machine-template_viewer_role.yaml
+- tart-cluster_admin_role.yaml
+- tart-cluster_editor_role.yaml
+- tart-cluster_viewer_role.yaml
+- tart-cluster-template_admin_role.yaml
+- tart-cluster-template_editor_role.yaml
+- tart-cluster-template_viewer_role.yaml
+- tart-bootstrap-config_admin_role.yaml
+- tart-bootstrap-config_editor_role.yaml
+- tart-bootstrap-config_viewer_role.yaml
+- tart-bootstrap-config-template_admin_role.yaml
+- tart-bootstrap-config-template_editor_role.yaml
+- tart-bootstrap-config-template_viewer_role.yaml
+- tart-control-plane_admin_role.yaml
+- tart-control-plane_editor_role.yaml
+- tart-control-plane_viewer_role.yaml
+- tart-control-plane-template_admin_role.yaml
+- tart-control-plane-template_editor_role.yaml
+- tart-control-plane-template_viewer_role.yaml
 
 labels:
 - includeSelectors: true

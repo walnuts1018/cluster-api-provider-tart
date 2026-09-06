@@ -14,7 +14,7 @@ Talos Linux APIとの通信、machine configurationの合成、OSインストー
 ## 基本原則
 
 1. **機能の委譲**: OSインストール、パーティショニング、アップグレード、ロールバック、etcd bootstrapはTalos公式機構へ委譲する。
-2. **アダプターのカプセル化**: [`talos/`](../../../talos) パッケージ内にgRPCクライアントやTLS認証を隠蔽し、コントローラーへは小さな観測結果（ドメイン型）のみを渡す。
+2. **アダプターのカプセル化**: [`adapter/talos/`](../../../adapter/talos) パッケージ内にgRPCクライアントやTLS認証を隠蔽し、コントローラーへは小さな観測結果（ドメイン型）のみを渡す。
 3. **合成順序の遵守**: Base configuration → User-owned raw patch（`configSecretRef` 経由）→ Provider-owned invariant（上書き不可）の順で合成する。
 
 ---
@@ -25,7 +25,7 @@ Talos Linux APIとの通信、machine configurationの合成、OSインストー
 - [ ] ユーザー設定を `configSecretRef` のimmutableなSecretから読み込み、CRD Specへinline保存していないか
 - [ ] Provider-owned invariant（ProviderID、cluster endpoint、machine roleなど）がuser patchによって上書きされないよう競合検知しているか
 - [ ] 競合検知時に上書きせず `Ready=False`、`Reason=ConfigurationConflict` で安全停止しているか
-- [ ] configuration digest算出時に機密情報をredactしているか（[`bootstrap/digest.go`](../../../bootstrap/digest.go)）
+- [ ] configuration digest算出時に機密情報をredactしているか（[`domain/bootstrap/digest.go`](../../../domain/bootstrap/digest.go)）
 
 ### 2. Maintenance API と Trust Model
 - [ ] maintenance APIの自己署名TLSに対し、物理MACアドレスとclaimed HostのMACが一致することを確認してからconfigurationを適用しているか
@@ -41,5 +41,5 @@ Talos Linux APIとの通信、machine configurationの合成、OSインストー
 ## 参照ドキュメント・コード
 
 - 達成すべき要件: [`docs/development/README.md`](../../../docs/development/README.md)
-- Talosアダプターコード: [`talos/`](../../../talos)
-- Bootstrap合成コード: [`bootstrap/`](../../../bootstrap)
+- Talosアダプターコード: [`adapter/talos/`](../../../adapter/talos)
+- Bootstrap合成コード: [`domain/bootstrap/`](../../../domain/bootstrap), [`usecase/bootstrap/`](../../../usecase/bootstrap), [`adapter/talos/configbuilder/`](../../../adapter/talos/configbuilder)

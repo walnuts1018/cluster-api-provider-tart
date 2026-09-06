@@ -78,12 +78,13 @@ var TartProviderManifests = []string{
 	"config/default/control-plane",
 }
 
-// TartProviderDeployments は各providerのDeployment名である(RBAC生成時のroleNameと対応する
-// mise.tasks.manifestsのcontroller-gen呼び出しに合わせている)。
+// TartProviderDeployments は各providerのDeployment名である。config/default/*/kustomization.yaml
+// のnamePrefix(cluster-api-provider-tart-)と、config/manager/*/manager.yamlのDeployment名
+// (<role>-controller-manager)を結合した実際の名前と一致させる必要がある。
 var TartProviderDeployments = map[string]string{
-	"config/default/infrastructure": "infrastructure-manager",
-	"config/default/bootstrap":      "bootstrap-manager",
-	"config/default/control-plane":  "control-plane-manager",
+	"config/default/infrastructure": "cluster-api-provider-tart-infrastructure-controller-manager",
+	"config/default/bootstrap":      "cluster-api-provider-tart-bootstrap-controller-manager",
+	"config/default/control-plane":  "cluster-api-provider-tart-control-plane-controller-manager",
 }
 
 // InstallTartProvidersは、kustomize buildの出力をkubectl applyし、3つのmanager Deploymentが

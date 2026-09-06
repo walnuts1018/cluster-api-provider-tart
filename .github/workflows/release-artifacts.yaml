@@ -1,0 +1,201 @@
+name: Release Artifacts
+
+on:
+  workflow_call:
+    inputs:
+      revision:
+        description: コミットSHA
+        required: true
+        type: string
+      release_tag:
+        description: 公開するrelease tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: release-artifacts-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  docker:
+    name: Build Docker Images (${{ matrix.arch.key }})
+    runs-on: ${{ matrix.arch.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - key: linux-amd64
+            os: ubuntu-24.04
+            platform: linux/amd64
+          - key: linux-arm64
+            os: ubuntu-24.04-arm
+            platform: linux/arm64
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Setup Docker Buildx
+        id: setup-buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push with Docker Bake
+        id: bake
+        uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7.3.0
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          ARCH_KEY: ${{ matrix.arch.key }}
+          PLATFORM: ${{ matrix.arch.platform }}
+        with:
+          source: .
+          builder: ${{ steps.setup-buildx.outputs.name }}
+          files: docker-bake.release.hcl
+          targets: default
+          provenance: false
+
+      - name: Export image digests
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.arch.platform }}
+          METADATA_FILE: ${{ runner.temp }}/bake-metadata-${{ matrix.arch.key }}.json
+          DIGEST_FILE: ${{ runner.temp }}/digests-${{ matrix.arch.key }}.json
+        run: |
+          cat << 'EOF' > "$METADATA_FILE"
+          ${{ steps.bake.outputs.metadata }}
+          EOF
+          ./.github/scripts/export-image-digests.sh
+
+      - name: Upload image digests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch.key }}
+          path: ${{ runner.temp }}/digests-${{ matrix.arch.key }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge and Push Docker Images
+    runs-on: ubuntu-24.04
+    needs: docker
+    outputs:
+      controller_image: ${{ steps.image-refs.outputs.controller_image }}
+      netboot_server_image: ${{ steps.image-refs.outputs.netboot_server_image }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Download image digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Login to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest lists and push
+        id: publish-manifests
+        shell: bash
+        env:
+          DIGEST_DIR: ${{ runner.temp }}/digests
+          MERGED_DIGESTS: ${{ runner.temp }}/merged-digests.json
+          REGISTRY: ${{ env.REGISTRY }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./.github/scripts/publish-image-manifests.sh
+
+      - name: Attest manager image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/manager
+          subject-digest: ${{ steps.publish-manifests.outputs.manager_digest }}
+          push-to-registry: true
+
+      - name: Attest netboot-server image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/netboot-server
+          subject-digest: ${{ steps.publish-manifests.outputs.netboot_server_digest }}
+          push-to-registry: true
+
+      - name: Resolve published image references
+        id: image-refs
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          REGISTRY: ${{ env.REGISTRY }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "controller_image=${REGISTRY}/${REPOSITORY}/manager:${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "netboot_server_image=${REGISTRY}/${REPOSITORY}/netboot-server:${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+  manifests:
+    name: Render clusterctl manifests
+    runs-on: ubuntu-24.04
+    needs: merge
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+        with:
+          go-cache: "false"
+          install-args: kustomize
+
+      - name: Render infrastructure-components.yaml and metadata.yaml
+        env:
+          CONTROLLER_IMAGE: ${{ needs.merge.outputs.controller_image }}
+          NETBOOT_SERVER_IMAGE: ${{ needs.merge.outputs.netboot_server_image }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: ./scripts/release-manifests/run.sh out
+
+      # clusterctl/cluster-api-operatorが取得するrelease assetの出所を検証できるよう、
+      # renderしたmanifest一式にもbuild provenance attestationを付与する。
+      - name: Attest clusterctl manifests
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/infrastructure-components.yaml
+            out/metadata.yaml
+            out/infrastructure-provider.yaml
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: clusterctl-manifests
+          path: out/
+          if-no-files-found: error
+          retention-days: 1

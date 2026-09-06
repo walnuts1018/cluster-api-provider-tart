@@ -64,17 +64,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - domaincontrolplane.cluster.x-k8s.io
+  - controlplane.cluster.x-k8s.io
   resources:
   - tartcontrolplanes
   verbs:
@@ -84,13 +74,23 @@ rules:
   - update
   - watch
 - apiGroups:
-  - domaincontrolplane.cluster.x-k8s.io
+  - controlplane.cluster.x-k8s.io
   resources:
   - tartcontrolplanes/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:

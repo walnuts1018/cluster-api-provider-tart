@@ -1,4 +1,4 @@
-// Package hostはTartHostのclaim/retainを扱うusecaseと、そのport定義を提供する。
+// Package hostはTartHostのclaim/retainを扱うusecaseと、外部副作用を隔離するinterface定義を提供する。
 package host
 
 import (
@@ -9,8 +9,8 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 )
 
-// HostRepositoryはTartHost.spec.consumerRefへのatomicなclaim/retain更新を隔離するport。
-// Kubernetes API serverとの通信(optimistic concurrencyによるCAS retry)はこのportの実装側に閉じ込め、
+// HostRepositoryはTartHost.spec.consumerRefへのatomicなclaim/retain更新を隔離するinterfaceである。
+// Kubernetes API serverとの通信(optimistic concurrencyによるCAS retry)はこの実装側に閉じ込め、
 // usecaseはdomain/hostの判定結果を意識しない。
 type HostRepository interface {
 	// ClaimHostはHostのconsumerRefをCASで確立する。既に同じconsumerでclaim済みの場合は何もしない。

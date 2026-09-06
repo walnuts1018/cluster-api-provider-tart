@@ -1,6 +1,6 @@
 // Package bootstrapは、Talos machine configuration合成とBootstrap Secret contractのusecaseを提供する。
 // domain/bootstrapの値オブジェクト・純粋関数をオーケストレーションし、siderolabs machinery型への
-// 実際の変換はConfigRenderer port経由でadapter/talos/configbuilderへ委譲する。
+// 実際の変換はConfigRenderer interface経由でadapter/talos/configbuilderへ委譲する。
 package bootstrap
 
 import (
@@ -22,7 +22,7 @@ type MachineConfigurationContext struct {
 }
 
 // ConfigRendererは、domain/bootstrapが表現する合成順序の意思決定を実際のTalos machine configuration
-// byte列へ変換するportである。実装はsiderolabs machinery型への変換を全て自身に閉じ込める。
+// byte列へ変換するinterfaceである。実装はsiderolabs machinery型への変換を全て自身に閉じ込める。
 type ConfigRenderer interface {
 	// Renderは、完全なbase configurationへraw patchを順番に適用したcanonical configurationを返す。
 	Render(base []byte, patches ...[]byte) ([]byte, error)

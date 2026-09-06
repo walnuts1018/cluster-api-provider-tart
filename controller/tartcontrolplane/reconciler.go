@@ -84,8 +84,8 @@ func (f *controlPlaneFailure) Error() string {
 	return f.reason + ": " + f.message
 }
 
-// +kubebuilder:rbac:groups=domaincontrolplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=domaincontrolplane.cluster.x-k8s.io,resources=tartcontrolplanes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch

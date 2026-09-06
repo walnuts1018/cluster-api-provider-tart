@@ -139,7 +139,7 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			decision, err := update.Evaluate(tt.policy, base, tt.desired)
+			decision, err := update.Evaluate(configbuilder.Builder{}, tt.policy, base, tt.desired)
 			if err != nil {
 				t.Fatalf("Evaluate() error = %v", err)
 			}
@@ -167,7 +167,7 @@ func TestEvaluateIgnoresInstallerImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetInstallerImage() error = %v", err)
 	}
-	decision, err := update.Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
+	decision, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
@@ -182,7 +182,7 @@ func TestEvaluateRejectsUnreadableConfiguration(t *testing.T) {
 
 	bundle := newSecretsBundle(t)
 	base := newConfiguration(t, bundle, nil)
-	if _, err := update.Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
+	if _, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
 		t.Fatal("Evaluate() accepted an unreadable configuration")
 	}
 }

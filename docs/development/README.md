@@ -1,6 +1,6 @@
 # 開発者向けドキュメント
 
-Tartが達成すべき要件とユースケース、および非目標を記す。実装方針・API契約・アルゴリズムの詳細はコードとそのコメント([`api/`](../../api)、[`controller/`](../../controller)、[`talos/`](../../talos)等)を正本とし、ここには複製しない。設計・実装レビューの着眼点は[`.agents/skills/`](../../.agents/skills)を参照する。
+Tartが達成すべき要件とユースケース、および非目標を記す。実装方針・API契約・アルゴリズムの詳細はコードとそのコメント([`api/`](../../api)、[`controller/`](../../controller)、[`adapter/talos/`](../../adapter/talos)等)を正本とし、ここには複製しない。設計・実装レビューの着眼点は[`.agents/skills/`](../../.agents/skills)を参照する。
 
 ## 達成すべきユースケース
 

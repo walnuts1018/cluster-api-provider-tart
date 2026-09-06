@@ -17,7 +17,7 @@ when_to_use: TartのGoコードを作成・変更・レビューする時
 ## パッケージ
 
 - ルート直下に`internal`または`pkg`を作らない。
-- packageは`api`、`controller`、`host`、`talos`、`bootstrap`、`controlplane`、`boot`、`extensions`のように、現在の責務を直接表す名前へ置く。
+- packageは`api`、`domain/host`、`usecase/bootstrap`、`adapter/talos`、`controller/tarthost`のように、Clean Architectureの層(domain/usecase/adapter/controller)+責務名で置く。domainは外部依存ゼロの値オブジェクト・純粋関数、usecaseはdomainのオーケストレーションとinterface定義、adapterはKubernetes/Talos/電源backend等の実際の副作用実装、controllerはcontroller-runtime Reconciler本体を置く。
 - interfaceは、外部副作用を隔離する、または複数の具体的実装が実際に存在する場合だけ定義する。将来の可能性だけで抽象化しない。
 - TalosやCAPIのgenerated typeを広い層へ漏らさず、adapterがTartで必要な意味へ変換する。
 

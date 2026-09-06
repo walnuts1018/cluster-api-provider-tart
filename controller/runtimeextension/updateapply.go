@@ -8,6 +8,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 	usecaseupdate "github.com/walnuts1018/cluster-api-provider-tart/usecase/update"
@@ -73,7 +74,7 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 	if err != nil {
 		return configurationUpdateOutcome{retryMessage: "The active Talos machine configuration could not be observed while the in-place update is being prepared."}
 	}
-	decision, err := usecaseupdate.Evaluate(updater.strategy, active, updater.desired)
+	decision, err := usecaseupdate.Evaluate(configbuilder.Builder{}, updater.strategy, active, updater.desired)
 	if err != nil {
 		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be evaluated safely; the in-place update is stopped."}
 	}

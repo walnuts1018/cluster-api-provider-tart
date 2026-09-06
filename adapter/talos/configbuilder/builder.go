@@ -2,14 +2,19 @@ package configbuilder
 
 import (
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+	usecaseupdate "github.com/walnuts1018/cluster-api-provider-tart/usecase/update"
 )
 
-// Builderはusecase/bootstrap.ConfigRendererをsiderolabs machineryで実装する。
-// 状態を持たないため、zero valueのまま利用できる。
+// Builderはusecase/bootstrap.ConfigRendererとusecase/update.ConfigDiffClassifierを
+// siderolabs machineryで実装する。状態を持たないため、zero valueのまま利用できる。
 type Builder struct{}
 
-var _ usecasebootstrap.ConfigRenderer = Builder{}
+var (
+	_ usecasebootstrap.ConfigRenderer    = Builder{}
+	_ usecaseupdate.ConfigDiffClassifier = Builder{}
+)
 
 func (Builder) Render(base []byte, patches ...[]byte) ([]byte, error) {
 	return RenderEffectiveConfiguration(base, patches...)
@@ -41,4 +46,8 @@ func (Builder) EnsureInstallDisk(configuration []byte, disk domainbootstrap.Inst
 
 func (Builder) SelectInstallDisk(disks []domainbootstrap.InstallDisk) (domainbootstrap.InstallDisk, error) {
 	return SelectInstallDisk(disks)
+}
+
+func (Builder) ClassifyConfigurationChange(active, desired []byte) (domainupdate.ChangeClass, string, error) {
+	return ClassifyConfigurationChange(active, desired)
 }

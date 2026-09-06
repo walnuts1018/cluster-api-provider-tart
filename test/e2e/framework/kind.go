@@ -56,7 +56,12 @@ func (k *KindCluster) Delete(ctx context.Context) error {
 }
 
 // InstallCAPICoreは、Cluster API coreのCRD/controllerをkind clusterへapplyし、Readyになるまで待つ。
+// CAPI公式manifestはcert-manager(Certificate/Issuer CRD)を前提としているため、事前にinstallする。
 func InstallCAPICore(ctx context.Context) error {
+	if err := testutils.InstallCertManager(); err != nil {
+		return fmt.Errorf("install cert-manager: %w", err)
+	}
+
 	url := fmt.Sprintf(capiCoreURL, capiVersion)
 	if _, err := testutils.Run(exec.CommandContext(ctx, "kubectl", "apply", "-f", url)); err != nil {
 		return fmt.Errorf("apply cluster-api-components: %w", err)

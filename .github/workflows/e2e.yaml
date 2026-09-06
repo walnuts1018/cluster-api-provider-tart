@@ -27,10 +27,48 @@ jobs:
         uses: ./.github/actions/setup-tools
         with:
           go-cache: "true"
-          install-args: go kind kubectl kustomize
+          install-args: go rust kind kubectl kustomize
 
-      - name: Setup bare-metal lab (libvirt/QEMU/dnsmasq/wol-libvirt-gateway)
-        uses: ./.github/actions/setup-lab
+      - name: Verify /dev/kvm access
+        run: |
+          set -euxo pipefail
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::/dev/kvm is not present; this runner does not support nested virtualization (KVM required, TCG fallback is not supported)"
+            exit 1
+          fi
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+          fi
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Install libvirt/QEMU/dnsmasq
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-kvm \
+            qemu-utils \
+            libvirt-daemon-system \
+            libvirt-clients \
+            libvirt-dev \
+            dnsmasq-base \
+            bridge-utils \
+            virtinst
+
+      - name: Grant runner user libvirt access
+        run: |
+          set -euxo pipefail
+          sudo usermod -aG kvm,libvirt "$(whoami)"
+          sudo systemctl enable --now libvirtd
+
+      - name: Build wol-libvirt-gateway
+        run: |
+          set -euxo pipefail
+          mise run build-wol-gateway
+          sudo install -m 0755 .cache/wol-libvirt-gateway/bin/wol-libvirt-gateway /usr/local/bin/wol-libvirt-gateway
+        # TODO: wol-libvirt-gatewayのcrate名/binary名がリポジトリの実際のCargo.tomlと異なる場合、
+        # `cargo install --git`が生成するbinary名を実際のリポジトリ構成に合わせて調整する必要がある。
+        # 現時点ではリポジトリ内容を直接確認できていないため、実CI実行時に検証・修正する。
 
       - name: Build controller-manager images
         run: |

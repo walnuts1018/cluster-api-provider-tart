@@ -12,6 +12,8 @@ go = "1.27.1"
 shellcheck = "0.11.0"
 gh = "2.100.0"
 devcontainer-cli = "0.89.0"
+# E2E labのwol-libvirt-gateway (https://github.com/brunoproduit/wol-libvirt-gateway) をbuildするために使う。
+rust = "1.91.1"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"
@@ -65,6 +67,13 @@ run = "go test ./..."
 [tasks."test-e2e"]
 description = "bare-metal lab上のE2Eを実行する(KVM/libvirtが利用可能なLinux runner専用)"
 run = "go test -tags e2e -timeout 60m ./test/e2e/..."
+
+[tasks."build-wol-gateway"]
+description = "E2E labで使うwol-libvirt-gateway (https://github.com/brunoproduit/wol-libvirt-gateway) をbuildする"
+run = """
+cargo install --git https://github.com/brunoproduit/wol-libvirt-gateway --locked --root .cache/wol-libvirt-gateway \
+  || cargo install --git https://github.com/brunoproduit/wol-libvirt-gateway --root .cache/wol-libvirt-gateway
+"""
 
 [tasks."build-golangci-lint"]
 description = "Build custom golangci-lint binary with module plugins"

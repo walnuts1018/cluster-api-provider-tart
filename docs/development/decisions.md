@@ -30,6 +30,12 @@
    - 初回bootにはPXE、iPXE、UEFI HTTP Boot等のnetwork bootを利用できるようにするが、具体的なboot方式やDHCP/TFTP等の実装をProvider APIへ固定しない。
    - 初回bootでは原則としてTalosのboot assetのみを配信し、Host確認後にTalos API経由でmachine configurationを適用してインストールを開始する。
 
+9. **Talos upstream実装の直接利用とadapter隔離**:
+   - 「Talosが既に実装しているlifecycle logicを再実装しない」という原則は、Talosの安定した公開RPCだけを使うという意味ではない。必要な機能がTalosの公開RPCだけで表現できない場合、Talos upstreamの既存Go実装を直接利用してよい。
+   - 具体例として、cluster-wide Kubernetes upgradeに対応する単一のgRPC RPCはTalos machine APIに存在せず、正本の実装は`talosctl upgrade-k8s`が呼ぶ`github.com/siderolabs/talos/pkg/cluster/kubernetes`である。Tartはこのalgorithmをコピーも再実装もせず、upstream実装をそのまま呼び出す。
+   - upstreamへの依存は薄いadapter(`talos.KubernetesUpgradeRunner`と`talos/kubernetes_upgrade.go`)へ隔離し、`go.mod`で`github.com/siderolabs/talos`を`github.com/siderolabs/talos/pkg/machinery`と同じversionへpinして同期させる。
+   - TalosはTart専用の外部contractではないため、upstream APIの破壊的変更は許容し、Talos versionの更新時にadapterだけを追従させる。「安全な公開契約がないから機能を実装しない」という判断は採らない。
+
 各仕様の詳細は、[アーキテクチャ](architecture.md)、[API contract](api-contract.md)、[Machine lifecycle](lifecycle.md)を参照すること。
 
 ---

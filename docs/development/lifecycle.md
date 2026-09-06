@@ -114,7 +114,7 @@ Tartでは、同一のMachine、TartMachine、TartHost、diskを維持したin-p
 | --- | --- | --- |
 | **Talos OS version/image** | Talos upgrade APIを呼出 | desired image、再起動後の接続性、健全性で完了判定 |
 | **Talos machine configuration** | `TartBootstrapConfig.spec.updatePolicy.configuration`に従いTalos APIでapply（必要ならcontrolled reboot） | effective configurationのdiffを「data、identityを破壊するか」で分類し、破壊しない差分のみ適用 |
-| **Kubernetes version** | 未実装のため安全停止 | cluster-wide orchestrationと完了観測を実装するまでRuntime Extensionがpatchなしで拒否 |
+| **Kubernetes version** | TartControlPlaneがcluster-wideにTalos upstreamのKubernetes upgrade実装を呼出 | preflight(control plane health、Talos API、etcd quorum、他operationの非進行)とLeaseによる排他を満たした場合のみ実行し、全component/Nodeがdesired versionを報告した時点で完了判定 |
 | **Host identity / 破壊的disk変更 / InitialOnly configuration** | 自動更新不可 | `ReprovisionRequired`として安全停止（Machine replacementへfallbackしない） |
 
 ### in-place updateとreboot-free updateの区別
@@ -150,27 +150,36 @@ in-place updateとreboot-free updateは別概念である。rebootが必要で�
 - `OnDelete` strategyは自動worker in-place update lifecycleとしてサポートしない。
 - Control PlaneはMachineDeploymentへ委譲せず、常に1台ずつ更新してetcd、API、Node healthを確認する。
 
-### Kubernetes Upgradeの収束規則（実装前の契約）
+### Kubernetes Upgradeの収束規則
 
-Talosの`upgrade-k8s`はcluster-wide operationであり、現在のProviderはMachine単位のRuntime Extensionから実行しない。以下はcluster-wide orchestrationを実装する際の契約であり、現状のKubernetes version差分はpatchなしで安全停止する。
+Talosの`upgrade-k8s`はcluster-wide operationであり、TartControlPlaneだけが所有する。Machine単位のRuntime Extensionからは実行しない。実際のupgrade手順はTalos upstream実装(`github.com/siderolabs/talos/pkg/cluster/kubernetes`)へ委譲し、Tartは`talos.KubernetesUpgradeRunner` adapterから呼び出す。
 
 ```text
-Topology managed cluster:
-  CAPI upgrade planが目標version Xのcontrol-plane/worker stepと整合する状態を開始
+TartControlPlane.spec.version (CAPI desired versionのsource of truth)
   ↓
-  TartControlPlaneがstepを確認し、talos upgrade-k8s Xをcluster単位で一度だけ要求
+現在のcluster Kubernetes versionを観測 (upstreamのDetectLowestVersion)
   ↓
-  Kubernetes API、全Nodeのkubelet、control plane actual versionがXになることを観測
+preflight: control plane初期化、workload Kubernetes API、Talos API到達性、
+           etcd health/quorum、全control-plane MachineのReady、
+           他のlifecycle operation(CA rotation、scale-down)の非進行、target versionの妥当性
   ↓
-  TartControlPlane status.versionsをXへ更新
+coordination.k8s.io/v1 LeaseのCASでcluster単位の排他を確立
   ↓
-  CAPIがworkerのMachine.spec.versionをXへ伝播
+Talos upstream実装によるcluster-wide Kubernetes upgradeを実行
   ↓
-  worker UpdateMachineがactual version Xを観測し、重複upgradeなしで完了
+全component/Nodeがdesired versionを報告することを観測
+  ↓
+TartControlPlane status.kubernetesUpgrade と UpToDate Conditionを更新
+  ↓
+CAPIがworkerのMachine.spec.versionをXへ伝播
+  ↓
+worker UpdateMachineが自Nodeのactual version Xを観測し、重複upgradeなしで完了
 ```
 
-- **Topology managed**: worker `Machine.spec.version` が旧versionであっても、CAPI upgrade planとskewが整合していれば `upgrade-k8s` を開始できる。MachineDeploymentの `maxUnavailable` でupgrade availabilityを制御しない。
-- **directly managed**: `TartControlPlane.spec.version` の変更がトリガーとなる。worker desired versionが目標versionと矛盾する場合は開始前に `Ready=False`、`Reason=VersionSkew` で安全停止する。
+- **所有権**: Kubernetes version upgradeを実行するのはTartControlPlaneだけである。Update Extensionは`Machine.spec.version`の伝播だけを許可し、`UpdateMachine`では自Nodeのkubelet versionがdesired versionへ収束したことを確認する。収束していない場合はretryし、Machine単体でupgradeを行わない。
+- **preflight**: 上記の観測のいずれかが満たされない、または観測できない場合はupgradeを開始せず待機する(fail-closed)。desired versionが空の場合は`KubernetesUpgrading=False`、`Reason=InvalidVersion`で安全停止する。version skewと具体的なcomponent upgrade sequenceの検証はTalos upstream実装へ委ね、Tartで二重実装しない。
+- **同時実行の禁止**: 同一clusterのupgradeは`coordination.k8s.io/v1 Lease`(`tart-kubernetes-upgrade-<control plane name>`)のresourceVersion CASで直列化する。実行中はleaseをrenewし続け、controller replicaが複数あっても高々1つだけがupgradeを実行する。
+- **crash recovery**: Statusにはtarget version、観測version、失敗理由だけを保持し、upgrade手順のstepやprogram counterを保存しない。controllerが停止するとlease renewも止まり、lease durationの経過後に他のreplicaが引き継ぐ。再開時は現在のcluster versionを観測し直して同じdesired versionへのupgradeを再要求するため、完了済みのstepはupstream実装が検出して重複実行しない。
 - **component imageの保護**: full configurationの再apply時に、current CAPI `Machine.spec.version` を必ずversion-managed fieldへ反映し、古いconfigurationでKubernetes componentがダウングレードされるのを防ぐ。
 
 ### Downtime許容ポリシー (`allowDowntime`)

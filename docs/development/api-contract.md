@@ -61,6 +61,13 @@ CAPIのproviderごとの責務に合わせてAPI groupを分ける。別groupの
   - `nodeDrainTimeoutSeconds`、`nodeVolumeDetachTimeoutSeconds`、`nodeDeletionTimeoutSeconds` は `spec.machineTemplate.spec.deletion` へ置き、rolloutを起こさずに伝播するfieldと区別する。
   - 各control-plane Machineの `spec.minReadySeconds` と `UpToDate` Conditionを継続的に管理する。
   - `controlPlaneInitialized` はAPI serverがrequestを受け付けられる時点でtrueにし、全Node ReadyやCNI導入を待たない。
+- **Kubernetes version upgradeの所有権**:
+  - cluster-wide Kubernetes version upgradeはTartControlPlaneだけが所有する。TartMachine、Update Extension、worker側のいずれからも`upgrade-k8s`相当の処理を実行しない。
+  - desired versionのsource of truthは`TartControlPlane.spec.version`であり、CAPIのdesired versionからTartControlPlane、Talos upstream実装の順で一方向に伝わる。Talos側で独立したversion stateを持たない。
+  - upgradeの実行はTalos upstream実装(`github.com/siderolabs/talos/pkg/cluster/kubernetes`)へ委譲し、開始前にcontrol plane health、Talos API到達性、etcd health/quorum、他のlifecycle operationの非進行、target versionの妥当性を確認する。version skewとcomponent upgrade sequenceの検証はupstream実装へ委ねる。
+  - 同一clusterに対する同時実行は`coordination.k8s.io/v1 Lease`のresourceVersion CASで排他する。controller replicaが複数ある場合も高々1つだけがupgradeを実行する。
+  - `status.kubernetesUpgrade`にはtarget version、観測version、失敗理由だけを保持し、upgrade手順のstepやprogram counterを保存しない。controller再起動後は、desired versionと現在のcluster観測から同じupgrade operationを再計算して再開する。
+  - worker Machineは、cluster-wide upgrade完了後に自Nodeのobserved Kubernetes versionがdesired versionへ収束したことだけを`UpdateMachine`で確認する。
 - **In-place update時の遷移契約**:
   - Control Plane ProviderがMachineを更新する場合、まず `CanUpdateMachine` を呼ぶ。
   - 成功時はresourceVersionを確認しながらCAPI Machine、TartMachine、TartBootstrapConfigのdesired specを更新し、3つ全てへ `in-place-updates.internal.cluster.x-k8s.io/update-in-progress` annotationを設定した後、Machineへ `UpdateMachine` hook pendingを設定する。

@@ -17,6 +17,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
+	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/internal/managersetup"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/kessoku"
 	// +kubebuilder:scaffold:imports
@@ -28,6 +29,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(clusterv1.AddToScheme(scheme))
 	utilruntime.Must(bootstrapv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(infrav1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

@@ -39,6 +39,9 @@ spec:
           value: ""
         - name: TART_NETBOOT_ADVERTISE_HTTP_BASE_URL
           value: ""
+        volumeMounts:
+        - name: tftp-root
+          mountPath: /var/lib/netboot-server
         securityContext:
           # port 67(DHCP)/69(TFTP)はwell-known portであり、CAP_NET_BIND_SERVICEが必要である。
           runAsNonRoot: false
@@ -68,4 +71,7 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
+      volumes:
+      - name: tftp-root
+        emptyDir: {}
       terminationGracePeriodSeconds: 10

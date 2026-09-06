@@ -172,9 +172,10 @@ var _ = BeforeSuite(func() {
 })
 
 var _ = AfterSuite(func() {
-	if CurrentSpecReport().Failed() {
-		framework.DumpAll(filepath.Join(artifactRootDir, "final-failure"))
-	}
+	// CurrentSpecReport().Failed()はBeforeSuiteの失敗を反映しないため(AfterSuite自体は
+	// failしていないとginkgoが判断する)、失敗有無に関わらず常にdumpする。
+	// 成功時のartifactは追加コストが小さく、失敗調査の取りこぼしを避ける方を優先する。
+	framework.DumpAll(filepath.Join(artifactRootDir, "final-state"))
 
 	if netbootServer != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

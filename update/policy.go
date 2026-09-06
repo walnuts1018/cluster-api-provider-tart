@@ -44,6 +44,9 @@ func ResolveApplyMode(policy bootstrapv1alpha1.ConfigurationUpdatePolicy) (Apply
 		return ApplyModeLive, nil
 	case bootstrapv1alpha1.ConfigurationUpdatePolicyReboot:
 		return ApplyModeReboot, nil
+	case bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly:
+		// InitialOnlyは差分をupdateとして適用しないpolicyであり、適用modeを持たない。
+		return "", ErrPolicyUnknown
 	default:
 		return "", ErrPolicyUnknown
 	}

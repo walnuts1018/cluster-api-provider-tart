@@ -83,6 +83,8 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 		return configurationUpdateOutcome{failureMessage: "ReprovisionRequired: " + decision.Reason}
 	case update.ChangeNone:
 		return verifyConfigurationRecovered(ctx, updater)
+	case update.ChangeUpdatable:
+		// policyに従って適用するため、この関数の後半で扱う。
 	}
 	if decision.ApplyMode == update.ApplyModeLive {
 		if err := updater.node.ApplyConfigurationLive(ctx, updater.desired); err != nil {

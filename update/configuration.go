@@ -113,6 +113,8 @@ func Evaluate(policy bootstrapv1alpha1.ConfigurationUpdatePolicy, active, desire
 		return Decision{Class: ChangeNone}, nil
 	case ChangeInvariantConflict, ChangeReprovisionRequired:
 		return Decision{Class: class, Reason: reason}, nil
+	case ChangeUpdatable:
+		// policyに従って適用modeを決めるため、この関数の後半で扱う。
 	}
 	if policy == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
 		return Decision{

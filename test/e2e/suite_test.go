@@ -53,6 +53,12 @@ const (
 	// CLAUDE.mdの規約に従って割り当てる。
 	controlPlaneVMMACAddress = "00:00:5E:00:53:01"
 	controlPlaneVMName       = "tart-e2e-cp-0"
+
+	// controlPlaneVMStaticIPは、lab networkのDHCPがcontrolPlaneVMMACAddressへ常に払い出す
+	// 固定IPである(labNetworkCIDR=198.51.100.0/24のDHCP動的range外)。TartHost discoveryは
+	// inventory観測前に接続先IPを知る必要があるため、この固定IPをTartHost.spec.talosAPIAddress
+	// へ明示設定して使う。
+	controlPlaneVMStaticIP = "198.51.100.200"
 )
 
 var (
@@ -94,6 +100,7 @@ var _ = BeforeSuite(func() {
 		{
 			Name:          controlPlaneVMName,
 			MACAddress:    controlPlaneVMMACAddress,
+			StaticIP:      controlPlaneVMStaticIP,
 			VCPUs:         4,
 			MemoryMiB:     8192,
 			SystemDiskGiB: 40,

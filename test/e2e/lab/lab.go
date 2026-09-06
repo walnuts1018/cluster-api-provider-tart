@@ -17,6 +17,11 @@ type VMSpec struct {
 	// MACAddressはVMの主NICに固定するMACアドレスである。CLAUDE.mdの規約に従い
 	// 00-00-5E-00-53-00から00-00-5E-00-53-FFの範囲(RFC 7042 IANA予約block)を使う。
 	MACAddress string
+	// StaticIPは、lab networkのDHCPがこのMACAddressへ常に払い出す固定IPである。
+	// TartHost discoveryはTalos maintenance APIへ最初に接続するためのendpointを必要とするが、
+	// 初回はinventory観測前でendpointが未知という鶏卵問題があるため、DHCP static reservationで
+	// 既知のIPを固定し、TartHost.spec.talosAPIAddressへ明示設定することで解決する。
+	StaticIP string
 	// VCPUsはVMに割り当てるvCPU数である。
 	VCPUs uint
 	// MemoryMiBはVMに割り当てるメモリ量(MiB)である。

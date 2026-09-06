@@ -64,6 +64,14 @@ func (l *libvirtLab) EnsureNetwork(_ context.Context) error {
 		return err
 	}
 
+	var staticHosts strings.Builder
+	for _, vm := range l.cfg.VMs {
+		if vm.StaticIP == "" {
+			continue
+		}
+		fmt.Fprintf(&staticHosts, "      <host mac='%s' ip='%s'/>\n", vm.MACAddress, vm.StaticIP)
+	}
+
 	networkXML := fmt.Sprintf(`<network>
   <name>%s</name>
   <bridge name='%s' stp='on' delay='0'/>
@@ -71,9 +79,9 @@ func (l *libvirtLab) EnsureNetwork(_ context.Context) error {
   <ip address='%s'>
     <dhcp>
       <range start='%s' end='%s'/>
-    </dhcp>
+%s    </dhcp>
   </ip>
-</network>`, l.cfg.NetworkName, l.cfg.NetworkBridge, gateway, dhcpStart, dhcpEnd)
+</network>`, l.cfg.NetworkName, l.cfg.NetworkBridge, gateway, dhcpStart, dhcpEnd, staticHosts.String())
 
 	network, err := l.conn.NetworkDefineXML(networkXML)
 	if err != nil {

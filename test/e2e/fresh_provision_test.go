@@ -59,13 +59,19 @@ func freshProvisionSpecs() {
 			Expect(err).NotTo(HaveOccurred())
 			broadcast, err := network.ParseUDPAddress(labBroadcastAddress())
 			Expect(err).NotTo(HaveOccurred())
+			// TartHostはinventory観測前にTalos maintenance APIへ接続するendpointを必要とするが、
+			// 初回はinventoryが無いためStatus.Addressesからも導出できない(鶏卵問題)。
+			// lab networkのDHCP static reservationで固定したIPを明示指定して解決する。
+			talosAPIAddress, err := network.ParseEndpoint(controlPlaneVMStaticIP)
+			Expect(err).NotTo(HaveOccurred())
 
 			host := &infrav1alpha1.TartHost{
 				Name: e2eHostName,
 				Spec: infrav1alpha1.TartHostSpec{
-					MACAddress:    mac,
-					Architecture:  "amd64",
-					FailureDomain: "lab",
+					MACAddress:      mac,
+					TalosAPIAddress: talosAPIAddress,
+					Architecture:    "amd64",
+					FailureDomain:   "lab",
 					Power: infrav1alpha1.PowerSpec{
 						Backend: infrav1alpha1.PowerBackendWakeOnLAN,
 						WakeOnLAN: &infrav1alpha1.WakeOnLANPowerConfig{

@@ -27,10 +27,11 @@ func DumpAll(artifactDir string) {
 	if err := testutils.DumpControllerLogs(filepath.Join(artifactDir, "controller-logs")); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: failed to dump controller logs: %v\n", err)
 	}
-	// CAPI core/cert-managerのcrash等はcluster-api-provider-tart-system以外のnamespaceで起きるため、
-	// testutils.DumpControllerLogs(Tart自身のnamespace専用)とは別に、関連する全namespaceの
-	// pod logをまとめて収集する。
+	// testutils.DumpControllerLogsはlabel(control-plane=controller-manager)で絞り込むため、
+	// 異なるlabelを持つpod(netboot-server等)や、CAPI core/cert-manager等の他namespaceのcrashは
+	// 拾えない。関連する全namespaceのpod logをlabelに依存せずまとめて収集する。
 	for _, namespace := range []string{
+		tartNamespace,
 		"capi-system",
 		"capi-kubeadm-bootstrap-system",
 		"capi-kubeadm-control-plane-system",

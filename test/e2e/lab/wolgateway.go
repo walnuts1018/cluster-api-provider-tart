@@ -19,14 +19,18 @@ import (
 // 経由で起動する。設定ファイルは不要で、バイナリを起動するだけで動作する。
 //
 // 既定のbind address(127.0.0.1:9)はloopbackのみで、lab bridge宛のbroadcastパケットが
-// 届かないため、`--listen-address 0.0.0.0:9`を明示してすべてのinterfaceでlistenさせる
-// (E2Eで実際にVMが起動しないことから発覚)。
+// 届かないため、`--address 0.0.0.0:9`を明示してすべてのinterfaceでlistenさせる(E2Eで実際に
+// VMが起動しないことから発覚)。READMEは引数名を`--listen-address`と記載しているが、実際の
+// clap定義(main.rs)上の引数名は`--address`(short: -a)である。
 type Gateway struct {
 	cmd        *exec.Cmd
 	stdout     bytes.Buffer
 	stderr     bytes.Buffer
 	mu         sync.Mutex
 	binaryPath string
+	// doneは、cmd.Wait()を待ち受けるgoroutineがプロセス終了時にのみ書き込む。os/exec.Cmdの
+	// ProcessStateはWait()を呼ぶまで更新されないため、早期終了検知にはこのchannelが必要である。
+	done chan error
 }
 
 // StartGatewayは指定されたバイナリを起動し、常駐させる。
@@ -43,7 +47,7 @@ func StartGateway(ctx context.Context, binaryPath string, libvirtURI string) (*G
 	// wol-libvirt-gatewayは設定ファイルを持たず、libvirt接続URIを環境変数またはデフォルトの
 	// qemu:///systemから解決する実装のため、LIBVIRT_DEFAULT_URIで明示する。
 	//nolint:gosec // binaryPathはCIのsetup-lab actionが配置した既知のパスであり、ユーザー入力を含まない
-	cmd := exec.CommandContext(ctx, binaryPath, "--listen-address", "0.0.0.0:9")
+	cmd := exec.CommandContext(ctx, binaryPath, "--address", "0.0.0.0:9")
 	cmd.Env = append(os.Environ(), "LIBVIRT_DEFAULT_URI="+libvirtURI)
 	cmd.Stdout = &gw.stdout
 	cmd.Stderr = &gw.stderr
@@ -51,15 +55,20 @@ func StartGateway(ctx context.Context, binaryPath string, libvirtURI string) (*G
 		return nil, fmt.Errorf("start wol-libvirt-gateway: %w", err)
 	}
 	gw.cmd = cmd
+	gw.done = make(chan error, 1)
+	go func() {
+		gw.done <- cmd.Wait()
+	}()
 
-	// 起動直後にプロセスが即座に終了していないかだけ簡易確認する(bind失敗などの早期検知)。
+	// 起動直後にプロセスが即座に終了していないかだけ簡易確認する(引数エラーやbind失敗などの
+	// 早期検知)。os/exec.CmdのProcessStateはWait()を呼ぶまで更新されないため、単純なsleep後の
+	// ProcessState確認では検知できない。上記goroutineが書き込むdone channelで判定する。
 	select {
+	case err := <-gw.done:
+		return nil, fmt.Errorf("wol-libvirt-gateway exited immediately (err=%v): stdout=%q stderr=%q", err, gw.stdout.String(), gw.stderr.String())
 	case <-time.After(500 * time.Millisecond):
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	}
-	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-		return nil, fmt.Errorf("wol-libvirt-gateway exited immediately: stdout=%q stderr=%q", gw.stdout.String(), gw.stderr.String())
 	}
 
 	return gw, nil
@@ -76,7 +85,8 @@ func (g *Gateway) Stop() error {
 		return fmt.Errorf("stop wol-libvirt-gateway: %w", err)
 	}
 	// defer済みのerrorを握りつぶさずlogへ出す方針に従い、Waitのerrorも報告する。
-	if err := g.cmd.Wait(); err != nil {
+	// Wait()はStartGatewayが起動したgoroutineが既に呼んでいるため、ここではそのdone channelを待つ。
+	if err := <-g.done; err != nil {
 		return fmt.Errorf("wait wol-libvirt-gateway exit: %w", err)
 	}
 	return nil

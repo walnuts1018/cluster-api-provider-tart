@@ -10,9 +10,16 @@ import (
 var ErrInvalidMACAddress = errors.New("invalid MAC address")
 
 // MACAddressは正規化済みのEUI-48を表す値オブジェクトである。ゼロ値は未設定を表す。
+// MarshalJSON/UnmarshalJSONで文字列表現へ変換するため、CRD schema上もtype: stringとして
+// 扱う必要がある(型定義自体へmarkerを付与することで、フィールド側の個別markerとの
+// allOf衝突(struct構造由来のtype:objectとの'conflicting types'エラー)を避ける)。
+// +kubebuilder:validation:Type=string
+// +kubebuilder:validation:Pattern="^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$"
 type MACAddress struct {
-	value [6]byte
-	set   bool
+	// json tagはcontroller-genのJSON tag未設定警告を避けるためのものであり、実際のシリアライズは
+	// MarshalJSON/UnmarshalJSON(下記)が担う(encoding/jsonは非exportedフィールドを常に無視する)。
+	value [6]byte `json:"-"`
+	set   bool    `json:"-"`
 }
 
 // ParseMACAddressは一般的なMACアドレス表記を受け付け、EUI-48として正規化する。

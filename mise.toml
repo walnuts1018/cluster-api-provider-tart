@@ -38,6 +38,7 @@ run = "go generate ./..."
 description = "CRDとRBAC manifestをprovider(bootstrap/control-plane/infrastructure)ごとにcontroller-genで生成する"
 run = """
 controller-gen object paths=./api/...
+controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd/bases
 controller-gen rbac:roleName=bootstrap-manager-role paths=./controller/tartbootstrapconfig/... output:rbac:artifacts:config=config/rbac/bootstrap
 controller-gen rbac:roleName=control-plane-manager-role paths=./controller/tartcontrolplane/... paths=./controller/runtimeextension/... output:rbac:artifacts:config=config/rbac/control-plane
 controller-gen rbac:roleName=infrastructure-manager-role paths=./controller/tarthost/... paths=./controller/tartcluster/... paths=./controller/tartmachine/... paths=./controller/talosrecovery/... output:rbac:artifacts:config=config/rbac/infrastructure

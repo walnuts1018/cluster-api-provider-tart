@@ -148,8 +148,6 @@ type TartHostSpec struct {
 	HostID string `json:"hostID,omitempty"`
 
 	// macAddressは他のinventoryが未知の段階でobserved boot attemptをこのHostへbindするための主enrollment identityである。
-	// +kubebuilder:validation:Type=string
-	// +kubebuilder:validation:Pattern="^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$"
 	MACAddress network.MACAddress `json:"macAddress"`
 
 	// talosAPIAddressはこのHostのTalos APIへ到達できる任意のaddressまたはDNS nameである。到達性のhintまたはoverrideに過ぎず、controllerはconfiguration apply前にobserved MAC addressを検証する。
@@ -220,8 +218,7 @@ type DiskInventory struct {
 
 // NetworkInterfaceInventoryはHostで観測したnetwork interfaceである。
 type NetworkInterfaceInventory struct {
-	Name string `json:"name,omitempty"`
-	// +kubebuilder:validation:Type=string
+	Name       string             `json:"name,omitempty"`
 	MACAddress network.MACAddress `json:"macAddress,omitempty,omitzero"`
 	LinkState  string             `json:"linkState,omitempty"`
 	Driver     string             `json:"driver,omitempty"`

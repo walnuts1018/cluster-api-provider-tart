@@ -27,14 +27,16 @@ import (
 )
 
 const (
-	updateRetryAfterSeconds int32 = 30
-	talosUpdateTimeout            = 20 * time.Second
-	updateCapiMachineKind         = "Machine"
-	tartMachineKind               = "TartMachine"
-	imageField                    = "image"
-	unsafeUpdateMessage           = "The requested in-place update contains an unsupported or unsafe difference; no patch was returned."
-	updateClientUnavailable       = "The Runtime Extension Kubernetes client is unavailable; the update cannot be executed safely."
-	updateVersionRejected         = "The requested Talos version transition is not supported; the in-place update is stopped."
+	updateRetryAfterSeconds         int32 = 30
+	talosUpdateTimeout                    = 20 * time.Second
+	updateCapiMachineKind                 = "Machine"
+	tartMachineKind                       = "TartMachine"
+	tartBootstrapConfigKind               = "TartBootstrapConfig"
+	tartBootstrapConfigTemplateKind       = "TartBootstrapConfigTemplate"
+	imageField                            = "image"
+	unsafeUpdateMessage                   = "The requested in-place update contains an unsupported or unsafe difference; no patch was returned."
+	updateClientUnavailable               = "The Runtime Extension Kubernetes client is unavailable; the update cannot be executed safely."
+	updateVersionRejected                 = "The requested Talos version transition is not supported; the in-place update is stopped."
 )
 
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get
@@ -106,6 +108,7 @@ type machineUpdatePreparation struct {
 	endpoint              string
 	configuration         []byte
 	image                 string
+	policy                bootstrapv1alpha1.ConfigurationUpdatePolicy
 }
 
 type updateRetryError struct {
@@ -185,7 +188,7 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		return nil, &updateRetryError{message: "The allocated TartHost has no reachable Talos endpoint yet."}
 	}
 
-	configuration, configurationErr := bootstrapConfiguration(ctx, kubeClient, &req.Desired.Machine)
+	bootstrapConfig, configuration, configurationErr := bootstrapConfigurationWithPolicy(ctx, kubeClient, &req.Desired.Machine)
 	if configurationErr != nil {
 		if errors.Is(configurationErr, errUpdateBootstrapUnavailable) {
 			return nil, &updateRetryError{message: "The immutable Bootstrap Secret is not available while the in-place update is being prepared."}
@@ -198,6 +201,7 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		endpoint:              endpoint,
 		configuration:         configuration,
 		image:                 image,
+		policy:                bootstrapUpdatePolicy(bootstrapConfig),
 	}, nil
 }
 
@@ -238,12 +242,22 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		return
 	}
 	if version.Tag == preparation.desiredInfrastructure.Spec.Image.Version && observedSchematicID == preparation.desiredInfrastructure.Spec.Image.SchematicID {
+		// imageがdesiredへ到達している場合だけ、machine configuration差分をpolicyへ従ってin-placeで適用する。
+		outcome := applyConfigurationUpdate(ctx, machineConfigurationUpdate(kubeClient, &req.Desired.Machine, preparation, authenticated))
 		if !closeAuthenticatedForUpdate(resp, authenticated) {
 			return
 		}
-		resp.Status = runtimehooksv1.ResponseStatusSuccess
-		resp.Message = "The Talos node is running the desired image."
-		resp.RetryAfterSeconds = 0
+		switch {
+		case outcome.failureMessage != "":
+			resp.Status = runtimehooksv1.ResponseStatusFailure
+			resp.Message = outcome.failureMessage
+		case outcome.retryMessage != "":
+			setUpdateRetry(resp, outcome.retryMessage)
+		default:
+			resp.Status = runtimehooksv1.ResponseStatusSuccess
+			resp.Message = "The Talos node is running the desired image and machine configuration."
+			resp.RetryAfterSeconds = 0
+		}
 		return
 	}
 	if err := talos.ValidateUpgrade(version.Tag, preparation.desiredInfrastructure.Spec.Image.Version); err != nil {
@@ -506,31 +520,37 @@ func returnUpdateCloseError(resp *runtimehooksv1.UpdateMachineResponse, _ error)
 var errUpdateBootstrapUnavailable = errors.New("bootstrap data is unavailable for update")
 
 func bootstrapConfiguration(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine) ([]byte, error) {
+	_, configuration, err := bootstrapConfigurationWithPolicy(ctx, kubeClient, machine)
+	return configuration, err
+}
+
+// bootstrapConfigurationWithPolicyはimmutable Bootstrap Secretのdesired configurationと、その適用方針を持つTartBootstrapConfigを返す。
+func bootstrapConfigurationWithPolicy(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine) (*bootstrapv1alpha1.TartBootstrapConfig, []byte, error) {
 	ref := machine.Spec.Bootstrap.ConfigRef
-	if ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group || ref.Kind != "TartBootstrapConfig" || ref.Name == "" {
-		return nil, errUpdateBootstrapUnavailable
+	if ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group || ref.Kind != tartBootstrapConfigKind || ref.Name == "" {
+		return nil, nil, errUpdateBootstrapUnavailable
 	}
 	config := &bootstrapv1alpha1.TartBootstrapConfig{}
 	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errUpdateBootstrapUnavailable
+			return nil, nil, errUpdateBootstrapUnavailable
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	if strings.TrimSpace(config.Status.DataSecretName) == "" {
-		return nil, errUpdateBootstrapUnavailable
+		return nil, nil, errUpdateBootstrapUnavailable
 	}
 	secret := &corev1.Secret{}
 	if err := kubeClient.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errUpdateBootstrapUnavailable
+			return nil, nil, errUpdateBootstrapUnavailable
 		}
-		return nil, err
+		return nil, nil, err
 	}
 	if !bootstrap.IsContractSecret(secret, config.Labels[bootstrap.ClusterNameLabel], config.UID) {
-		return nil, errors.New("bootstrap Secret contract is invalid")
+		return nil, nil, errors.New("bootstrap Secret contract is invalid")
 	}
-	return bytes.Clone(secret.Data[bootstrap.BootstrapSecretKey]), nil
+	return config, bytes.Clone(secret.Data[bootstrap.BootstrapSecretKey]), nil
 }
 
 func decodeTartMachine(raw runtime.RawExtension) (*infrav1alpha1.TartMachine, error) {
@@ -575,7 +595,7 @@ func planMachineUpdate(req *runtimehooksv1.CanUpdateMachineRequest) (runtimehook
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	bootstrapPatch, err := planRawObjectPatch(req.Current.BootstrapConfig, req.Desired.BootstrapConfig, bootstrapv1alpha1.GroupVersion.String(), "TartBootstrapConfig")
+	bootstrapPatch, err := planBootstrapConfigPatch(req.Current.BootstrapConfig, req.Desired.BootstrapConfig)
 	return machinePatch, infrastructurePatch, bootstrapPatch, err
 }
 
@@ -601,8 +621,71 @@ func planMachineSetUpdate(req *runtimehooksv1.CanUpdateMachineSetRequest) (runti
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	bootstrapPatch, err := planRawTemplatePatch(req.Current.BootstrapConfigTemplate, req.Desired.BootstrapConfigTemplate, bootstrapv1alpha1.GroupVersion.String(), "TartBootstrapConfigTemplate")
+	bootstrapPatch, err := planBootstrapConfigTemplatePatch(req.Current.BootstrapConfigTemplate, req.Desired.BootstrapConfigTemplate)
 	return machinePatch, infrastructurePatch, bootstrapPatch, err
+}
+
+// bootstrapUpdatableSpecPathsは、TartBootstrapConfigのspecのうちin-place updateで変更してよいpathである。
+// configPatchesSecretRefが指すimmutable Secretの差し替えによって生じるeffective configuration差分の安全性は、
+// Secretの内容を観測できるUpdateMachineでdestructive判定を行って決める。CanUpdateMachineはpolicyだけをfail-closedで確認する。
+var bootstrapUpdatableSpecPaths = [][]string{{"configPatchesSecretRef"}, {"updatePolicy"}}
+
+// planBootstrapConfigPatchは、TartBootstrapConfigのconfiguration update policyに従ってraw patch参照の変更を許可する。
+// InitialOnly policyのconfigurationは初回provisioning後に変更できないため、patchを返さず安全停止する。
+func planBootstrapConfigPatch(currentRaw, desiredRaw runtime.RawExtension) (runtimehooksv1.Patch, error) {
+	policy, err := desiredBootstrapPolicy(desiredRaw, "spec")
+	if err != nil {
+		return runtimehooksv1.Patch{}, err
+	}
+	if policy == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
+		return planRawObjectPatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigKind)
+	}
+	return planRawObjectPatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigKind, bootstrapUpdatableSpecPaths...)
+}
+
+// planBootstrapConfigTemplatePatchはMachineSet templateについて同じpolicy判定を行う。
+func planBootstrapConfigTemplatePatch(currentRaw, desiredRaw runtime.RawExtension) (runtimehooksv1.Patch, error) {
+	policy, err := desiredBootstrapPolicy(desiredRaw, "spec", "template", "spec")
+	if err != nil {
+		return runtimehooksv1.Patch{}, err
+	}
+	if policy == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
+		return planRawTemplatePatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigTemplateKind)
+	}
+	return planRawTemplatePatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigTemplateKind, bootstrapUpdatableSpecPaths...)
+}
+
+// desiredBootstrapPolicyはdesired objectのspecからconfiguration update policyを読み取る。
+// objectが存在しない場合は既定値のAutoとして扱い、解釈できないpolicyはerrorにしてfail-closedへ倒す。
+func desiredBootstrapPolicy(desiredRaw runtime.RawExtension, specPath ...string) (bootstrapv1alpha1.ConfigurationUpdatePolicy, error) {
+	object, present, err := decodeRawObject(desiredRaw)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, nil
+	}
+	spec, err := requiredMap(object, specPath...)
+	if err != nil {
+		return "", err
+	}
+	value, exists, err := readPath(spec, []string{"updatePolicy", "configuration"})
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, nil
+	}
+	policy, ok := value.(string)
+	if !ok {
+		return "", errors.New("bootstrap configuration update policy is not a string")
+	}
+	switch bootstrapv1alpha1.ConfigurationUpdatePolicy(policy) {
+	case bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, bootstrapv1alpha1.ConfigurationUpdatePolicyLive, bootstrapv1alpha1.ConfigurationUpdatePolicyReboot, bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly:
+		return bootstrapv1alpha1.ConfigurationUpdatePolicy(policy), nil
+	default:
+		return "", errors.New("bootstrap configuration update policy is unknown")
+	}
 }
 
 func planRawObjectPatch(currentRaw, desiredRaw runtime.RawExtension, expectedAPIVersion, expectedKind string, allowedPaths ...[]string) (runtimehooksv1.Patch, error) {

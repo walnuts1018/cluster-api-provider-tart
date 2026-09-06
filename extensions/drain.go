@@ -23,6 +23,10 @@ import (
 
 const workloadClientTimeout = 10 * time.Second
 
+// updateCordonAnnotationは、providerがupdateのためにcordonしたNodeへ付ける印である。
+// update完了後にuncordonしてよいのはこの印があるNodeだけであり、利用者が自分でcordonしたNodeを勝手に戻さない。
+const updateCordonAnnotation = "update.tart.walnuts.dev/cordoned"
+
 var errDrainContextUnavailable = errors.New("workload drain context is unavailable")
 
 // drainOutcomeはNodeのdrain結果を表す。evictedAllがfalseの場合、pdbBlockedOnlyが唯一の失敗理由を区別する。
@@ -85,6 +89,10 @@ func cordonNode(ctx context.Context, clientset kubernetes.Interface, node *corev
 	}
 	updated := node.DeepCopy()
 	updated.Spec.Unschedulable = true
+	if updated.Annotations == nil {
+		updated.Annotations = map[string]string{}
+	}
+	updated.Annotations[updateCordonAnnotation] = "true"
 	_, err := clientset.CoreV1().Nodes().Update(ctx, updated, metav1.UpdateOptions{})
 	return err
 }
@@ -201,4 +209,46 @@ func enforceDrainPolicy(ctx context.Context, kubeClient client.Reader, machine *
 		return true, ""
 	}
 	return false, "The Node drain was blocked by PodDisruptionBudget or availability constraints; the update is paused until allowDowntime is enabled or the workload becomes evictable."
+}
+
+// nodeReadyForMachineは、workload cluster上で対象NodeがReadyであることを観測する。Nodeがまだworkload clusterへ参加していない
+// 場合は観測対象が存在しないため、update後の回復確認としては満たされたものとして扱う。
+func nodeReadyForMachine(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine, providerID string) (bool, string) {
+	clientset, err := workloadClientForMachine(ctx, kubeClient, machine)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, ""
+		}
+		return false, "The workload cluster Kubernetes client is not available while verifying the Node after the machine configuration update."
+	}
+	observationContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	defer cancel()
+	node, err := findNodeByProviderID(observationContext, clientset, providerID)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, ""
+		}
+		return false, "The workload cluster Node could not be observed while verifying it after the machine configuration update."
+	}
+	for _, condition := range node.Status.Conditions {
+		if condition.Type == corev1.NodeReady && condition.Status == corev1.ConditionTrue {
+			if node.Spec.Unschedulable && node.Annotations[updateCordonAnnotation] != "" {
+				// providerがupdateのためにcordonしたNodeだけを、updateの完了を確認できた時点でuncordonする。
+				if err := uncordonNode(observationContext, clientset, node); err != nil {
+					return false, "The workload cluster Node could not be uncordoned after the machine configuration update."
+				}
+			}
+			return true, ""
+		}
+	}
+	return false, "The workload cluster Node is not Ready yet after the machine configuration update."
+}
+
+// uncordonNodeは対象NodeのUnschedulableとproviderのcordon印を解除する。
+func uncordonNode(ctx context.Context, clientset kubernetes.Interface, node *corev1.Node) error {
+	updated := node.DeepCopy()
+	updated.Spec.Unschedulable = false
+	delete(updated.Annotations, updateCordonAnnotation)
+	_, err := clientset.CoreV1().Nodes().Update(ctx, updated, metav1.UpdateOptions{})
+	return err
 }

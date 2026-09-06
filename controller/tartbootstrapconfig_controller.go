@@ -121,11 +121,26 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			return r.report(ctx, &config, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.")
 		}
 		if !bytes.Equal(actual.Data[bootstrap.BootstrapSecretKey], completeConfiguration) {
-			return r.report(ctx, &config, "BootstrapSecretImmutable", "The Bootstrap Secret already contains different immutable data; create a new BootstrapConfig instead.")
+			if config.Spec.EffectiveConfigurationUpdatePolicy() == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
+				return r.report(ctx, &config, "BootstrapSecretImmutable", "The Bootstrap Secret already contains different immutable data while the update policy is InitialOnly; create a new BootstrapConfig instead.")
+			}
+			// Bootstrap Secretはimmutableなためdataを書き換えられない。update policyが変更を許す場合だけ、
+			// 同じ名前で作り直してdesired configurationをUpdate Extensionから観測できるようにする。
+			if err := r.Delete(ctx, actual); err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+			if err := r.Create(ctx, expected); err != nil {
+				if apierrors.IsAlreadyExists(err) {
+					return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
+				}
+				return ctrl.Result{}, err
+			}
+			actual = expected
 		}
 	}
 
-	// Bootstrap Secretは一度作成したら書き換えず、同じdesired stateの再concileでは既存Secretを観測してStatusだけを更新する。
+	// Bootstrap Secretはimmutableであり、同じdesired stateの再reconcileでは既存Secretを観測してStatusだけを更新する。
+	// desired configurationが変わった場合の扱いはconfiguration update policyが決める。
 	original := config.DeepCopy()
 	config.Status.Initialization.DataSecretCreated = new(true)
 	config.Status.DataSecretName = actual.Name

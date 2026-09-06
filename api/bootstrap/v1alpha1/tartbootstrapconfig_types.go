@@ -10,12 +10,52 @@ const (
 	TartBootstrapConfigReadyCondition = "Ready"
 )
 
+// ConfigurationUpdatePolicyは、稼働中NodeへTalos machine configurationの差分をどのように適用するかを表す。
+// in-place updateとreboot-free updateは別概念であり、rebootを伴う場合でも同一Machine、同一Host、同一local storageのまま
+// apply、reboot、health recoveryで完結するならin-place updateとして扱う。Machine replacementへfallbackすることはない。
+// +kubebuilder:validation:Enum=Auto;Live;Reboot;InitialOnly
+type ConfigurationUpdatePolicy string
+
+const (
+	// ConfigurationUpdatePolicyAutoは既定値であり、providerがreboot要否を判断する。
+	// Talos 1.14時点ではreboot要否を信頼できる形で判定できないため、安全側に倒してRebootと同じ扱いになる。
+	ConfigurationUpdatePolicyAuto ConfigurationUpdatePolicy = "Auto"
+	// ConfigurationUpdatePolicyLiveは、running systemへreboot-freeでapplyしてよいとユーザーが明示するadvanced optionである。
+	// 適用に失敗してもRebootへ自動fallbackせず、明示的な失敗として停止する。
+	ConfigurationUpdatePolicyLive ConfigurationUpdatePolicy = "Live"
+	// ConfigurationUpdatePolicyRebootは、configuration applyの後にproviderが安全にNode rebootをorchestrateする。
+	ConfigurationUpdatePolicyReboot ConfigurationUpdatePolicy = "Reboot"
+	// ConfigurationUpdatePolicyInitialOnlyは、初回provisioning後に変更してはいけないconfigurationを表す。
+	// 差分が検出された場合はReprovisionRequiredとして安全停止する。
+	ConfigurationUpdatePolicyInitialOnly ConfigurationUpdatePolicy = "InitialOnly"
+)
+
+// TartBootstrapConfigUpdatePolicyはmachine configuration updateの適用方針を保持する。
+type TartBootstrapConfigUpdatePolicy struct {
+	// configurationはeffective Talos machine configurationの差分をどう適用するかを指定する。既定値はAutoである。
+	// +kubebuilder:default=Auto
+	// +optional
+	Configuration ConfigurationUpdatePolicy `json:"configuration,omitempty"`
+}
+
 // TartBootstrapConfigSpecはTartBootstrapConfigのdesired stateを定義する。ユーザー所有のraw Talos configuration patchは全てimmutableなSecret-backed inputから供給し、このSpecへinline保存しない。
 // field classification: configPatchesSecretRefはmutableかつUpdate Extensionが所有するlifecycleである。通常のBootstrap reconcilerは初回Bootstrap Secretだけを生成し、稼働中Nodeへin-place変更を適用せず、live updateはUpdate Extensionが実行する。
 type TartBootstrapConfigSpec struct {
 	// configPatchesSecretRefはユーザー所有のraw Talos configuration patchを保持するimmutable Secretを任意に参照する。参照先Secretはimmutable: trueを設定しなければならない。参照先Secretのcontractは、patches keyがTalos multi-document YAMLまたはJSON patch、value keyがcomplete Talos machine configurationである。
 	// +optional
 	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
+
+	// updatePolicyはconfigPatchesSecretRefの変更によって生じるeffective machine configuration差分の適用方針である。
+	// +optional
+	UpdatePolicy TartBootstrapConfigUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
+}
+
+// EffectiveConfigurationUpdatePolicyは、未設定時の既定値を解決したconfiguration update policyを返す。
+func (s TartBootstrapConfigSpec) EffectiveConfigurationUpdatePolicy() ConfigurationUpdatePolicy {
+	if s.UpdatePolicy.Configuration == "" {
+		return ConfigurationUpdatePolicyAuto
+	}
+	return s.UpdatePolicy.Configuration
 }
 
 // TartBootstrapConfigStatusはTartBootstrapConfigのobserved stateを定義する。

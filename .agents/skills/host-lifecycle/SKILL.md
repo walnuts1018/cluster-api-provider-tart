@@ -7,7 +7,7 @@ when_to_use: TartHost、TartMachineのclaim、hardware discovery、power/boot ba
 # Host Lifecycle ガイドライン
 
 `TartHost` の登録、アロケーション、電源制御、ライフサイクル完了、およびデータ保持（Retention）を実装・レビューする際のガイドラインである。
-詳細な仕様は [Machine lifecycle](../../../docs/development/lifecycle.md) および [API contract](../../../docs/development/api-contract.md) を参照すること。
+達成すべき要件は[開発者向けドキュメント](../../../docs/development/README.md)を参照すること。
 
 ---
 
@@ -18,7 +18,7 @@ Hostの適格性分類（実装は [`host/eligibility.go`](../../../host/eligibi
 2. **`Claimed`**: `consumerRef` で特定の `TartMachine` に割り当て済み。
 3. **`Retained`**: Machine削除後に `retainedFrom` が記録され、データ保護のため自動割り当て停止。
 4. **`Reusable`**: `spec.reusePolicy: Reusable`、一致する `spec.reuseApproval.retainedFromUID`、および `spec.reuseMode`（`Adopt` または `Reprovision`）が揃った状態。Reusable Hostは`TartMachine.spec.hostRef`による明示的な指定でだけclaimでき、自動選択の対象にはならない。
-   - `Reprovision`のTalos Resetは、`TartHost.status.currentTalosIdentityRef`が指すrecovery Secret（provider管理namespace上のimmutable Secret）から短命な`os:admin`証明書を発行して旧Talos APIへ認証し、cluster ID・MAC・system UUID・endpointをすべて照合できた場合にだけ実行する。詳細は[`recovery/`](../../../recovery)と`docs/development/lifecycle.md`の「Reprovision Flow」を参照する。
+   - `Reprovision`のTalos Resetは、recovery Secret(実装は[`recovery/`](../../../recovery))から短命な`os:admin`証明書を発行して旧Talos APIへ認証し、cluster ID・MAC・system UUID・endpointをすべて照合できた場合にだけ実行する。
 
 ---
 
@@ -44,7 +44,5 @@ Hostの適格性分類（実装は [`host/eligibility.go`](../../../host/eligibi
 
 ## 参照ドキュメント・コード
 
-- ライフサイクルと状態遷移: [`docs/development/lifecycle.md`](../../../docs/development/lifecycle.md)
-- API契約: [`docs/development/api-contract.md`](../../../docs/development/api-contract.md)
-- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
-- 実装コード: [`host/`](../../../host), [`boot/`](../../../boot)
+- 達成すべき要件: [`docs/development/README.md`](../../../docs/development/README.md)
+- 実装コード: [`host/`](../../../host), [`boot/`](../../../boot), [`recovery/`](../../../recovery)

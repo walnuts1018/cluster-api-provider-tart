@@ -7,7 +7,7 @@ when_to_use: Resource、Provider、controller、外部adapterの設計・実装�
 # Tartアーキテクチャ規約
 
 Tartのアーキテクチャ設計・実装・レビューを行う際のガイドラインである。
-詳細な設計仕様は [アーキテクチャ](../../../docs/development/architecture.md) および [設計判断と非目標](../../../docs/development/decisions.md) を参照すること。
+達成すべき要件・非目標は[開発者向けドキュメント](../../../docs/development/README.md)を参照すること。
 
 ---
 
@@ -45,6 +45,4 @@ Tartのアーキテクチャ設計・実装・レビューを行う際のガイ�
 
 ## 参照ドキュメント・コード
 
-- 全体アーキテクチャ: [`docs/development/architecture.md`](../../../docs/development/architecture.md)
-- API契約と不変条件: [`docs/development/api-contract.md`](../../../docs/development/api-contract.md)
-- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
+- 達成すべき要件・非目標: [`docs/development/README.md`](../../../docs/development/README.md)

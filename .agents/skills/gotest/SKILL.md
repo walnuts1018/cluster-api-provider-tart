@@ -35,5 +35,4 @@ go test ./... -v
 
 対象はHost claimの競合結果、Retained gate、Cluster ID不一致によるbundle/Adopt拒否、TemplateやSSA dry-runでIDを生成しないこと、preset IDの通常CREATE拒否とrestore-approved復元、pending secret generationをrotation開始前に永続化すること、rotation対象外CAやkeyを変更しないこと、unsafe diffのfail-closed判定、Secret参照名ではなくresolved configurationのsemantic diffを使うこと、availability理由と`allowDowntime`の判定、reuse approvalの世代不一致、quorum判定、configuration invariant conflict、redacted semantic digestなどとする。
 
-Kubernetes API、CAPI Runtime Extension、Webhook、Secret contract、controller restartは必要に応じてenvtestまたは契約テストで検証する。CAPI minorごとのunsafe diffでMachineSet、Machine、TartHost claimが作られないこと、実機のTalos、storage、reboot、rollback、drainはE2Eで検証する。
-対象、実行範囲、envtestやE2Eの扱いは[検証方針](../../../docs/development/verification.md)へ記録する。
+Kubernetes API、CAPI Runtime Extension、Webhook、Secret contract、controller restartは必要に応じてenvtestまたは契約テストで検証する。CAPI minorごとのunsafe diffでMachineSet、Machine、TartHost claimが作られないこと、実機のTalos、storage、reboot、rollback、drainはE2Eで検証する(実機・VMでの検証はユーザー自身が行う)。

@@ -7,7 +7,7 @@ when_to_use: Talos client、Bootstrap Config、installation、hardware discovery
 # Talos 連携ガイドライン
 
 Talos Linux APIとの通信、machine configurationの合成、OSインストール/アップグレードの委譲を実装・レビューする際のガイドラインである。
-詳細な仕様は [Talos連携](../../../docs/development/talos.md) および [Machine lifecycle](../../../docs/development/lifecycle.md) を参照すること。
+達成すべき要件は[開発者向けドキュメント](../../../docs/development/README.md)を参照すること。
 
 ---
 
@@ -40,7 +40,6 @@ Talos Linux APIとの通信、machine configurationの合成、OSインストー
 
 ## 参照ドキュメント・コード
 
-- Talos連携仕様: [`docs/development/talos.md`](../../../docs/development/talos.md)
-- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
+- 達成すべき要件: [`docs/development/README.md`](../../../docs/development/README.md)
 - Talosアダプターコード: [`talos/`](../../../talos)
 - Bootstrap合成コード: [`bootstrap/`](../../../bootstrap)

@@ -7,7 +7,7 @@ when_to_use: Kubernetes ResourceのReconcile、Status、finalizer、外部副作
 # Reconcile 実装ガイドライン
 
 TartコントローラーにおけるReconcileループ、Server-Side Apply（SSA）、Status更新、および外部副作用の扱いに関するガイドラインである。
-詳細な仕様は [アーキテクチャ](../../../docs/development/architecture.md) および [Machine lifecycle](../../../docs/development/lifecycle.md) を参照すること。
+達成すべき要件は[開発者向けドキュメント](../../../docs/development/README.md)を参照すること。
 
 ---
 
@@ -50,7 +50,5 @@ read desired state
 
 ## 参照ドキュメント・コード
 
-- Reconcile原則: [`docs/development/architecture.md`](../../../docs/development/architecture.md)
-- ライフサイクルと状態遷移: [`docs/development/lifecycle.md`](../../../docs/development/lifecycle.md)
-- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
+- 達成すべき要件: [`docs/development/README.md`](../../../docs/development/README.md)
 - コントローラーコード: [`controller/`](../../../controller)

@@ -7,7 +7,7 @@ when_to_use: CAPI Resource、Provider contract、Controller、ClusterClass、Run
 # Cluster API実装ガイドライン
 
 Cluster API（CAPI）Providerとしての契約、リソース連携、およびRuntime Extensionの実装・レビューを行う際のガイドラインである。
-詳細な契約仕様は [API contract](../../../docs/development/api-contract.md) を参照すること。
+達成すべき要件は[開発者向けドキュメント](../../../docs/development/README.md)を参照すること。詳細な契約はCAPI公式ドキュメントとコード([`api/`](../../../api))を正本とする。
 
 ---
 
@@ -43,7 +43,5 @@ Cluster API（CAPI）Providerとしての契約、リソース連携、および
 
 ## 参照ドキュメント・コード
 
-- CAPI契約と不変条件: [`docs/development/api-contract.md`](../../../docs/development/api-contract.md)
-- ライフサイクルと状態遷移: [`docs/development/lifecycle.md`](../../../docs/development/lifecycle.md)
-- 未実装タスク一覧: [`docs/development/tasks.md`](../../../docs/development/tasks.md)
+- 達成すべき要件・非目標: [`docs/development/README.md`](../../../docs/development/README.md)
 - Go型定義: [`api/`](../../../api)

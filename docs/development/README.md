@@ -1,7 +1,5 @@
 # 開発者向けドキュメント
 
-Tartが達成すべき要件とユースケース、および非目標を記す。実装方針・API契約・アルゴリズムの詳細はコードとそのコメント([`api/`](../../api)、[`controller/`](../../controller)、[`adapter/talos/`](../../adapter/talos)等)を正本とし、ここには複製しない。設計・実装レビューの着眼点は[`.agents/skills/`](../../.agents/skills)を参照する。
-
 ## 達成すべきユースケース
 
 1. 何も入っていないbare-metal PC/rackサーバーがWake-on-LANまたはRedfishで起動し、netboot経由でTalos Image FactoryのPXE配信からkernel/initramfsをロードし、Talosがインストールされ、再起動後にClusterが完成する。

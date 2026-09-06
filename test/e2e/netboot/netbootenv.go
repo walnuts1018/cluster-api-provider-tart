@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/dhcp"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/httpboot"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	domainnetboot "github.com/walnuts1018/cluster-api-provider-tart/domain/netboot"
@@ -75,13 +76,24 @@ func Start(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("create TartHost image resolver: %w", err)
 	}
 
+	// AdvertiseHTTPBaseURLが未設定の場合、cmd/netboot-server/main.goと同じ規則で自動解決する
+	// (adapter/netboot.NewServer自体は明示値を必須とし、自動解決ロジックを持たない)。
+	advertiseHTTPBaseURL := cfg.AdvertiseHTTPBaseURL
+	if advertiseHTTPBaseURL == "" {
+		resolvedURL, resolveErr := dhcp.DefaultAdvertiseHTTPBaseURL(cfg.DHCPBindAddress, cfg.HTTPBindAddress, cfg.AdvertiseAddress)
+		if resolveErr != nil {
+			return nil, fmt.Errorf("resolve default advertise HTTP base URL: %w", resolveErr)
+		}
+		advertiseHTTPBaseURL = resolvedURL
+	}
+
 	serverConfig := netboot.Config{
 		TFTPRoot:               cfg.TFTPRoot,
 		DHCPBindAddress:        cfg.DHCPBindAddress,
 		TFTPBindAddress:        cfg.TFTPBindAddress,
 		HTTPBindAddress:        cfg.HTTPBindAddress,
 		AdvertiseAddress:       cfg.AdvertiseAddress,
-		AdvertiseHTTPBaseURL:   cfg.AdvertiseHTTPBaseURL,
+		AdvertiseHTTPBaseURL:   advertiseHTTPBaseURL,
 		ImageFactoryPXEBaseURL: cfg.ImageFactoryPXEBaseURL,
 		DiscoveryImage: domainnetboot.DiscoveryImage{
 			Version:     cfg.DiscoveryTalosVersion,

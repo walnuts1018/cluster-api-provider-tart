@@ -32,6 +32,7 @@ import (
 	machinerynetwork "github.com/siderolabs/talos/pkg/machinery/resources/network"
 	machineryruntime "github.com/siderolabs/talos/pkg/machinery/resources/runtime"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
@@ -399,6 +400,80 @@ func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) e
 		Mode: machine.ApplyConfigurationRequest_AUTO,
 	}); err != nil {
 		return fmt.Errorf("apply talos machine configuration: %w", err)
+	}
+	return nil
+}
+
+// ApplyConfigurationLiveは、稼働中nodeへrebootなしでmachine configurationを適用する。ユーザーがLive policyを明示した場合だけ使い、
+// 失敗してもrebootを伴う適用へ自動fallbackしない(fallbackするかどうかは呼び出し側のpolicy判断であり、この層では行わない)。
+func (c *Client) ApplyConfigurationLive(ctx context.Context, configuration []byte) error {
+	return c.applyConfiguration(ctx, configuration, machine.ApplyConfigurationRequest_NO_REBOOT)
+}
+
+// ApplyConfigurationWithRebootは、machine configurationを適用したうえでTalosへrebootを実行させる。
+// installationとdataはそのまま保持され、同一nodeがdesired configurationで起動し直す。
+func (c *Client) ApplyConfigurationWithReboot(ctx context.Context, configuration []byte) error {
+	return c.applyConfiguration(ctx, configuration, machine.ApplyConfigurationRequest_REBOOT)
+}
+
+func (c *Client) applyConfiguration(ctx context.Context, configuration []byte, mode machine.ApplyConfigurationRequest_Mode) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if len(configuration) == 0 {
+		return errors.New("talos machine configuration is empty")
+	}
+	if _, err := c.raw.ApplyConfiguration(ctx, &machine.ApplyConfigurationRequest{
+		Data: configuration,
+		Mode: mode,
+	}); err != nil {
+		return fmt.Errorf("apply talos machine configuration: %w", err)
+	}
+	return nil
+}
+
+// BootTimeは稼働中nodeのboot時刻(Unix秒)を観測する。値の変化はnodeが実際に再起動したことの観測根拠になる。
+func (c *Client) BootTime(ctx context.Context) (uint64, error) {
+	if c == nil || c.raw == nil {
+		return 0, ErrClientUnavailable
+	}
+	response, err := c.raw.MachineClient.SystemStat(ctx, &emptypb.Empty{})
+	if err != nil {
+		return 0, fmt.Errorf("get talos system stat: %w", err)
+	}
+	for _, message := range response.GetMessages() {
+		if bootTime := message.GetBootTime(); bootTime != 0 {
+			return bootTime, nil
+		}
+	}
+	return 0, errors.New("talos system stat does not report a boot time")
+}
+
+// ServicesHealthyは、Talosが管理するserviceのうちhealth checkを持つものが全てhealthyであることを確認する。
+// update後にnodeが回復したことをTalos側から観測するために使う。
+func (c *Client) ServicesHealthy(ctx context.Context) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	response, err := c.raw.ServiceList(ctx)
+	if err != nil {
+		return fmt.Errorf("list talos services: %w", err)
+	}
+	observed := false
+	for _, message := range response.GetMessages() {
+		for _, service := range message.GetServices() {
+			observed = true
+			health := service.GetHealth()
+			if health == nil || health.GetUnknown() {
+				continue
+			}
+			if !health.GetHealthy() {
+				return fmt.Errorf("talos service %s is not healthy", service.GetId())
+			}
+		}
+	}
+	if !observed {
+		return errors.New("talos does not report any service state")
 	}
 	return nil
 }

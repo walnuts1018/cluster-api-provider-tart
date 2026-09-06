@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cluster-api-provider-tart-system
+
+namePrefix: cluster-api-provider-tart-
+
+labels:
+- includeSelectors: true
+  pairs:
+    cluster.x-k8s.io/provider: bootstrap-tart
+
+resources:
+- ../../crd/bootstrap
+- ../../rbac/bootstrap
+- ../../manager/bootstrap
+- metrics_service.yaml
+
+patches:
+- path: ../manager_metrics_patch.yaml
+  target:
+    kind: Deployment
+    name: bootstrap-controller-manager
+
+replacements:
+- source:
+    kind: ServiceAccount
+    version: v1
+    name: bootstrap-controller-manager
+    fieldPath: metadata.name
+  targets:
+  - select:
+      kind: Deployment
+      name: bootstrap-controller-manager
+    fieldPaths:
+    - spec.template.spec.serviceAccountName

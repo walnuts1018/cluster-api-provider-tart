@@ -27,6 +27,12 @@ type TalosRecoveryReconciler struct {
 	ManagementNamespace string
 }
 
+// NewTalosRecoveryReconcilerはclientのみを設定したTalosRecoveryReconcilerを構築する。
+// ManagementNamespaceはDI wiringの呼び出し元が必要に応じて後から設定する。
+func NewTalosRecoveryReconciler(c client.Client) *TalosRecoveryReconciler {
+	return &TalosRecoveryReconciler{Client: c}
+}
+
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch
 

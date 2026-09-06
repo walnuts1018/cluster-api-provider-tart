@@ -1,0 +1,9 @@
+apiVersion: operator.cluster.x-k8s.io/v1alpha2
+kind: BootstrapProvider
+metadata:
+  name: tart
+  namespace: cluster-api-provider-tart-system
+spec:
+  version: REPLACE_WITH_RELEASE_VERSION
+  fetchConfig:
+    url: https://github.com/walnuts1018/cluster-api-provider-tart/releases

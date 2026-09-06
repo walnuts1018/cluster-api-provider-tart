@@ -57,6 +57,12 @@ type TartMachineReconciler struct {
 	TalosDialer TalosDialer
 }
 
+// NewTartMachineReconcilerはclientのみを設定したTartMachineReconcilerを構築する。ManagementNamespaceや
+// TalosDialerなどのoptional fieldはDI wiringの呼び出し元が必要に応じて後から設定する。
+func NewTartMachineReconciler(c client.Client) *TartMachineReconciler {
+	return &TartMachineReconciler{Client: c}
+}
+
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch

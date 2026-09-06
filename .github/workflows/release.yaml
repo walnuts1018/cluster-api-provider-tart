@@ -121,8 +121,12 @@ jobs:
           set -euo pipefail
           gh release upload "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
+            out/bootstrap-components.yaml \
+            out/control-plane-components.yaml \
             out/infrastructure-components.yaml \
             out/metadata.yaml \
+            out/bootstrap-provider.yaml \
+            out/control-plane-provider.yaml \
             out/infrastructure-provider.yaml
 
       - name: Publish release

@@ -34,6 +34,12 @@ type TartHostReconciler struct {
 	Recorder record.EventRecorder
 }
 
+// NewTartHostReconcilerはclientのみを設定したTartHostReconcilerを構築する。ManagementNamespaceや
+// Recorderなどのoptional fieldはDI wiringの呼び出し元が必要に応じて後から設定する。
+func NewTartHostReconciler(c client.Client) *TartHostReconciler {
+	return &TartHostReconciler{Client: c}
+}
+
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get

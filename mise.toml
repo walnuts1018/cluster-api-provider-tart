@@ -30,16 +30,25 @@ description = "Goの生成コードを生成する"
 run = "go generate ./..."
 
 [tasks.manifests]
-description = "CRDとRBAC manifestをcontroller-genで生成する"
-run = "controller-gen object paths=./api/... && controller-gen rbac:roleName=manager-role paths=./controller/... output:rbac:artifacts:config=config/rbac"
+description = "CRDとRBAC manifestをprovider(bootstrap/control-plane/infrastructure)ごとにcontroller-genで生成する"
+run = """
+controller-gen object paths=./api/...
+controller-gen rbac:roleName=bootstrap-manager-role paths=./controller/tartbootstrapconfig/... output:rbac:artifacts:config=config/rbac/bootstrap
+controller-gen rbac:roleName=control-plane-manager-role paths=./controller/tartcontrolplane/... paths=./controller/runtimeextension/... output:rbac:artifacts:config=config/rbac/control-plane
+controller-gen rbac:roleName=infrastructure-manager-role paths=./controller/tarthost/... paths=./controller/tartcluster/... paths=./controller/tartmachine/... paths=./controller/talosrecovery/... output:rbac:artifacts:config=config/rbac/infrastructure
+"""
 
 [tasks.crd]
 description = "CRD manifestをcontroller-genで生成する"
 run = "controller-gen crd paths=./api/... output:crd:artifacts:config=config/crd/bases"
 
 [tasks.build]
-description = "controller-managerをcompileする"
-run = "go build ./cmd/controller-manager"
+description = "bootstrap-manager/control-plane-manager/infrastructure-managerをcompileする"
+run = """
+go build ./cmd/bootstrap-manager
+go build ./cmd/control-plane-manager
+go build ./cmd/infrastructure-manager
+"""
 
 [tasks."build-netboot-server"]
 description = "netboot-serverをcompileする"
@@ -71,5 +80,5 @@ depends = ["build-golangci-lint"]
 run = "./bin/custom-gcl run --fix ./..."
 
 [tasks."release-manifests"]
-description = "clusterctl/cluster-api-operator向けのinfrastructure-components.yaml等を生成する(CONTROLLER_IMAGE, NETBOOT_SERVER_IMAGEが必須)"
+description = "clusterctl/cluster-api-operator向けのbootstrap/control-plane/infrastructure-components.yaml等を生成する(BOOTSTRAP_MANAGER_IMAGE, CONTROL_PLANE_MANAGER_IMAGE, INFRASTRUCTURE_MANAGER_IMAGE, NETBOOT_SERVER_IMAGEが必須)"
 run = "./scripts/release-manifests/run.sh"

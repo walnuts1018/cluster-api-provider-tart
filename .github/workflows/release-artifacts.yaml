@@ -97,19 +97,27 @@ jobs:
       - name: Record image digests
         shell: bash
         env:
-          MANAGER_DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)['manager']['containerimage.digest'] }}
+          BOOTSTRAP_MANAGER_DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)['bootstrap-manager']['containerimage.digest'] }}
+          CONTROL_PLANE_MANAGER_DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)['control-plane-manager']['containerimage.digest'] }}
+          INFRASTRUCTURE_MANAGER_DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)['infrastructure-manager']['containerimage.digest'] }}
           NETBOOT_SERVER_DIGEST: ${{ fromJSON(steps.bake.outputs.metadata)['netboot-server']['containerimage.digest'] }}
         run: |
           set -euo pipefail
 
-          [[ "$MANAGER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$BOOTSTRAP_MANAGER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$CONTROL_PLANE_MANAGER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$INFRASTRUCTURE_MANAGER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$NETBOOT_SERVER_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
 
           mkdir -p \
-            "${RUNNER_TEMP}/digests/manager" \
+            "${RUNNER_TEMP}/digests/bootstrap-manager" \
+            "${RUNNER_TEMP}/digests/control-plane-manager" \
+            "${RUNNER_TEMP}/digests/infrastructure-manager" \
             "${RUNNER_TEMP}/digests/netboot-server"
 
-          : > "${RUNNER_TEMP}/digests/manager/${MANAGER_DIGEST#sha256:}"
+          : > "${RUNNER_TEMP}/digests/bootstrap-manager/${BOOTSTRAP_MANAGER_DIGEST#sha256:}"
+          : > "${RUNNER_TEMP}/digests/control-plane-manager/${CONTROL_PLANE_MANAGER_DIGEST#sha256:}"
+          : > "${RUNNER_TEMP}/digests/infrastructure-manager/${INFRASTRUCTURE_MANAGER_DIGEST#sha256:}"
           : > "${RUNNER_TEMP}/digests/netboot-server/${NETBOOT_SERVER_DIGEST#sha256:}"
 
       - name: Upload image digests
@@ -130,7 +138,9 @@ jobs:
       id-token: write
       attestations: write
     outputs:
-      controller_image: ${{ steps.publish.outputs.manager_image }}
+      bootstrap_manager_image: ${{ steps.publish.outputs.bootstrap_manager_image }}
+      control_plane_manager_image: ${{ steps.publish.outputs.control_plane_manager_image }}
+      infrastructure_manager_image: ${{ steps.publish.outputs.infrastructure_manager_image }}
       netboot_server_image: ${{ steps.publish.outputs.netboot_server_image }}
     steps:
       - name: Download image digests
@@ -161,7 +171,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          for target in manager netboot-server; do
+          for target in bootstrap-manager control-plane-manager infrastructure-manager netboot-server; do
             image="${REGISTRY}/${REPOSITORY}/${target}"
             dir="${DIGEST_DIR}/${target}"
             metadata="${RUNNER_TEMP}/${target}-manifest.json"
@@ -210,11 +220,27 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           done
 
-      - name: Attest manager image
+      - name: Attest bootstrap-manager image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/manager
-          subject-digest: ${{ steps.publish.outputs.manager_digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/bootstrap-manager
+          subject-digest: ${{ steps.publish.outputs.bootstrap_manager_digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest control-plane-manager image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/control-plane-manager
+          subject-digest: ${{ steps.publish.outputs.control_plane_manager_digest }}
+          push-to-registry: true
+          create-storage-record: false
+
+      - name: Attest infrastructure-manager image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository }}/infrastructure-manager
+          subject-digest: ${{ steps.publish.outputs.infrastructure_manager_digest }}
           push-to-registry: true
           create-storage-record: false
 
@@ -251,7 +277,9 @@ jobs:
 
       - name: Render clusterctl manifests
         env:
-          CONTROLLER_IMAGE: ${{ needs.merge.outputs.controller_image }}
+          BOOTSTRAP_MANAGER_IMAGE: ${{ needs.merge.outputs.bootstrap_manager_image }}
+          CONTROL_PLANE_MANAGER_IMAGE: ${{ needs.merge.outputs.control_plane_manager_image }}
+          INFRASTRUCTURE_MANAGER_IMAGE: ${{ needs.merge.outputs.infrastructure_manager_image }}
           NETBOOT_SERVER_IMAGE: ${{ needs.merge.outputs.netboot_server_image }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./scripts/release-manifests/run.sh out
@@ -260,8 +288,12 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
+            out/bootstrap-components.yaml
+            out/control-plane-components.yaml
             out/infrastructure-components.yaml
             out/metadata.yaml
+            out/bootstrap-provider.yaml
+            out/control-plane-provider.yaml
             out/infrastructure-provider.yaml
 
       - name: Upload rendered manifests

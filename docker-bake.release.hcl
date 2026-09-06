@@ -25,7 +25,9 @@ variable "PLATFORM" {
 
 group "default" {
   targets = [
-    "manager",
+    "bootstrap-manager",
+    "control-plane-manager",
+    "infrastructure-manager",
     "netboot-server",
   ]
 }
@@ -48,17 +50,37 @@ target "_common" {
 }
 
 
-target "manager" {
+target "bootstrap-manager" {
   inherits = [
     "_common",
   ]
-  target = "manager"
-  # manager / netboot-serverでbuilderを共有しているのでGHA cache exportは片方だけでよい。
+  target = "bootstrap-manager"
+  output = [
+    "type=image,name=${REGISTRY}/${REPO}/bootstrap-manager,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true",
+  ]
+}
+
+target "control-plane-manager" {
+  inherits = [
+    "_common",
+  ]
+  target = "control-plane-manager"
+  output = [
+    "type=image,name=${REGISTRY}/${REPO}/control-plane-manager,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true",
+  ]
+}
+
+target "infrastructure-manager" {
+  inherits = [
+    "_common",
+  ]
+  target = "infrastructure-manager"
+  # 4つのtargetでbuilderを共有しているのでGHA cache exportは代表1つだけでよい。
   cache-to = [
     "type=gha,mode=max,scope=build-${ARCH_KEY},ignore-error=true",
   ]
   output = [
-    "type=image,name=${REGISTRY}/${REPO}/manager,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true",
+    "type=image,name=${REGISTRY}/${REPO}/infrastructure-manager,push-by-digest=true,name-canonical=true,push=true,compression=zstd,oci-mediatypes=true",
   ]
 }
 

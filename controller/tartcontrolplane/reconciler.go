@@ -64,6 +64,12 @@ type TartControlPlaneReconciler struct {
 	KubernetesUpgradeIdentity string
 }
 
+// NewTartControlPlaneReconcilerはclientのみを設定したTartControlPlaneReconcilerを構築する。
+// KubernetesUpgradeなどのoptional fieldはDI wiringの呼び出し元が必要に応じて後から設定する。
+func NewTartControlPlaneReconciler(c client.Client) *TartControlPlaneReconciler {
+	return &TartControlPlaneReconciler{Client: c}
+}
+
 type controlPlaneFailure struct {
 	reason  string
 	message string

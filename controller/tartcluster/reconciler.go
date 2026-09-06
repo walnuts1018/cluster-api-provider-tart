@@ -28,6 +28,11 @@ type TartClusterReconciler struct {
 	client.Client
 }
 
+// NewTartClusterReconcilerはclientのみを設定したTartClusterReconcilerを構築する。
+func NewTartClusterReconciler(c client.Client) *TartClusterReconciler {
+	return &TartClusterReconciler{Client: c}
+}
+
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=list;watch

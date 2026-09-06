@@ -32,6 +32,11 @@ type TartBootstrapConfigReconciler struct {
 	Renderer bootstrap.ConfigRenderer
 }
 
+// NewTartBootstrapConfigReconcilerはclientとConfigRendererを設定したTartBootstrapConfigReconcilerを構築する。
+func NewTartBootstrapConfigReconciler(c client.Client, renderer bootstrap.ConfigRenderer) *TartBootstrapConfigReconciler {
+	return &TartBootstrapConfigReconciler{Client: c, Renderer: renderer}
+}
+
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create

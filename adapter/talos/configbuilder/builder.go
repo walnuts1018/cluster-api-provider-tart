@@ -16,6 +16,10 @@ var (
 	_ usecaseupdate.ConfigDiffClassifier = Builder{}
 )
 
+func NewBuilder() Builder {
+	return Builder{}
+}
+
 func (Builder) Render(base []byte, patches ...[]byte) ([]byte, error) {
 	return RenderEffectiveConfiguration(base, patches...)
 }

@@ -1,0 +1,91 @@
+package controlplane
+
+import "testing"
+
+func TestCanRemoveMember(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		observation RemovalObservation
+		want        bool
+	}{
+		"removes healthy member while retaining quorum": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 3, TargetHealthy: true, TargetHealthObserved: true},
+			want:        true,
+		},
+		"removes known unhealthy member while retaining quorum": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 2, TargetHealthObserved: true},
+			want:        true,
+		},
+		"rejects healthy member removal when remaining set loses quorum": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 2, TargetHealthy: true, TargetHealthObserved: true},
+			want:        false,
+		},
+		"rejects unhealthy current cluster": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 1, TargetHealthObserved: true},
+			want:        false,
+		},
+		"rejects unknown target health": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 3},
+			want:        false,
+		},
+		"rejects removal of the last member": {
+			observation: RemovalObservation{MemberCount: 1, HealthyMemberCount: 1, TargetHealthy: true, TargetHealthObserved: true},
+			want:        false,
+		},
+		"rejects inconsistent healthy count": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 3, TargetHealthObserved: true},
+			want:        false,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := CanRemoveMember(tt.observation); got != tt.want {
+				t.Errorf("CanRemoveMember() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCanTemporarilyDisruptMember(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		observation RemovalObservation
+		want        bool
+	}{
+		"single member can restart": {
+			observation: RemovalObservation{MemberCount: 1, HealthyMemberCount: 1, TargetHealthy: true, TargetHealthObserved: true},
+			want:        true,
+		},
+		"three members retain quorum": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 3, TargetHealthy: true, TargetHealthObserved: true},
+			want:        true,
+		},
+		"two members cannot lose one during restart": {
+			observation: RemovalObservation{MemberCount: 2, HealthyMemberCount: 2, TargetHealthy: true, TargetHealthObserved: true},
+			want:        false,
+		},
+		"unhealthy target is rejected": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 2, TargetHealthObserved: true},
+			want:        false,
+		},
+		"unknown target is rejected": {
+			observation: RemovalObservation{MemberCount: 3, HealthyMemberCount: 3, TargetHealthy: true},
+			want:        false,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := CanTemporarilyDisruptMember(tt.observation); got != tt.want {
+				t.Errorf("CanTemporarilyDisruptMember() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}

@@ -17,6 +17,15 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
+func mustParseMACAddress(t *testing.T, value string) network.MACAddress {
+	t.Helper()
+	address, err := network.ParseMACAddress(value)
+	if err != nil {
+		t.Fatalf("ParseMACAddress(%q) error = %v", value, err)
+	}
+	return address
+}
+
 func TestBuildRedfishBackendUsesProviderManagementSecret(t *testing.T) {
 	t.Parallel()
 
@@ -47,11 +56,12 @@ func TestBuildRedfishBackendUsesProviderManagementSecret(t *testing.T) {
 		Data:      map[string][]byte{"username": []byte("operator"), "password": []byte("secret")},
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(credential).Build()
+	macAddress := mustParseMACAddress(t, "00:00:5e:00:53:01")
 	host := &infrav1alpha1.TartHost{
 		Name: "host-a",
 		UID:  types.UID("host-a"),
 		Spec: infrav1alpha1.TartHostSpec{
-			MACAddress: network.MACAddress("00:00:5e:00:53:01"),
+			MACAddress: macAddress,
 			Power: infrav1alpha1.PowerSpec{
 				Backend: infrav1alpha1.PowerBackendRedfish,
 				Redfish: &infrav1alpha1.RedfishPowerConfig{

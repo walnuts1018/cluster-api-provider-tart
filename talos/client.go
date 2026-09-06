@@ -850,7 +850,7 @@ func (c *Client) SchematicID(ctx context.Context) (string, error) {
 
 func parseHardwareAddress(value []byte) (network.MACAddress, error) {
 	if len(value) == 0 {
-		return network.MACAddress(""), nil
+		return network.MACAddress{}, nil
 	}
 	return network.ParseMACAddress(net.HardwareAddr(value).String())
 }

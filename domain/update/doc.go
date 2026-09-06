@@ -1,0 +1,3 @@
+// Package updateは稼働中Talos Nodeへmachine configuration差分をin-place適用してよいかの判定に関する値オブジェクトと純粋関数を提供する。
+// このpackageはTalos machinery型を含む重い外部依存を持たず、policy分類やapply mode決定だけを扱う。実際のconfiguration差分評価やTalos API呼び出しはusecase/adapter層へ委譲する。
+package update

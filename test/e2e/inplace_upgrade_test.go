@@ -46,53 +46,58 @@ type upgradeIdentityRecord struct {
 
 var recordedIdentity upgradeIdentityRecord
 
-var _ = Describe("InPlaceUpgrade", Ordered, func() {
-	BeforeAll(func() {
-		By("recording pre-upgrade identity (Machine/TartMachine/TartHost binding/Node UID) and writing a checksummed marker")
-		recordedIdentity = recordCurrentIdentity()
+// inPlaceUpgradeSpecsは、InPlaceUpgrade specをginkgoのspec treeへ登録する。suite_test.goの
+// 共通Ordered containerからfreshProvisionSpecsの後に呼び出される想定である(FreshProvisionが
+// 構築した同一clusterをそのまま利用するため)。
+func inPlaceUpgradeSpecs() {
+	Describe("InPlaceUpgrade", Ordered, func() {
+		BeforeAll(func() {
+			By("recording pre-upgrade identity (Machine/TartMachine/TartHost binding/Node UID) and writing a checksummed marker")
+			recordedIdentity = recordCurrentIdentity()
+		})
+
+		It("upgrades Talos OS in place without replacing the Machine or losing disk-backed data", func() {
+			// TODO: TartMachineTemplate.spec.template.spec.imageの更新だけで既存TartMachineへ
+			// desired imageが伝播するのか、CAPI Update Extension経由で個々のTartMachine.spec.image
+			// への直接patchが必要なのかは、controller/tartmachine, controller/tartcontrolplane
+			// reconcilerの実装挙動を実CIで確認して確定する必要がある。骨格実装では両方を明示的に
+			// 更新することで、どちらの経路でもTalosUpToDate=Trueへ収束することを期待する。
+			By("bumping TartMachineTemplate's desired Talos image and waiting for TalosUpToDate")
+			var machineTemplate infrav1alpha1.TartMachineTemplate
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp"}, &machineTemplate)).To(Succeed())
+			machineTemplate.Spec.Template.Spec.Image.Version = upgradeTargetTalosVersion
+			Expect(k8sClient.Update(ctx, &machineTemplate)).To(Succeed())
+
+			var machine clusterv1.Machine
+			Expect(findMachineForCluster(e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+			var tartMachine infrav1alpha1.TartMachine
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
+			tartMachine.Spec.Image.Version = upgradeTargetTalosVersion
+			Expect(k8sClient.Update(ctx, &tartMachine)).To(Succeed())
+
+			framework.WaitForCondition(ctx, tartMachineConditions(e2eNamespace, tartMachine.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, 20*time.Minute)
+
+			assertIdentityUnchanged(recordedIdentity)
+		})
+
+		It("upgrades Kubernetes cluster-wide without replacing any Machine", func() {
+			var controlPlane controlplanev1alpha1.TartControlPlane
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &controlPlane)).To(Succeed())
+			controlPlane.Spec.Version = upgradeTargetKubernetesVersion
+			Expect(k8sClient.Update(ctx, &controlPlane)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				var updated controlplanev1alpha1.TartControlPlane
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &updated)).To(Succeed())
+				g.Expect(updated.Status.KubernetesUpgrade.ObservedVersion).To(Equal(upgradeTargetKubernetesVersion))
+			}).WithContext(ctx).WithTimeout(20 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
+
+			framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
+
+			assertIdentityUnchanged(recordedIdentity)
+		})
 	})
-
-	It("upgrades Talos OS in place without replacing the Machine or losing disk-backed data", func() {
-		// TODO: TartMachineTemplate.spec.template.spec.imageの更新だけで既存TartMachineへ
-		// desired imageが伝播するのか、CAPI Update Extension経由で個々のTartMachine.spec.image
-		// への直接patchが必要なのかは、controller/tartmachine, controller/tartcontrolplane
-		// reconcilerの実装挙動を実CIで確認して確定する必要がある。骨格実装では両方を明示的に
-		// 更新することで、どちらの経路でもTalosUpToDate=Trueへ収束することを期待する。
-		By("bumping TartMachineTemplate's desired Talos image and waiting for TalosUpToDate")
-		var machineTemplate infrav1alpha1.TartMachineTemplate
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp"}, &machineTemplate)).To(Succeed())
-		machineTemplate.Spec.Template.Spec.Image.Version = upgradeTargetTalosVersion
-		Expect(k8sClient.Update(ctx, &machineTemplate)).To(Succeed())
-
-		var machine clusterv1.Machine
-		Expect(findMachineForCluster(e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-		var tartMachine infrav1alpha1.TartMachine
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
-		tartMachine.Spec.Image.Version = upgradeTargetTalosVersion
-		Expect(k8sClient.Update(ctx, &tartMachine)).To(Succeed())
-
-		framework.WaitForCondition(ctx, tartMachineConditions(e2eNamespace, tartMachine.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, 20*time.Minute)
-
-		assertIdentityUnchanged(recordedIdentity)
-	})
-
-	It("upgrades Kubernetes cluster-wide without replacing any Machine", func() {
-		var controlPlane controlplanev1alpha1.TartControlPlane
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &controlPlane)).To(Succeed())
-		controlPlane.Spec.Version = upgradeTargetKubernetesVersion
-		Expect(k8sClient.Update(ctx, &controlPlane)).To(Succeed())
-
-		Eventually(func(g Gomega) {
-			var updated controlplanev1alpha1.TartControlPlane
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &updated)).To(Succeed())
-			g.Expect(updated.Status.KubernetesUpgrade.ObservedVersion).To(Equal(upgradeTargetKubernetesVersion))
-		}).WithContext(ctx).WithTimeout(20 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
-
-		framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
-
-		assertIdentityUnchanged(recordedIdentity)
-	})
-})
+}
 
 // recordCurrentIdentityは、Machine/TartMachine/TartHost binding/Node UIDと、data disk上へ
 // 書き込んだmarker(ConfigMapで代替。UserVolume+PV/PVC経由のファイル書き込みはlab固有の

@@ -169,6 +169,16 @@ var _ = BeforeSuite(func() {
 	// 共存できているか(競合するport 67 bindにならないか)はCI実行で確認が必要である。
 })
 
+// ginkgoは既定でtop-level containerの実行順をrandomizeするため、FreshProvision/InPlaceUpgrade/
+// ReconcileRecoveryをそれぞれ別々のtop-level Describeとして登録すると、InPlaceUpgrade/
+// ReconcileRecoveryがFreshProvisionより先に実行され、依存する共有state(TartHost/Cluster)が
+// まだ存在せず必ず失敗しうる。単一のOrdered containerへ束ね、宣言順での実行を保証する。
+var _ = Describe("Tart bare-metal lifecycle", Ordered, func() {
+	freshProvisionSpecs()
+	inPlaceUpgradeSpecs()
+	reconcileRecoverySpecs()
+})
+
 var _ = AfterSuite(func() {
 	// CurrentSpecReport().Failed()はBeforeSuiteの失敗を反映しないため(AfterSuite自体は
 	// failしていないとginkgoが判断する)、失敗有無に関わらず常にdumpする。

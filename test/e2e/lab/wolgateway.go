@@ -18,11 +18,9 @@ import (
 // 受信し、libvirt domain XMLに定義されたMACアドレスから対応するdomainを自動解決してqemu:///system
 // 経由で起動する。設定ファイルは不要で、バイナリを起動するだけで動作する。
 //
-// TODO: WoLブロードキャストパケットがGitHub Actions runner上のnetwork namespace/bridge構成で
-// gatewayのUDP listenerまで届くかは、実際のCI実行で検証が必要である(SO_BROADCASTで送信した
-// パケットがloopbackや一部のcloud runner network構成では届かない場合がある)。届かないことが
-// 判明した場合、専用のdummy/bridge interfaceを用意しBroadcastAddressとgatewayのbind先を
-// 揃える対応が必要になる。
+// 既定のbind address(127.0.0.1:9)はloopbackのみで、lab bridge宛のbroadcastパケットが
+// 届かないため、`--listen-address 0.0.0.0:9`を明示してすべてのinterfaceでlistenさせる
+// (E2Eで実際にVMが起動しないことから発覚)。
 type Gateway struct {
 	cmd        *exec.Cmd
 	stdout     bytes.Buffer
@@ -45,7 +43,7 @@ func StartGateway(ctx context.Context, binaryPath string, libvirtURI string) (*G
 	// wol-libvirt-gatewayは設定ファイルを持たず、libvirt接続URIを環境変数またはデフォルトの
 	// qemu:///systemから解決する実装のため、LIBVIRT_DEFAULT_URIで明示する。
 	//nolint:gosec // binaryPathはCIのsetup-lab actionが配置した既知のパスであり、ユーザー入力を含まない
-	cmd := exec.CommandContext(ctx, binaryPath)
+	cmd := exec.CommandContext(ctx, binaryPath, "--listen-address", "0.0.0.0:9")
 	cmd.Env = append(os.Environ(), "LIBVIRT_DEFAULT_URI="+libvirtURI)
 	cmd.Stdout = &gw.stdout
 	cmd.Stderr = &gw.stderr

@@ -39,149 +39,156 @@ const (
 	e2eKubernetesVersion = "v1.34.0"
 )
 
-var _ = Describe("FreshProvision", Ordered, func() {
-	BeforeAll(func() {
-		Expect(k8sClient.Create(ctx, &corev1.Namespace{
-			Name: e2eNamespace,
-		})).To(Or(Succeed(), WithTransform(func(err error) bool {
-			return err != nil && apierrors.IsAlreadyExists(err)
-		}, BeTrue())))
-	})
+// freshProvisionSpecsは、FreshProvision specをginkgoのspec treeへ登録する。InPlaceUpgrade/
+// ReconcileRecoveryはこのspecが構築した共有state(TartHost/Cluster)へ依存するため、suite_test.go
+// の共通Ordered containerから宣言順(Fresh→InPlace→Reconcile)で呼び出される想定である
+// (ginkgoは既定でtop-level containerの実行順をrandomizeするため、3つのDescribeを別々に
+// トップレベル登録すると依存順序が保証されない)。
+func freshProvisionSpecs() {
+	Describe("FreshProvision", Ordered, func() {
+		BeforeAll(func() {
+			Expect(k8sClient.Create(ctx, &corev1.Namespace{
+				Name: e2eNamespace,
+			})).To(Or(Succeed(), WithTransform(func(err error) bool {
+				return err != nil && apierrors.IsAlreadyExists(err)
+			}, BeTrue())))
+		})
 
-	It("registers a TartHost for the lab VM and observes hardware inventory via WoL+PXE+Talos maintenance discovery", func() {
-		mac, err := network.ParseMACAddress(controlPlaneVMMACAddress)
-		Expect(err).NotTo(HaveOccurred())
-		broadcast, err := network.ParseUDPAddress(labBroadcastAddress())
-		Expect(err).NotTo(HaveOccurred())
+		It("registers a TartHost for the lab VM and observes hardware inventory via WoL+PXE+Talos maintenance discovery", func() {
+			mac, err := network.ParseMACAddress(controlPlaneVMMACAddress)
+			Expect(err).NotTo(HaveOccurred())
+			broadcast, err := network.ParseUDPAddress(labBroadcastAddress())
+			Expect(err).NotTo(HaveOccurred())
 
-		host := &infrav1alpha1.TartHost{
-			Name: e2eHostName,
-			Spec: infrav1alpha1.TartHostSpec{
-				MACAddress:    mac,
-				Architecture:  "amd64",
-				FailureDomain: "lab",
-				Power: infrav1alpha1.PowerSpec{
-					Backend: infrav1alpha1.PowerBackendWakeOnLAN,
-					WakeOnLAN: &infrav1alpha1.WakeOnLANPowerConfig{
-						BroadcastAddress: broadcast,
-					},
-				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, host)).To(Succeed())
-
-		By("waiting for InventoryReady=True (this exercises the real WoL power-on, PXE boot, and Talos maintenance discovery path)")
-		framework.WaitForCondition(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, 15*time.Minute)
-
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, host)).To(Succeed())
-		Expect(host.Status.Inventory).NotTo(BeNil())
-		Expect(host.Status.Inventory.Disks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
-		for _, disk := range host.Status.Inventory.Disks {
-			Expect(disk.StableSelector).NotTo(BeEmpty(), "disk %+v should have a unique stable selector", disk)
-		}
-	})
-
-	It("provisions a single control-plane node via TartMachine/TartControlPlane/TartCluster using the observed StableSelector", func() {
-		var host infrav1alpha1.TartHost
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
-
-		systemDiskSelector := systemDiskStableSelector(host)
-		Expect(systemDiskSelector).NotTo(BeEmpty())
-
-		By("creating the immutable Secret-backed machine configuration patch input")
-		patchesSecret := &corev1.Secret{
-			Name: e2eClusterName + "-cp-patches", Namespace: e2eNamespace,
-			Immutable: new(true),
-			StringData: map[string]string{
-				"patches": controlPlanePatches(systemDiskSelector),
-			},
-		}
-		Expect(k8sClient.Create(ctx, patchesSecret)).To(Succeed())
-
-		By("creating TartCluster/TartMachineTemplate/TartBootstrapConfigTemplate/TartControlPlane")
-		tartCluster := &infrav1alpha1.TartCluster{
-			Name: e2eClusterName, Namespace: e2eNamespace,
-		}
-		Expect(k8sClient.Create(ctx, tartCluster)).To(Succeed())
-
-		machineTemplate := &infrav1alpha1.TartMachineTemplate{
-			Name: e2eClusterName + "-cp", Namespace: e2eNamespace,
-			Spec: infrav1alpha1.TartMachineTemplateSpec{
-				Template: infrav1alpha1.TartMachineTemplateResource{
-					Spec: infrav1alpha1.TartMachineTemplateResourceSpec{
-						HostSelector: &infrav1alpha1.HostSelector{Architecture: "amd64"},
-						Image: infrav1alpha1.TalosImageSpec{
-							Version:     e2eTalosVersion,
-							SchematicID: e2eSchematicID,
+			host := &infrav1alpha1.TartHost{
+				Name: e2eHostName,
+				Spec: infrav1alpha1.TartHostSpec{
+					MACAddress:    mac,
+					Architecture:  "amd64",
+					FailureDomain: "lab",
+					Power: infrav1alpha1.PowerSpec{
+						Backend: infrav1alpha1.PowerBackendWakeOnLAN,
+						WakeOnLAN: &infrav1alpha1.WakeOnLANPowerConfig{
+							BroadcastAddress: broadcast,
 						},
 					},
 				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, machineTemplate)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, host)).To(Succeed())
 
-		bootstrapTemplate := &bootstrapv1alpha1.TartBootstrapConfigTemplate{
-			Name: e2eClusterName + "-cp", Namespace: e2eNamespace,
-			Spec: bootstrapv1alpha1.TartBootstrapConfigTemplateSpec{
-				Template: bootstrapv1alpha1.TartBootstrapConfigTemplateResource{
-					Spec: bootstrapv1alpha1.TartBootstrapConfigTemplateResourceSpec{
-						ConfigPatchesSecretRef: &corev1.LocalObjectReference{Name: patchesSecret.Name},
-					},
+			By("waiting for InventoryReady=True (this exercises the real WoL power-on, PXE boot, and Talos maintenance discovery path)")
+			framework.WaitForCondition(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, 15*time.Minute)
+
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, host)).To(Succeed())
+			Expect(host.Status.Inventory).NotTo(BeNil())
+			Expect(host.Status.Inventory.Disks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
+			for _, disk := range host.Status.Inventory.Disks {
+				Expect(disk.StableSelector).NotTo(BeEmpty(), "disk %+v should have a unique stable selector", disk)
+			}
+		})
+
+		It("provisions a single control-plane node via TartMachine/TartControlPlane/TartCluster using the observed StableSelector", func() {
+			var host infrav1alpha1.TartHost
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
+
+			systemDiskSelector := systemDiskStableSelector(host)
+			Expect(systemDiskSelector).NotTo(BeEmpty())
+
+			By("creating the immutable Secret-backed machine configuration patch input")
+			patchesSecret := &corev1.Secret{
+				Name: e2eClusterName + "-cp-patches", Namespace: e2eNamespace,
+				Immutable: new(true),
+				StringData: map[string]string{
+					"patches": controlPlanePatches(systemDiskSelector),
 				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, bootstrapTemplate)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, patchesSecret)).To(Succeed())
 
-		replicas := int32(1)
-		controlPlane := &controlplanev1alpha1.TartControlPlane{
-			Name: e2eClusterName, Namespace: e2eNamespace,
-			Spec: controlplanev1alpha1.TartControlPlaneSpec{
-				Version:  e2eKubernetesVersion,
-				Replicas: &replicas,
-				MachineTemplate: controlplanev1alpha1.TartControlPlaneMachineTemplate{
-					Spec: controlplanev1alpha1.TartControlPlaneMachineTemplateSpec{
-						InfrastructureRef: clusterv1.ContractVersionedObjectReference{
-							Kind:     "TartMachineTemplate",
-							Name:     machineTemplate.Name,
-							APIGroup: infrav1alpha1.GroupVersion.Group,
+			By("creating TartCluster/TartMachineTemplate/TartBootstrapConfigTemplate/TartControlPlane")
+			tartCluster := &infrav1alpha1.TartCluster{
+				Name: e2eClusterName, Namespace: e2eNamespace,
+			}
+			Expect(k8sClient.Create(ctx, tartCluster)).To(Succeed())
+
+			machineTemplate := &infrav1alpha1.TartMachineTemplate{
+				Name: e2eClusterName + "-cp", Namespace: e2eNamespace,
+				Spec: infrav1alpha1.TartMachineTemplateSpec{
+					Template: infrav1alpha1.TartMachineTemplateResource{
+						Spec: infrav1alpha1.TartMachineTemplateResourceSpec{
+							HostSelector: &infrav1alpha1.HostSelector{Architecture: "amd64"},
+							Image: infrav1alpha1.TalosImageSpec{
+								Version:     e2eTalosVersion,
+								SchematicID: e2eSchematicID,
+							},
 						},
 					},
 				},
-				BootstrapConfigTemplateRef: clusterv1.ContractVersionedObjectReference{
-					Kind:     "TartBootstrapConfigTemplate",
-					Name:     bootstrapTemplate.Name,
-					APIGroup: bootstrapv1alpha1.GroupVersion.Group,
-				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, controlPlane)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, machineTemplate)).To(Succeed())
 
-		cluster := &clusterv1.Cluster{
-			Name: e2eClusterName, Namespace: e2eNamespace,
-			Spec: clusterv1.ClusterSpec{
-				// TODO: 実CI実行時、workload cluster APIサーバへE2Eテストプロセスから到達できる
-				// endpoint(lab networkのVM IP)を確定させてから設定する。現状はcontrolPlaneEndpoint
-				// を空のままにし、TartClusterがReadyになるまでの待機挙動を確認する用途に留める。
-				ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
-					Kind:     "TartControlPlane",
-					Name:     controlPlane.Name,
-					APIGroup: controlplanev1alpha1.GroupVersion.Group,
+			bootstrapTemplate := &bootstrapv1alpha1.TartBootstrapConfigTemplate{
+				Name: e2eClusterName + "-cp", Namespace: e2eNamespace,
+				Spec: bootstrapv1alpha1.TartBootstrapConfigTemplateSpec{
+					Template: bootstrapv1alpha1.TartBootstrapConfigTemplateResource{
+						Spec: bootstrapv1alpha1.TartBootstrapConfigTemplateResourceSpec{
+							ConfigPatchesSecretRef: &corev1.LocalObjectReference{Name: patchesSecret.Name},
+						},
+					},
 				},
-				InfrastructureRef: clusterv1.ContractVersionedObjectReference{
-					Kind:     "TartCluster",
-					Name:     tartCluster.Name,
-					APIGroup: infrav1alpha1.GroupVersion.Group,
-				},
-			},
-		}
-		Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+			}
+			Expect(k8sClient.Create(ctx, bootstrapTemplate)).To(Succeed())
 
-		By("waiting for TartCluster, TartControlPlane, Machine and Node to become Ready")
-		framework.WaitForCondition(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, 20*time.Minute)
-		framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
-		framework.WaitForCondition(ctx, machineConditionsForCluster(e2eNamespace, e2eClusterName), clusterv1.MachineNodeHealthyCondition, metav1.ConditionTrue, 20*time.Minute)
+			replicas := int32(1)
+			controlPlane := &controlplanev1alpha1.TartControlPlane{
+				Name: e2eClusterName, Namespace: e2eNamespace,
+				Spec: controlplanev1alpha1.TartControlPlaneSpec{
+					Version:  e2eKubernetesVersion,
+					Replicas: &replicas,
+					MachineTemplate: controlplanev1alpha1.TartControlPlaneMachineTemplate{
+						Spec: controlplanev1alpha1.TartControlPlaneMachineTemplateSpec{
+							InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+								Kind:     "TartMachineTemplate",
+								Name:     machineTemplate.Name,
+								APIGroup: infrav1alpha1.GroupVersion.Group,
+							},
+						},
+					},
+					BootstrapConfigTemplateRef: clusterv1.ContractVersionedObjectReference{
+						Kind:     "TartBootstrapConfigTemplate",
+						Name:     bootstrapTemplate.Name,
+						APIGroup: bootstrapv1alpha1.GroupVersion.Group,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, controlPlane)).To(Succeed())
+
+			cluster := &clusterv1.Cluster{
+				Name: e2eClusterName, Namespace: e2eNamespace,
+				Spec: clusterv1.ClusterSpec{
+					// TODO: 実CI実行時、workload cluster APIサーバへE2Eテストプロセスから到達できる
+					// endpoint(lab networkのVM IP)を確定させてから設定する。現状はcontrolPlaneEndpoint
+					// を空のままにし、TartClusterがReadyになるまでの待機挙動を確認する用途に留める。
+					ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
+						Kind:     "TartControlPlane",
+						Name:     controlPlane.Name,
+						APIGroup: controlplanev1alpha1.GroupVersion.Group,
+					},
+					InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+						Kind:     "TartCluster",
+						Name:     tartCluster.Name,
+						APIGroup: infrav1alpha1.GroupVersion.Group,
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
+
+			By("waiting for TartCluster, TartControlPlane, Machine and Node to become Ready")
+			framework.WaitForCondition(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, 20*time.Minute)
+			framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
+			framework.WaitForCondition(ctx, machineConditionsForCluster(e2eNamespace, e2eClusterName), clusterv1.MachineNodeHealthyCondition, metav1.ConditionTrue, 20*time.Minute)
+		})
 	})
-})
+}
 
 // tartHostConditionsは、指定名のcluster-scoped TartHostのstatus.conditionsを返すConditionGetterを作る。
 func tartHostConditions(name string) framework.ConditionGetter {

@@ -25,7 +25,7 @@ permissions:
   attestations: write
 
 concurrency:
-  group: release-${{ inputs.release_tag || github.run_id }}
+  group: release-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
@@ -39,6 +39,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Require default branch
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" == "${{ github.event.repository.default_branch }}" ]]
 
       - name: Resolve and validate tag
         id: release-target
@@ -62,9 +67,30 @@ jobs:
           git check-ref-format --allow-onelevel "refs/tags/$RELEASE_TAG"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
+  prepare-release:
+    name: Create draft release
+    needs: [validate]
+    if: inputs.release_type != 'none'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create draft release pinned to commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --generate-notes \
+            --draft
+
   artifacts:
     name: Build release artifacts
-    needs: [validate]
+    needs: [validate, prepare-release]
+    if: always() && needs.validate.result == 'success' && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     uses: ./.github/workflows/release-artifacts.yaml
     with:
       revision: ${{ github.sha }}
@@ -74,6 +100,7 @@ jobs:
   publish:
     name: Create GitHub Release
     needs: [validate, artifacts]
+    if: inputs.release_type != 'none'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -86,17 +113,48 @@ jobs:
 
       # clusterctl/cluster-api-operatorはmetadata.yaml、infrastructure-components.yamlという
       # 固定ファイル名のリリースassetを前提にしているため、ここでは名前を変更しない。
-      - name: Create release
-        if: inputs.release_type != 'none'
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: ${{ needs.validate.outputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          generate_release_notes: true
-          prerelease: ${{ inputs.release_type == 'pre-release' }}
-          make_latest: ${{ inputs.release_type == 'latest' }}
-          files: |
-            out/infrastructure-components.yaml
-            out/metadata.yaml
+      - name: Upload manifests to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            out/infrastructure-components.yaml \
+            out/metadata.yaml \
             out/infrastructure-provider.yaml
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.release_type }}" = "latest" ]; then
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=false \
+              --prerelease=false \
+              --latest
+          else
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=false \
+              --prerelease=true \
+              --latest=false
+          fi
+
+      - name: Verify immutable release and release attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          is_immutable="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isImmutable --jq .isImmutable)"
+          if [ "$is_immutable" != "true" ]; then
+            echo "release $RELEASE_TAG is not immutable" >&2
+            exit 1
+          fi
+
+          gh release verify "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"

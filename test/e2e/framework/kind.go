@@ -20,7 +20,6 @@ const (
 	// capiVersionはE2Eで初期化するCluster API coreのversionである。ci.yaml/go.modのCAPI依存
 	// (sigs.k8s.io/cluster-api v1.14.1)と揃える。
 	capiVersion   = "v1.14.1"
-	capiCoreURL   = "https://github.com/kubernetes-sigs/cluster-api/releases/download/%s/cluster-api-components.yaml"
 	tartNamespace = "cluster-api-provider-tart-system"
 )
 
@@ -55,16 +54,17 @@ func (k *KindCluster) Delete(ctx context.Context) error {
 	return nil
 }
 
-// InstallCAPICoreは、Cluster API coreのCRD/controllerをkind clusterへapplyし、Readyになるまで待つ。
-// CAPI公式manifestはcert-manager(Certificate/Issuer CRD)を前提としているため、事前にinstallする。
+// InstallCAPICoreは、clusterctl initでCluster API core(+関連するcert-manager)をkind clusterへ
+// installし、Readyになるまで待つ。
+//
+// 公式のcluster-api-components.yamlはcontainer argsに`${VAR:=default}`形式のvariableを含み、
+// clusterctlがこれをsubstituteすることを前提としている。生のkubectl applyでは展開されず、
+// managerが起動時flag parseに失敗してCrashLoopBackOffになるため、clusterctlを使う必要がある。
+// clusterctl init自体がcert-managerのinstall/待機も行う。
 func InstallCAPICore(ctx context.Context) error {
-	if err := testutils.InstallCertManager(); err != nil {
-		return fmt.Errorf("install cert-manager: %w", err)
-	}
-
-	url := fmt.Sprintf(capiCoreURL, capiVersion)
-	if _, err := testutils.Run(exec.CommandContext(ctx, "kubectl", "apply", "-f", url)); err != nil {
-		return fmt.Errorf("apply cluster-api-components: %w", err)
+	cmd := exec.CommandContext(ctx, "clusterctl", "init", "--core", "cluster-api:"+capiVersion, "--wait-providers")
+	if _, err := testutils.Run(cmd); err != nil {
+		return fmt.Errorf("clusterctl init: %w", err)
 	}
 	return waitDeploymentAvailable(ctx, "capi-system", "capi-controller-manager", 5*time.Minute)
 }

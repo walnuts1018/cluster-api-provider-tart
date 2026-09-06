@@ -4,6 +4,9 @@
 kustomize = "5.8.1"
 golangci-lint = "2.13.2"
 kind = "0.33.0"
+# E2Eでcluster-api-components.yaml中の${VAR:=default}形式のvariableをsubstituteしてCAPI coreを
+# installするために使う(生のkubectl applyではこれらのvariableが展開されず起動時にparse errorになる)。
+clusterctl = "1.14.1"
 kubebuilder = "4.15.0"
 kubectl = "1.37.0"
 jq = "1.8.2"

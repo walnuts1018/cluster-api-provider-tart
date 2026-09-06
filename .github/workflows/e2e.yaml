@@ -27,7 +27,7 @@ jobs:
         uses: ./.github/actions/setup-tools
         with:
           go-cache: "true"
-          install-args: go rust kind kubectl kustomize
+          install-args: go rust kind kubectl kustomize clusterctl
 
       - name: Verify /dev/kvm access
         run: |

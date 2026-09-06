@@ -182,8 +182,6 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: ./scripts/release-manifests/run.sh out
 
-      # clusterctl/cluster-api-operatorが取得するrelease assetの出所を検証できるよう、
-      # renderしたmanifest一式にもbuild provenance attestationを付与する。
       - name: Attest clusterctl manifests
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

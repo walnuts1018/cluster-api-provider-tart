@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
-	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
+	recovery "github.com/walnuts1018/cluster-api-provider-tart/usecase/recovery"
 )
 
 // TalosNodeはReprovision flowが必要とするTalos APIの観測と破壊的操作だけを表す。

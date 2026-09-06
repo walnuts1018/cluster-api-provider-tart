@@ -25,9 +25,9 @@ import (
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
-	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
+	recovery "github.com/walnuts1018/cluster-api-provider-tart/usecase/recovery"
 )
 
 const (

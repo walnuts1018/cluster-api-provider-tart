@@ -1,6 +1,3 @@
-// Package recoveryはTalos cluster identityごとのrecovery Secret契約と、Retained Hostに対する破壊的操作の前提となるidentity検証policyを提供する。
-// Machineの寿命とHost上のTalos installationの寿命は一致しないため、recovery identityはTartMachineやTartBootstrapConfigのownership lifecycleから独立した寿命を持つ。
-// 詳細は.agents/skills/host-lifecycle/SKILL.mdとdocs/development/lifecycle.mdを参照する。
 package recovery
 
 import (

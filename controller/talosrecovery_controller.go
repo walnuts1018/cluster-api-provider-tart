@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
+	recoveryusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/recovery"
 )
 
 // talosRecoveryResyncはrecovery Secretの参照状況を定期的に再観測する間隔である。
@@ -41,7 +41,7 @@ func (r *TalosRecoveryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 		return ctrl.Result{}, err
 	}
-	if !recovery.IsRecoverySecret(secret) {
+	if !recoveryusecase.IsRecoverySecret(secret) {
 		return ctrl.Result{}, nil
 	}
 
@@ -49,7 +49,7 @@ func (r *TalosRecoveryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.List(ctx, hosts); err != nil {
 		return ctrl.Result{}, err
 	}
-	if !recovery.ShouldDelete(secret, hosts.Items, time.Now(), recovery.CreationGracePeriod) {
+	if !recoveryusecase.ShouldDelete(secret, hosts.Items, time.Now(), recoveryusecase.CreationGracePeriod) {
 		return ctrl.Result{RequeueAfter: talosRecoveryResync}, nil
 	}
 	// 最後のHostがReprovisionを完了したか、inventoryから明示的にforgetされた後だけ削除する。
@@ -62,7 +62,7 @@ func (r *TalosRecoveryReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 func (r *TalosRecoveryReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	recoverySecrets := predicate.NewPredicateFuncs(func(object client.Object) bool {
 		secret, ok := object.(*corev1.Secret)
-		return ok && recovery.IsRecoverySecret(secret)
+		return ok && recoveryusecase.IsRecoverySecret(secret)
 	})
 	return ctrl.NewControllerManagedBy(mgr).
 		// TartHostのwatchは張らず、定期的なresyncで現在の参照状況を再観測して収束させる。

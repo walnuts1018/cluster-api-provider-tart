@@ -1,3 +1,5 @@
+// Package recoveryはTalos recovery identity照合の純粋なpolicyを提供する。
+// 外部依存はdomain/networkのみであり、Kubernetes API型やTalos machinery型は一切扱わない。
 package recovery
 
 import (
@@ -5,14 +7,13 @@ import (
 	"slices"
 	"strings"
 
-	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
 var (
 	// ErrEndpointUnknownはHost inventoryと照合できるTalos endpointが存在しないことを示す。
 	ErrEndpointUnknown = errors.New("talos endpoint does not match the TartHost inventory")
-	// ErrClusterIdentityMismatchは接続先が承認された旧Talos clusterに属さないことを示す。
+	// ErrClusterIdentityMismatchは接続先が承認された旧Talos clusterへ属さないことを示す。
 	ErrClusterIdentityMismatch = errors.New("talos cluster identity does not match the approved recovery identity")
 	// ErrHostIdentityMismatchは接続先が承認された旧installを保持するHostではないことを示す。
 	ErrHostIdentityMismatch = errors.New("talos machine identity does not match the claimed TartHost")
@@ -42,22 +43,6 @@ type ObservedIdentity struct {
 	SystemUUID string
 	// Endpointは実際に接続したTalos APIのendpointである。
 	Endpoint string
-}
-
-// ExpectedIdentityForHostはTartHostとrecovery identityからReset前に照合すべき期待値を組み立てる。
-func ExpectedIdentityForHost(hostObject *infrav1alpha1.TartHost, clusterID, endpoint string) ExpectedIdentity {
-	expected := ExpectedIdentity{
-		ClusterID: strings.TrimSpace(clusterID),
-		Endpoint:  strings.TrimSpace(endpoint),
-	}
-	if hostObject == nil {
-		return expected
-	}
-	expected.MACAddress = hostObject.Spec.MACAddress
-	if hostObject.Status.Inventory != nil {
-		expected.SystemUUID = strings.TrimSpace(hostObject.Status.Inventory.SystemUUID)
-	}
-	return expected
 }
 
 // VerifyResetTargetはTalos Resetのようにデータを不可逆に破棄する操作の直前に、対象が承認済みのHostかつ承認済みの旧Talos clusterであることを確認する。

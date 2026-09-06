@@ -16,8 +16,9 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
-	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
+	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
+	recoveryusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/recovery"
 )
 
 const reprovisionRequeue = 30 * time.Second
@@ -42,11 +43,11 @@ func (r *TartMachineReconciler) ensureTalosIdentityBinding(ctx context.Context, 
 		}
 		return err
 	}
-	material, err := recovery.MaterialFromBundle(bundle)
+	material, err := recoveryusecase.MaterialFromBundle(bundle)
 	if err != nil {
 		return err
 	}
-	secret, err := recovery.BuildSecret(r.ManagementNamespace, material)
+	secret, err := recoveryusecase.BuildSecret(r.ManagementNamespace, material)
 	if err != nil {
 		return err
 	}
@@ -122,8 +123,8 @@ func (r *TartMachineReconciler) reconcileReprovision(ctx context.Context, machin
 		return result, true, reportErr
 	}
 
-	expected := recovery.ExpectedIdentityForHost(selected, identity.ClusterID, endpoint)
-	if verifyErr := recovery.VerifyResetTarget(expected, observed); verifyErr != nil {
+	expected := recoveryusecase.ExpectedIdentityForHost(selected, identity.ClusterID, endpoint)
+	if verifyErr := domainrecovery.VerifyResetTarget(expected, observed); verifyErr != nil {
 		// データを不可逆に破棄する操作であるため、identityが完全に一致しない限りResetは実行せず、requeueもせずに安全停止する。
 		result, reportErr := r.reportTalosStatus(ctx, machine,
 			metav1.ConditionFalse, infrav1alpha1.ReasonIdentityConflict, "The Talos endpoint identity does not match the approved Reprovision target.",
@@ -194,18 +195,18 @@ func (r *TartMachineReconciler) confirmReprovisionCompleted(ctx context.Context,
 	return ctrl.Result{}, false, nil
 }
 
-func (r *TartMachineReconciler) recoveryMaterial(ctx context.Context, identity *infrav1alpha1.TalosIdentityReference) (recovery.Material, error) {
+func (r *TartMachineReconciler) recoveryMaterial(ctx context.Context, identity *infrav1alpha1.TalosIdentityReference) (recoveryusecase.Material, error) {
 	if r.ManagementNamespace == "" {
-		return recovery.Material{}, errors.New("management namespace is not configured for Talos recovery identity")
+		return recoveryusecase.Material{}, errors.New("management namespace is not configured for Talos recovery identity")
 	}
 	if identity == nil || identity.RecoverySecretRef.Name == "" {
-		return recovery.Material{}, recovery.ErrSecretInvalid
+		return recoveryusecase.Material{}, recoveryusecase.ErrSecretInvalid
 	}
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: r.ManagementNamespace, Name: identity.RecoverySecretRef.Name}, secret); err != nil {
-		return recovery.Material{}, err
+		return recoveryusecase.Material{}, err
 	}
-	return recovery.DecodeSecret(secret, identity.ClusterID)
+	return recoveryusecase.DecodeSecret(secret, identity.ClusterID)
 }
 
 // activeSecretsBundleはこのMachineが所属するTartClusterの現在activeなcluster secret bundleを解決する。
@@ -248,20 +249,20 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 	return controlplane.DecodeBundleData(secret.Data, clusterID)
 }
 
-func observeResetTarget(ctx context.Context, node TalosNode, endpoint string) (recovery.ObservedIdentity, error) {
+func observeResetTarget(ctx context.Context, node TalosNode, endpoint string) (domainrecovery.ObservedIdentity, error) {
 	configuration, err := node.ActiveMachineConfiguration(ctx)
 	if err != nil {
-		return recovery.ObservedIdentity{}, err
+		return domainrecovery.ObservedIdentity{}, err
 	}
-	observedClusterID, err := recovery.ObservedClusterID(configuration)
+	observedClusterID, err := recoveryusecase.ObservedClusterID(configuration)
 	if err != nil {
-		return recovery.ObservedIdentity{}, err
+		return domainrecovery.ObservedIdentity{}, err
 	}
 	inventory, err := node.Inventory(ctx)
 	if err != nil {
-		return recovery.ObservedIdentity{}, err
+		return domainrecovery.ObservedIdentity{}, err
 	}
-	return recovery.ObservedIdentity{
+	return domainrecovery.ObservedIdentity{
 		ClusterID:    observedClusterID,
 		MACAddresses: inventory.MACAddresses,
 		SystemUUID:   inventory.SystemUUID.String(),

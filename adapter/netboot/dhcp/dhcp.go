@@ -1,4 +1,7 @@
-package netboot
+// Package dhcpは、netboot-serverが提供するProxyDHCP/PXEサーバーの実装である。
+// 既存ネットワークのDHCPサーバーと共存し、IPアドレスの割り当ては行わずPXE bootに必要な
+// オプションのみ応答する。boot fileの決定ロジック自体はdomain/netbootへ委譲する。
+package dhcp
 
 import (
 	"context"
@@ -15,33 +18,19 @@ import (
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/dhcpv4/server4"
+
+	domainnetboot "github.com/walnuts1018/cluster-api-provider-tart/domain/netboot"
 )
 
 const (
-	// iPXEBootFileNameAMD64はamd64用のiPXEローダのファイル名である。
-	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
-	// iPXEBootFileNameARM64はarm64用のiPXEローダのファイル名である。
-	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
-
 	// dhcpPortはDHCPサーバーのポートである。
 	dhcpPort = 67
 	// pxePortはProxyDHCP(PXE)サーバーのポートである。
 	pxePort = 4011
 )
 
-// Archはクライアントのアーキテクチャを表す。
-type Arch uint16
-
-const (
-	ArchIntelx86PC Arch = 0
-	ArchEFIx8664   Arch = 7
-	ArchEFIBC      Arch = 9
-	ArchEFIARM64   Arch = 11
-)
-
-// DHCPServerはProxyDHCPとして動作するDHCP/PXEサーバーである。
-// 既存ネットワークのDHCPサーバーと共存し、IPアドレスの割り当ては行わずPXE bootに必要なオプションのみ応答する。
-type DHCPServer struct {
+// Serverは、ProxyDHCPとして動作するDHCP/PXEサーバーである。
+type Server struct {
 	tftpRoot    string
 	bindIP      string
 	baseURL     string
@@ -53,10 +42,10 @@ type DHCPServer struct {
 	done    chan struct{}
 }
 
-// NewDHCPServerは新しいDHCPServerを作成する。
+// NewServerは新しいServerを作成する。
 // tftpRootはTFTPサーバーのルートディレクトリ、bindAddrはProxyDHCPのバインドアドレスである。
 // advertiseAddrはクライアントに広告する到達可能なサーバーIP、baseURLはiPXEスクリプト配信用HTTPサーバーのベースURLである。
-func NewDHCPServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *slog.Logger) (*DHCPServer, error) {
+func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *slog.Logger) (*Server, error) {
 	if tftpRoot == "" {
 		return nil, errors.New("tftpRoot is required")
 	}
@@ -84,7 +73,7 @@ func NewDHCPServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *sl
 		return nil, fmt.Errorf("create tftp root directory: %w", err)
 	}
 
-	return &DHCPServer{
+	return &Server{
 		tftpRoot:    tftpRoot,
 		bindIP:      bindIP,
 		baseURL:     baseURL,
@@ -95,10 +84,12 @@ func NewDHCPServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *sl
 }
 
 // Startはctxがキャンセルされるまでprocessをブロックし、ProxyDHCPサーバーを起動する。
-func (s *DHCPServer) Start(ctx context.Context) error {
+// tftpRoot配下にiPXEブートローダが未配置の場合でも起動自体は継続し、警告のみを出す
+// (TFTPサーバー起動処理と非同期に配置されうるため)。
+func (s *Server) Start(ctx context.Context) error {
 	lg := s.logger
 
-	for _, f := range []string{iPXEBootFileNameAMD64, iPXEBootFileNameARM64} {
+	for _, f := range []string{domainnetboot.IPXEBootFileNameAMD64, domainnetboot.IPXEBootFileNameARM64} {
 		path := filepath.Join(s.tftpRoot, f)
 		if _, err := os.Stat(path); err != nil && errors.Is(err, os.ErrNotExist) {
 			lg.Warn("ipxe bootloader is not found yet", "path", path)
@@ -163,7 +154,7 @@ func (s *DHCPServer) Start(ctx context.Context) error {
 }
 
 // Stopはサーバーを停止する。
-func (s *DHCPServer) Stop() error {
+func (s *Server) Stop() error {
 	s.mu.Lock()
 	servers := s.servers
 	s.mu.Unlock()
@@ -181,7 +172,7 @@ func (s *DHCPServer) Stop() error {
 	return nil
 }
 
-func (s *DHCPServer) createHandler() server4.Handler {
+func (s *Server) createHandler() server4.Handler {
 	return func(conn net.PacketConn, peer net.Addr, m *dhcpv4.DHCPv4) {
 		lg := s.logger
 
@@ -209,7 +200,8 @@ func (s *DHCPServer) createHandler() server4.Handler {
 		arch, hasArchitecture := clientArchitecture(m)
 
 		isIPXE := slices.Contains(m.UserClass(), "iPXE")
-		bootFile, supported := agentBootFile(arch, hasArchitecture, isIPXE, s.baseURL, m.ClientHWAddr)
+		macParam := url.QueryEscape(m.ClientHWAddr.String())
+		bootFile, supported := domainnetboot.DecideAgentBootFile(domainnetboot.Arch(arch), hasArchitecture, isIPXE, s.baseURL, macParam)
 		if !supported {
 			lg.Debug("ignoring unsupported PXE architecture", "arch", arch, "option93Present", hasArchitecture)
 			return
@@ -258,87 +250,10 @@ func (s *DHCPServer) createHandler() server4.Handler {
 	}
 }
 
-func clientArchitecture(request *dhcpv4.DHCPv4) (Arch, bool) {
+func clientArchitecture(request *dhcpv4.DHCPv4) (uint16, bool) {
 	option := request.GetOneOption(dhcpv4.OptionClientSystemArchitectureType)
 	if len(option) < 2 {
 		return 0, false
 	}
-	return Arch(uint16(option[0])<<8 | uint16(option[1])), true
-}
-
-func agentBootFile(arch Arch, optionPresent, isIPXE bool, baseURL string, mac net.HardwareAddr) (string, bool) {
-	if !optionPresent || arch != ArchEFIx8664 {
-		return "", false
-	}
-	if !isIPXE {
-		return iPXEBootFileNameAMD64, true
-	}
-	macParam := url.QueryEscape(mac.String())
-	return fmt.Sprintf("%s/ipxe?mac=%s", baseURL, macParam), true
-}
-
-// ResolveAdvertiseIPはクライアントへ広告するサーバーIPを解決する。
-// advertiseAddrが明示的に設定されていればそれを使い、そうでなければbindAddr/httpAddrやnetwork interfaceから推測する。
-func ResolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
-	if ip := net.ParseIP(advertiseAddr); ip != nil && !ip.IsUnspecified() {
-		return ip, nil
-	}
-
-	for _, addr := range []string{bindAddr, httpAddr} {
-		if ip := ParseHostIP(addr); ip != nil && !ip.IsUnspecified() {
-			return ip, nil
-		}
-	}
-
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil, fmt.Errorf("detect advertise address: %w", err)
-	}
-	var loopback net.IP
-	for _, addr := range addrs {
-		ipNet, ok := addr.(*net.IPNet)
-		if !ok || ipNet.IP == nil {
-			continue
-		}
-		ip := ipNet.IP.To4()
-		if ip == nil || ip.IsUnspecified() {
-			continue
-		}
-		if ip.IsLoopback() {
-			if loopback == nil {
-				loopback = ip
-			}
-			continue
-		}
-		return ip, nil
-	}
-	if loopback != nil {
-		return loopback, nil
-	}
-	return nil, errors.New("failed to detect advertise address")
-}
-
-// DefaultAdvertiseHTTPBaseURLは、advertise-http-base-urlが明示設定されていない場合に、
-// 広告用IPとHTTP bind addressのポートから既定のHTTP base URLを組み立てる。
-// 単一NICのシンプルな構成であればこの自動検出で足りるため、site固有の設定なしでも
-// clusterctl/cluster-api-operatorでのインストール直後にnetboot-serverが動作できる。
-func DefaultAdvertiseHTTPBaseURL(dhcpBindAddress, httpBindAddress, advertiseAddress string) (string, error) {
-	advertiseIP, err := ResolveAdvertiseIP(dhcpBindAddress, httpBindAddress, advertiseAddress)
-	if err != nil {
-		return "", err
-	}
-	_, port, err := net.SplitHostPort(httpBindAddress)
-	if err != nil {
-		return "", fmt.Errorf("invalid HTTP bind address %s: %w", httpBindAddress, err)
-	}
-	return fmt.Sprintf("http://%s:%s", advertiseIP.String(), port), nil
-}
-
-// ParseHostIPはhost[:port]形式またはhost単体の文字列からIPを取り出す。
-func ParseHostIP(addr string) net.IP {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	return net.ParseIP(host)
+	return uint16(option[0])<<8 | uint16(option[1]), true
 }

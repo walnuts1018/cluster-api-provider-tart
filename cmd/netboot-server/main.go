@@ -20,8 +20,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/dhcp"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/httpboot"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/netboot"
+	domainnetboot "github.com/walnuts1018/cluster-api-provider-tart/domain/netboot"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/utils/logger"
 )
 
@@ -53,7 +56,7 @@ func main() {
 	flag.StringVar(&httpBindAddress, "http-bind-address", ":8080", "iPXEスクリプト配信用HTTPサーバーのbind address")
 	flag.StringVar(&advertiseAddress, "advertise-address", "", "PXEクライアントへ広告するサーバーIP(省略時は自動検出)")
 	flag.StringVar(&advertiseHTTPBaseURL, "advertise-http-base-url", envOrDefault("TART_NETBOOT_ADVERTISE_HTTP_BASE_URL", ""), "iPXEスクリプトへ埋め込むHTTPサーバーのベースURL(例: http://192.0.2.10:8080)。省略時はbind addressから自動構成する")
-	flag.StringVar(&imageFactoryPXEBaseURL, "image-factory-pxe-base-url", netboot.ImageFactoryPXEBaseURLDefault, "Talos Image FactoryのPXE配信endpointのベースURL")
+	flag.StringVar(&imageFactoryPXEBaseURL, "image-factory-pxe-base-url", httpboot.ImageFactoryPXEBaseURLDefault, "Talos Image FactoryのPXE配信endpointのベースURL")
 	flag.StringVar(&discoveryTalosVersion, "discovery-talos-version", envOrDefault("TART_NETBOOT_DISCOVERY_TALOS_VERSION", ""), "discovery boot用のTalos version(例: v1.11.2)。未設定の場合は既知のTartHost/TartMachineの解決のみ行う")
 	flag.StringVar(&discoverySchematicID, "discovery-schematic-id", envOrDefault("TART_NETBOOT_DISCOVERY_SCHEMATIC_ID", ""), "discovery boot用のTalos Image Factory schematic ID")
 	flag.StringVar(&logLevelStr, "log-level", "info", "Log level (debug, info, warn, error)")
@@ -80,7 +83,7 @@ func main() {
 		AdvertiseAddress:       advertiseAddress,
 		AdvertiseHTTPBaseURL:   advertiseHTTPBaseURL,
 		ImageFactoryPXEBaseURL: imageFactoryPXEBaseURL,
-		DiscoveryImage: netboot.DiscoveryImage{
+		DiscoveryImage: domainnetboot.DiscoveryImage{
 			Version:     discoveryTalosVersion,
 			SchematicID: discoverySchematicID,
 		},
@@ -88,7 +91,7 @@ func main() {
 	}
 
 	if cfg.AdvertiseHTTPBaseURL == "" {
-		resolvedURL, err := netboot.DefaultAdvertiseHTTPBaseURL(cfg.DHCPBindAddress, cfg.HTTPBindAddress, cfg.AdvertiseAddress)
+		resolvedURL, err := dhcp.DefaultAdvertiseHTTPBaseURL(cfg.DHCPBindAddress, cfg.HTTPBindAddress, cfg.AdvertiseAddress)
 		if err != nil {
 			logger.Error("failed to auto-detect advertise HTTP base URL; set -advertise-http-base-url explicitly", "error", err)
 			os.Exit(1)
@@ -130,7 +133,7 @@ func envOrDefault(key, fallback string) string {
 // TartHost/TartMachineをread-onlyで参照するnetboot.HostImageResolverを作成する。
 // クラスタ外(ローカル検証など)で kubeconfig が見つからない場合はerrorを返し、呼び出し側で
 // discovery imageのみのfallback動作へ切り替える。
-func newResolver(logger *slog.Logger) (netboot.HostImageResolver, error) {
+func newResolver(logger *slog.Logger) (domainnetboot.HostImageResolver, error) {
 	restConfig, err := ctrl.GetConfig()
 	if err != nil {
 		return nil, err
@@ -140,5 +143,5 @@ func newResolver(logger *slog.Logger) (netboot.HostImageResolver, error) {
 		return nil, err
 	}
 	logger.Info("connected to Kubernetes API for TartHost/TartMachine resolution")
-	return netboot.NewTartHostImageResolver(reader)
+	return httpboot.NewTartHostImageResolver(reader)
 }

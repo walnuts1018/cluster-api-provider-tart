@@ -1,3 +1,11 @@
+// Package netbootは、まっさらな実機がPXE bootでTalos maintenance modeへ到達するために必要な
+// ProxyDHCP、TFTP、iPXEスクリプト配信をcontroller-managerとは独立したアダプターとして提供する。
+// netboot-serverはKubernetes APIをread-onlyで参照し、PXEクライアントのMACアドレスから
+// TartHost/TartMachineのdesired Talos image(spec.image)を解決してPXEクライアントを
+// Talos Image Factoryへ橋渡しする。対応するTartHost/TartMachineがまだ存在しない場合
+// (Host登録前の初回enrollment boot)は、operatorが指定したdiscovery用のTalos
+// version/schematicIDへfallbackする。Secretやmachine configurationはnetboot-serverの
+// スコープ外であり、maintenance mode起動後のconfiguration適用はcontroller-manager側が扱う。
 package netboot
 
 import (
@@ -8,6 +16,11 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/dhcp"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/httpboot"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/netboot/tftp"
+	domainnetboot "github.com/walnuts1018/cluster-api-provider-tart/domain/netboot"
 )
 
 // Configはnetboot-serverの起動設定である。
@@ -24,14 +37,14 @@ type Config struct {
 	AdvertiseAddress string
 	// AdvertiseHTTPBaseURLは、iPXEスクリプトへ埋め込むHTTPサーバーのベースURL(例: http://192.0.2.10:8080)である。
 	AdvertiseHTTPBaseURL string
-	// ImageFactoryPXEBaseURLはTalos Image FactoryのPXE配信endpointのbaseURLである。空の場合はImageFactoryPXEBaseURLDefaultを使う。
+	// ImageFactoryPXEBaseURLはTalos Image FactoryのPXE配信endpointのbaseURLである。空の場合はhttpboot.ImageFactoryPXEBaseURLDefaultを使う。
 	ImageFactoryPXEBaseURL string
 	// DiscoveryImageは素のhostをTalos maintenance modeへ到達させるためのdiscovery用Talos imageである。
 	// TartHost/TartMachineがまだ存在しないMACアドレスからのPXEリクエストに対するfallbackとして使う。
-	DiscoveryImage DiscoveryImage
+	DiscoveryImage domainnetboot.DiscoveryImage
 	// Resolverは、PXEクライアントのMACアドレスからTartHost/TartMachineのdesired imageを
 	// read-onlyで解決する。nilの場合は常にDiscoveryImageのみを使う。
-	Resolver HostImageResolver
+	Resolver domainnetboot.HostImageResolver
 }
 
 // Serverは、ProxyDHCP、TFTP、iPXEスクリプト配信用HTTPサーバーをまとめて起動するnetboot-serverの本体である。
@@ -39,8 +52,8 @@ type Server struct {
 	cfg    Config
 	logger *slog.Logger
 
-	dhcp *DHCPServer
-	tftp *TFTPServer
+	dhcp *dhcp.Server
+	tftp *tftp.Server
 	http *http.Server
 }
 
@@ -65,26 +78,26 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		logger = slog.Default()
 	}
 
-	advertiseIP, err := ResolveAdvertiseIP(cfg.DHCPBindAddress, cfg.HTTPBindAddress, cfg.AdvertiseAddress)
+	advertiseIP, err := dhcp.ResolveAdvertiseIP(cfg.DHCPBindAddress, cfg.HTTPBindAddress, cfg.AdvertiseAddress)
 	if err != nil {
 		return nil, fmt.Errorf("resolve advertise address: %w", err)
 	}
 
-	dhcp, err := NewDHCPServer(cfg.TFTPRoot, cfg.DHCPBindAddress, advertiseIP.String(), cfg.AdvertiseHTTPBaseURL, logger)
+	dhcpServer, err := dhcp.NewServer(cfg.TFTPRoot, cfg.DHCPBindAddress, advertiseIP.String(), cfg.AdvertiseHTTPBaseURL, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create DHCP server: %w", err)
 	}
 
-	tftp, err := NewTFTPServer(cfg.TFTPRoot, cfg.TFTPBindAddress, logger)
+	tftpServer, err := tftp.NewServer(cfg.TFTPRoot, cfg.TFTPBindAddress, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create TFTP server: %w", err)
 	}
 
 	resolver := cfg.Resolver
 	if resolver == nil {
-		resolver = noopHostImageResolver{}
+		resolver = domainnetboot.NoopHostImageResolver{}
 	}
-	bootHandler, err := NewHTTPBootHandler(cfg.ImageFactoryPXEBaseURL, cfg.DiscoveryImage, resolver, logger)
+	bootHandler, err := httpboot.NewHandler(cfg.ImageFactoryPXEBaseURL, cfg.DiscoveryImage, resolver, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP boot handler: %w", err)
 	}
@@ -94,8 +107,8 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 	return &Server{
 		cfg:    cfg,
 		logger: logger,
-		dhcp:   dhcp,
-		tftp:   tftp,
+		dhcp:   dhcpServer,
+		tftp:   tftpServer,
 		http: &http.Server{
 			Addr:              cfg.HTTPBindAddress,
 			Handler:           mux,

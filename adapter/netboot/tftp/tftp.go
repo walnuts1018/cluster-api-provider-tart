@@ -1,4 +1,7 @@
-package netboot
+// Package tftpは、netboot-serverが提供するTFTPサーバーの実装である。
+// iPXEブートローダなどの初期ブートファイルのみを配信し、kernel/initramfsの取得は
+// iPXEスクリプトを経由したHTTPで行うため、ここでは小さいファイルのみを扱う。
+package tftp
 
 import (
 	"context"
@@ -14,9 +17,8 @@ import (
 	"github.com/pin/tftp/v3"
 )
 
-// maxTFTPFileSizeはTFTP経由で配信するファイルの上限サイズである。
-// iPXEブートローダのみを配信する用途を想定しており、kernel/initramfsのような大きなファイルはHTTP側で配信する。
-const maxTFTPFileSize int64 = 64 << 20
+// maxFileSizeはTFTP経由で配信するファイルの上限サイズである。
+const maxFileSize int64 = 64 << 20
 
 // hasPathPrefixはtargetがprefix以下のパスかどうかを判定する。
 func hasPathPrefix(path, prefix string) bool {
@@ -33,9 +35,9 @@ func hasPathPrefix(path, prefix string) bool {
 	return len(rel) > 0 && rel[0] != '.'
 }
 
-// resolveTFTPFilePathは、TFTPルート相対のfilenameから安全なファイルパスを解決する。
+// resolveFilePathは、TFTPルート相対のfilenameから安全なファイルパスを解決する。
 // パストラバーサルの試みは拒否しerrorを返す。
-func resolveTFTPFilePath(root, filename string) (string, error) {
+func resolveFilePath(root, filename string) (string, error) {
 	resolvedRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("resolve tftp root: %w", err)
@@ -58,9 +60,9 @@ func resolveTFTPFilePath(root, filename string) (string, error) {
 	return resolved, nil
 }
 
-// openTFTPFileは、解決済みパスのファイルを開く。通常ファイル以外(ディレクトリ、デバイスファイルなど)は拒否する。
-func openTFTPFile(root, filename string, logger *slog.Logger) (*os.File, error) {
-	resolved, err := resolveTFTPFilePath(root, filename)
+// openFileは、解決済みパスのファイルを開く。通常ファイル以外(ディレクトリ、デバイスファイルなど)は拒否する。
+func openFile(root, filename string, logger *slog.Logger) (*os.File, error) {
+	resolved, err := resolveFilePath(root, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +78,7 @@ func openTFTPFile(root, filename string, logger *slog.Logger) (*os.File, error) 
 		}
 		return nil, fmt.Errorf("stat TFTP file: %w", err)
 	}
-	if info.Size() > maxTFTPFileSize {
+	if info.Size() > maxFileSize {
 		if closeErr := file.Close(); closeErr != nil {
 			logger.Error("failed to close oversized TFTP file", "filename", filename, "error", closeErr)
 		}
@@ -91,9 +93,8 @@ func openTFTPFile(root, filename string, logger *slog.Logger) (*os.File, error) 
 	return file, nil
 }
 
-// TFTPServerはiPXEブートローダなどの初期ブートファイルのみを配信するTFTPサーバーである。
-// kernel/initramfsの取得はiPXEスクリプトを経由したHTTPで行うため、ここでは小さいファイルのみを扱う。
-type TFTPServer struct {
+// Serverは、iPXEブートローダなどの初期ブートファイルのみを配信するTFTPサーバーである。
+type Server struct {
 	root   string
 	addr   string
 	logger *slog.Logger
@@ -104,10 +105,10 @@ type TFTPServer struct {
 	done       chan struct{}
 }
 
-// NewTFTPServerは新しいTFTPServerを作成する。
+// NewServerは新しいServerを作成する。
 // rootはTFTPサーバーのルートディレクトリ、addrはバインドアドレスである。
 // rootは絶対パスとシンボリックリンク解決後のパスに事前解決される。
-func NewTFTPServer(root, addr string, logger *slog.Logger) (*TFTPServer, error) {
+func NewServer(root, addr string, logger *slog.Logger) (*Server, error) {
 	if root == "" {
 		return nil, errors.New("root is required")
 	}
@@ -131,7 +132,7 @@ func NewTFTPServer(root, addr string, logger *slog.Logger) (*TFTPServer, error) 
 		return nil, fmt.Errorf("evaluate symlinks in tftp root: %w", err)
 	}
 
-	return &TFTPServer{
+	return &Server{
 		root:   realRoot,
 		addr:   addr,
 		logger: logger.With("component", "tftp"),
@@ -140,12 +141,12 @@ func NewTFTPServer(root, addr string, logger *slog.Logger) (*TFTPServer, error) 
 }
 
 // Startはctxがキャンセルされるまでprocessをブロックし、TFTPサーバーを起動する。
-func (s *TFTPServer) Start(ctx context.Context) error {
+func (s *Server) Start(ctx context.Context) error {
 	lg := s.logger
 
 	readHandler := func(filename string, rf io.ReaderFrom) error {
 		lg.Info("TFTP read request", "filename", filename)
-		file, err := openTFTPFile(s.root, filename, lg)
+		file, err := openFile(s.root, filename, lg)
 		if err != nil {
 			lg.Error("failed to open TFTP file", "filename", filename, "error", err)
 			return err
@@ -204,7 +205,7 @@ func (s *TFTPServer) Start(ctx context.Context) error {
 }
 
 // Addrはサーバーの実際のリスニングアドレスを返す。起動前はコンストラクタへ渡されたアドレスを返す。
-func (s *TFTPServer) Addr() string {
+func (s *Server) Addr() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.actualAddr != "" {
@@ -214,7 +215,7 @@ func (s *TFTPServer) Addr() string {
 }
 
 // Stopはサーバーを停止する。
-func (s *TFTPServer) Stop() error {
+func (s *Server) Stop() error {
 	s.mu.Lock()
 	server := s.server
 	s.mu.Unlock()

@@ -1,4 +1,4 @@
-package bootstrap
+package configbuilder
 
 import (
 	"errors"
@@ -8,14 +8,16 @@ import (
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
+
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
 func TestSelectInstallDisk(t *testing.T) {
 	t.Parallel()
 
-	base := InstallDisk{
+	base := domainbootstrap.InstallDisk{
 		DevicePath: "/dev/vda",
 		SizeBytes:  64 * 1024 * 1024 * 1024,
 		Model:      "TART DISK",
@@ -26,25 +28,25 @@ func TestSelectInstallDisk(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		disks []InstallDisk
-		want  InstallDisk
+		disks []domainbootstrap.InstallDisk
+		want  domainbootstrap.InstallDisk
 		err   error
 	}{
 		"unique stable disk": {
-			disks: []InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: 128 * 1024 * 1024 * 1024, Model: "TART DATA", Serial: "disk-b", Transport: "virtio"}},
+			disks: []domainbootstrap.InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: 128 * 1024 * 1024 * 1024, Model: "TART DATA", Serial: "disk-b", Transport: "virtio"}},
 			want:  base,
 		},
 		"single disk without transport metadata": {
-			disks: []InstallDisk{{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial}},
-			want:  InstallDisk{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial},
+			disks: []domainbootstrap.InstallDisk{{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial}},
+			want:  domainbootstrap.InstallDisk{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial},
 		},
 		"ambiguous disk identity": {
-			disks: []InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: base.SizeBytes, Model: base.Model, Serial: base.Serial, WWID: base.WWID, BusPath: base.BusPath, Transport: base.Transport}},
-			err:   ErrInstallDiskAmbiguous,
+			disks: []domainbootstrap.InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: base.SizeBytes, Model: base.Model, Serial: base.Serial, WWID: base.WWID, BusPath: base.BusPath, Transport: base.Transport}},
+			err:   domainbootstrap.ErrInstallDiskAmbiguous,
 		},
 		"no writable disk": {
-			disks: []InstallDisk{{DevicePath: "/dev/vda", SizeBytes: base.SizeBytes, Transport: "virtio", ReadOnly: true}},
-			err:   ErrInstallDiskUnavailable,
+			disks: []domainbootstrap.InstallDisk{{DevicePath: "/dev/vda", SizeBytes: base.SizeBytes, Transport: "virtio", ReadOnly: true}},
+			err:   domainbootstrap.ErrInstallDiskUnavailable,
 		},
 	}
 
@@ -71,7 +73,7 @@ func TestSelectInstallDisk(t *testing.T) {
 func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 	t.Parallel()
 
-	disk := InstallDisk{
+	disk := domainbootstrap.InstallDisk{
 		DevicePath: "/dev/vda",
 		SizeBytes:  64 * 1024 * 1024 * 1024,
 		Serial:     "disk-a",
@@ -112,7 +114,7 @@ func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 func TestEnsureInstallDiskRejectsTargetForAnotherDisk(t *testing.T) {
 	t.Parallel()
 
-	selected := InstallDisk{
+	selected := domainbootstrap.InstallDisk{
 		DevicePath: "/dev/vda",
 		SizeBytes:  64 * 1024 * 1024 * 1024,
 		Serial:     "disk-a",
@@ -123,13 +125,13 @@ func TestEnsureInstallDiskRejectsTargetForAnotherDisk(t *testing.T) {
 		t.Fatalf("EnsureInstallDisk() error = %v", err)
 	}
 
-	other := InstallDisk{
+	other := domainbootstrap.InstallDisk{
 		DevicePath: "/dev/vdb",
 		SizeBytes:  128 * 1024 * 1024 * 1024,
 		Serial:     "disk-b",
 		Transport:  "virtio",
 	}
-	if _, err := EnsureInstallDisk(configuration, other); !errors.Is(err, ErrInstallConfigurationInvalid) {
+	if _, err := EnsureInstallDisk(configuration, other); !errors.Is(err, domainbootstrap.ErrInstallConfigurationInvalid) {
 		t.Fatalf("EnsureInstallDisk() error = %v, want ErrInstallConfigurationInvalid", err)
 	}
 }
@@ -141,13 +143,13 @@ func TestGenerateMachineConfigurationIncludesInstallTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.NewBundle() error = %v", err)
 	}
-	configuration, err := GenerateMachineConfiguration(MachineConfigurationContext{
+	configuration, err := GenerateMachineConfiguration(usecasebootstrap.MachineConfigurationContext{
 		ClusterName:          "cluster-a",
 		ControlPlaneEndpoint: "https://192.0.2.10:6443",
 		KubernetesVersion:    "1.34.0",
-		MachineType:          talosmachine.TypeWorker,
+		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &InstallDisk{
+		InstallDisk: &domainbootstrap.InstallDisk{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",

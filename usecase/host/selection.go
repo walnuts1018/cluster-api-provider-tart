@@ -19,7 +19,7 @@ func SelectFresh(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSel
 func SelectFreshForFailureDomain(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector, failureDomain string) (*infrav1alpha1.TartHost, error) {
 	candidates := make([]infrav1alpha1.TartHost, 0, len(hosts))
 	for _, candidate := range hosts {
-		if Classify(candidate.Spec) != Available || candidate.Spec.HostID == "" {
+		if Classify(candidate.Spec) != hostdomain.Available || candidate.Spec.HostID == "" {
 			continue
 		}
 		if _, err := hostdomain.ParseHostID(candidate.Spec.HostID); err != nil {

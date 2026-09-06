@@ -18,8 +18,8 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
-	"github.com/walnuts1018/cluster-api-provider-tart/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
@@ -74,11 +74,11 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if err := r.List(ctx, hosts); err != nil {
 		return ctrl.Result{}, err
 	}
-	if host.HasIdentityConflictForAny(hosts.Items) {
+	if hostusecase.HasIdentityConflictForAny(hosts.Items) {
 		return r.reportIdentityConflicts(ctx, hosts.Items)
 	}
 
-	eligibility := host.Classify(current.Spec)
+	eligibility := hostusecase.Classify(current.Spec)
 	original := current.DeepCopy()
 	endpoint := hostTalosEndpoint(&current)
 	var observationErr error
@@ -111,7 +111,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if !foundCurrent {
 			observedHosts = append(observedHosts, current)
 		}
-		if host.HasIdentityConflictForAny(observedHosts) {
+		if hostusecase.HasIdentityConflictForAny(observedHosts) {
 			return r.reportIdentityConflicts(ctx, observedHosts)
 		}
 	}
@@ -249,16 +249,16 @@ func hostAddresses(endpoint string) clusterv1.MachineAddresses {
 	return clusterv1.MachineAddresses{{Type: clusterv1.MachineHostName, Address: address}}
 }
 
-func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility host.Eligibility) {
+func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility hostdomain.Eligibility) {
 	generation := hostObject.Generation
 	switch eligibility {
-	case host.Available:
+	case hostdomain.Available:
 		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionTrue, infrav1alpha1.ReasonAvailable, "The Host has no active consumerRef and no retained state.", generation)
-	case host.Claimed:
+	case hostdomain.Claimed:
 		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonClaimed, "The Host is claimed by a TartMachine.", generation)
-	case host.Retained:
+	case hostdomain.Retained:
 		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host retains state from a previous TartMachine; a matching reuse approval and reuse mode are required.", generation)
-	case host.Reusable:
+	case hostdomain.Reusable:
 		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonReuseApprovalRequired, "The Host retains state from a previous TartMachine but has an explicit matching reuse approval; allocation follows reuseMode, not the normal claim path.", generation)
 	default:
 		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host eligibility could not be classified.", generation)
@@ -319,13 +319,13 @@ func (r *TartHostReconciler) report(ctx context.Context, current *infrav1alpha1.
 func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts []infrav1alpha1.TartHost) (ctrl.Result, error) {
 	for index := range hosts {
 		candidate := &hosts[index]
-		if isPaused(candidate) || !host.HasIdentityConflict(*candidate, hosts) {
+		if isPaused(candidate) || !hostusecase.HasIdentityConflict(*candidate, hosts) {
 			continue
 		}
 
 		reason := infrav1alpha1.ReasonIdentityConflict
 		message := "Stable Host identity (MAC address or system UUID) is duplicated; allocation and maintenance configuration are stopped."
-		if host.HasDiskIdentityConflict(*candidate, hosts) {
+		if hostusecase.HasDiskIdentityConflict(*candidate, hosts) {
 			reason = infrav1alpha1.ReasonDiskIdentityConflict
 			message = "This Host reports a disk identity (WWID or serial) that is already reported by another Host; allocation and maintenance configuration are stopped until the conflict is resolved."
 		}

@@ -16,7 +16,7 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
-	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	"k8s.io/apimachinery/pkg/api/meta"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
@@ -128,7 +128,7 @@ func (r *TartClusterReconciler) observeFailureDomains(ctx context.Context) ([]cl
 	if err := r.List(ctx, hosts); err != nil {
 		return nil, err
 	}
-	return host.FailureDomains(hosts.Items), nil
+	return hostusecase.FailureDomains(hosts.Items), nil
 }
 
 func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32) error {

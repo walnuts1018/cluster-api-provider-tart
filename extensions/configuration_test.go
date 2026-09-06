@@ -8,12 +8,13 @@ import (
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
 // fakeUpdateNodeはTalos APIを必要とせずmachine configuration updateの判断を検証するための実装である。
@@ -71,13 +72,13 @@ func (f *fakeUpdateNode) ServicesHealthy(context.Context) error {
 
 func newUpdateConfiguration(t *testing.T, bundle *secrets.Bundle, serial string, patches ...[]byte) []byte {
 	t.Helper()
-	configuration, err := bootstrap.GenerateMachineConfiguration(bootstrap.MachineConfigurationContext{
+	configuration, err := configbuilder.GenerateMachineConfiguration(usecasebootstrap.MachineConfigurationContext{
 		ClusterName:          "cluster-a",
 		ControlPlaneEndpoint: "https://192.0.2.10:6443",
 		KubernetesVersion:    "1.34.0",
-		MachineType:          talosmachine.TypeWorker,
+		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &bootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.InstallDisk{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     serial,

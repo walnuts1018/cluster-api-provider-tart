@@ -6,25 +6,26 @@ import (
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
-type configurationOption func(*bootstrap.MachineConfigurationContext)
+type configurationOption func(*usecasebootstrap.MachineConfigurationContext)
 
-func withMachineType(machineType talosmachine.Type) configurationOption {
-	return func(input *bootstrap.MachineConfigurationContext) { input.MachineType = machineType }
+func withMachineRole(role domainbootstrap.MachineRole) configurationOption {
+	return func(input *usecasebootstrap.MachineConfigurationContext) { input.MachineRole = role }
 }
 
 func withEndpoint(endpoint string) configurationOption {
-	return func(input *bootstrap.MachineConfigurationContext) { input.ControlPlaneEndpoint = endpoint }
+	return func(input *usecasebootstrap.MachineConfigurationContext) { input.ControlPlaneEndpoint = endpoint }
 }
 
 func withInstallDiskSerial(serial string) configurationOption {
-	return func(input *bootstrap.MachineConfigurationContext) { input.InstallDisk.Serial = serial }
+	return func(input *usecasebootstrap.MachineConfigurationContext) { input.InstallDisk.Serial = serial }
 }
 
 func newSecretsBundle(t *testing.T) *secrets.Bundle {
@@ -38,13 +39,13 @@ func newSecretsBundle(t *testing.T) *secrets.Bundle {
 
 func newConfiguration(t *testing.T, bundle *secrets.Bundle, options []configurationOption, patches ...[]byte) []byte {
 	t.Helper()
-	input := bootstrap.MachineConfigurationContext{
+	input := usecasebootstrap.MachineConfigurationContext{
 		ClusterName:          "cluster-a",
 		ControlPlaneEndpoint: "https://192.0.2.10:6443",
 		KubernetesVersion:    "1.34.0",
-		MachineType:          talosmachine.TypeWorker,
+		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &bootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.InstallDisk{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",
@@ -54,7 +55,7 @@ func newConfiguration(t *testing.T, bundle *secrets.Bundle, options []configurat
 	for _, option := range options {
 		option(&input)
 	}
-	configuration, err := bootstrap.GenerateMachineConfiguration(input, patches...)
+	configuration, err := configbuilder.GenerateMachineConfiguration(input, patches...)
 	if err != nil {
 		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
 	}
@@ -73,7 +74,7 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 	sysctl := newConfiguration(t, bundle, nil, []byte("machine:\n  sysctls:\n    net.core.somaxconn: \"1024\"\n"))
 	userVolume := newConfiguration(t, bundle, nil, []byte("apiVersion: v1alpha1\nkind: UserVolumeConfig\nname: extra\nprovisioning:\n  diskSelector:\n    match: disk.transport == \"virtio\"\n  maxSize: 10GiB\n"))
 	otherDisk := newConfiguration(t, bundle, []configurationOption{withInstallDiskSerial("disk-b")})
-	controlPlane := newConfiguration(t, bundle, []configurationOption{withMachineType(talosmachine.TypeControlPlane)})
+	controlPlane := newConfiguration(t, bundle, []configurationOption{withMachineRole(domainbootstrap.MachineRoleControlPlane)})
 	otherEndpoint := newConfiguration(t, bundle, []configurationOption{withEndpoint("https://192.0.2.20:6443")})
 
 	tests := map[string]struct {

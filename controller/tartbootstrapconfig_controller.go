@@ -14,18 +14,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
-	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/host"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 // TartBootstrapConfigReconcilerはTartBootstrapConfig objectをreconcileする。
 type TartBootstrapConfigReconciler struct {
 	client.Client
+	Renderer bootstrap.ConfigRenderer
 }
 
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;update;patch
@@ -64,7 +65,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
-		if retryable := errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, bootstrap.ErrInstallDiskUnavailable); retryable {
+		if retryable := errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable); retryable {
 			result, reportErr := r.report(ctx, &config, "ClusterContextUnavailable", "The CAPI Cluster and active Talos secret bundle are not available for configuration generation yet.")
 			if reportErr != nil {
 				return ctrl.Result{}, reportErr
@@ -75,7 +76,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		reason, message := classifyConfigurationError(err)
 		return r.report(ctx, &config, reason, message)
 	}
-	digest, err := bootstrap.DigestEffectiveConfiguration(completeConfiguration)
+	digest, err := r.Renderer.Digest(completeConfiguration)
 	if err != nil {
 		return r.report(ctx, &config, "ConfigurationInvalid", "The rendered Talos machine configuration is not valid for boot.")
 	}
@@ -167,27 +168,7 @@ func (r *TartBootstrapConfigReconciler) configurationFromValue(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	configuration, err := bootstrap.CompleteConfigurationFromSecret(input)
-	if err != nil {
-		return nil, err
-	}
-	configured, err := bootstrap.HasInstallDiskConfiguration(configuration)
-	if err != nil {
-		return nil, err
-	}
-	if !configured {
-		configuration, err = bootstrap.EnsureInstallDisk(configuration, *configurationContext.InstallDisk)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := bootstrap.ValidateProviderOwnedConfiguration(configuration, configurationContext); err != nil {
-		return nil, err
-	}
-	if err := bootstrap.ValidateMachineConfiguration(configuration); err != nil {
-		return nil, err
-	}
-	return configuration, nil
+	return bootstrap.RenderFromCompleteValue(r.Renderer, input, configurationContext)
 }
 
 func (r *TartBootstrapConfigReconciler) configurationFromPatches(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, patches []byte) ([]byte, error) {
@@ -195,7 +176,7 @@ func (r *TartBootstrapConfigReconciler) configurationFromPatches(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	return bootstrap.GenerateMachineConfiguration(configurationContext, patches)
+	return bootstrap.RenderFromPatches(r.Renderer, configurationContext, patches)
 }
 
 func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (bootstrap.MachineConfigurationContext, error) {
@@ -251,9 +232,9 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 
-	machineType := talosmachine.TypeWorker
+	machineRole := domainbootstrap.MachineRoleWorker
 	if _, ok := clusterMachine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
-		machineType = talosmachine.TypeControlPlane
+		machineRole = domainbootstrap.MachineRoleControlPlane
 	}
 	disk, err := r.installDiskForMachine(ctx, clusterMachine)
 	if err != nil {
@@ -263,56 +244,56 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		ClusterName:          cluster.Name,
 		ControlPlaneEndpoint: cluster.Spec.ControlPlaneEndpoint.String(),
 		KubernetesVersion:    clusterMachine.Spec.Version,
-		MachineType:          machineType,
+		MachineRole:          machineRole,
 		SecretsBundle:        bundle,
 		InstallDisk:          &disk,
 	}, nil
 }
 
-func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Context, machine *clusterv1.Machine) (bootstrap.InstallDisk, error) {
+func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Context, machine *clusterv1.Machine) (domainbootstrap.InstallDisk, error) {
 	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
-		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	providerMachine := &infrav1alpha1.TartMachine{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: machine.Spec.InfrastructureRef.Name}, providerMachine); err != nil {
 		if apierrors.IsNotFound(err) {
-			return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+			return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 		}
-		return bootstrap.InstallDisk{}, err
+		return domainbootstrap.InstallDisk{}, err
 	}
 	if err := validateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
-		return bootstrap.InstallDisk{}, err
+		return domainbootstrap.InstallDisk{}, err
 	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {
-		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	host := &infrav1alpha1.TartHost{}
 	if err := r.Get(ctx, client.ObjectKey{Name: providerMachine.Status.HostRef.Name}, host); err != nil {
 		if apierrors.IsNotFound(err) {
-			return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+			return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 		}
-		return bootstrap.InstallDisk{}, err
+		return domainbootstrap.InstallDisk{}, err
 	}
 	consumer := host.Spec.ConsumerRef
 	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != tartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
-		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	allHosts := &infrav1alpha1.TartHostList{}
 	if err := r.List(ctx, allHosts); err != nil {
-		return bootstrap.InstallDisk{}, err
+		return domainbootstrap.InstallDisk{}, err
 	}
 	if hostpolicy.HasIdentityConflictForAny(allHosts.Items) {
-		return bootstrap.InstallDisk{}, errBootstrapIdentityConflict
+		return domainbootstrap.InstallDisk{}, errBootstrapIdentityConflict
 	}
 	if host.Status.Inventory == nil || len(host.Status.Inventory.Disks) == 0 {
-		return bootstrap.InstallDisk{}, errBootstrapContextUnavailable
+		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
-	disks := make([]bootstrap.InstallDisk, 0, len(host.Status.Inventory.Disks))
+	disks := make([]domainbootstrap.InstallDisk, 0, len(host.Status.Inventory.Disks))
 	for _, disk := range host.Status.Inventory.Disks {
 		if disk.SizeBytes < 1 {
 			continue
 		}
-		disks = append(disks, bootstrap.InstallDisk{
+		disks = append(disks, domainbootstrap.InstallDisk{
 			DevicePath: disk.DevicePath,
 			SizeBytes:  uint64(disk.SizeBytes),
 			Model:      disk.Model,
@@ -324,7 +305,7 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 			ReadOnly:   disk.ReadOnly,
 		})
 	}
-	return bootstrap.SelectInstallDisk(disks)
+	return r.Renderer.SelectInstallDisk(disks)
 }
 
 // classifyConfigurationErrorは、r.configurationが返した非retryableなerrorをReady Conditionのreason/messageへ分類する。
@@ -332,9 +313,9 @@ func classifyConfigurationError(err error) (reason, message string) {
 	switch {
 	case errors.Is(err, errBootstrapIdentityConflict):
 		return infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped."
-	case errors.Is(err, bootstrap.ErrConfigurationConflict):
+	case errors.Is(err, domainbootstrap.ErrConfigurationConflict):
 		return "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant."
-	case errors.Is(err, bootstrap.ErrInstallDiskAmbiguous), errors.Is(err, bootstrap.ErrInstallConfigurationInvalid), errors.Is(err, bootstrap.ErrConfigurationInputAmbiguous):
+	case errors.Is(err, domainbootstrap.ErrInstallDiskAmbiguous), errors.Is(err, domainbootstrap.ErrInstallConfigurationInvalid), errors.Is(err, bootstrap.ErrConfigurationInputAmbiguous):
 		return "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk."
 	default:
 		return "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration."

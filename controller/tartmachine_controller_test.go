@@ -312,40 +312,6 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	}
 }
 
-func TestCAPIMachineDeletionDrainCompleteRequiresInfrastructureDeletionStage(t *testing.T) {
-	t.Parallel()
-
-	deletionTime := metav1.Now()
-	tests := []struct {
-		name   string
-		reason string
-		want   bool
-	}{
-		{name: "not deleting", want: false},
-		{name: "draining", reason: clusterv1.MachineDeletingDrainingNodeReason, want: false},
-		{name: "waiting for infrastructure", reason: clusterv1.MachineDeletingWaitingForInfrastructureDeletionReason, want: true},
-		{name: "waiting for bootstrap", reason: clusterv1.MachineDeletingWaitingForBootstrapDeletionReason, want: true},
-		{name: "internal error", reason: clusterv1.MachineDeletingInternalErrorReason, want: false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			machine := &clusterv1.Machine{}
-			if test.reason != "" {
-				machine.DeletionTimestamp = &deletionTime
-				machine.Status.Conditions = []metav1.Condition{{
-					Type:   clusterv1.MachineDeletingCondition,
-					Status: metav1.ConditionTrue,
-					Reason: test.reason,
-				}}
-			}
-			if got := capiMachineDeletionDrainComplete(machine); got != test.want {
-				t.Errorf("capiMachineDeletionDrainComplete() = %t, want %t", got, test.want)
-			}
-		})
-	}
-}
-
 func mustHostID(t *testing.T, value string) hostdomain.HostID {
 	t.Helper()
 	id, err := hostdomain.ParseHostID(value)

@@ -7,6 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 )
 
 func TestClassify(t *testing.T) {
@@ -15,26 +16,26 @@ func TestClassify(t *testing.T) {
 	tests := []struct {
 		name string
 		spec infrav1alpha1.TartHostSpec
-		want Eligibility
+		want hostdomain.Eligibility
 	}{
 		{
-			name: "freshなHostはAvailable",
+			name: "freshなHostはhostdomain.Available",
 			spec: infrav1alpha1.TartHostSpec{},
-			want: Available,
+			want: hostdomain.Available,
 		},
 		{
-			name: "consumerRefがあればClaimed",
+			name: "consumerRefがあればhostdomain.Claimed",
 			spec: infrav1alpha1.TartHostSpec{
 				ConsumerRef: &corev1.ObjectReference{UID: types.UID("m1")},
 			},
-			want: Claimed,
+			want: hostdomain.Claimed,
 		},
 		{
 			name: "previousConsumerRefのみではReusableにしない",
 			spec: infrav1alpha1.TartHostSpec{
 				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("prev")},
 			},
-			want: Retained,
+			want: hostdomain.Retained,
 		},
 		{
 			name: "reusePolicyがAllowReuseでも承認がなければRetainedのまま",
@@ -42,7 +43,7 @@ func TestClassify(t *testing.T) {
 				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("prev")},
 				ReusePolicy:         infrav1alpha1.ReusePolicyAllowReuse,
 			},
-			want: Retained,
+			want: hostdomain.Retained,
 		},
 		{
 			name: "previousConsumerRefと承認のUIDが空でもReusableにしない",
@@ -52,7 +53,7 @@ func TestClassify(t *testing.T) {
 				ReuseApproval:       &infrav1alpha1.ReuseApproval{},
 				ReuseMode:           infrav1alpha1.ReuseModeAdopt,
 			},
-			want: Retained,
+			want: hostdomain.Retained,
 		},
 		{
 			name: "承認のUIDが空ならReusableにしない",
@@ -62,7 +63,7 @@ func TestClassify(t *testing.T) {
 				ReuseApproval:       &infrav1alpha1.ReuseApproval{},
 				ReuseMode:           infrav1alpha1.ReuseModeAdopt,
 			},
-			want: Retained,
+			want: hostdomain.Retained,
 		},
 		{
 			name: "承認のpreviousConsumerUIDが古いpreviousConsumerRefと一致しなければRetainedのまま",
@@ -72,25 +73,25 @@ func TestClassify(t *testing.T) {
 				ReuseApproval:       &infrav1alpha1.ReuseApproval{PreviousConsumerUID: types.UID("prev-1")},
 				ReuseMode:           infrav1alpha1.ReuseModeAdopt,
 			},
-			want: Retained,
+			want: hostdomain.Retained,
 		},
 		{
-			name: "reusePolicy・一致する承認・reuseModeが揃えばReusable",
+			name: "reusePolicy・一致する承認・reuseModeが揃えばhostdomain.Reusable",
 			spec: infrav1alpha1.TartHostSpec{
 				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("prev")},
 				ReusePolicy:         infrav1alpha1.ReusePolicyAllowReuse,
 				ReuseApproval:       &infrav1alpha1.ReuseApproval{PreviousConsumerUID: types.UID("prev")},
 				ReuseMode:           infrav1alpha1.ReuseModeReprovision,
 			},
-			want: Reusable,
+			want: hostdomain.Reusable,
 		},
 		{
-			name: "consumerRefが優先されpreviousConsumerRefがあってもClaimed",
+			name: "consumerRefが優先されpreviousConsumerRefがあってもhostdomain.Claimed",
 			spec: infrav1alpha1.TartHostSpec{
 				ConsumerRef:         &corev1.ObjectReference{UID: types.UID("m1")},
 				PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("prev")},
 			},
-			want: Claimed,
+			want: hostdomain.Claimed,
 		},
 	}
 

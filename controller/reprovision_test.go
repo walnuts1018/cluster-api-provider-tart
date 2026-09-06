@@ -9,7 +9,6 @@ import (
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,13 +17,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	kubernetesadapter "github.com/walnuts1018/cluster-api-provider-tart/adapter/kubernetes"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
-	"github.com/walnuts1018/cluster-api-provider-tart/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 )
 
 const (
@@ -102,13 +105,13 @@ func testBundle(t *testing.T, clusterID string) *secrets.Bundle {
 // testConfigurationは指定したbundleから完全なworker machine configurationを生成する。稼働中nodeのactive configurationの代用である。
 func testConfiguration(t *testing.T, bundle *secrets.Bundle) []byte {
 	t.Helper()
-	configuration, err := bootstrap.GenerateMachineConfiguration(bootstrap.MachineConfigurationContext{
+	configuration, err := configbuilder.GenerateMachineConfiguration(usecasebootstrap.MachineConfigurationContext{
 		ClusterName:          "reuse",
 		ControlPlaneEndpoint: "https://api.test.walnuts.dev:6443",
 		KubernetesVersion:    "v1.34.1",
-		MachineType:          talosmachine.TypeWorker,
+		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &bootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.InstallDisk{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",
@@ -207,16 +210,16 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 		Build()
 
 	// Machine削除時のretentionを実際に通し、承認前のHostがRetainedになることを確認する。
-	if err := host.Retain(context.Background(), fakeClient, hostObject, *hostObject.Spec.ConsumerRef, infrav1alpha1.PreviousConsumerRef{
+	if err := kubernetesadapter.NewTartHostRepository(fakeClient).RetainHost(context.Background(), hostObject, *hostObject.Spec.ConsumerRef, infrav1alpha1.PreviousConsumerRef{
 		Namespace: "default",
 		Name:      "previous",
 		UID:       previousMachineUID,
 		ClusterID: clusterID,
 	}); err != nil {
-		t.Fatalf("host.Retain() error = %v", err)
+		t.Fatalf("RetainHost() error = %v", err)
 	}
-	if got := host.Classify(hostObject.Spec); got != host.Retained {
-		t.Fatalf("host.Classify() after retention = %q, want Retained", got)
+	if got := hostusecase.Classify(hostObject.Spec); got != hostdomain.Retained {
+		t.Fatalf("hostusecase.Classify() after retention = %q, want Retained", got)
 	}
 
 	// ユーザーによる明示的なReprovision承認を与える。
@@ -226,8 +229,8 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 	if err := fakeClient.Update(context.Background(), hostObject); err != nil {
 		t.Fatalf("Update() error = %v", err)
 	}
-	if got := host.Classify(hostObject.Spec); got != host.Reusable {
-		t.Fatalf("host.Classify() after approval = %q, want Reusable", got)
+	if got := hostusecase.Classify(hostObject.Spec); got != hostdomain.Reusable {
+		t.Fatalf("hostusecase.Classify() after approval = %q, want Reusable", got)
 	}
 
 	node := &fakeTalosNode{

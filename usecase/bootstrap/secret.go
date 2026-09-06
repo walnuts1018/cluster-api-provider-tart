@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 )
 
 const (
@@ -27,7 +28,6 @@ var (
 	ErrInvalidSecretMetadata       = errors.New("bootstrap Secret metadata is incomplete")
 	ErrOwnerReferenceIncomplete    = errors.New("bootstrap Secret owner reference is incomplete")
 	ErrOwnerReferenceInvalid       = errors.New("bootstrap Secret owner reference is invalid")
-	ErrCompleteConfigurationEmpty  = errors.New("complete machine configuration is empty")
 	ErrConfigurationInputMissing   = errors.New("bootstrap configuration Secret has no usable configuration input")
 	ErrConfigurationInputAmbiguous = errors.New("bootstrap configuration Secret contains both complete configuration and patches")
 )
@@ -50,8 +50,8 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 }
 
 // CompleteConfigurationFromSecretはimmutableな入力Secretから完全なTalos configurationを取得する。
-// patches keyの入力はBootstrap controllerがcluster、Machine、bundle contextを解決してからGenerateMachineConfigurationへ渡す。
-func CompleteConfigurationFromSecret(secret *corev1.Secret) ([]byte, error) {
+// patches keyの入力はBootstrap controllerがcluster、Machine、bundle contextを解決してからGenerateへ渡す。
+func CompleteConfigurationFromSecret(renderer ConfigRenderer, secret *corev1.Secret) ([]byte, error) {
 	if err := ValidateConfigSecret(secret); err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func CompleteConfigurationFromSecret(secret *corev1.Secret) ([]byte, error) {
 		}
 	}
 
-	rendered, err := RenderEffectiveConfiguration(configuration)
+	rendered, err := renderer.Render(configuration)
 	if err != nil {
 		return nil, fmt.Errorf("render configuration input: %w", err)
 	}
@@ -90,7 +90,7 @@ func BuildSecret(namespace, name, clusterName string, owner metav1.OwnerReferenc
 		return nil, ErrOwnerReferenceInvalid
 	}
 	if len(bytes.TrimSpace(completeConfiguration)) == 0 {
-		return nil, ErrCompleteConfigurationEmpty
+		return nil, domainbootstrap.ErrCompleteConfigurationEmpty
 	}
 
 	controller := true

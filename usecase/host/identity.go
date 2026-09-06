@@ -1,25 +1,13 @@
 package host
 
 import (
-	"errors"
 	"strings"
+
 	"uuid"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
-
-var ErrInvalidHostID = errors.New("invalid host id")
-
-// ProviderIDはTartHost.spec.idから決定論的に生成する。metadata.uidやHost名には依存しない。
-func ProviderID(id hostdomain.HostID) (hostdomain.ProviderID, error) {
-	providerID, err := hostdomain.NewProviderID(id)
-	if err != nil {
-		return hostdomain.ProviderID(""), ErrInvalidHostID
-	}
-	return providerID, nil
-}
 
 // HasIdentityConflictはMAC addressまたはmaintenance Talosが観測したsystem UUIDが別Hostと重複しているかを判定する。空のidentityは未観測として重複扱いにしない。
 func HasIdentityConflict(host infrav1alpha1.TartHost, hosts []infrav1alpha1.TartHost) bool {

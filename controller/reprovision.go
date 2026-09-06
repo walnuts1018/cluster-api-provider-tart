@@ -16,8 +16,8 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
-	"github.com/walnuts1018/cluster-api-provider-tart/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
+	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 )
 
 const reprovisionRequeue = 30 * time.Second
@@ -83,7 +83,7 @@ func shouldRebindTalosIdentity(current *infrav1alpha1.TalosIdentityReference, cl
 // handledがfalseの場合は、このHostに破棄すべき旧installationが残っていないため、呼び出し側が通常のprovisioning経路を続行する。
 // Statusをworkflowのstep番号として使わず、毎回recovery identityの有無と旧Talos APIの到達性を観測して継続位置を決める。
 func (r *TartMachineReconciler) reconcileReprovision(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, endpoint string) (ctrl.Result, bool, error) {
-	if !host.ReprovisionApproved(selected.Spec) || selected.Status.CurrentTalosIdentityRef == nil {
+	if !hostusecase.ReprovisionApproved(selected.Spec) || selected.Status.CurrentTalosIdentityRef == nil {
 		return ctrl.Result{}, false, nil
 	}
 	identity := selected.Status.CurrentTalosIdentityRef

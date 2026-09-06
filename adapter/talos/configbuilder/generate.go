@@ -1,8 +1,7 @@
-package bootstrap
+package configbuilder
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -14,33 +13,47 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
-	"github.com/siderolabs/talos/pkg/machinery/config/machine"
+	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
+
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
-var (
-	ErrMachineConfigurationContextIncomplete = errors.New("machine configuration generation context is incomplete")
-	ErrConfigurationConflict                 = errors.New("machine configuration conflicts with provider-owned invariant")
-)
+// machineTypeは、provider-neutralなdomain.MachineRoleをsiderolabs machineryのmachine.Typeへ変換する。
+// この変換はsiderolabs型を扱うadapter層だけが行う。
+func machineType(role domainbootstrap.MachineRole) (talosmachine.Type, error) {
+	switch role {
+	case domainbootstrap.MachineRoleControlPlane:
+		return talosmachine.TypeControlPlane, nil
+	case domainbootstrap.MachineRoleWorker:
+		return talosmachine.TypeWorker, nil
+	default:
+		return 0, fmt.Errorf("%w: unsupported machine role", domainbootstrap.ErrMachineConfigurationContextIncomplete)
+	}
+}
 
-// MachineConfigurationContextはclusterとCAPI Machineから導出したTalos設定生成の入力である。
-// SecretsBundleにはKubernetes Secretから検証済みの値だけを渡し、呼び出し側は外部へ出力しない。
-type MachineConfigurationContext struct {
-	ClusterName          string
-	ControlPlaneEndpoint string
-	KubernetesVersion    string
-	MachineType          machine.Type
-	SecretsBundle        *secrets.Bundle
-	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はuser patchまたはcomplete configurationがinstall targetを含まなければならない。
-	InstallDisk *InstallDisk
+// secretsBundleは、usecase層が不透明な値として運んだSecretsBundleを、siderolabs machineryの
+// secrets.Bundleへ確定させる。この型断定はadapter層だけが行う。
+func secretsBundle(input usecasebootstrap.MachineConfigurationContext) (*secrets.Bundle, error) {
+	bundle, ok := input.SecretsBundle.(*secrets.Bundle)
+	if !ok || bundle == nil {
+		return nil, fmt.Errorf("%w: secrets bundle", domainbootstrap.ErrMachineConfigurationContextIncomplete)
+	}
+	return bundle, nil
 }
 
 // GenerateMachineConfigurationはTalos machineryのbase configurationへユーザーpatchを適用し、Talos APIへ渡せるcanonical configurationを返す。InstallDiskが指定された場合はproviderが選択したinstall targetを付加する。
-func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...[]byte) ([]byte, error) {
-	if strings.TrimSpace(input.ClusterName) == "" || input.SecretsBundle == nil {
-		return nil, ErrMachineConfigurationContextIncomplete
+func GenerateMachineConfiguration(input usecasebootstrap.MachineConfigurationContext, patches ...[]byte) ([]byte, error) {
+	if strings.TrimSpace(input.ClusterName) == "" {
+		return nil, domainbootstrap.ErrMachineConfigurationContextIncomplete
 	}
-	if input.MachineType != machine.TypeControlPlane && input.MachineType != machine.TypeWorker {
-		return nil, fmt.Errorf("%w: unsupported machine type", ErrMachineConfigurationContextIncomplete)
+	bundle, err := secretsBundle(input)
+	if err != nil {
+		return nil, err
+	}
+	mType, err := machineType(input.MachineRole)
+	if err != nil {
+		return nil, err
 	}
 
 	endpoint, err := canonicalEndpoint(input.ControlPlaneEndpoint)
@@ -49,14 +62,14 @@ func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...
 	}
 	kubernetesVersion := strings.TrimPrefix(strings.TrimSpace(input.KubernetesVersion), "v")
 	if kubernetesVersion == "" {
-		return nil, fmt.Errorf("%w: kubernetes version", ErrMachineConfigurationContextIncomplete)
+		return nil, fmt.Errorf("%w: kubernetes version", domainbootstrap.ErrMachineConfigurationContextIncomplete)
 	}
 
-	generated, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(input.SecretsBundle))
+	generated, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(bundle))
 	if err != nil {
 		return nil, fmt.Errorf("create Talos configuration generator: %w", err)
 	}
-	provider, err := generated.Config(input.MachineType)
+	provider, err := generated.Config(mType)
 	if err != nil {
 		return nil, fmt.Errorf("generate Talos machine configuration: %w", err)
 	}
@@ -79,7 +92,7 @@ func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...
 	if err != nil {
 		return nil, fmt.Errorf("load effective Talos machine configuration: %w", err)
 	}
-	if err := validateProviderOwnedConfiguration(provider, effectiveProvider, input.ClusterName, endpoint, input.MachineType); err != nil {
+	if err := validateProviderOwnedConfiguration(provider, effectiveProvider, input.ClusterName, endpoint, mType); err != nil {
 		return nil, err
 	}
 	if err := ValidateMachineConfiguration(configuration); err != nil {
@@ -89,75 +102,83 @@ func GenerateMachineConfiguration(input MachineConfigurationContext, patches ...
 }
 
 // ValidateProviderOwnedConfigurationはユーザーが指定したcomplete configurationを、同じcluster contextから生成したprovider-owned基準と比較する。value入力がprovider invariantを迂回しないよう、configurationの保存またはTalos APIへの送信前に呼び出す。
-func ValidateProviderOwnedConfiguration(configuration []byte, input MachineConfigurationContext) error {
-	if len(bytes.TrimSpace(configuration)) == 0 || strings.TrimSpace(input.ClusterName) == "" || input.SecretsBundle == nil {
-		return fmt.Errorf("%w: configuration context is incomplete", ErrConfigurationConflict)
+func ValidateProviderOwnedConfiguration(configuration []byte, input usecasebootstrap.MachineConfigurationContext) error {
+	if len(bytes.TrimSpace(configuration)) == 0 || strings.TrimSpace(input.ClusterName) == "" {
+		return fmt.Errorf("%w: configuration context is incomplete", domainbootstrap.ErrConfigurationConflict)
+	}
+	bundle, err := secretsBundle(input)
+	if err != nil {
+		return fmt.Errorf("%w: %w", domainbootstrap.ErrConfigurationConflict, err)
+	}
+	mType, err := machineType(input.MachineRole)
+	if err != nil {
+		return fmt.Errorf("%w: %w", domainbootstrap.ErrConfigurationConflict, err)
 	}
 	endpoint, err := canonicalEndpoint(input.ControlPlaneEndpoint)
 	if err != nil {
-		return fmt.Errorf("%w: control-plane endpoint: %w", ErrConfigurationConflict, err)
+		return fmt.Errorf("%w: control-plane endpoint: %w", domainbootstrap.ErrConfigurationConflict, err)
 	}
 	kubernetesVersion := strings.TrimPrefix(strings.TrimSpace(input.KubernetesVersion), "v")
 	if kubernetesVersion == "" {
-		return fmt.Errorf("%w: Kubernetes version is empty", ErrConfigurationConflict)
+		return fmt.Errorf("%w: Kubernetes version is empty", domainbootstrap.ErrConfigurationConflict)
 	}
-	generation, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(input.SecretsBundle))
+	generation, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(bundle))
 	if err != nil {
-		return fmt.Errorf("%w: create provider-owned configuration: %w", ErrConfigurationConflict, err)
+		return fmt.Errorf("%w: create provider-owned configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
 	}
-	base, err := generation.Config(input.MachineType)
+	base, err := generation.Config(mType)
 	if err != nil {
-		return fmt.Errorf("%w: generate provider-owned configuration: %w", ErrConfigurationConflict, err)
+		return fmt.Errorf("%w: generate provider-owned configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
 	}
 	effective, err := configloader.NewFromBytes(configuration)
 	if err != nil {
-		return fmt.Errorf("%w: load effective configuration: %w", ErrConfigurationConflict, err)
+		return fmt.Errorf("%w: load effective configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
 	}
 	if input.InstallDisk != nil {
 		if err := validateInstallDiskConfiguration(effective, *input.InstallDisk); err != nil {
-			return fmt.Errorf("%w: install disk: %w", ErrConfigurationConflict, err)
+			return fmt.Errorf("%w: install disk: %w", domainbootstrap.ErrConfigurationConflict, err)
 		}
 	}
-	return validateProviderOwnedConfiguration(base, effective, input.ClusterName, endpoint, input.MachineType)
+	return validateProviderOwnedConfiguration(base, effective, input.ClusterName, endpoint, mType)
 }
 
-func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, clusterName, endpoint string, machineType machine.Type) error {
+func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, clusterName, endpoint string, machineType talosmachine.Type) error {
 	if base == nil || effective == nil {
-		return fmt.Errorf("%w: configuration provider is unavailable", ErrConfigurationConflict)
+		return fmt.Errorf("%w: configuration provider is unavailable", domainbootstrap.ErrConfigurationConflict)
 	}
 	if effective.Machine() == nil || effective.Machine().Type() != machineType {
-		return fmt.Errorf("%w: machine type", ErrConfigurationConflict)
+		return fmt.Errorf("%w: machine type", domainbootstrap.ErrConfigurationConflict)
 	}
 	if base.Machine() == nil || !sameCertificateAndKey(base.Machine().Security().IssuingCA(), effective.Machine().Security().IssuingCA()) || base.Machine().Security().Token() != effective.Machine().Security().Token() {
-		return fmt.Errorf("%w: machine PKI or token", ErrConfigurationConflict)
+		return fmt.Errorf("%w: machine PKI or token", domainbootstrap.ErrConfigurationConflict)
 	}
 	baseCluster := base.Cluster()
 	effectiveCluster := effective.Cluster()
 	if baseCluster == nil || effectiveCluster == nil || baseCluster.Token().ID() != effectiveCluster.Token().ID() || baseCluster.Token().Secret() != effectiveCluster.Token().Secret() || !sameCertificateAndKey(baseCluster.Etcd().CA(), effectiveCluster.Etcd().CA()) {
-		return fmt.Errorf("%w: cluster PKI or token", ErrConfigurationConflict)
+		return fmt.Errorf("%w: cluster PKI or token", domainbootstrap.ErrConfigurationConflict)
 	}
 	if !reflect.DeepEqual(base.K8sAPIServerCAConfig(), effective.K8sAPIServerCAConfig()) || !reflect.DeepEqual(base.K8sAggregatorCAConfig(), effective.K8sAggregatorCAConfig()) || !reflect.DeepEqual(base.K8sServiceAccountConfig(), effective.K8sServiceAccountConfig()) {
-		return fmt.Errorf("%w: Kubernetes PKI", ErrConfigurationConflict)
+		return fmt.Errorf("%w: Kubernetes PKI", domainbootstrap.ErrConfigurationConflict)
 	}
 
 	cluster := effective.K8sClusterConfig()
 	if cluster == nil || cluster.ClusterName() != clusterName {
-		return fmt.Errorf("%w: cluster name", ErrConfigurationConflict)
+		return fmt.Errorf("%w: cluster name", domainbootstrap.ErrConfigurationConflict)
 	}
 	actualEndpoint := cluster.ClusterEndpoint()
 	if actualEndpoint == nil {
-		return fmt.Errorf("%w: cluster endpoint is missing", ErrConfigurationConflict)
+		return fmt.Errorf("%w: cluster endpoint is missing", domainbootstrap.ErrConfigurationConflict)
 	}
 	canonicalActualEndpoint, err := canonicalEndpoint(actualEndpoint.String())
 	if err != nil || canonicalActualEndpoint != endpoint {
-		return fmt.Errorf("%w: cluster endpoint", ErrConfigurationConflict)
+		return fmt.Errorf("%w: cluster endpoint", domainbootstrap.ErrConfigurationConflict)
 	}
 
 	baseImages := componentImages(base)
 	effectiveImages := componentImages(effective)
 	for index := range baseImages {
 		if baseImages[index] != effectiveImages[index] {
-			return fmt.Errorf("%w: Kubernetes component image", ErrConfigurationConflict)
+			return fmt.Errorf("%w: Kubernetes component image", domainbootstrap.ErrConfigurationConflict)
 		}
 	}
 	return nil
@@ -194,14 +215,14 @@ func componentImages(provider talosconfig.Provider) [5]string {
 func canonicalEndpoint(endpoint string) (string, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
-		return "", fmt.Errorf("%w: control-plane endpoint", ErrMachineConfigurationContextIncomplete)
+		return "", fmt.Errorf("%w: control-plane endpoint", domainbootstrap.ErrMachineConfigurationContextIncomplete)
 	}
 	if !strings.Contains(endpoint, "://") {
 		endpoint = "https://" + endpoint
 	}
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Path != "" && parsed.Path != "/") {
-		return "", fmt.Errorf("%w: invalid control-plane endpoint", ErrMachineConfigurationContextIncomplete)
+		return "", fmt.Errorf("%w: invalid control-plane endpoint", domainbootstrap.ErrMachineConfigurationContextIncomplete)
 	}
 	parsed.Path = ""
 	parsed.RawPath = ""

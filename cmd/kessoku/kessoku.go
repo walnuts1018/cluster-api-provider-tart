@@ -6,6 +6,7 @@ import (
 	kessokulib "github.com/mazrean/kessoku"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	controller "github.com/walnuts1018/cluster-api-provider-tart/controller"
 )
 
@@ -32,7 +33,7 @@ func provideTartMachineReconciler(c client.Client) *controller.TartMachineReconc
 }
 
 func provideTartBootstrapConfigReconciler(c client.Client) *controller.TartBootstrapConfigReconciler {
-	return &controller.TartBootstrapConfigReconciler{Client: c}
+	return &controller.TartBootstrapConfigReconciler{Client: c, Renderer: configbuilder.Builder{}}
 }
 
 func provideTartControlPlaneReconciler(c client.Client) *controller.TartControlPlaneReconciler {

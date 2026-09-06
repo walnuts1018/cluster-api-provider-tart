@@ -1,9 +1,8 @@
-package bootstrap
+package configbuilder
 
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -18,35 +17,18 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
 	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
-)
 
-var (
-	ErrInstallDiskUnavailable      = errors.New("no install disk is available")
-	ErrInstallDiskAmbiguous        = errors.New("install disk cannot be selected unambiguously")
-	ErrInstallConfigurationInvalid = errors.New("machine configuration install target is invalid")
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 )
-
-// InstallDiskはTalosのsystem disk選択に必要な非機密hardware observationである。DevicePathは旧Talos設定形式で使用し、現行設定形式では生成したstable selectorを使用する。
-type InstallDisk struct {
-	DevicePath string
-	SizeBytes  uint64
-	Model      string
-	Serial     string
-	WWID       string
-	BusPath    string
-	Transport  string
-	Rotational bool
-	ReadOnly   bool
-}
 
 type diskSelector struct {
 	expression string
-	matches    func(InstallDisk) bool
+	matches    func(domainbootstrap.InstallDisk) bool
 }
 
 // SelectInstallDiskは現在観測した書き込み可能なphysical diskへstableなTalos selectorを適用し、一意に一致する場合だけ選択する。boot orderに依存する/dev/sdXなどへfallbackしない。
-func SelectInstallDisk(disks []InstallDisk) (InstallDisk, error) {
-	candidates := make([]InstallDisk, 0, len(disks))
+func SelectInstallDisk(disks []domainbootstrap.InstallDisk) (domainbootstrap.InstallDisk, error) {
+	candidates := make([]domainbootstrap.InstallDisk, 0, len(disks))
 	for _, disk := range disks {
 		if strings.TrimSpace(disk.DevicePath) == "" || disk.SizeBytes == 0 || disk.ReadOnly {
 			continue
@@ -54,9 +36,9 @@ func SelectInstallDisk(disks []InstallDisk) (InstallDisk, error) {
 		candidates = append(candidates, disk)
 	}
 	if len(candidates) == 0 {
-		return InstallDisk{}, ErrInstallDiskUnavailable
+		return domainbootstrap.InstallDisk{}, domainbootstrap.ErrInstallDiskUnavailable
 	}
-	slices.SortFunc(candidates, func(left, right InstallDisk) int {
+	slices.SortFunc(candidates, func(left, right domainbootstrap.InstallDisk) int {
 		return cmp.Compare(left.DevicePath, right.DevicePath)
 	})
 
@@ -74,15 +56,15 @@ func SelectInstallDisk(disks []InstallDisk) (InstallDisk, error) {
 		}
 	}
 
-	return InstallDisk{}, ErrInstallDiskAmbiguous
+	return domainbootstrap.InstallDisk{}, domainbootstrap.ErrInstallDiskAmbiguous
 }
 
-func selectorsFor(disk InstallDisk) []diskSelector {
+func selectorsFor(disk domainbootstrap.InstallDisk) []diskSelector {
 	baseExpression := []string{
 		`!disk.readonly`,
 		"disk.size == " + strconv.FormatUint(disk.SizeBytes, 10) + "u",
 	}
-	baseMatches := func(candidate InstallDisk) bool {
+	baseMatches := func(candidate domainbootstrap.InstallDisk) bool {
 		return !candidate.ReadOnly && candidate.SizeBytes == disk.SizeBytes
 	}
 	selectors := make([]diskSelector, 0, 4)
@@ -90,7 +72,7 @@ func selectorsFor(disk InstallDisk) []diskSelector {
 	if strings.TrimSpace(disk.WWID) != "" {
 		selectors = append(selectors, diskSelector{
 			expression: strings.Join(append(slices.Clone(baseExpression), `disk.wwid == `+strconv.Quote(disk.WWID)), " && "),
-			matches: func(candidate InstallDisk) bool {
+			matches: func(candidate domainbootstrap.InstallDisk) bool {
 				return baseMatches(candidate) && candidate.WWID == disk.WWID
 			},
 		})
@@ -98,13 +80,13 @@ func selectorsFor(disk InstallDisk) []diskSelector {
 
 	if strings.TrimSpace(disk.Serial) != "" {
 		expression := append(slices.Clone(baseExpression), `disk.serial == `+strconv.Quote(disk.Serial))
-		matches := func(candidate InstallDisk) bool {
+		matches := func(candidate domainbootstrap.InstallDisk) bool {
 			return baseMatches(candidate) && candidate.Serial == disk.Serial
 		}
 		if strings.TrimSpace(disk.Model) != "" {
 			expression = append(expression, `disk.model == `+strconv.Quote(disk.Model))
 			previousMatches := matches
-			matches = func(candidate InstallDisk) bool {
+			matches = func(candidate domainbootstrap.InstallDisk) bool {
 				return previousMatches(candidate) && candidate.Model == disk.Model
 			}
 		}
@@ -113,13 +95,13 @@ func selectorsFor(disk InstallDisk) []diskSelector {
 
 	if strings.TrimSpace(disk.BusPath) != "" {
 		expression := append(slices.Clone(baseExpression), `disk.bus_path == `+strconv.Quote(disk.BusPath))
-		matches := func(candidate InstallDisk) bool {
+		matches := func(candidate domainbootstrap.InstallDisk) bool {
 			return baseMatches(candidate) && candidate.BusPath == disk.BusPath
 		}
 		if strings.TrimSpace(disk.Model) != "" {
 			expression = append(expression, `disk.model == `+strconv.Quote(disk.Model))
 			previousMatches := matches
-			matches = func(candidate InstallDisk) bool {
+			matches = func(candidate domainbootstrap.InstallDisk) bool {
 				return previousMatches(candidate) && candidate.Model == disk.Model
 			}
 		}
@@ -131,20 +113,20 @@ func selectorsFor(disk InstallDisk) []diskSelector {
 	if strings.TrimSpace(disk.Model) != "" {
 		expression = append(expression, `disk.model == `+strconv.Quote(disk.Model))
 		previousMatches := matches
-		matches = func(candidate InstallDisk) bool {
+		matches = func(candidate domainbootstrap.InstallDisk) bool {
 			return previousMatches(candidate) && candidate.Model == disk.Model
 		}
 	}
 	if disk.Rotational {
 		expression = append(expression, `disk.rotational`)
 		previousMatches := matches
-		matches = func(candidate InstallDisk) bool {
+		matches = func(candidate domainbootstrap.InstallDisk) bool {
 			return previousMatches(candidate) && candidate.Rotational
 		}
 	} else {
 		expression = append(expression, `!disk.rotational`)
 		previousMatches := matches
-		matches = func(candidate InstallDisk) bool {
+		matches = func(candidate domainbootstrap.InstallDisk) bool {
 			return previousMatches(candidate) && !candidate.Rotational
 		}
 	}
@@ -156,7 +138,7 @@ func selectorsFor(disk InstallDisk) []diskSelector {
 // HasInstallDiskConfigurationはconfigurationがinstall targetを特定済みか返す。不正なunattended documentはprovider生成値で黙って置換せず、errorとして返す。
 func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
-		return false, ErrCompleteConfigurationEmpty
+		return false, domainbootstrap.ErrCompleteConfigurationEmpty
 	}
 	provider, err := configloader.NewFromBytes(configuration)
 	if err != nil {
@@ -164,7 +146,7 @@ func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 	}
 	if unattended := provider.UnattendedInstallConfig(); unattended != nil {
 		if raw := provider.RawV1Alpha1(); raw != nil && raw.MachineConfig != nil && raw.MachineConfig.MachineInstall != nil { //nolint:staticcheck // legacy configuration support.
-			return false, fmt.Errorf("%w: modern unattended configuration conflicts with legacy machine.install", ErrInstallConfigurationInvalid)
+			return false, fmt.Errorf("%w: modern unattended configuration conflicts with legacy machine.install", domainbootstrap.ErrInstallConfigurationInvalid)
 		}
 		if err := validateInstallSelector(unattended.VolumeSelector()); err != nil {
 			return false, err
@@ -198,17 +180,17 @@ func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 
 func validateInstallSelector(expression cel.Expression) error {
 	if expression.IsZero() {
-		return ErrInstallConfigurationInvalid
+		return domainbootstrap.ErrInstallConfigurationInvalid
 	}
 	if err := expression.ParseBool(celenv.DiskLocator()); err != nil {
-		return fmt.Errorf("%w: invalid disk selector: %w", ErrInstallConfigurationInvalid, err)
+		return fmt.Errorf("%w: invalid disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
 	}
 	return nil
 }
 
 // EnsureInstallDiskは入力configurationにinstall targetがない場合、Talos nativeのinstall targetを追加する。
 // 現行Talos設定にはUnattendedInstallConfig documentを追加し、旧設定にはmachine.install.diskを設定する。
-func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
+func EnsureInstallDisk(configuration []byte, disk domainbootstrap.InstallDisk) ([]byte, error) {
 	configured, err := HasInstallDiskConfiguration(configuration)
 	if err != nil {
 		return nil, err
@@ -224,7 +206,7 @@ func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
 		return bytes.Clone(configuration), nil
 	}
 	if strings.TrimSpace(disk.DevicePath) == "" {
-		return nil, ErrInstallDiskUnavailable
+		return nil, domainbootstrap.ErrInstallDiskUnavailable
 	}
 
 	provider, err := configloader.NewFromBytes(configuration)
@@ -246,7 +228,7 @@ func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
 		return patched.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
 	}
 
-	selector, err := SelectInstallDisk([]InstallDisk{disk})
+	selector, err := SelectInstallDisk([]domainbootstrap.InstallDisk{disk})
 	if err != nil {
 		return nil, err
 	}
@@ -271,9 +253,9 @@ func EnsureInstallDisk(configuration []byte, disk InstallDisk) ([]byte, error) {
 	return canonical.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
 }
 
-func validateInstallDiskConfiguration(provider talosconfig.Provider, disk InstallDisk) error {
+func validateInstallDiskConfiguration(provider talosconfig.Provider, disk domainbootstrap.InstallDisk) error {
 	if provider == nil || strings.TrimSpace(disk.DevicePath) == "" || disk.SizeBytes == 0 || disk.ReadOnly {
-		return ErrInstallDiskUnavailable
+		return domainbootstrap.ErrInstallDiskUnavailable
 	}
 
 	expected, err := expectedInstallSelector(disk)
@@ -286,51 +268,51 @@ func validateInstallDiskConfiguration(provider talosconfig.Provider, disk Instal
 			return err
 		}
 		if unattended.VolumeWipe() {
-			return fmt.Errorf("%w: unattended install target enables volume wipe", ErrInstallConfigurationInvalid)
+			return fmt.Errorf("%w: unattended install target enables volume wipe", domainbootstrap.ErrInstallConfigurationInvalid)
 		}
 		matches, err := equivalentInstallSelectors(unattended.VolumeSelector(), expected)
 		if err != nil {
 			return err
 		}
 		if !matches {
-			return fmt.Errorf("%w: unattended install target does not match the provider-selected disk", ErrInstallConfigurationInvalid)
+			return fmt.Errorf("%w: unattended install target does not match the provider-selected disk", domainbootstrap.ErrInstallConfigurationInvalid)
 		}
 		return nil
 	}
 
 	machine := provider.Machine()
 	if machine == nil || machine.Install() == nil {
-		return ErrInstallConfigurationInvalid
+		return domainbootstrap.ErrInstallConfigurationInvalid
 	}
 	install := machine.Install()
 	if install.Zero() {
-		return fmt.Errorf("%w: legacy install target enables disk wipe", ErrInstallConfigurationInvalid)
+		return fmt.Errorf("%w: legacy install target enables disk wipe", domainbootstrap.ErrInstallConfigurationInvalid)
 	}
 	if strings.TrimSpace(install.Disk()) != "" {
 		if install.Disk() != disk.DevicePath {
-			return fmt.Errorf("%w: legacy install disk does not match the provider-selected disk", ErrInstallConfigurationInvalid)
+			return fmt.Errorf("%w: legacy install disk does not match the provider-selected disk", domainbootstrap.ErrInstallConfigurationInvalid)
 		}
 		return nil
 	}
 
 	// 旧形式のselectorだけでは観測したdeviceが選択されたことを証明できないため、明示的なdevice pathを要求して別diskへのinstallを防ぐ。
 	if expression, err := install.DiskMatchExpression(); err != nil {
-		return fmt.Errorf("%w: read Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+		return fmt.Errorf("%w: read Talos install disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
 	} else if expression != nil && !expression.IsZero() {
-		return fmt.Errorf("%w: legacy install selector must identify the provider-selected device path", ErrInstallConfigurationInvalid)
+		return fmt.Errorf("%w: legacy install selector must identify the provider-selected device path", domainbootstrap.ErrInstallConfigurationInvalid)
 	}
 
-	return ErrInstallConfigurationInvalid
+	return domainbootstrap.ErrInstallConfigurationInvalid
 }
 
-func expectedInstallSelector(disk InstallDisk) (cel.Expression, error) {
+func expectedInstallSelector(disk domainbootstrap.InstallDisk) (cel.Expression, error) {
 	selectors := selectorsFor(disk)
 	if len(selectors) == 0 {
-		return cel.Expression{}, ErrInstallDiskUnavailable
+		return cel.Expression{}, domainbootstrap.ErrInstallDiskUnavailable
 	}
 	expression, err := cel.ParseBooleanExpression(selectors[0].expression, celenv.DiskLocator())
 	if err != nil {
-		return cel.Expression{}, fmt.Errorf("%w: parse provider install disk selector: %w", ErrInstallConfigurationInvalid, err)
+		return cel.Expression{}, fmt.Errorf("%w: parse provider install disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
 	}
 	return expression, nil
 }
@@ -338,11 +320,11 @@ func expectedInstallSelector(disk InstallDisk) (cel.Expression, error) {
 func equivalentInstallSelectors(actual, expected cel.Expression) (bool, error) {
 	actualText, err := actual.MarshalText()
 	if err != nil {
-		return false, fmt.Errorf("%w: encode Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+		return false, fmt.Errorf("%w: encode Talos install disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
 	}
 	actualParsed, err := cel.ParseBooleanExpression(string(actualText), celenv.DiskLocator())
 	if err != nil {
-		return false, fmt.Errorf("%w: parse Talos install disk selector: %w", ErrInstallConfigurationInvalid, err)
+		return false, fmt.Errorf("%w: parse Talos install disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
 	}
 	return actualParsed.String() == expected.String(), nil
 }
@@ -364,7 +346,7 @@ func (clientValidationMode) InContainer() bool {
 // ValidateMachineConfigurationはBootstrap Secretへ保存する前、またはTalos maintenance APIへ送信する前に完全なconfigurationを検証する。
 func ValidateMachineConfiguration(configuration []byte) error {
 	if len(bytes.TrimSpace(configuration)) == 0 {
-		return ErrCompleteConfigurationEmpty
+		return domainbootstrap.ErrCompleteConfigurationEmpty
 	}
 	provider, err := configloader.NewFromBytes(configuration)
 	if err != nil {
@@ -375,18 +357,18 @@ func ValidateMachineConfiguration(configuration []byte) error {
 
 func validateClientConfiguration(provider talosconfig.Provider) error {
 	if provider == nil {
-		return fmt.Errorf("%w: configuration provider is unavailable", ErrEffectiveConfigurationInvalid)
+		return fmt.Errorf("%w: configuration provider is unavailable", domainbootstrap.ErrEffectiveConfigurationInvalid)
 	}
 	if _, err := provider.ValidateAsClient(clientValidationMode{}); err != nil {
-		return fmt.Errorf("%w: Talos client-side validation failed: %w", ErrEffectiveConfigurationInvalid, err)
+		return fmt.Errorf("%w: Talos client-side validation failed: %w", domainbootstrap.ErrEffectiveConfigurationInvalid, err)
 	}
 	return nil
 }
 
-func unattendedInstallPatch(disk InstallDisk) (talosconfig.Provider, error) {
+func unattendedInstallPatch(disk domainbootstrap.InstallDisk) (talosconfig.Provider, error) {
 	selector := selectorsFor(disk)
 	if len(selector) == 0 {
-		return nil, ErrInstallDiskUnavailable
+		return nil, domainbootstrap.ErrInstallDiskUnavailable
 	}
 	expression, err := cel.ParseBooleanExpression(selector[0].expression, celenv.DiskLocator())
 	if err != nil {

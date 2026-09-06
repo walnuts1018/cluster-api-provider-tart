@@ -1,8 +1,10 @@
-package bootstrap
+package configbuilder
 
 import (
 	"errors"
 	"testing"
+
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 )
 
 func TestDigestEffectiveConfiguration(t *testing.T) {
@@ -29,11 +31,11 @@ func TestDigestEffectiveConfiguration(t *testing.T) {
 			second: "version: v1alpha1\nmachine:\n  type: controlplane\n  token: token-a\n",
 		},
 		"rejects empty configuration": {
-			wantErr: ErrCompleteConfigurationEmpty,
+			wantErr: domainbootstrap.ErrCompleteConfigurationEmpty,
 		},
 		"rejects malformed configuration": {
 			first:   "version: [",
-			wantErr: ErrEffectiveConfigurationInvalid,
+			wantErr: domainbootstrap.ErrEffectiveConfigurationInvalid,
 		},
 	}
 

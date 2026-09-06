@@ -19,13 +19,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kubernetesadapter "github.com/walnuts1018/cluster-api-provider-tart/adapter/kubernetes"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/boot"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
-	"github.com/walnuts1018/cluster-api-provider-tart/host"
+	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
+	machineusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/machine"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
@@ -92,7 +96,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 	if err := r.List(ctx, allHosts); err != nil {
 		return ctrl.Result{}, err
 	}
-	if host.HasIdentityConflictForAny(allHosts.Items) {
+	if hostusecase.HasIdentityConflictForAny(allHosts.Items) {
 		return r.report(ctx, machine, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation is stopped until the conflict is resolved.")
 	}
 
@@ -104,7 +108,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		if errors.Is(err, errHostSelectionMismatch) {
 			return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The allocated TartHost does not match the CAPI Machine Failure Domain or HostSelector.")
 		}
-		if errors.Is(err, host.ErrNoEligibleHost) {
+		if errors.Is(err, hostusecase.ErrNoEligibleHost) {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonNoEligibleHost, "No eligible fresh TartHost is available for this Machine.", 30*time.Second)
 		}
 		if apierrors.IsNotFound(err) {
@@ -123,7 +127,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 	if err != nil {
 		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
-	providerID, err := host.ProviderID(hostID)
+	providerID, err := hostdomain.NewProviderID(hostID)
 	if err != nil {
 		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
@@ -138,8 +142,8 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		Name:       machine.Name,
 		UID:        machine.UID,
 	}
-	if err := host.Claim(ctx, r.Client, selected, consumer); err != nil {
-		if errors.Is(err, host.ErrClaimConflict) {
+	if err := kubernetesadapter.NewTartHostRepository(r.Client).ClaimHost(ctx, selected, consumer); err != nil {
+		if errors.Is(err, hostusecase.ErrClaimConflict) {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostClaimConflict, "The selected TartHost was claimed concurrently; allocation will be retried against current state.", 2*time.Second)
 		}
 		return ctrl.Result{}, err
@@ -362,7 +366,7 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 }
 
 func (r *TartMachineReconciler) reconcileMaintenanceTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, endpoint string, configuration []byte) (ctrl.Result, error) {
-	if isProvisioned(machine) {
+	if machineusecase.IsProvisioned(machine) {
 		return r.reportTalosStatus(ctx, machine,
 			metav1.ConditionFalse, "TalosUnreachable", "The authenticated Talos API is not reachable.",
 			metav1.ConditionTrue, "Provisioned", "Talos installation was previously observed.",
@@ -419,7 +423,7 @@ func (r *TartMachineReconciler) reconcileMaintenanceTalos(ctx context.Context, m
 		}
 		return r.reportMaintenanceConfigurationError(ctx, machine, maintenance, reason, message, message)
 	}
-	if err := bootstrap.ValidateMachineConfiguration(effectiveConfiguration); err != nil {
+	if err := configbuilder.ValidateMachineConfiguration(effectiveConfiguration); err != nil {
 		return r.reportMaintenanceConfigurationError(ctx, machine, maintenance, "ConfigurationInvalid", "The complete Talos machine configuration failed client-side validation.", "The complete Talos machine configuration is invalid.")
 	}
 	if err := maintenance.ApplyConfiguration(ctx, effectiveConfiguration); err != nil {
@@ -460,10 +464,6 @@ func hostTalosEndpoint(host *infrav1alpha1.TartHost) string {
 		}
 	}
 	return ""
-}
-
-func isProvisioned(machine *infrav1alpha1.TartMachine) bool {
-	return machine.Status.Initialization.Provisioned != nil && *machine.Status.Initialization.Provisioned
 }
 
 func (r *TartMachineReconciler) reportTalosStatus(ctx context.Context, machine *infrav1alpha1.TartMachine,
@@ -518,14 +518,14 @@ func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, mach
 		if observed.Spec.ConsumerRef == nil || observed.Spec.ConsumerRef.UID != machine.UID {
 			return nil, nil
 		}
-		if !host.MatchesForFailureDomain(observed.Labels, observed.Spec, machine.Spec.HostSelector, failureDomain) {
+		if !hostusecase.MatchesForFailureDomain(observed.Labels, observed.Spec, machine.Spec.HostSelector, failureDomain) {
 			return nil, errHostSelectionMismatch
 		}
 		return observed, nil
 	}
 	for index := range hosts {
 		if hosts[index].Spec.ConsumerRef != nil && hosts[index].Spec.ConsumerRef.UID == machine.UID {
-			if !host.MatchesForFailureDomain(hosts[index].Labels, hosts[index].Spec, machine.Spec.HostSelector, failureDomain) {
+			if !hostusecase.MatchesForFailureDomain(hosts[index].Labels, hosts[index].Spec, machine.Spec.HostSelector, failureDomain) {
 				return nil, errHostSelectionMismatch
 			}
 			return hosts[index].DeepCopy(), nil
@@ -540,13 +540,13 @@ func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, mach
 			return selected, nil
 		}
 		// 明示的なspec.hostRefは、reuse approvalとreuse modeが揃ったReusable Hostを再利用する唯一の経路である。自動選択経路(SelectFreshForFailureDomain)はAvailable Hostしか選ばない。
-		eligibility := host.Classify(selected.Spec)
-		if (eligibility != host.Available && eligibility != host.Reusable) || !host.MatchesForFailureDomain(selected.Labels, selected.Spec, machine.Spec.HostSelector, failureDomain) {
-			return nil, host.ErrNoEligibleHost
+		eligibility := hostusecase.Classify(selected.Spec)
+		if (eligibility != hostdomain.Available && eligibility != hostdomain.Reusable) || !hostusecase.MatchesForFailureDomain(selected.Labels, selected.Spec, machine.Spec.HostSelector, failureDomain) {
+			return nil, hostusecase.ErrNoEligibleHost
 		}
 		return selected, nil
 	}
-	selected, err := host.SelectFreshForFailureDomain(hosts, machine.Spec.HostSelector, failureDomain)
+	selected, err := hostusecase.SelectFreshForFailureDomain(hosts, machine.Spec.HostSelector, failureDomain)
 	return selected, err
 }
 
@@ -579,7 +579,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	if configurationErr != nil && !errors.Is(configurationErr, errBootstrapDataUnavailable) {
 		return ctrl.Result{}, configurationErr
 	}
-	if !hasShutdownRequest(machine) {
+	if !machineusecase.HasShutdownRequest(machine) {
 		requested, requestErr := requestHostShutdown(ctx, selected, configuration)
 		if requestErr != nil {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be shut down safely; the Machine finalizer remains.", shutdownConfirmationRequeue)
@@ -587,11 +587,11 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		if !requested {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host is not reachable through a verified Talos API; shutdown has not been confirmed.", shutdownConfirmationRequeue)
 		}
-		return r.reportAndRequeue(ctx, machine, "ShutdownRequested", "Talos shutdown was requested; the Host claim remains until API unreachability is observed.", shutdownConfirmationRequeue)
+		return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "Talos shutdown was requested; the Host claim remains until API unreachability is observed.", shutdownConfirmationRequeue)
 	}
 
-	if !shutdownRequestSettled(machine) {
-		return r.reportAndRequeue(ctx, machine, "ShutdownRequested", "The Host API is unreachable after shutdown request; waiting for the confirmation interval before retention.", shutdownConfirmationRequeue)
+	if !machineusecase.ShutdownRequestSettled(machine, shutdownConfirmationDelay) {
+		return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The Host API is unreachable after shutdown request; waiting for the confirmation interval before retention.", shutdownConfirmationRequeue)
 	}
 
 	stopped, observationErr := r.observeHostStopped(ctx, selected, configuration)
@@ -609,7 +609,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		UID:        machine.UID,
 	}
 	previous := r.previousConsumerRef(ctx, machine, consumer)
-	if err := host.Retain(ctx, r.Client, selected, consumer, previous); err != nil {
+	if err := kubernetesadapter.NewTartHostRepository(r.Client).RetainHost(ctx, selected, consumer, previous); err != nil {
 		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The Host retention record could not be written atomically; the Machine finalizer remains.", shutdownConfirmationRequeue)
 	}
 
@@ -627,29 +627,8 @@ func (r *TartMachineReconciler) capiDeletionDrainComplete(ctx context.Context, m
 	if err != nil {
 		return false, err
 	}
-	return capiMachineDeletionDrainComplete(capiMachine), nil
+	return machineusecase.DeletionDrainComplete(capiMachine), nil
 }
-
-func capiMachineDeletionDrainComplete(capiMachine *clusterv1.Machine) bool {
-	if capiMachine == nil || capiMachine.DeletionTimestamp.IsZero() {
-		return false
-	}
-	condition := meta.FindStatusCondition(capiMachine.Status.Conditions, clusterv1.MachineDeletingCondition)
-	if condition == nil || condition.Status != metav1.ConditionTrue {
-		return false
-	}
-	switch condition.Reason {
-	case clusterv1.MachineDeletingWaitingForInfrastructureDeletionReason,
-		clusterv1.MachineDeletingWaitingForBootstrapDeletionReason,
-		clusterv1.MachineDeletingDeletingNodeReason,
-		clusterv1.MachineDeletingDeletionCompletedReason:
-		return true
-	default:
-		return false
-	}
-}
-
-var errMachineHasAmbiguousHostClaims = errors.New("machine has ambiguous host claims")
 
 func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *infrav1alpha1.TartMachine) (*infrav1alpha1.TartHost, error) {
 	allHosts := &infrav1alpha1.TartHostList{}
@@ -674,16 +653,9 @@ func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *in
 		}
 	}
 
-	var claimed *infrav1alpha1.TartHost
-	for index := range allHosts.Items {
-		candidate := &allHosts.Items[index]
-		if candidate.Spec.ConsumerRef == nil || candidate.Spec.ConsumerRef.UID != machine.UID {
-			continue
-		}
-		if claimed != nil && claimed.Name != candidate.Name {
-			return nil, errMachineHasAmbiguousHostClaims
-		}
-		claimed = candidate
+	claimed, err := machineusecase.FindClaimedHost(allHosts.Items, string(machine.UID))
+	if err != nil {
+		return nil, err
 	}
 	if claimed != nil {
 		return claimed, nil
@@ -695,16 +667,6 @@ func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *in
 }
 
 var errMachineHostBindingLost = errors.New("machine host binding was lost before deletion completed")
-
-func hasShutdownRequest(machine *infrav1alpha1.TartMachine) bool {
-	condition := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
-	return condition != nil && condition.Reason == "ShutdownRequested"
-}
-
-func shutdownRequestSettled(machine *infrav1alpha1.TartMachine) bool {
-	condition := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
-	return condition != nil && condition.Reason == "ShutdownRequested" && !condition.LastTransitionTime.IsZero() && time.Since(condition.LastTransitionTime.Time) >= shutdownConfirmationDelay
-}
 
 func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
 	endpoint := hostTalosEndpoint(selected)

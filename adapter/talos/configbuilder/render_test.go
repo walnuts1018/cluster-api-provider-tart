@@ -1,9 +1,11 @@
-package bootstrap
+package configbuilder
 
 import (
 	"bytes"
 	"errors"
 	"testing"
+
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 )
 
 const renderBaseConfiguration = `version: v1alpha1
@@ -42,7 +44,7 @@ func TestRenderEffectiveConfiguration(t *testing.T) {
 	}
 
 	_, err = RenderEffectiveConfiguration([]byte(renderBaseConfiguration), nil)
-	if !errors.Is(err, ErrConfigurationPatchEmpty) {
+	if !errors.Is(err, domainbootstrap.ErrConfigurationPatchEmpty) {
 		t.Fatalf("RenderEffectiveConfiguration() empty patch error = %v, want ErrConfigurationPatchEmpty", err)
 	}
 }

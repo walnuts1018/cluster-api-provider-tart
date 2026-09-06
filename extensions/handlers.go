@@ -19,9 +19,9 @@ import (
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
+	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
 )

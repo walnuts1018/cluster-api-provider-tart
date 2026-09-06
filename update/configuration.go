@@ -13,8 +13,8 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/bootstrap"
 	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
@@ -148,11 +148,11 @@ func ClassifyConfigurationChange(active, desired []byte) (ChangeClass, string, e
 	if err != nil {
 		return "", "", fmt.Errorf("load desired machine configuration: %w", err)
 	}
-	activeDigest, err := bootstrap.DigestEffectiveConfiguration(active)
+	activeDigest, err := configbuilder.DigestEffectiveConfiguration(active)
 	if err != nil {
 		return "", "", fmt.Errorf("digest active machine configuration: %w", err)
 	}
-	desiredDigest, err := bootstrap.DigestEffectiveConfiguration(desired)
+	desiredDigest, err := configbuilder.DigestEffectiveConfiguration(desired)
 	if err != nil {
 		return "", "", fmt.Errorf("digest desired machine configuration: %w", err)
 	}

@@ -89,9 +89,10 @@ jobs:
           TART_E2E_LAB_WORKDIR: ${{ runner.temp }}/tart-e2e-lab
           TART_E2E_WOL_GATEWAY_BINARY: /usr/local/bin/wol-libvirt-gateway
           TART_E2E_PROVIDER_IMAGE_TAG: e2e
-        # usermodによるlibvirtグループ付与は同一ジョブ内の既存shellへ即座には反映されないため、
-        # sgで新しいgroupを適用したshellを起動してからlibvirtソケットへ接続する。
-        run: sg libvirt -c "mise run test-e2e"
+        # netboot-server(ProxyDHCP)はDHCP well-known port 67へbindする必要があり、非rootでは
+        # permission deniedになる。libvirtソケットアクセスも合わせ、テストプロセス全体をroot
+        # 権限で実行する(sudo -Eで環境変数を引き継ぎ、PATHはsecure_path対策で明示的に指定する)。
+        run: sudo -E env "PATH=$PATH" mise run test-e2e
 
       - name: Dump cluster/lab state
         if: always()

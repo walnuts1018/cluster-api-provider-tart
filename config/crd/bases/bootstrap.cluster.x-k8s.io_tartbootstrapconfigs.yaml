@@ -71,6 +71,20 @@ spec:
                     type: string
                 type: object
                 x-kubernetes-map-type: atomic
+              updatePolicy:
+                description: updatePolicyはconfigPatchesSecretRefの変更によって生じるeffective
+                  machine configuration差分の適用方針である。
+                properties:
+                  configuration:
+                    default: Auto
+                    description: configurationはeffective Talos machine configurationの差分をどう適用するかを指定する。既定値はAutoである。
+                    enum:
+                    - Auto
+                    - Live
+                    - Reboot
+                    - InitialOnly
+                    type: string
+                type: object
             type: object
           status:
             description: TartBootstrapConfigStatusはTartBootstrapConfigのobserved stateを定義する。

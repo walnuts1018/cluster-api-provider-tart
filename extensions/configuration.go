@@ -19,8 +19,10 @@ type updateTalosNode interface {
 	ActiveMachineConfiguration(ctx context.Context) ([]byte, error)
 	// ApplyConfigurationLiveはrebootなしでmachine configurationを適用する。
 	ApplyConfigurationLive(ctx context.Context, configuration []byte) error
-	// ApplyConfigurationWithRebootはmachine configurationを適用したうえでrebootを実行させる。
-	ApplyConfigurationWithReboot(ctx context.Context, configuration []byte) error
+	// ApplyConfigurationはmachine configurationを適用する。rebootを要する差分は次のrebootで反映される。
+	ApplyConfiguration(ctx context.Context, configuration []byte) error
+	// RebootはTalos nodeのgraceful rebootを要求する。
+	Reboot(ctx context.Context) error
 	// BootTimeは稼働中nodeのboot時刻を観測する。値の変化はrebootが完了したことの観測根拠になる。
 	BootTime(ctx context.Context) (uint64, error)
 	// ServicesHealthyはTalosが管理するserviceのhealthを確認する。
@@ -96,8 +98,11 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 		}
 	}
 	bootTime, bootTimeErr := updater.node.BootTime(ctx)
-	if err := updater.node.ApplyConfigurationWithReboot(ctx, updater.desired); err != nil {
+	if err := updater.node.ApplyConfiguration(ctx, updater.desired); err != nil {
 		return configurationUpdateOutcome{failureMessage: "The Talos API rejected the machine configuration apply; the Machine remains stopped for safety."}
+	}
+	if err := updater.node.Reboot(ctx); err != nil {
+		return configurationUpdateOutcome{failureMessage: "The Talos API rejected the reboot after the machine configuration apply; the Machine remains stopped for safety."}
 	}
 	if bootTimeErr == nil {
 		if observed := observeReboot(ctx, updater, bootTime); !observed {

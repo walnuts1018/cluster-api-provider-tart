@@ -44,12 +44,19 @@ func (f *fakeUpdateNode) ApplyConfigurationLive(_ context.Context, configuration
 	return nil
 }
 
-func (f *fakeUpdateNode) ApplyConfigurationWithReboot(_ context.Context, configuration []byte) error {
+func (f *fakeUpdateNode) ApplyConfiguration(_ context.Context, configuration []byte) error {
 	f.rebootApplies++
 	if f.rebootErr != nil {
 		return f.rebootErr
 	}
 	f.active = configuration
+	return nil
+}
+
+func (f *fakeUpdateNode) Reboot(context.Context) error {
+	if f.rebootErr != nil {
+		return f.rebootErr
+	}
 	f.bootTime++
 	return nil
 }

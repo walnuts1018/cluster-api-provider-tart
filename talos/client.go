@@ -387,7 +387,7 @@ func ValidateUpgrade(current, desired string) error {
 	return desiredVersion.UpgradeableFrom(currentVersion)
 }
 
-// ApplyConfigurationはcomplete Talos machine configurationをmaintenance APIへ渡す。TalosはconfigurationのUnattendedInstallConfigまたはnative設定に従ってinstallationとrebootを実行する。
+// ApplyConfigurationはcomplete Talos machine configurationをTalos APIへ渡す。TalosはconfigurationのUnattendedInstallConfigまたはnative設定に従ってinstallationとrebootを実行する。
 func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) error {
 	if c == nil || c.raw == nil {
 		return ErrClientUnavailable
@@ -410,10 +410,16 @@ func (c *Client) ApplyConfigurationLive(ctx context.Context, configuration []byt
 	return c.applyConfiguration(ctx, configuration, machine.ApplyConfigurationRequest_NO_REBOOT)
 }
 
-// ApplyConfigurationWithRebootは、machine configurationを適用したうえでTalosへrebootを実行させる。
-// installationとdataはそのまま保持され、同一nodeがdesired configurationで起動し直す。
-func (c *Client) ApplyConfigurationWithReboot(ctx context.Context, configuration []byte) error {
-	return c.applyConfiguration(ctx, configuration, machine.ApplyConfigurationRequest_REBOOT)
+// RebootはTalos nodeのgraceful rebootを要求する。installationとdataは保持され、同一nodeが起動し直す。
+// Talos 1.14ではApplyConfigurationのREBOOT modeが廃止されているため、rebootを伴う適用はapplyとこのrebootの組み合わせで行う。
+func (c *Client) Reboot(ctx context.Context) error {
+	if c == nil || c.raw == nil {
+		return ErrClientUnavailable
+	}
+	if err := c.raw.Reboot(ctx); err != nil {
+		return fmt.Errorf("reboot talos node: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) applyConfiguration(ctx context.Context, configuration []byte, mode machine.ApplyConfigurationRequest_Mode) error {

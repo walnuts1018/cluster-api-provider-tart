@@ -59,7 +59,14 @@ jobs:
         run: |
           set -euxo pipefail
           sudo usermod -aG kvm,libvirt "$(whoami)"
+          # QEMUは既定でdynamic ownershipの専用非特権ユーザーとして実行されるが、disk image
+          # (runner.temp配下)までのディレクトリ階層(/home/runner等)をtraverseできず
+          # Permission deniedになる。使い捨てのCI VMでありtenant分離は不要なため、rootで
+          # 実行させて権限問題を回避する。
+          echo 'user = "root"' | sudo tee -a /etc/libvirt/qemu.conf
+          echo 'group = "root"' | sudo tee -a /etc/libvirt/qemu.conf
           sudo systemctl enable --now libvirtd
+          sudo systemctl restart libvirtd
 
       - name: Build wol-libvirt-gateway
         run: |

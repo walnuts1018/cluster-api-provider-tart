@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
 // Kubernetes version upgradeはcluster-wide operationであり、TartControlPlaneだけが所有する。

@@ -16,9 +16,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )

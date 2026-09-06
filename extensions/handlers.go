@@ -17,10 +17,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
@@ -109,7 +109,7 @@ type machineUpdatePreparation struct {
 	endpoint              string
 	configuration         []byte
 	image                 string
-	policy                bootstrapv1alpha1.ConfigurationUpdatePolicy
+	strategy              bootstrapv1alpha1.ConfigurationApplyStrategy
 }
 
 type updateRetryError struct {
@@ -202,7 +202,7 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		endpoint:              endpoint,
 		configuration:         configuration,
 		image:                 image,
-		policy:                bootstrapUpdatePolicy(bootstrapConfig),
+		strategy:              bootstrapUpdateStrategy(bootstrapConfig),
 	}, nil
 }
 
@@ -644,60 +644,54 @@ var bootstrapUpdatableSpecPaths = [][]string{{"configPatchesSecretRef"}, {"updat
 var machineUpdatableSpecPaths = [][]string{{versionField}}
 
 // planBootstrapConfigPatchは、TartBootstrapConfigのconfiguration update policyに従ってraw patch参照の変更を許可する。
-// InitialOnly policyのconfigurationは初回provisioning後に変更できないため、patchを返さず安全停止する。
+// apply strategyの変更とSecret参照の変更を同じupdate patchとして扱う。
 func planBootstrapConfigPatch(currentRaw, desiredRaw runtime.RawExtension) (runtimehooksv1.Patch, error) {
-	policy, err := desiredBootstrapPolicy(desiredRaw, "spec")
+	err := validateDesiredBootstrapStrategy(desiredRaw, "spec")
 	if err != nil {
 		return runtimehooksv1.Patch{}, err
-	}
-	if policy == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
-		return planRawObjectPatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigKind)
 	}
 	return planRawObjectPatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigKind, bootstrapUpdatableSpecPaths...)
 }
 
 // planBootstrapConfigTemplatePatchはMachineSet templateについて同じpolicy判定を行う。
 func planBootstrapConfigTemplatePatch(currentRaw, desiredRaw runtime.RawExtension) (runtimehooksv1.Patch, error) {
-	policy, err := desiredBootstrapPolicy(desiredRaw, "spec", "template", "spec")
+	err := validateDesiredBootstrapStrategy(desiredRaw, "spec", "template", "spec")
 	if err != nil {
 		return runtimehooksv1.Patch{}, err
-	}
-	if policy == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
-		return planRawTemplatePatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigTemplateKind)
 	}
 	return planRawTemplatePatch(currentRaw, desiredRaw, bootstrapv1alpha1.GroupVersion.String(), tartBootstrapConfigTemplateKind, bootstrapUpdatableSpecPaths...)
 }
 
-// desiredBootstrapPolicyはdesired objectのspecからconfiguration update policyを読み取る。
-// objectが存在しない場合は既定値のAutoとして扱い、解釈できないpolicyはerrorにしてfail-closedへ倒す。
-func desiredBootstrapPolicy(desiredRaw runtime.RawExtension, specPath ...string) (bootstrapv1alpha1.ConfigurationUpdatePolicy, error) {
+// validateDesiredBootstrapStrategyはdesired objectのspecからconfiguration apply strategyを検証する。
+// objectが存在しない場合は既定値のRebootとして扱い、解釈できないstrategyはerrorにしてfail-closedへ倒す。
+func validateDesiredBootstrapStrategy(desiredRaw runtime.RawExtension, specPath ...string) error {
 	object, present, err := decodeRawObject(desiredRaw)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if !present {
-		return bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, nil
+		return nil
 	}
 	spec, err := requiredMap(object, specPath...)
 	if err != nil {
-		return "", err
+		return err
 	}
 	value, exists, err := readPath(spec, []string{"updatePolicy", "configuration"})
 	if err != nil {
-		return "", err
+		return err
 	}
 	if !exists {
-		return bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, nil
+		return nil
 	}
 	policy, ok := value.(string)
 	if !ok {
-		return "", errors.New("bootstrap configuration update policy is not a string")
+		return errors.New("bootstrap configuration apply strategy is not a string")
 	}
-	switch bootstrapv1alpha1.ConfigurationUpdatePolicy(policy) {
-	case bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, bootstrapv1alpha1.ConfigurationUpdatePolicyLive, bootstrapv1alpha1.ConfigurationUpdatePolicyReboot, bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly:
-		return bootstrapv1alpha1.ConfigurationUpdatePolicy(policy), nil
+	switch bootstrapv1alpha1.ConfigurationApplyStrategy(policy) {
+	case bootstrapv1alpha1.ConfigurationApplyStrategyReboot, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot:
+		return nil
 	default:
-		return "", errors.New("bootstrap configuration update policy is unknown")
+		return errors.New("bootstrap configuration apply strategy is unknown")
 	}
 }
 

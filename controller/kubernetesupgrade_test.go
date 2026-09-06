@@ -13,8 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
 // recordingUpgradeRunnerは、cluster-wide Kubernetes upgradeが実際に要求された回数を記録するtest doubleである。

@@ -7,19 +7,19 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/update"
 )
 
 // updateTalosNodeは、machine configuration updateが必要とするTalos APIの観測と操作だけを表す。
-// 実機のTalos APIを必要とする経路をここへ閉じ込め、policy部分をGo testから検証できるようにする。
+// 実機のTalos APIを必要とする経路をここへ閉じ込め、strategy部分をGo testから検証できるようにする。
 type updateTalosNode interface {
 	// ActiveMachineConfigurationは稼働中nodeへ現在適用されているmachine configurationを観測する。
 	ActiveMachineConfiguration(ctx context.Context) ([]byte, error)
-	// ApplyConfigurationLiveはrebootなしでmachine configurationを適用する。
-	ApplyConfigurationLive(ctx context.Context, configuration []byte) error
-	// ApplyConfigurationはmachine configurationを適用する。rebootを要する差分は次のrebootで反映される。
+	// ApplyConfigurationNoRebootはTalosの通常/AUTO modeでmachine configurationを適用する。
+	ApplyConfigurationNoReboot(ctx context.Context, configuration []byte) error
+	// ApplyConfigurationはSTAGED modeでmachine configurationを適用する。
 	ApplyConfiguration(ctx context.Context, configuration []byte) error
 	// RebootはTalos nodeのgraceful rebootを要求する。
 	Reboot(ctx context.Context) error
@@ -31,8 +31,8 @@ type updateTalosNode interface {
 
 // configurationUpdateはmachine configuration差分の適用に必要な観測と副作用をまとめる。
 type configurationUpdate struct {
-	node   updateTalosNode
-	policy bootstrapv1alpha1.ConfigurationUpdatePolicy
+	node     updateTalosNode
+	strategy bootstrapv1alpha1.ConfigurationApplyStrategy
 	// desiredはimmutable Bootstrap Secretが保持するdesired complete machine configurationである。
 	desired []byte
 	// rebootGateはreboot前に満たすべき安全条件(control planeのetcd quorum、cordon/drain)を評価する。
@@ -62,7 +62,7 @@ const (
 	defaultRebootObservationInterval = 5 * time.Second
 )
 
-// applyConfigurationUpdateは、active configurationとdesired configurationの差分をpolicyへ従って適用し、
+// applyConfigurationUpdateは、active configurationとdesired configurationの差分をstrategyへ従って適用し、
 // 適用後の反映と回復を観測する。RPCの成功だけでは完了とみなさない。
 func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) configurationUpdateOutcome {
 	if updater.node == nil || len(updater.desired) == 0 {
@@ -72,7 +72,7 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 	if err != nil {
 		return configurationUpdateOutcome{retryMessage: "The active Talos machine configuration could not be observed while the in-place update is being prepared."}
 	}
-	decision, err := update.Evaluate(updater.policy, active, updater.desired)
+	decision, err := update.Evaluate(updater.strategy, active, updater.desired)
 	if err != nil {
 		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be evaluated safely; the in-place update is stopped."}
 	}
@@ -84,12 +84,12 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 	case update.ChangeNone:
 		return verifyConfigurationRecovered(ctx, updater)
 	case update.ChangeUpdatable:
-		// policyに従って適用するため、この関数の後半で扱う。
+		// strategyに従って適用するため、この関数の後半で扱う。
 	}
-	if decision.ApplyMode == update.ApplyModeLive {
-		if err := updater.node.ApplyConfigurationLive(ctx, updater.desired); err != nil {
-			// Live policyはユーザーがreboot-freeの適用を明示した場合だけ使う。失敗をrebootで隠さず明示的に停止する。
-			return configurationUpdateOutcome{failureMessage: "The Live machine configuration apply failed; the update is stopped without falling back to a reboot."}
+	if decision.ApplyMode == update.ApplyModeNoReboot {
+		if err := updater.node.ApplyConfigurationNoReboot(ctx, updater.desired); err != nil {
+			// NoReboot strategyはproviderからrebootへfallbackせず、失敗を明示的に停止する。
+			return configurationUpdateOutcome{failureMessage: "The NoReboot machine configuration apply failed; the update is stopped without falling back to a reboot."}
 		}
 		return configurationUpdateOutcome{retryMessage: "The machine configuration was applied without a reboot; waiting for the node to report the desired configuration."}
 	}
@@ -160,9 +160,9 @@ func verifyConfigurationRecovered(ctx context.Context, updater configurationUpda
 func machineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Machine, preparation *machineUpdatePreparation, node *talos.Client) configurationUpdate {
 	providerID := string(preparation.providerMachine.Spec.ProviderID)
 	return configurationUpdate{
-		node:    node,
-		policy:  preparation.policy,
-		desired: preparation.configuration,
+		node:     node,
+		strategy: preparation.strategy,
+		desired:  preparation.configuration,
 		rebootGate: func(ctx context.Context) (bool, string) {
 			if isControlPlaneMachine(machine) {
 				gateContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
@@ -180,12 +180,12 @@ func machineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Mac
 	}
 }
 
-// bootstrapUpdatePolicyは、CAPI MachineがreferenceするTartBootstrapConfigのconfiguration update policyを返す。
-func bootstrapUpdatePolicy(config *bootstrapv1alpha1.TartBootstrapConfig) bootstrapv1alpha1.ConfigurationUpdatePolicy {
+// bootstrapUpdateStrategyは、CAPI MachineがreferenceするTartBootstrapConfigのconfiguration apply strategyを返す。
+func bootstrapUpdateStrategy(config *bootstrapv1alpha1.TartBootstrapConfig) bootstrapv1alpha1.ConfigurationApplyStrategy {
 	if config == nil {
-		return bootstrapv1alpha1.ConfigurationUpdatePolicyAuto
+		return bootstrapv1alpha1.ConfigurationApplyStrategyReboot
 	}
-	return config.Spec.EffectiveConfigurationUpdatePolicy()
+	return config.Spec.EffectiveConfigurationApplyStrategy()
 }
 
 var _ updateTalosNode = (*talos.Client)(nil)

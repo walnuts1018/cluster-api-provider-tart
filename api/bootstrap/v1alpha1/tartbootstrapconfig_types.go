@@ -10,32 +10,24 @@ const (
 	TartBootstrapConfigReadyCondition = "Ready"
 )
 
-// ConfigurationUpdatePolicyは、稼働中NodeへTalos machine configurationの差分をどのように適用するかを表す。
-// in-place updateとreboot-free updateは別概念であり、rebootを伴う場合でも同一Machine、同一Host、同一local storageのまま
-// apply、reboot、health recoveryで完結するならin-place updateとして扱う。Machine replacementへfallbackすることはない。
-// +kubebuilder:validation:Enum=Auto;Live;Reboot;InitialOnly
-type ConfigurationUpdatePolicy string
+// ConfigurationApplyStrategyは、稼働中NodeへTalos machine configurationを適用するproviderの方針を表す。
+// RebootはSTAGED apply後にproviderが安全なrebootを起動する。NoRebootは通常のTalos applyだけを行い、即時完全反映やrebootを保証しない。
+// +kubebuilder:validation:Enum=Reboot;NoReboot
+type ConfigurationApplyStrategy string
 
 const (
-	// ConfigurationUpdatePolicyAutoは既定値であり、providerがreboot要否を判断する。
-	// Talos 1.14時点ではreboot要否を信頼できる形で判定できないため、安全側に倒してRebootと同じ扱いになる。
-	ConfigurationUpdatePolicyAuto ConfigurationUpdatePolicy = "Auto"
-	// ConfigurationUpdatePolicyLiveは、running systemへreboot-freeでapplyしてよいとユーザーが明示するadvanced optionである。
-	// 適用に失敗してもRebootへ自動fallbackせず、明示的な失敗として停止する。
-	ConfigurationUpdatePolicyLive ConfigurationUpdatePolicy = "Live"
-	// ConfigurationUpdatePolicyRebootは、configuration applyの後にproviderが安全にNode rebootをorchestrateする。
-	ConfigurationUpdatePolicyReboot ConfigurationUpdatePolicy = "Reboot"
-	// ConfigurationUpdatePolicyInitialOnlyは、初回provisioning後に変更してはいけないconfigurationを表す。
-	// 差分が検出された場合はReprovisionRequiredとして安全停止する。
-	ConfigurationUpdatePolicyInitialOnly ConfigurationUpdatePolicy = "InitialOnly"
+	// ConfigurationApplyStrategyRebootは、STAGED apply後にproviderが安全にNode rebootをorchestrateする。
+	ConfigurationApplyStrategyReboot ConfigurationApplyStrategy = "Reboot"
+	// ConfigurationApplyStrategyNoRebootは、Talosへ通常のconfiguration applyだけを行い、providerからrebootを起動しない。
+	ConfigurationApplyStrategyNoReboot ConfigurationApplyStrategy = "NoReboot"
 )
 
 // TartBootstrapConfigUpdatePolicyはmachine configuration updateの適用方針を保持する。
 type TartBootstrapConfigUpdatePolicy struct {
-	// configurationはeffective Talos machine configurationの差分をどう適用するかを指定する。既定値はAutoである。
-	// +kubebuilder:default=Auto
+	// configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はRebootである。
+	// +kubebuilder:default=Reboot
 	// +optional
-	Configuration ConfigurationUpdatePolicy `json:"configuration,omitempty"`
+	Configuration ConfigurationApplyStrategy `json:"configuration,omitempty"`
 }
 
 // TartBootstrapConfigSpecはTartBootstrapConfigのdesired stateを定義する。ユーザー所有のraw Talos configuration patchは全てimmutableなSecret-backed inputから供給し、このSpecへinline保存しない。
@@ -50,10 +42,10 @@ type TartBootstrapConfigSpec struct {
 	UpdatePolicy TartBootstrapConfigUpdatePolicy `json:"updatePolicy,omitempty,omitzero"`
 }
 
-// EffectiveConfigurationUpdatePolicyは、未設定時の既定値を解決したconfiguration update policyを返す。
-func (s TartBootstrapConfigSpec) EffectiveConfigurationUpdatePolicy() ConfigurationUpdatePolicy {
+// EffectiveConfigurationApplyStrategyは、未設定時の既定値を解決したconfiguration apply strategyを返す。
+func (s TartBootstrapConfigSpec) EffectiveConfigurationApplyStrategy() ConfigurationApplyStrategy {
 	if s.UpdatePolicy.Configuration == "" {
-		return ConfigurationUpdatePolicyAuto
+		return ConfigurationApplyStrategyReboot
 	}
 	return s.UpdatePolicy.Configuration
 }

@@ -97,13 +97,11 @@ spec:
                           update policyを共有する。
                         properties:
                           configuration:
-                            default: Auto
-                            description: configurationはeffective Talos machine configurationの差分をどう適用するかを指定する。既定値はAutoである。
+                            default: Reboot
+                            description: configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はRebootである。
                             enum:
-                            - Auto
-                            - Live
                             - Reboot
-                            - InitialOnly
+                            - NoReboot
                             type: string
                         type: object
                     type: object

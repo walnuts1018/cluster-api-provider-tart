@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kubernetesadapter "github.com/walnuts1018/cluster-api-provider-tart/adapter/kubernetes"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
@@ -25,7 +26,6 @@ import (
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 	"github.com/walnuts1018/cluster-api-provider-tart/recovery"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 )

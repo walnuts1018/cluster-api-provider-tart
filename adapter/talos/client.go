@@ -342,7 +342,7 @@ func ValidateUpgrade(current, desired string) error {
 	return desiredVersion.UpgradeableFrom(currentVersion)
 }
 
-// ApplyConfigurationはcomplete Talos machine configurationをTalos APIへ渡す。TalosはconfigurationのUnattendedInstallConfigまたはnative設定に従ってinstallationとrebootを実行する。
+// ApplyConfigurationはcomplete Talos machine configurationをSTAGED modeでTalosへ渡す。呼び出し側が明示的なrebootを続けて行う。
 func (c *Client) ApplyConfiguration(ctx context.Context, configuration []byte) error {
 	if c == nil || c.raw == nil {
 		return ErrClientUnavailable

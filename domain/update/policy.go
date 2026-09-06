@@ -14,39 +14,22 @@ import (
 type ApplyMode string
 
 const (
-	// ApplyModeLiveはreboot-freeのapply(Talos ApplyConfigurationRequest_NO_REBOOT)を表す。
-	ApplyModeLive ApplyMode = "Live"
+	// ApplyModeNoRebootはTalosの通常applyをrebootなしで行うことを表す。
+	ApplyModeNoReboot ApplyMode = "NoReboot"
 	// ApplyModeRebootはapply後にcontrolled rebootを伴う適用を表す。
 	ApplyModeReboot ApplyMode = "Reboot"
 )
 
-// ErrPolicyUnknownは解釈できないpolicyを表す。安全側に倒すため、判定できないpolicyは適用しない。
-var ErrPolicyUnknown = errors.New("configuration update policy is unknown")
+// ErrPolicyUnknownは解釈できないapply strategyを表す。
+var ErrPolicyUnknown = errors.New("configuration apply strategy is unknown")
 
-// autoResolvesToRebootは、Auto policyがreboot-freeのapplyを楽観的に試みてよいかどうかを表す唯一の判定点である。
-// Talos 1.14のApplyConfigurationはAUTOモードをfield単位の安全性判定なしにNO_REBOOTへ読み替えるだけであり、
-// 差分がreboot不要で反映されたことを保証しない。したがってAutoは常にrebootへ倒す。
-// 将来Talosが信頼できるreboot要否判定APIを提供した場合は、この関数だけを変更してAutoを最適化する。
-func autoResolvesToReboot() bool {
-	return true
-}
-
-// ResolveApplyModeはconfiguration update policyから適用modeを決定する。
-// InitialOnlyはupdateとして適用できないため、呼び出し側はEvaluateの分類でReprovisionRequiredとして扱う。
-func ResolveApplyMode(policy bootstrapv1alpha1.ConfigurationUpdatePolicy) (ApplyMode, error) {
-	switch policy {
-	case bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, "":
-		if autoResolvesToReboot() {
-			return ApplyModeReboot, nil
-		}
-		return ApplyModeLive, nil
-	case bootstrapv1alpha1.ConfigurationUpdatePolicyLive:
-		return ApplyModeLive, nil
-	case bootstrapv1alpha1.ConfigurationUpdatePolicyReboot:
+// ResolveApplyModeはconfiguration apply strategyから適用modeを決定する。
+func ResolveApplyMode(strategy bootstrapv1alpha1.ConfigurationApplyStrategy) (ApplyMode, error) {
+	switch strategy {
+	case bootstrapv1alpha1.ConfigurationApplyStrategyReboot, "":
 		return ApplyModeReboot, nil
-	case bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly:
-		// InitialOnlyは差分をupdateとして適用しないpolicyであり、適用modeを持たない。
-		return "", ErrPolicyUnknown
+	case bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot:
+		return ApplyModeNoReboot, nil
 	default:
 		return "", ErrPolicyUnknown
 	}

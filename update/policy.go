@@ -9,14 +9,14 @@ import (
 type ApplyMode = domainupdate.ApplyMode
 
 const (
-	ApplyModeLive   = domainupdate.ApplyModeLive
-	ApplyModeReboot = domainupdate.ApplyModeReboot
+	ApplyModeNoReboot = domainupdate.ApplyModeNoReboot
+	ApplyModeReboot   = domainupdate.ApplyModeReboot
 )
 
 // ErrPolicyUnknownはdomain/updateの同名エラーへのエイリアスである。
 var ErrPolicyUnknown = domainupdate.ErrPolicyUnknown
 
 // ResolveApplyModeはdomain/updateの純粋関数へ委譲する。
-func ResolveApplyMode(policy bootstrapv1alpha1.ConfigurationUpdatePolicy) (ApplyMode, error) {
-	return domainupdate.ResolveApplyMode(policy)
+func ResolveApplyMode(strategy bootstrapv1alpha1.ConfigurationApplyStrategy) (ApplyMode, error) {
+	return domainupdate.ResolveApplyMode(strategy)
 }

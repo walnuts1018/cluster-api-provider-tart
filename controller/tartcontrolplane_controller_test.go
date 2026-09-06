@@ -3,8 +3,8 @@ package controller
 import (
 	"testing"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"

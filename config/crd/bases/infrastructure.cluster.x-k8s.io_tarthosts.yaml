@@ -132,7 +132,7 @@ spec:
                 description: macAddressは他のinventoryが未知の段階でobserved boot attemptをこのHostへbindするための主enrollment
                   identityである。
                 pattern: ^([0-9a-fA-F]{2}[:-]){5}([0-9a-fA-F]{2})$
-                type: string
+                type: object
               power:
                 description: powerはこのHostの電源制御と停止確認の機能を定義する。
                 properties:
@@ -464,8 +464,8 @@ spec:
                         linkState:
                           type: string
                         macAddress:
-                          description: MACAddressは正規化済みのEUI-48を表す値オブジェクトである。
-                          type: string
+                          description: MACAddressは正規化済みのEUI-48を表す値オブジェクトである。ゼロ値は未設定を表す。
+                          type: object
                         name:
                           type: string
                       type: object

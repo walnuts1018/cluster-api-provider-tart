@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 )
 
 func TestRecordBootAttemptMaintainsBoundedObservedHistory(t *testing.T) {

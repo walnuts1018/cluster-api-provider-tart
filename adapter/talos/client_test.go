@@ -45,6 +45,7 @@ func TestValidateUpgradeUsesTalosCompatibilityRules(t *testing.T) {
 		valid   bool
 	}{
 		{name: "supported patch upgrade", current: "v1.14.0", desired: "v1.14.1", valid: true},
+		{name: "modern configuration unavailable", current: "v1.13.0", desired: "v1.14.0"},
 		{name: "lifecycle API unavailable", current: "v1.12.0", desired: "v1.13.0"},
 		{name: "host too old", current: "v1.11.0", desired: "v1.14.0"},
 		{name: "downgrade", current: "v1.14.0", desired: "v1.13.0"},

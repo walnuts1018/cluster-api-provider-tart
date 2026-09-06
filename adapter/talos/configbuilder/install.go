@@ -16,7 +16,6 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/container"
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
-	v1alpha1config "github.com/siderolabs/talos/pkg/machinery/config/types/v1alpha1"
 
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 )
@@ -145,37 +144,12 @@ func HasInstallDiskConfiguration(configuration []byte) (bool, error) {
 		return false, fmt.Errorf("load Talos machine configuration: %w", err)
 	}
 	if unattended := provider.UnattendedInstallConfig(); unattended != nil {
-		if raw := provider.RawV1Alpha1(); raw != nil && raw.MachineConfig != nil && raw.MachineConfig.MachineInstall != nil { //nolint:staticcheck // legacy configuration support.
-			return false, fmt.Errorf("%w: modern unattended configuration conflicts with legacy machine.install", domainbootstrap.ErrInstallConfigurationInvalid)
-		}
 		if err := validateInstallSelector(unattended.VolumeSelector()); err != nil {
 			return false, err
 		}
 		return true, nil
 	}
-
-	machine := provider.Machine()
-	if machine == nil {
-		return false, nil
-	}
-	install := machine.Install()
-	if install == nil {
-		return false, nil
-	}
-	if strings.TrimSpace(install.Disk()) != "" {
-		return true, nil
-	}
-	expression, err := install.DiskMatchExpression()
-	if err != nil {
-		return false, fmt.Errorf("read Talos install disk selector: %w", err)
-	}
-	if expression == nil || expression.IsZero() {
-		return false, nil
-	}
-	if err := validateInstallSelector(*expression); err != nil {
-		return false, err
-	}
-	return true, nil
+	return false, nil
 }
 
 func validateInstallSelector(expression cel.Expression) error {
@@ -188,8 +162,7 @@ func validateInstallSelector(expression cel.Expression) error {
 	return nil
 }
 
-// EnsureInstallDiskは入力configurationにinstall targetがない場合、Talos nativeのinstall targetを追加する。
-// 現行Talos設定にはUnattendedInstallConfig documentを追加し、旧設定にはmachine.install.diskを設定する。
+// EnsureInstallDiskは入力configurationにmodern Talos install targetがない場合、UnattendedInstallConfigを追加する。
 func EnsureInstallDisk(configuration []byte, disk domainbootstrap.InstallDisk) ([]byte, error) {
 	configured, err := HasInstallDiskConfiguration(configuration)
 	if err != nil {
@@ -207,25 +180,6 @@ func EnsureInstallDisk(configuration []byte, disk domainbootstrap.InstallDisk) (
 	}
 	if strings.TrimSpace(disk.DevicePath) == "" {
 		return nil, domainbootstrap.ErrInstallDiskUnavailable
-	}
-
-	provider, err := configloader.NewFromBytes(configuration)
-	if err != nil {
-		return nil, fmt.Errorf("load Talos machine configuration: %w", err)
-	}
-	if raw := provider.RawV1Alpha1(); raw != nil && raw.MachineConfig != nil && raw.MachineConfig.MachineInstall != nil { //nolint:staticcheck // legacy configuration support.
-		patched, patchErr := provider.PatchV1Alpha1(func(config *v1alpha1config.Config) error {
-			if config.MachineConfig.MachineInstall == nil { //nolint:staticcheck // legacy configuration support.
-				config.MachineConfig.MachineInstall = &v1alpha1config.InstallConfig{} //nolint:staticcheck // legacy configuration support.
-			}
-			config.MachineConfig.MachineInstall.InstallDisk = disk.DevicePath //nolint:staticcheck // legacy configuration support.
-			config.MachineConfig.MachineInstall.InstallWipe = new(false)      //nolint:staticcheck // preserve data outside the selected system disk.
-			return nil
-		})
-		if patchErr != nil {
-			return nil, fmt.Errorf("set legacy Talos install disk: %w", patchErr)
-		}
-		return patched.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
 	}
 
 	selector, err := SelectInstallDisk([]domainbootstrap.InstallDisk{disk})
@@ -278,28 +232,6 @@ func validateInstallDiskConfiguration(provider talosconfig.Provider, disk domain
 			return fmt.Errorf("%w: unattended install target does not match the provider-selected disk", domainbootstrap.ErrInstallConfigurationInvalid)
 		}
 		return nil
-	}
-
-	machine := provider.Machine()
-	if machine == nil || machine.Install() == nil {
-		return domainbootstrap.ErrInstallConfigurationInvalid
-	}
-	install := machine.Install()
-	if install.Zero() {
-		return fmt.Errorf("%w: legacy install target enables disk wipe", domainbootstrap.ErrInstallConfigurationInvalid)
-	}
-	if strings.TrimSpace(install.Disk()) != "" {
-		if install.Disk() != disk.DevicePath {
-			return fmt.Errorf("%w: legacy install disk does not match the provider-selected disk", domainbootstrap.ErrInstallConfigurationInvalid)
-		}
-		return nil
-	}
-
-	// 旧形式のselectorだけでは観測したdeviceが選択されたことを証明できないため、明示的なdevice pathを要求して別diskへのinstallを防ぐ。
-	if expression, err := install.DiskMatchExpression(); err != nil {
-		return fmt.Errorf("%w: read Talos install disk selector: %w", domainbootstrap.ErrInstallConfigurationInvalid, err)
-	} else if expression != nil && !expression.IsZero() {
-		return fmt.Errorf("%w: legacy install selector must identify the provider-selected device path", domainbootstrap.ErrInstallConfigurationInvalid)
 	}
 
 	return domainbootstrap.ErrInstallConfigurationInvalid

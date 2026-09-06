@@ -11,17 +11,14 @@ func TestResolveApplyMode(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
-		policy bootstrapv1alpha1.ConfigurationUpdatePolicy
+		policy bootstrapv1alpha1.ConfigurationApplyStrategy
 		want   ApplyMode
 		err    error
 	}{
-		// Talos 1.14はreboot要否を信頼できる形で判定できないため、Autoは楽観的なreboot-free applyを試みない。
-		"auto resolves to a controlled reboot":  {policy: bootstrapv1alpha1.ConfigurationUpdatePolicyAuto, want: ApplyModeReboot},
+		"reboot":                                {policy: bootstrapv1alpha1.ConfigurationApplyStrategyReboot, want: ApplyModeReboot},
 		"unset resolves to a controlled reboot": {want: ApplyModeReboot},
-		"live":                                  {policy: bootstrapv1alpha1.ConfigurationUpdatePolicyLive, want: ApplyModeLive},
-		"reboot":                                {policy: bootstrapv1alpha1.ConfigurationUpdatePolicyReboot, want: ApplyModeReboot},
-		"initial only is not applicable":        {policy: bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly, err: ErrPolicyUnknown},
-		"unknown policy":                        {policy: bootstrapv1alpha1.ConfigurationUpdatePolicy("Whatever"), err: ErrPolicyUnknown},
+		"no reboot":                             {policy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, want: ApplyModeNoReboot},
+		"unknown strategy":                      {policy: bootstrapv1alpha1.ConfigurationApplyStrategy("Whatever"), err: ErrPolicyUnknown},
 	}
 
 	for name, tt := range tests {

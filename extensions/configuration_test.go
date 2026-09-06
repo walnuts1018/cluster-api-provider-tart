@@ -10,10 +10,10 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
@@ -36,7 +36,7 @@ func (f *fakeUpdateNode) ActiveMachineConfiguration(context.Context) ([]byte, er
 	return f.active, nil
 }
 
-func (f *fakeUpdateNode) ApplyConfigurationLive(_ context.Context, configuration []byte) error {
+func (f *fakeUpdateNode) ApplyConfigurationNoReboot(_ context.Context, configuration []byte) error {
 	f.liveApplies++
 	if f.liveErr != nil {
 		return f.liveErr
@@ -110,9 +110,9 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
-			node:    node,
-			policy:  bootstrapv1alpha1.ConfigurationUpdatePolicyLive,
-			desired: safeDifference,
+			node:     node,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			desired:  safeDifference,
 		})
 		if outcome.retryMessage == "" || outcome.failureMessage != "" {
 			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a retry", outcome)
@@ -126,9 +126,9 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100, liveErr: errors.New("talos rejected the live apply")}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
-			node:    node,
-			policy:  bootstrapv1alpha1.ConfigurationUpdatePolicyLive,
-			desired: safeDifference,
+			node:     node,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			desired:  safeDifference,
 		})
 		if outcome.failureMessage == "" || outcome.done {
 			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a failure", outcome)
@@ -143,9 +143,9 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		gateCalls := 0
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
-			node:    node,
-			policy:  bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
-			desired: safeDifference,
+			node:     node,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			desired:  safeDifference,
 			rebootGate: func(context.Context) (bool, string) {
 				gateCalls++
 				return false, "The Node drain was blocked."
@@ -164,7 +164,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:                      node,
-			policy:                    bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			strategy:                  bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:                   safeDifference,
 			rebootGate:                func(context.Context) (bool, string) { return true, "" },
 			rebootObservationTimeout:  time.Millisecond,
@@ -181,25 +181,12 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		}
 	})
 
-	t.Run("initial only stops without a Machine replacement", func(t *testing.T) {
-		t.Parallel()
-		node := &fakeUpdateNode{active: active, bootTime: 100}
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
-			node:    node,
-			policy:  bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly,
-			desired: safeDifference,
-		})
-		if outcome.failureMessage == "" || node.liveApplies != 0 || node.rebootApplies != 0 {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, applies = %d/%d", outcome, node.liveApplies, node.rebootApplies)
-		}
-	})
-
 	t.Run("destructive difference stops the update", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:       node,
-			policy:     bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			strategy:   bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:    destructiveDifference,
 			rebootGate: func(context.Context) (bool, string) { return true, "" },
 		})
@@ -213,7 +200,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100, servicesErr: errors.New("kubelet is not healthy")}
 		updater := configurationUpdate{
 			node:      node,
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			strategy:  bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   active,
 			nodeReady: func(context.Context) (bool, string) { return true, "" },
 		}
@@ -258,17 +245,12 @@ func TestPlanBootstrapConfigPatch(t *testing.T) {
 			desired:   bootstrapObject("patches-b", ""),
 			wantPatch: true,
 		},
-		"raw patch change under the Live policy": {
-			current:   bootstrapObject("patches-a", "Live"),
-			desired:   bootstrapObject("patches-b", "Live"),
+		"raw patch change under the NoReboot strategy": {
+			current:   bootstrapObject("patches-a", "NoReboot"),
+			desired:   bootstrapObject("patches-b", "NoReboot"),
 			wantPatch: true,
 		},
-		"raw patch change under the InitialOnly policy": {
-			current: bootstrapObject("patches-a", "InitialOnly"),
-			desired: bootstrapObject("patches-b", "InitialOnly"),
-			wantErr: true,
-		},
-		"unknown policy": {
+		"unknown strategy": {
 			current: bootstrapObject("patches-a", "Whatever"),
 			desired: bootstrapObject("patches-b", "Whatever"),
 			wantErr: true,

@@ -114,9 +114,6 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			return r.report(ctx, &config, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.")
 		}
 		if !bytes.Equal(actual.Data[bootstrap.BootstrapSecretKey], completeConfiguration) {
-			if config.Spec.EffectiveConfigurationUpdatePolicy() == bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly {
-				return r.report(ctx, &config, "BootstrapSecretImmutable", "The Bootstrap Secret already contains different immutable data while the update policy is InitialOnly; create a new BootstrapConfig instead.")
-			}
 			// Bootstrap Secretはimmutableなためdataを書き換えられない。update policyが変更を許す場合だけ、
 			// 同じ名前で作り直してdesired configurationをUpdate Extensionから観測できるようにする。
 			if err := r.Delete(ctx, actual); err != nil && !apierrors.IsNotFound(err) {

@@ -9,8 +9,8 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
@@ -79,6 +79,7 @@ func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 		Serial:     "disk-a",
 		Transport:  "virtio",
 	}
+
 	configuration, err := EnsureInstallDisk([]byte(renderBaseConfiguration), disk)
 	if err != nil {
 		t.Fatalf("EnsureInstallDisk() error = %v", err)
@@ -108,6 +109,17 @@ func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 	}
 	if !configured {
 		t.Fatal("HasInstallDiskConfiguration() = false for generated selector")
+	}
+}
+
+func TestTalosModernDocumentsAreRequiredForProviderPatches(t *testing.T) {
+	t.Parallel()
+
+	if _, err := talos.SetInstallerImage([]byte(renderBaseConfiguration), "v1.14.0", "schematic"); err == nil {
+		t.Fatal("SetInstallerImage() accepted configuration without UnattendedInstall")
+	}
+	if _, err := talos.SetProviderID([]byte(renderBaseConfiguration), "tart://provider"); err == nil {
+		t.Fatal("SetProviderID() accepted configuration without KubeletConfig")
 	}
 }
 

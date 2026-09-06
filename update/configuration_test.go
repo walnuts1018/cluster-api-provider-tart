@@ -7,10 +7,10 @@ import (
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
-	"github.com/walnuts1018/cluster-api-provider-tart/talos"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
@@ -78,18 +78,18 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 	otherEndpoint := newConfiguration(t, bundle, []configurationOption{withEndpoint("https://192.0.2.20:6443")})
 
 	tests := map[string]struct {
-		policy    bootstrapv1alpha1.ConfigurationUpdatePolicy
+		policy    bootstrapv1alpha1.ConfigurationApplyStrategy
 		desired   []byte
 		wantClass ChangeClass
 		wantMode  ApplyMode
 	}{
 		"no difference": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyAuto,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   base,
 			wantClass: ChangeNone,
 		},
 		"auto falls back to a controlled reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyAuto,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   sysctl,
 			wantClass: ChangeUpdatable,
 			wantMode:  ApplyModeReboot,
@@ -100,44 +100,35 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 			wantMode:  ApplyModeReboot,
 		},
 		"live policy applies without a reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyLive,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   sysctl,
 			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeLive,
+			wantMode:  ApplyModeNoReboot,
 		},
 		"reboot policy applies with a reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   sysctl,
 			wantClass: ChangeUpdatable,
 			wantMode:  ApplyModeReboot,
 		},
-		"initial only stops a safe difference": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly,
-			desired:   sysctl,
-			wantClass: ChangeReprovisionRequired,
-		},
-		"initial only ignores an absent difference": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyInitialOnly,
-			desired:   base,
-			wantClass: ChangeNone,
-		},
-		"volume document is destructive": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyLive,
+		"volume document is an ordinary Talos change": {
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   userVolume,
-			wantClass: ChangeReprovisionRequired,
+			wantClass: ChangeUpdatable,
+			wantMode:  ApplyModeNoReboot,
 		},
 		"install target change is destructive": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   otherDisk,
 			wantClass: ChangeReprovisionRequired,
 		},
 		"machine role change conflicts with a provider invariant": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   controlPlane,
 			wantClass: ChangeInvariantConflict,
 		},
 		"control-plane endpoint change conflicts with a provider invariant": {
-			policy:    bootstrapv1alpha1.ConfigurationUpdatePolicyLive,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   otherEndpoint,
 			wantClass: ChangeInvariantConflict,
 		},
@@ -174,7 +165,7 @@ func TestEvaluateIgnoresInstallerImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetInstallerImage() error = %v", err)
 	}
-	decision, err := Evaluate(bootstrapv1alpha1.ConfigurationUpdatePolicyLive, base, upgraded)
+	decision, err := Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
@@ -189,7 +180,7 @@ func TestEvaluateRejectsUnreadableConfiguration(t *testing.T) {
 
 	bundle := newSecretsBundle(t)
 	base := newConfiguration(t, bundle, nil)
-	if _, err := Evaluate(bootstrapv1alpha1.ConfigurationUpdatePolicyLive, base, []byte("not a machine configuration")); err == nil {
+	if _, err := Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
 		t.Fatal("Evaluate() accepted an unreadable configuration")
 	}
 }

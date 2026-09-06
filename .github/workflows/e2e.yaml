@@ -1,0 +1,66 @@
+name: E2E (bare-metal lab)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-bare-metal:
+    name: FreshProvision / InPlaceUpgrade / ReconcileRecovery
+    # KVM/nested virtualizationが必要であり、実行時間も長いため、通常PRのfast feedbackを
+    # 阻害しない独立したworkflowとして実行する(ci.yamlとは分離)。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup tools
+        uses: ./.github/actions/setup-tools
+        with:
+          go-cache: "true"
+          install-args: go kind kubectl kustomize
+
+      - name: Setup bare-metal lab (libvirt/QEMU/dnsmasq/wol-libvirt-gateway)
+        uses: ./.github/actions/setup-lab
+
+      - name: Build controller-manager images
+        run: |
+          set -euxo pipefail
+          docker build --target bootstrap-manager -t localhost/tart/bootstrap-manager:e2e .
+          docker build --target control-plane-manager -t localhost/tart/control-plane-manager:e2e .
+          docker build --target infrastructure-manager -t localhost/tart/infrastructure-manager:e2e .
+
+      - name: Run E2E suite (kind + CAPI + Tart provider + bare-metal lab)
+        env:
+          KUBECONFIG: ${{ runner.temp }}/tart-e2e-kubeconfig
+          TART_E2E_ARTIFACT_DIR: ${{ github.workspace }}/_artifacts/e2e
+          TART_E2E_LAB_WORKDIR: ${{ runner.temp }}/tart-e2e-lab
+          TART_E2E_WOL_GATEWAY_BINARY: /usr/local/bin/wol-libvirt-gateway
+        run: mise run test-e2e
+
+      - name: Dump cluster/lab state
+        if: always()
+        run: |
+          set +e
+          mkdir -p _artifacts/e2e/workflow-level
+          kubectl get all --all-namespaces -o wide > _artifacts/e2e/workflow-level/all-resources.txt 2>&1
+          sudo virsh --connect qemu:///system list --all > _artifacts/e2e/workflow-level/virsh-list.txt 2>&1
+          exit 0
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa9 # v4.6.2
+        with:
+          name: tart-e2e-artifacts
+          path: _artifacts/e2e
+          if-no-files-found: ignore
+          retention-days: 14

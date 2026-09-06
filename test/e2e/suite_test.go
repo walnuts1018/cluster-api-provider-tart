@@ -1,0 +1,240 @@
+//go:build e2e
+
+// Package e2eは、GitHub Actions runner上のQEMU/libvirt bare-metal labを使い、Tartの
+// WoL実装・PXEブート・Talos maintenance APIを実際に通した3本の必須E2E
+// (FreshProvision/InPlaceUpgrade/ReconcileRecovery)を実行する。ginkgo/gomegaで記述し、
+// shell sleepではなくAPI観測(Condition/Eventually)だけに依存する。
+//
+// 実行にはlinux + KVM + libvirtが必要であり、darwin開発環境では`go vet -tags e2e`による
+// 静的検証のみが可能である(test/e2e/lab/lab_stub.goが肩代わりする)。
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/clientcmd"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
+	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
+	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/framework"
+	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/lab"
+	e2enetboot "github.com/walnuts1018/cluster-api-provider-tart/test/e2e/netboot"
+	testutils "github.com/walnuts1018/cluster-api-provider-tart/test/utils"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+)
+
+func TestE2E(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Tart bare-metal E2E Suite")
+}
+
+const (
+	kindClusterName = "tart-e2e"
+
+	// labNetworkCIDRはRFC 5737 TEST-NET-2を使う(実機/外部networkと衝突しないprivate testing用block)。
+	labNetworkCIDR = "198.51.100.0/24"
+	labNetworkName = "tart-e2e-lab"
+	labBridgeName  = "tartlab0"
+
+	// controlPlaneVMMACAddressはIANA予約block(00-00-5E-00-53-00〜FF, RFC 7042)から
+	// CLAUDE.mdの規約に従って割り当てる。
+	controlPlaneVMMACAddress = "00:00:5E:00:53:01"
+	controlPlaneVMName       = "tart-e2e-cp-0"
+)
+
+var (
+	ctx = context.Background()
+
+	scheme *runtime.Scheme
+
+	kindCluster    *framework.KindCluster
+	kubeconfigPath string
+	k8sClient      client.Client
+
+	testLab       lab.Lab
+	labWorkDir    string
+	wolGateway    *lab.Gateway
+	netbootServer *e2enetboot.Server
+
+	artifactRootDir string
+)
+
+var _ = BeforeSuite(func() {
+	scheme = runtime.NewScheme()
+	Expect(clientgoscheme.AddToScheme(scheme)).To(Succeed())
+	Expect(clusterv1.AddToScheme(scheme)).To(Succeed())
+	Expect(infrav1alpha1.AddToScheme(scheme)).To(Succeed())
+	Expect(bootstrapv1alpha1.AddToScheme(scheme)).To(Succeed())
+	Expect(controlplanev1alpha1.AddToScheme(scheme)).To(Succeed())
+
+	projectDir, err := testutils.GetProjectDir()
+	Expect(err).NotTo(HaveOccurred())
+
+	artifactRootDir = envOrDefault("TART_E2E_ARTIFACT_DIR", filepath.Join(projectDir, "_artifacts", "e2e"))
+	Expect(os.MkdirAll(artifactRootDir, 0o755)).To(Succeed())
+
+	labWorkDir = envOrDefault("TART_E2E_LAB_WORKDIR", filepath.Join(os.TempDir(), "tart-e2e-lab"))
+	Expect(os.Setenv("TART_E2E_LAB_WORKDIR", labWorkDir)).To(Succeed())
+
+	By("bare-metal labを構築する(libvirt network + VM定義。電源はshutoffのまま)")
+	vmSpecs := []lab.VMSpec{
+		{
+			Name:          controlPlaneVMName,
+			MACAddress:    controlPlaneVMMACAddress,
+			VCPUs:         4,
+			MemoryMiB:     8192,
+			SystemDiskGiB: 40,
+			SSDDiskGiB:    20,
+			HDDDiskGiB:    20,
+		},
+	}
+	testLab, err = lab.NewLibvirtLab("qemu:///system", lab.Config{
+		NetworkName:   labNetworkName,
+		NetworkBridge: labBridgeName,
+		NetworkCIDR:   labNetworkCIDR,
+		WorkDir:       labWorkDir,
+		VMs:           vmSpecs,
+	})
+	Expect(err).NotTo(HaveOccurred(), "failed to connect to libvirt; this suite requires a linux runner with KVM/libvirt (see .github/actions/setup-lab)")
+	Expect(testLab.EnsureNetwork(ctx)).To(Succeed())
+	for _, spec := range vmSpecs {
+		_, err := testLab.EnsureVM(ctx, spec)
+		Expect(err).NotTo(HaveOccurred())
+	}
+
+	By("wol-libvirt-gatewayを起動する")
+	gatewayBinary := envOrDefault("TART_E2E_WOL_GATEWAY_BINARY", "/usr/local/bin/wol-libvirt-gateway")
+	wolGateway, err = lab.StartGateway(ctx, gatewayBinary, "qemu:///system")
+	Expect(err).NotTo(HaveOccurred())
+	// TODO: WoLブロードキャストパケットがGitHub Actions runner上のnetwork構成でこのgatewayまで
+	// 実際に届くかはCI実行で検証が必要である(lab/wolgateway.goのTODO参照)。届かない場合は
+	// runner側のbroadcast/bridge設定を調整し、TartHost.spec.power.wakeOnLAN.broadcastAddressを
+	// gatewayの実際のlisten先に合わせて再設定する。
+
+	By("kind clusterを作成し、CAPI core + Tart providerをinstallする")
+	kindCluster, err = framework.CreateKindCluster(ctx, kindClusterName)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(framework.InstallCAPICore(ctx)).To(Succeed())
+
+	// CIがlocalでbuildしたcontroller-manager imageをkindへloadする(TART_E2E_PROVIDER_IMAGESが
+	// 設定されている場合のみ)。
+	// TODO: config/default配下のkustomizationは現状ghcr.io上のtagged imageを参照するため、
+	// ここでloadしたlocal imageを実際に使わせるには、各config/manager/*/kustomization.yamlへ
+	// images(newName/newTag)patchを追加するか、E2E専用のoverlayを用意する必要がある。
+	// 現時点ではこの配線は未接続であり、providerは既定のkustomize manifestが参照する
+	// registry imageで起動する。
+	if images := envOrDefault("TART_E2E_PROVIDER_IMAGES", ""); images != "" {
+		Expect(framework.LoadProviderImages(splitCommaList(images)...)).To(Succeed())
+	}
+
+	Expect(framework.InstallTartProviders(ctx)).To(Succeed())
+
+	kubeconfigPath = envOrDefault("KUBECONFIG", filepath.Join(os.TempDir(), "tart-e2e-kubeconfig"))
+	// kind自体はkubeconfigをdefault contextへmergeするため、明示的にexportして
+	// テストプロセス内client(k8sClient)とnetboot resolverの両方から同じkubeconfigを使う。
+	Expect(exportKindKubeconfig(kindClusterName, kubeconfigPath)).To(Succeed())
+
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+	Expect(err).NotTo(HaveOccurred())
+	k8sClient, err = client.New(restConfig, client.Options{Scheme: scheme})
+	Expect(err).NotTo(HaveOccurred())
+
+	By("netboot-serverをテストプロセス内で起動する(ProxyDHCP/TFTP/HTTP)")
+	netbootServer, err = e2enetboot.Start(ctx, e2enetboot.Config{
+		KubeconfigPath:         kubeconfigPath,
+		TFTPRoot:               filepath.Join(labWorkDir, "tftp"),
+		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", "0.0.0.0"),
+		TFTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_TFTP_BIND", "0.0.0.0:69"),
+		HTTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_HTTP_BIND", ":8080"),
+		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", ""),
+		AdvertiseHTTPBaseURL:   envOrDefault("TART_E2E_NETBOOT_ADVERTISE_HTTP_BASE_URL", ""),
+		ImageFactoryPXEBaseURL: envOrDefault("TART_E2E_IMAGE_FACTORY_PXE_BASE_URL", ""),
+		DiscoveryTalosVersion:  envOrDefault("TART_E2E_DISCOVERY_TALOS_VERSION", ""),
+		DiscoverySchematicID:   envOrDefault("TART_E2E_DISCOVERY_SCHEMATIC_ID", ""),
+	})
+	Expect(err).NotTo(HaveOccurred())
+	// TODO: netboot-serverのProxyDHCPが、lab networkのdnsmasq(通常DHCP)と同一segmentで
+	// 共存できているか(競合するport 67 bindにならないか)はCI実行で確認が必要である。
+})
+
+var _ = AfterSuite(func() {
+	if CurrentSpecReport().Failed() {
+		framework.DumpAll(filepath.Join(artifactRootDir, "final-failure"))
+	}
+
+	if netbootServer != nil {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := netbootServer.Stop(stopCtx); err != nil {
+			testutils.WarnError(fmt.Errorf("stop netboot server: %w", err))
+		}
+	}
+	if wolGateway != nil {
+		if err := wolGateway.DumpLogs(filepath.Join(artifactRootDir, "wol-gateway")); err != nil {
+			testutils.WarnError(fmt.Errorf("dump wol gateway logs: %w", err))
+		}
+		if err := wolGateway.Stop(); err != nil {
+			testutils.WarnError(fmt.Errorf("stop wol gateway: %w", err))
+		}
+	}
+	if testLab != nil {
+		if err := testLab.DestroyAll(context.Background()); err != nil {
+			testutils.WarnError(fmt.Errorf("destroy lab: %w", err))
+		}
+		if err := testLab.Close(); err != nil {
+			testutils.WarnError(fmt.Errorf("close lab connection: %w", err))
+		}
+	}
+	if kindCluster != nil {
+		if err := kindCluster.Delete(context.Background()); err != nil {
+			testutils.WarnError(fmt.Errorf("delete kind cluster: %w", err))
+		}
+	}
+})
+
+// exportKindKubeconfigは`kind export kubeconfig`を実行し、指定pathへkubeconfigを書き出す。
+// テストプロセス内client(k8sClient)とnetboot resolverの両方が同じkubeconfigを参照するために使う。
+func exportKindKubeconfig(clusterName, path string) error {
+	cmd := exec.CommandContext(ctx, "kind", "export", "kubeconfig", "--name", clusterName, "--kubeconfig", path)
+	_, err := testutils.Run(cmd)
+	return err
+}
+
+func splitCommaList(value string) []string {
+	var result []string
+	current := ""
+	for _, r := range value {
+		if r == ',' {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+			continue
+		}
+		current += string(r)
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+func envOrDefault(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok && value != "" {
+		return value
+	}
+	return fallback
+}

@@ -8,9 +8,11 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cosi-project/runtime v1.16.3
 	github.com/go-logr/logr v1.4.4
+	github.com/google/cel-go v0.31.0
 	github.com/insomniacslk/dhcp v0.0.0-20260901064844-234b97448fae
 	github.com/mazrean/kessoku v1.1.1
 	github.com/onsi/ginkgo/v2 v2.32.1
+	github.com/onsi/gomega v1.43.0
 	github.com/pin/tftp/v3 v3.2.0
 	github.com/siderolabs/crypto v0.6.5
 	github.com/siderolabs/go-kubernetes v0.2.41
@@ -30,6 +32,7 @@ require (
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
 	k8s.io/klog/v2 v2.140.0
+	libvirt.org/go/libvirt v1.12007.0
 	sigs.k8s.io/cluster-api v1.14.1
 	sigs.k8s.io/cluster-api/api v1.14.1
 	sigs.k8s.io/controller-runtime v0.25.0
@@ -86,7 +89,6 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
-	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.21.9 // indirect
@@ -112,7 +114,6 @@ require (
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/neticdk/go-stdlib v1.0.1 // indirect
-	github.com/onsi/gomega v1.43.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runtime-spec v1.3.0 // indirect

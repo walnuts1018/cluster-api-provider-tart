@@ -58,6 +58,14 @@ run = "go build ./cmd/netboot-server"
 description = "Goの静的検査を実行する"
 run = "go vet ./..."
 
+[tasks.test]
+description = "unit/envtestを実行する(test/e2e配下は含まない)"
+run = "go test ./..."
+
+[tasks."test-e2e"]
+description = "bare-metal lab上のE2Eを実行する(KVM/libvirtが利用可能なLinux runner専用)"
+run = "go test -tags e2e -timeout 60m ./test/e2e/..."
+
 [tasks."build-golangci-lint"]
 description = "Build custom golangci-lint binary with module plugins"
 sources = [".custom-gcl.yml"]

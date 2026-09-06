@@ -1,0 +1,84 @@
+<!--
+QEMU domain XML template。text/templateで以下のfieldを埋め込む:
+  .Name            libvirt domain名
+  .UUID            domain UUID (安定させるためVM名から決定論的に生成する)
+  .VCPUs           vCPU数
+  .MemoryMiB       メモリ量(MiB)
+  .MACAddress      主NICのMACアドレス
+  .NetworkName     接続するlibvirt network名
+  .SystemDiskPath  system disk(OS領域)のqcow2 path
+  .SystemDiskSerial system diskのserial(Talos hardware discoveryでの安定識別用)
+  .SystemDiskWWN   system diskのWWN
+  .SSDDiskPath     SSD相当data diskのqcow2 path
+  .SSDDiskSerial   SSD相当data diskのserial
+  .SSDDiskWWN      SSD相当data diskのWWN
+  .HDDDiskPath     HDD相当data diskのqcow2 path
+  .HDDDiskSerial   HDD相当data diskのserial
+  .HDDDiskWWN      HDD相当data diskのWWN
+
+boot順はhd→networkとし、system disk上に有効なbootloaderが存在しない初回起動時のみ
+PXE(network)へfallbackするlibvirtの標準挙動を利用する。3disk(system/ssd/hdd)には
+それぞれ固有のserial/wwnを設定し、Talos hardware discoveryのDiskInventory(Serial/WWID)
+から安定してdiskを識別できるようにする。
+-->
+<domain type='kvm'>
+  <name>{{ .Name }}</name>
+  <uuid>{{ .UUID }}</uuid>
+  <memory unit='MiB'>{{ .MemoryMiB }}</memory>
+  <currentMemory unit='MiB'>{{ .MemoryMiB }}</currentMemory>
+  <vcpu placement='static'>{{ .VCPUs }}</vcpu>
+  <os>
+    <type arch='x86_64' machine='q35'>hvm</type>
+    <boot dev='hd'/>
+    <boot dev='network'/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode='host-passthrough' check='none'/>
+  <clock offset='utc'/>
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{ .SystemDiskPath }}'/>
+      <target dev='sda' bus='scsi'/>
+      <serial>{{ .SystemDiskSerial }}</serial>
+      <wwn>{{ .SystemDiskWWN }}</wwn>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{ .SSDDiskPath }}'/>
+      <target dev='sdb' bus='scsi'/>
+      <serial>{{ .SSDDiskSerial }}</serial>
+      <wwn>{{ .SSDDiskWWN }}</wwn>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' discard='unmap'/>
+      <source file='{{ .HDDDiskPath }}'/>
+      <target dev='sdc' bus='scsi'/>
+      <serial>{{ .HDDDiskSerial }}</serial>
+      <wwn>{{ .HDDDiskWWN }}</wwn>
+    </disk>
+    <controller type='scsi' model='virtio-scsi'/>
+    <interface type='network'>
+      <source network='{{ .NetworkName }}'/>
+      <mac address='{{ .MACAddress }}'/>
+      <model type='virtio'/>
+      <!-- PXE bootはこのNICから行う。iPXE ROMはOVMF/SeaBIOS標準のvirtio-net PXE stackを使う。 -->
+    </interface>
+    <!-- serial consoleをfileへ記録し、失敗時のdebug artifactとして収集する(framework/dump.go参照)。 -->
+    <serial type='file'>
+      <source path='{{ .SerialLogPath }}'/>
+      <target port='0'/>
+    </serial>
+    <console type='pty'>
+      <target type='serial' port='0'/>
+    </console>
+    <graphics type='vnc' port='-1' autoport='yes' listen='127.0.0.1'/>
+  </devices>
+</domain>

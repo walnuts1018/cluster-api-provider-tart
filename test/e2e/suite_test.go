@@ -127,6 +127,12 @@ var _ = BeforeSuite(func() {
 	By("kind clusterを作成し、CAPI core + Tart providerをinstallする")
 	kindCluster, err = framework.CreateKindCluster(ctx, kindClusterName)
 	Expect(err).NotTo(HaveOccurred())
+
+	// KUBECONFIG環境変数はこの後のすべてのkubectl呼び出し(失敗時のDumpAllを含む)が参照するため、
+	// CAPI core等のinstallより先にexportし、途中で失敗しても診断情報を採取できるようにする。
+	kubeconfigPath = envOrDefault("KUBECONFIG", filepath.Join(os.TempDir(), "tart-e2e-kubeconfig"))
+	Expect(exportKindKubeconfig(kindClusterName, kubeconfigPath)).To(Succeed())
+
 	Expect(framework.InstallCAPICore(ctx)).To(Succeed())
 
 	// CIがlocalでbuildしたcontroller-manager imageをkindへloadする(TART_E2E_PROVIDER_IMAGESが
@@ -141,11 +147,6 @@ var _ = BeforeSuite(func() {
 	}
 
 	Expect(framework.InstallTartProviders(ctx)).To(Succeed())
-
-	kubeconfigPath = envOrDefault("KUBECONFIG", filepath.Join(os.TempDir(), "tart-e2e-kubeconfig"))
-	// kind自体はkubeconfigをdefault contextへmergeするため、明示的にexportして
-	// テストプロセス内client(k8sClient)とnetboot resolverの両方から同じkubeconfigを使う。
-	Expect(exportKindKubeconfig(kindClusterName, kubeconfigPath)).To(Succeed())
 
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	Expect(err).NotTo(HaveOccurred())

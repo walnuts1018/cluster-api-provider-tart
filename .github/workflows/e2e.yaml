@@ -66,9 +66,9 @@ jobs:
           set -euxo pipefail
           mise run build-wol-gateway
           sudo install -m 0755 .cache/wol-libvirt-gateway/bin/wol-libvirt-gateway /usr/local/bin/wol-libvirt-gateway
-        # TODO: wol-libvirt-gatewayのcrate名/binary名がリポジトリの実際のCargo.tomlと異なる場合、
-        # `cargo install --git`が生成するbinary名を実際のリポジトリ構成に合わせて調整する必要がある。
-        # 現時点ではリポジトリ内容を直接確認できていないため、実CI実行時に検証・修正する。
+          # WoL magic packetの標準宛先port 9はwell-known/privileged portであり、非rootプロセスは
+          # CAP_NET_BIND_SERVICEなしにbindできない。gatewayをroot権限なしで起動するためcapabilityを付与する。
+          sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/wol-libvirt-gateway
 
       - name: Build controller-manager images
         run: |
@@ -89,6 +89,8 @@ jobs:
 
       - name: Dump cluster/lab state
         if: always()
+        env:
+          KUBECONFIG: ${{ runner.temp }}/tart-e2e-kubeconfig
         run: |
           set +e
           mkdir -p _artifacts/e2e/workflow-level

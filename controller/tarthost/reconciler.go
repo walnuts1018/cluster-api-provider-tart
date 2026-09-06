@@ -1,10 +1,9 @@
-// Package controllerはTart resourceのKubernetes watchおよびreconcile entrypointを提供する。
-package controller
+// Package tarthostはTartHost resourceのKubernetes watchおよびreconcile entrypointを提供する。
+package tarthost
 
 import (
 	"context"
 	"errors"
-	"net"
 	"strings"
 	"time"
 
@@ -16,11 +15,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
-	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
 const tartHostFinalizer = "tart.cluster.x-k8s.io/host-lifecycle"
@@ -46,7 +46,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 		return ctrl.Result{}, err
 	}
-	if isPaused(&current) {
+	if controller.IsPaused(&current) {
 		return ctrl.Result{}, nil
 	}
 
@@ -80,10 +80,10 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	eligibility := hostusecase.Classify(current.Spec)
 	original := current.DeepCopy()
-	endpoint := hostTalosEndpoint(&current)
+	endpoint := controller.HostTalosEndpoint(&current)
 	var observationErr error
 	if current.Status.Inventory == nil && (current.Spec.Power.Backend == infrav1alpha1.PowerBackendWakeOnLAN || current.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish) {
-		if err := r.powerOnHost(ctx, &current); err != nil {
+		if err := power.PowerOnHost(ctx, r.Client, r.ManagementNamespace, &current); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "power on Host for maintenance discovery")
 			observationErr = errHostPowerUnavailable
 		}
@@ -96,7 +96,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		current.Status.Inventory = hostInventory(inventory)
 		current.Status.BootAttempts = recordBootAttempt(current.Status.BootAttempts, inventory, endpoint, metav1.Now())
 		if endpoint != "" {
-			current.Status.Addresses = hostAddresses(endpoint)
+			current.Status.Addresses = controller.HostAddresses(endpoint)
 		}
 		observedHosts := make([]infrav1alpha1.TartHost, 0, len(hosts.Items)+1)
 		observedHosts = append(observedHosts, hosts.Items...)
@@ -117,8 +117,8 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 	setEligibilityConditions(&current, eligibility)
 	if observationErr == nil {
-		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionTrue, "TalosReachable", "The Talos maintenance API is reachable and the Host identity matches.", current.Generation)
-		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionTrue, "Ready", "The Host inventory and Talos maintenance endpoint are available.", current.Generation)
+		controller.SetCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionTrue, "TalosReachable", "The Talos maintenance API is reachable and the Host identity matches.", current.Generation)
+		controller.SetCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionTrue, "Ready", "The Host inventory and Talos maintenance endpoint are available.", current.Generation)
 	} else {
 		reason := "TalosUnavailable"
 		message := "The Talos maintenance API is not reachable; allocation remains independent from this observation."
@@ -126,16 +126,16 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			reason = "PowerUnavailable"
 			message = "The Host could not be powered on for maintenance discovery."
 		}
-		if errors.Is(observationErr, errHostEndpointUnavailable) {
+		if errors.Is(observationErr, controller.ErrHostEndpointUnavailable) {
 			reason = "EndpointUnavailable"
 			message = "A Talos endpoint is not configured or observed for this Host."
 		}
-		if errors.Is(observationErr, errHostIdentityMismatch) {
+		if errors.Is(observationErr, controller.ErrHostIdentityMismatch) {
 			reason = infrav1alpha1.ReasonIdentityConflict
 			message = "The Talos maintenance MAC address does not match the Host enrollment identity."
 		}
-		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionFalse, reason, message, current.Generation)
-		setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
+		controller.SetCondition(&current.Status.Conditions, infrav1alpha1.TartHostTalosReachableCondition, metav1.ConditionFalse, reason, message, current.Generation)
+		controller.SetCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
 	}
 	current.Status.ObservedGeneration = current.Generation
 	if err := r.Status().Patch(ctx, &current, client.MergeFrom(original)); err != nil {
@@ -208,14 +208,12 @@ func recordBootAttempt(attempts []infrav1alpha1.BootAttempt, inventory talos.Inv
 	return attempts
 }
 
-var errHostIdentityMismatch = errors.New("talos maintenance identity does not match host")
-var errHostEndpointUnavailable = errors.New("talos endpoint is unavailable")
 var errHostPowerUnavailable = errors.New("host power-on is unavailable")
 
 func observeHost(ctx context.Context, current *infrav1alpha1.TartHost) (talos.Inventory, error) {
-	endpoint := hostTalosEndpoint(current)
+	endpoint := controller.HostTalosEndpoint(current)
 	if endpoint == "" {
-		return talos.Inventory{}, errHostEndpointUnavailable
+		return talos.Inventory{}, controller.ErrHostEndpointUnavailable
 	}
 	connectionContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 	maintenance, err := talos.DialMaintenance(connectionContext, endpoint)
@@ -232,42 +230,30 @@ func observeHost(ctx context.Context, current *infrav1alpha1.TartHost) (talos.In
 		return talos.Inventory{}, err
 	}
 	if !inventory.HasMAC(current.Spec.MACAddress) {
-		return talos.Inventory{}, errHostIdentityMismatch
+		return talos.Inventory{}, controller.ErrHostIdentityMismatch
 	}
 	return inventory, nil
-}
-
-func hostAddresses(endpoint string) clusterv1.MachineAddresses {
-	address := endpoint
-	if hostPart, _, err := net.SplitHostPort(endpoint); err == nil {
-		address = hostPart
-	}
-	address = strings.Trim(address, "[]")
-	if net.ParseIP(address) != nil {
-		return clusterv1.MachineAddresses{{Type: clusterv1.MachineInternalIP, Address: address}}
-	}
-	return clusterv1.MachineAddresses{{Type: clusterv1.MachineHostName, Address: address}}
 }
 
 func setEligibilityConditions(hostObject *infrav1alpha1.TartHost, eligibility hostdomain.Eligibility) {
 	generation := hostObject.Generation
 	switch eligibility {
 	case hostdomain.Available:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionTrue, infrav1alpha1.ReasonAvailable, "The Host has no active consumerRef and no retained state.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionTrue, infrav1alpha1.ReasonAvailable, "The Host has no active consumerRef and no retained state.", generation)
 	case hostdomain.Claimed:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonClaimed, "The Host is claimed by a TartMachine.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonClaimed, "The Host is claimed by a TartMachine.", generation)
 	case hostdomain.Retained:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host retains state from a previous TartMachine; a matching reuse approval and reuse mode are required.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host retains state from a previous TartMachine; a matching reuse approval and reuse mode are required.", generation)
 	case hostdomain.Reusable:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonReuseApprovalRequired, "The Host retains state from a previous TartMachine but has an explicit matching reuse approval; allocation follows reuseMode, not the normal claim path.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonReuseApprovalRequired, "The Host retains state from a previous TartMachine but has an explicit matching reuse approval; allocation follows reuseMode, not the normal claim path.", generation)
 	default:
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host eligibility could not be classified.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostAvailableCondition, metav1.ConditionFalse, infrav1alpha1.ReasonRetained, "The Host eligibility could not be classified.", generation)
 	}
 
 	if hostObject.Status.Inventory != nil {
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, "InventoryObserved", "Hardware inventory has been observed.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, "InventoryObserved", "Hardware inventory has been observed.", generation)
 	} else {
-		setCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionFalse, "InventoryUnavailable", "Hardware inventory has not been observed yet.", generation)
+		controller.SetCondition(&hostObject.Status.Conditions, infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionFalse, "InventoryUnavailable", "Hardware inventory has not been observed yet.", generation)
 	}
 }
 
@@ -308,7 +294,7 @@ func deletionApproved(spec infrav1alpha1.TartHostSpec) bool {
 
 func (r *TartHostReconciler) report(ctx context.Context, current *infrav1alpha1.TartHost, reason, message string) (ctrl.Result, error) {
 	original := current.DeepCopy()
-	setCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
+	controller.SetCondition(&current.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, current.Generation)
 	current.Status.ObservedGeneration = current.Generation
 	if err := r.Status().Patch(ctx, current, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -319,7 +305,7 @@ func (r *TartHostReconciler) report(ctx context.Context, current *infrav1alpha1.
 func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts []infrav1alpha1.TartHost) (ctrl.Result, error) {
 	for index := range hosts {
 		candidate := &hosts[index]
-		if isPaused(candidate) || !hostusecase.HasIdentityConflict(*candidate, hosts) {
+		if controller.IsPaused(candidate) || !hostusecase.HasIdentityConflict(*candidate, hosts) {
 			continue
 		}
 
@@ -331,7 +317,7 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 		}
 
 		original := candidate.DeepCopy()
-		setCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, candidate.Generation)
+		controller.SetCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, candidate.Generation)
 		candidate.Status.ObservedGeneration = candidate.Generation
 		if err := r.Status().Patch(ctx, candidate, client.MergeFrom(original)); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err

@@ -1,17 +1,19 @@
+// Package controllerはCRDごとのReconcilerサブパッケージ(tarthost、tartmachineなど)から
+// 共有される定数・helperを提供する。個別CRDだけが使う判定ロジックはサブパッケージ側に置く。
 package controller
 
 const (
-	tartControlPlaneKind              = "TartControlPlane"
-	tartClusterKind                   = "TartCluster"
-	tartMachineKind                   = "TartMachine"
-	tartBootstrapConfigKind           = "TartBootstrapConfig"
-	capiMachineKind                   = "Machine"
-	reasonClusterUnavailable          = "ClusterUnavailable"
-	reasonBootstrapTemplateInvalid    = "BootstrapTemplateInvalid"
-	reasonSecretBundleUnavailable     = "SecretBundleUnavailable"
-	reasonMachineNameInvalid          = "MachineNameInvalid"
-	reasonWorkloadAPIUnavailable      = "WorkloadAPIUnavailable"
-	reasonMachineSpecMismatch         = "MachineSpecMismatch"
-	controlPlaneEtcdDeleteHookValue   = "true"
-	bootstrapConfigNameInvalidMessage = "A deterministic BootstrapConfig name is invalid."
+	TartControlPlaneKind              = "TartControlPlane"
+	TartClusterKind                   = "TartCluster"
+	TartMachineKind                   = "TartMachine"
+	TartBootstrapConfigKind           = "TartBootstrapConfig"
+	CAPIMachineKind                   = "Machine"
+	ReasonClusterUnavailable          = "ClusterUnavailable"
+	ReasonBootstrapTemplateInvalid    = "BootstrapTemplateInvalid"
+	ReasonSecretBundleUnavailable     = "SecretBundleUnavailable"
+	ReasonMachineNameInvalid          = "MachineNameInvalid"
+	ReasonWorkloadAPIUnavailable      = "WorkloadAPIUnavailable"
+	ReasonMachineSpecMismatch         = "MachineSpecMismatch"
+	ControlPlaneEtcdDeleteHookValue   = "true"
+	BootstrapConfigNameInvalidMessage = "A deterministic BootstrapConfig name is invalid."
 )

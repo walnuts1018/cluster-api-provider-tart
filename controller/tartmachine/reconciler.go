@@ -1,4 +1,4 @@
-package controller
+package tartmachine
 
 import (
 	"bytes"
@@ -25,6 +25,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
@@ -42,7 +43,7 @@ const (
 )
 
 var (
-	errBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
+	ErrBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
 	errCAPIProviderIDMismatch   = errors.New("CAPI Machine provider ID does not match TartHost")
 	errHostSelectionMismatch    = errors.New("allocated TartHost does not match CAPI Machine placement")
 )
@@ -72,7 +73,7 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
-	if isPaused(&machine) {
+	if controller.IsPaused(&machine) {
 		return ctrl.Result{}, nil
 	}
 
@@ -102,7 +103,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 
 	selected, err := r.observedOrSelectedHost(ctx, machine, allHosts.Items)
 	if err != nil {
-		if errors.Is(err, errCAPIMachineUnavailable) {
+		if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The corresponding CAPI Machine is not available to determine Host placement.", 30*time.Second)
 		}
 		if errors.Is(err, errHostSelectionMismatch) {
@@ -123,7 +124,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 	if selected.Spec.HostID == "" {
 		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
-	hostID, err := parseHostID(selected.Spec.HostID)
+	hostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
 	if err != nil {
 		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
@@ -137,7 +138,7 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 
 	consumer := corev1.ObjectReference{
 		APIVersion: infrav1alpha1.GroupVersion.String(),
-		Kind:       tartMachineKind,
+		Kind:       controller.TartMachineKind,
 		Namespace:  machine.Namespace,
 		Name:       machine.Name,
 		UID:        machine.UID,
@@ -165,8 +166,8 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 
 	statusOriginal := machine.DeepCopy()
 	machine.Status.HostRef = &corev1.LocalObjectReference{Name: selected.Name}
-	if endpoint := hostTalosEndpoint(selected); endpoint != "" {
-		machine.Status.Addresses = hostAddresses(endpoint)
+	if endpoint := controller.HostTalosEndpoint(selected); endpoint != "" {
+		machine.Status.Addresses = controller.HostAddresses(endpoint)
 	}
 	if selected.Spec.FailureDomain != "" {
 		machine.Status.FailureDomain = selected.Spec.FailureDomain
@@ -174,9 +175,9 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(statusOriginal)); err != nil {
 		return ctrl.Result{}, err
 	}
-	configuration, err := r.bootstrapConfiguration(ctx, machine)
+	configuration, err := r.BootstrapConfiguration(ctx, machine)
 	if err != nil {
-		if errors.Is(err, errBootstrapDataUnavailable) {
+		if errors.Is(err, ErrBootstrapDataUnavailable) {
 			return r.reportTalosStatus(ctx, machine,
 				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
 				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
@@ -191,11 +192,11 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 }
 
 func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID hostdomain.ProviderID) error {
-	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
-	if errors.Is(err, errCAPIMachineIdentityMismatch) {
+	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if errors.Is(err, controller.ErrCAPIMachineIdentityMismatch) {
 		return errCAPIProviderIDMismatch
 	}
-	if errors.Is(err, errCAPIMachineUnavailable) {
+	if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
 		return nil
 	}
 	if err != nil {
@@ -212,50 +213,50 @@ func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine 
 	return r.Patch(ctx, clusterMachine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
-func (r *TartMachineReconciler) bootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
-	clusterMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
-	if errors.Is(err, errCAPIMachineUnavailable) {
-		return nil, errBootstrapDataUnavailable
+func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
+	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
+		return nil, ErrBootstrapDataUnavailable
 	}
 	if err != nil {
 		return nil, err
 	}
 	ref := clusterMachine.Spec.Bootstrap.ConfigRef
-	if ref.Name == "" || ref.Kind != tartBootstrapConfigKind || ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group {
-		return nil, errBootstrapDataUnavailable
+	if ref.Name == "" || ref.Kind != controller.TartBootstrapConfigKind || ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group {
+		return nil, ErrBootstrapDataUnavailable
 	}
 
 	config := &bootstrapv1alpha1.TartBootstrapConfig{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapDataUnavailable
+			return nil, ErrBootstrapDataUnavailable
 		}
 		return nil, err
 	}
 	if strings.TrimSpace(config.Status.DataSecretName) == "" {
-		return nil, errBootstrapDataUnavailable
+		return nil, ErrBootstrapDataUnavailable
 	}
 
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapDataUnavailable
+			return nil, ErrBootstrapDataUnavailable
 		}
 		return nil, err
 	}
 	clusterName := config.Labels[bootstrap.ClusterNameLabel]
 	if !bootstrap.IsContractSecret(secret, clusterName, config.UID) {
-		return nil, errBootstrapDataUnavailable
+		return nil, ErrBootstrapDataUnavailable
 	}
 	configuration, ok := secret.Data[bootstrap.BootstrapSecretKey]
 	if !ok || len(bytes.TrimSpace(configuration)) == 0 {
-		return nil, errBootstrapDataUnavailable
+		return nil, ErrBootstrapDataUnavailable
 	}
 	return bytes.Clone(configuration), nil
 }
 
 func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, configuration []byte) (ctrl.Result, error) {
-	endpoint := hostTalosEndpoint(selected)
+	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
 		return r.reportTalosStatus(ctx, machine,
 			metav1.ConditionFalse, "EndpointUnavailable", "The Host has no reachable Talos maintenance endpoint.",
@@ -452,20 +453,6 @@ func (r *TartMachineReconciler) reportMaintenanceConfigurationError(ctx context.
 		talosRequeue)
 }
 
-func hostTalosEndpoint(host *infrav1alpha1.TartHost) string {
-	if endpoint := host.Spec.TalosAPIAddress.String(); endpoint != "" {
-		return endpoint
-	}
-	for _, addressType := range []clusterv1.MachineAddressType{clusterv1.MachineInternalIP, clusterv1.MachineExternalIP, clusterv1.MachineHostName} {
-		for _, address := range host.Status.Addresses {
-			if address.Type == addressType && strings.TrimSpace(address.Address) != "" {
-				return strings.TrimSpace(address.Address)
-			}
-		}
-	}
-	return ""
-}
-
 func (r *TartMachineReconciler) reportTalosStatus(ctx context.Context, machine *infrav1alpha1.TartMachine,
 	reachableStatus metav1.ConditionStatus, reachableReason, reachableMessage string,
 	provisionedStatus metav1.ConditionStatus, provisionedReason, provisionedMessage string,
@@ -493,10 +480,10 @@ func (r *TartMachineReconciler) reportTalosStatusWithVersion(ctx context.Context
 	if provisionedStatus == metav1.ConditionTrue {
 		machine.Status.Initialization.Provisioned = new(true)
 	}
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosReachableCondition, reachableStatus, reachableReason, reachableMessage, machine.Generation)
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineProvisionedCondition, provisionedStatus, provisionedReason, provisionedMessage, machine.Generation)
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition, upToDateStatus, upToDateReason, upToDateMessage, machine.Generation)
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, readyStatus, readyReason, readyMessage, machine.Generation)
+	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosReachableCondition, reachableStatus, reachableReason, reachableMessage, machine.Generation)
+	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineProvisionedCondition, provisionedStatus, provisionedReason, provisionedMessage, machine.Generation)
+	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition, upToDateStatus, upToDateReason, upToDateMessage, machine.Generation)
+	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, readyStatus, readyReason, readyMessage, machine.Generation)
 	machine.Status.ObservedGeneration = machine.Generation
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -505,7 +492,7 @@ func (r *TartMachineReconciler) reportTalosStatusWithVersion(ctx context.Context
 }
 
 func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, machine *infrav1alpha1.TartMachine, hosts []infrav1alpha1.TartHost) (*infrav1alpha1.TartHost, error) {
-	capiMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
 		return nil, err
 	}
@@ -575,8 +562,8 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		return ctrl.Result{}, nil
 	}
 
-	configuration, configurationErr := r.bootstrapConfiguration(ctx, machine)
-	if configurationErr != nil && !errors.Is(configurationErr, errBootstrapDataUnavailable) {
+	configuration, configurationErr := r.BootstrapConfiguration(ctx, machine)
+	if configurationErr != nil && !errors.Is(configurationErr, ErrBootstrapDataUnavailable) {
 		return ctrl.Result{}, configurationErr
 	}
 	if !machineusecase.HasShutdownRequest(machine) {
@@ -603,7 +590,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	}
 	consumer := corev1.ObjectReference{
 		APIVersion: infrav1alpha1.GroupVersion.String(),
-		Kind:       tartMachineKind,
+		Kind:       controller.TartMachineKind,
 		Namespace:  machine.Namespace,
 		Name:       machine.Name,
 		UID:        machine.UID,
@@ -623,7 +610,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 
 // capiDeletionDrainCompleteはprovider resourceの削除前にCAPI Machine controllerがdrainとvolume detachを完了したことを確認する。pre-terminate hookがあるcontrol planeでは、そのhook解除後にCAPIがinfra削除段階へ進んだことも同時に確認できる。
 func (r *TartMachineReconciler) capiDeletionDrainComplete(ctx context.Context, machine *infrav1alpha1.TartMachine) (bool, error) {
-	capiMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
 		return false, err
 	}
@@ -669,7 +656,7 @@ func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *in
 var errMachineHostBindingLost = errors.New("machine host binding was lost before deletion completed")
 
 func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
-	endpoint := hostTalosEndpoint(selected)
+	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
 		return false, nil
 	}
@@ -705,7 +692,7 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 		if closeErr := maintenance.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 		}
-		return false, errHostIdentityMismatch
+		return false, controller.ErrHostIdentityMismatch
 	}
 	shutdownErr := maintenance.Shutdown(ctx)
 	if closeErr := maintenance.Close(); closeErr != nil {
@@ -719,15 +706,15 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 
 func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
 	if selected.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish {
-		state, err := r.redfishPowerState(ctx, selected)
+		state, err := power.RedfishPowerState(ctx, r.Client, r.ManagementNamespace, selected)
 		if err != nil {
 			return false, err
 		}
 		return state == power.PowerStateOff, nil
 	}
-	endpoint := hostTalosEndpoint(selected)
+	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
-		return false, errHostEndpointUnavailable
+		return false, controller.ErrHostEndpointUnavailable
 	}
 	if len(bytes.TrimSpace(configuration)) > 0 {
 		connectionContext, cancel := context.WithTimeout(ctx, talosReconcileTimeout)
@@ -761,7 +748,7 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 		return false, nil //nolint:nilerr // identity observation must succeed before declaring the Host stopped.
 	}
 	if !identity.HasMAC(selected.Spec.MACAddress) {
-		return false, errHostIdentityMismatch
+		return false, controller.ErrHostIdentityMismatch
 	}
 	return false, nil
 }
@@ -772,7 +759,7 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 		Name:      consumer.Name,
 		UID:       consumer.UID,
 	}
-	capiMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
 		return previous
 	}
@@ -781,7 +768,7 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 		return previous
 	}
 	previous.ClusterID = ""
-	if ref := cluster.Spec.InfrastructureRef; ref.APIGroup == infrav1alpha1.GroupVersion.Group && ref.Kind == tartClusterKind && ref.Name != "" {
+	if ref := cluster.Spec.InfrastructureRef; ref.APIGroup == infrav1alpha1.GroupVersion.Group && ref.Kind == controller.TartClusterKind && ref.Name != "" {
 		var tartCluster infrav1alpha1.TartCluster
 		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err == nil {
 			previous.ClusterID = tartCluster.Spec.ClusterID
@@ -792,7 +779,7 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 
 func (r *TartMachineReconciler) report(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string) (ctrl.Result, error) {
 	original := machine.DeepCopy()
-	setCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, metav1.ConditionFalse, reason, message, machine.Generation)
+	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, metav1.ConditionFalse, reason, message, machine.Generation)
 	machine.Status.ObservedGeneration = machine.Generation
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err

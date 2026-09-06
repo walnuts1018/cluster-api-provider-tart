@@ -1,4 +1,4 @@
-package extensions
+package runtimeextension
 
 import (
 	"encoding/json/v2"

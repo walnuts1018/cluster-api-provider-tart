@@ -1,4 +1,4 @@
-package controller
+package tartcontrolplane
 
 import (
 	"bytes"
@@ -35,6 +35,8 @@ import (
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller/tartmachine"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 )
@@ -103,7 +105,7 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 		return ctrl.Result{}, err
 	}
-	if isPaused(&cp) {
+	if controller.IsPaused(&cp) {
 		return r.reconcilePaused(ctx, &cp)
 	}
 	if !cp.DeletionTimestamp.IsZero() {
@@ -129,7 +131,7 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cp.Namespace, Name: clusterName}, &cluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return r.reportFailure(ctx, &cp, &controlPlaneFailure{
-				reason:  reasonClusterUnavailable,
+				reason:  controller.ReasonClusterUnavailable,
 				message: "The referenced CAPI Cluster is not available yet.",
 			})
 		}
@@ -194,7 +196,7 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 func (r *TartControlPlaneReconciler) reconcilePaused(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane) (ctrl.Result, error) {
 	original := cp.DeepCopy()
-	setPausedCondition(&cp.Status.Conditions, true, cp.Generation)
+	controller.SetPausedCondition(&cp.Status.Conditions, true, cp.Generation)
 	if err := r.Status().Patch(ctx, cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -203,9 +205,9 @@ func (r *TartControlPlaneReconciler) reconcilePaused(ctx context.Context, cp *co
 
 func (r *TartControlPlaneReconciler) reconcileDeleting(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane) (ctrl.Result, error) {
 	original := cp.DeepCopy()
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionTrue, "Deleting", "The control plane is being deleted; no new Machine or Host allocation is started.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "Deleting", "The control plane is being deleted.", cp.Generation)
-	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionTrue, "Deleting", "The control plane is being deleted; no new Machine or Host allocation is started.", cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, "Deleting", "The control plane is being deleted.", cp.Generation)
+	controller.SetPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
 	if err := r.Status().Patch(ctx, cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -215,14 +217,14 @@ func (r *TartControlPlaneReconciler) reconcileDeleting(ctx context.Context, cp *
 
 func (r *TartControlPlaneReconciler) reportFailure(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, report error) (ctrl.Result, error) {
 	failure := &controlPlaneFailure{reason: "ReconcileFailed", message: "The control plane cannot proceed until its dependencies are available."}
-	var typedFailure *controlPlaneFailure
 	if failureValue, ok := errors.AsType[*controlPlaneFailure](report); ok {
-		typedFailure = failureValue
-		failure = typedFailure
+		failure = failureValue
+	} else if ownershipFailure, ok := errors.AsType[*controller.OwnershipFailure](report); ok {
+		failure = &controlPlaneFailure{reason: ownershipFailure.Reason, message: ownershipFailure.Message}
 	}
 	original := cp.DeepCopy()
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, failure.reason, failure.message, cp.Generation)
-	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionFalse, failure.reason, failure.message, cp.Generation)
+	controller.SetPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
 	if err := r.Status().Patch(ctx, cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -240,7 +242,7 @@ func controlPlaneClusterName(cp *controlplanev1alpha1.TartControlPlane) (string,
 		}
 	}
 	return "", &controlPlaneFailure{
-		reason:  reasonClusterUnavailable,
+		reason:  controller.ReasonClusterUnavailable,
 		message: "The TartControlPlane has no reference to a CAPI Cluster.",
 	}
 }
@@ -260,9 +262,9 @@ func desiredControlPlaneReplicas(cp *controlplanev1alpha1.TartControlPlane) (int
 
 func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster *clusterv1.Cluster) (*infrav1alpha1.TartCluster, error) {
 	ref := cluster.Spec.InfrastructureRef
-	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != tartClusterKind || ref.Name == "" {
+	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != controller.TartClusterKind || ref.Name == "" {
 		return nil, &controlPlaneFailure{
-			reason:  reasonClusterUnavailable,
+			reason:  controller.ReasonClusterUnavailable,
 			message: "The CAPI Cluster does not reference a TartCluster infrastructure resource.",
 		}
 	}
@@ -270,7 +272,7 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, &controlPlaneFailure{
-				reason:  reasonClusterUnavailable,
+				reason:  controller.ReasonClusterUnavailable,
 				message: "The referenced TartCluster is not available yet.",
 			}
 		}
@@ -278,13 +280,13 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 	}
 	if tartCluster.Spec.ClusterID == "" || tartCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The TartCluster identity and active secret bundle are not ready yet.",
 		}
 	}
-	if _, err := parseClusterID(tartCluster.Spec.ClusterID); err != nil {
+	if _, err := clusterdomain.ParseClusterID(tartCluster.Spec.ClusterID); err != nil {
 		return nil, &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The TartCluster identity is invalid.",
 		}
 	}
@@ -293,17 +295,17 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 
 func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster) error {
 	generation := cluster.Status.ActiveSecretGeneration
-	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
 	if err != nil {
 		return &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The TartCluster identity is invalid.",
 		}
 	}
 	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
 		return &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle identity is invalid.",
 		}
 	}
@@ -311,7 +313,7 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, &secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return &controlPlaneFailure{
-				reason:  reasonSecretBundleUnavailable,
+				reason:  controller.ReasonSecretBundleUnavailable,
 				message: "The active cluster secret bundle is not available yet.",
 			}
 		}
@@ -319,13 +321,13 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 	}
 	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
 		return &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle does not satisfy its identity contract.",
 		}
 	}
 	if err := certbuilder.ValidateBundleData(secret.Data, clusterID); err != nil {
 		return &controlPlaneFailure{
-			reason:  reasonSecretBundleUnavailable,
+			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle data is invalid.",
 		}
 	}
@@ -354,7 +356,7 @@ func (r *TartControlPlaneReconciler) getTartMachineTemplate(ctx context.Context,
 func (r *TartControlPlaneReconciler) getBootstrapTemplate(ctx context.Context, namespace string, ref *clusterv1.ContractVersionedObjectReference, template *bootstrapv1alpha1.TartBootstrapConfigTemplate) error {
 	if ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group || ref.Kind != "TartBootstrapConfigTemplate" || ref.Name == "" {
 		return &controlPlaneFailure{
-			reason:  reasonBootstrapTemplateInvalid,
+			reason:  controller.ReasonBootstrapTemplateInvalid,
 			message: "The bootstrapConfigTemplate must reference a TartBootstrapConfigTemplate.",
 		}
 	}
@@ -394,7 +396,7 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 		}
 		machineName, err := controlPlaneChildName(cp.Name, ordinal32, "")
 		if err != nil {
-			return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
+			return nil, &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
 		}
 		machine, ok := byName[machineName]
 		if !ok {
@@ -406,7 +408,7 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 		}
 		bootstrapName, nameErr := bootstrapConfigName(cp.Name, ordinal32)
 		if nameErr != nil {
-			return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: bootstrapConfigNameInvalidMessage}
+			return nil, &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: controller.BootstrapConfigNameInvalidMessage}
 		}
 		if err := validateMachineReference(machine, cp, clusterName, machineName, bootstrapName, cp.Spec.Version); err != nil {
 			return nil, err
@@ -469,7 +471,7 @@ func containsControlPlaneFailureDomain(failureDomains []clusterv1.FailureDomain,
 
 func validateControlPlaneMachineOwners(machines []clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane) error {
 	for index := range machines {
-		if !hasControllerOwner(&machines[index], cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind) {
+		if !controller.HasControllerOwner(&machines[index], cp, controlplanev1alpha1.GroupVersion.String(), controller.TartControlPlaneKind) {
 			return &controlPlaneFailure{
 				reason:  "MachineOwnershipMismatch",
 				message: "A labeled control-plane Machine is not owned by this TartControlPlane; scale-down is stopped.",
@@ -528,7 +530,7 @@ func (r *TartControlPlaneReconciler) reconcileScaleDown(ctx context.Context, mac
 	if len(deleting) > 0 {
 		slices.SortFunc(deleting, compareControlPlaneMachineOrder)
 		target := &deleting[0]
-		if target.Annotations[controlPlaneEtcdDeleteHook] != controlPlaneEtcdDeleteHookValue {
+		if target.Annotations[controlPlaneEtcdDeleteHook] != controller.ControlPlaneEtcdDeleteHookValue {
 			if err := r.ensureEtcdDeleteHook(ctx, target); err != nil {
 				return false, err
 			}
@@ -560,7 +562,7 @@ func compareControlPlaneMachineOrder(left, right clusterv1.Machine) int {
 }
 
 func (r *TartControlPlaneReconciler) ensureEtcdDeleteHook(ctx context.Context, machine *clusterv1.Machine) error {
-	if machine.Annotations[controlPlaneEtcdDeleteHook] == controlPlaneEtcdDeleteHookValue {
+	if machine.Annotations[controlPlaneEtcdDeleteHook] == controller.ControlPlaneEtcdDeleteHookValue {
 		return nil
 	}
 	original := machine.DeepCopy()
@@ -568,7 +570,7 @@ func (r *TartControlPlaneReconciler) ensureEtcdDeleteHook(ctx context.Context, m
 	if machine.Annotations == nil {
 		machine.Annotations = make(map[string]string)
 	}
-	machine.Annotations[controlPlaneEtcdDeleteHook] = controlPlaneEtcdDeleteHookValue
+	machine.Annotations[controlPlaneEtcdDeleteHook] = controller.ControlPlaneEtcdDeleteHookValue
 	return r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
@@ -732,14 +734,14 @@ func (r *TartControlPlaneReconciler) observeMachineIdentity(ctx context.Context,
 		return nil, nil, errors.New("control-plane Machine is nil")
 	}
 	ref := machine.Spec.InfrastructureRef
-	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != tartMachineKind || ref.Name == "" {
+	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != controller.TartMachineKind || ref.Name == "" {
 		return nil, nil, errors.New("control-plane Machine infrastructure reference is invalid")
 	}
 	provider := &infrav1alpha1.TartMachine{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, provider); err != nil {
 		return nil, nil, err
 	}
-	if err := validateProviderOwner(provider, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(provider, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
 		return nil, nil, err
 	}
 	if provider.Status.HostRef == nil || provider.Status.HostRef.Name == "" {
@@ -752,11 +754,11 @@ func (r *TartControlPlaneReconciler) observeMachineIdentity(ctx context.Context,
 	if hostObject.Spec.ConsumerRef == nil || hostObject.Spec.ConsumerRef.UID != provider.UID {
 		return nil, nil, errors.New("control-plane Host binding does not match provider Machine")
 	}
-	endpoint := hostTalosEndpoint(hostObject)
+	endpoint := controller.HostTalosEndpoint(hostObject)
 	if endpoint == "" {
 		return nil, nil, errors.New("control-plane Host Talos endpoint is unavailable")
 	}
-	configuration, err := (&TartMachineReconciler{Client: r.Client}).bootstrapConfiguration(ctx, provider)
+	configuration, err := (&tartmachine.TartMachineReconciler{Client: r.Client}).BootstrapConfiguration(ctx, provider)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -798,7 +800,7 @@ func (r *TartControlPlaneReconciler) observeEtcdMembersFromConfiguration(ctx con
 func (r *TartControlPlaneReconciler) dialAuthenticated(ctx context.Context, hostObject *infrav1alpha1.TartHost, configuration []byte) (*talos.Client, error) {
 	connectionContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	return talos.DialAuthenticatedFromConfiguration(connectionContext, hostTalosEndpoint(hostObject), configuration)
+	return talos.DialAuthenticatedFromConfiguration(connectionContext, controller.HostTalosEndpoint(hostObject), configuration)
 }
 
 func (r *TartControlPlaneReconciler) annotateEtcdMemberID(ctx context.Context, machine *clusterv1.Machine, memberID uint64) error {
@@ -866,7 +868,7 @@ func (r *TartControlPlaneReconciler) reconcileControlPlaneBootstrap(ctx context.
 	}
 	firstName, err := controlPlaneChildName(cp.Name, 0, "")
 	if err != nil {
-		return controlPlaneBootstrapState{}, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
+		return controlPlaneBootstrapState{}, &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: "A deterministic control-plane Machine name is invalid."}
 	}
 	var firstMachine *clusterv1.Machine
 	for index := range machines {
@@ -898,8 +900,8 @@ type firstControlPlaneObservation struct {
 }
 
 func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Context, machine *clusterv1.Machine, state controlPlaneBootstrapState) (firstControlPlaneObservation, controlPlaneBootstrapState, bool, error) {
-	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
-		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The first control-plane Machine has an invalid infrastructure reference."}
+	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
+		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The first control-plane Machine has an invalid infrastructure reference."}
 	}
 	var providerMachine infrav1alpha1.TartMachine
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: machine.Spec.InfrastructureRef.Name}, &providerMachine); err != nil {
@@ -908,7 +910,7 @@ func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Contex
 		}
 		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
-	if err := validateProviderOwner(&providerMachine, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(&providerMachine, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
 		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
 	ready := meta.FindStatusCondition(providerMachine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
@@ -933,15 +935,15 @@ func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Contex
 	if providerHost.Spec.ConsumerRef == nil || providerHost.Spec.ConsumerRef.UID != providerMachine.UID {
 		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, &controlPlaneFailure{reason: "HostBindingMismatch", message: "The first control-plane Machine Host binding does not match the provider Machine."}
 	}
-	endpoint := hostTalosEndpoint(&providerHost)
+	endpoint := controller.HostTalosEndpoint(&providerHost)
 	if endpoint == "" {
 		state.reason = "EndpointUnavailable"
 		state.message = "The first control-plane Machine has no reachable Talos endpoint yet."
 		return firstControlPlaneObservation{}, state, false, nil
 	}
-	configuration, err := (&TartMachineReconciler{Client: r.Client}).bootstrapConfiguration(ctx, &providerMachine)
+	configuration, err := (&tartmachine.TartMachineReconciler{Client: r.Client}).BootstrapConfiguration(ctx, &providerMachine)
 	if err != nil {
-		if errors.Is(err, errBootstrapDataUnavailable) {
+		if errors.Is(err, tartmachine.ErrBootstrapDataUnavailable) {
 			state.reason = "BootstrapDataUnavailable"
 			state.message = "The immutable Bootstrap Secret is not available for the first control-plane Machine yet."
 			return firstControlPlaneObservation{}, state, false, nil
@@ -967,7 +969,7 @@ func (r *TartControlPlaneReconciler) reconcileFirstControlPlaneTalos(ctx context
 			}
 			return controlPlaneBootstrapState{
 				etcdReady:    true,
-				reason:       reasonWorkloadAPIUnavailable,
+				reason:       controller.ReasonWorkloadAPIUnavailable,
 				message:      "Talos etcd is healthy, but the workload kubeconfig is not available yet.",
 				requeueAfter: 30 * time.Second,
 			}, nil
@@ -978,7 +980,7 @@ func (r *TartControlPlaneReconciler) reconcileFirstControlPlaneTalos(ctx context
 			}
 			return controlPlaneBootstrapState{
 				etcdReady:    true,
-				reason:       reasonWorkloadAPIUnavailable,
+				reason:       controller.ReasonWorkloadAPIUnavailable,
 				message:      "Talos etcd is healthy, but the workload Kubernetes API is not ready yet.",
 				requeueAfter: 30 * time.Second,
 			}, nil
@@ -1059,7 +1061,7 @@ func (r *TartControlPlaneReconciler) ensureKubeconfigSecret(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	if actual.Type != clusterv1.ClusterSecretType || actual.Labels[clusterv1.ClusterNameLabel] != cluster.Name || !hasControllerOwner(actual, cluster, clusterv1.GroupVersion.String(), "Cluster") {
+	if actual.Type != clusterv1.ClusterSecretType || actual.Labels[clusterv1.ClusterNameLabel] != cluster.Name || !controller.HasControllerOwner(actual, cluster, clusterv1.GroupVersion.String(), "Cluster") {
 		return errors.New("existing workload kubeconfig Secret does not satisfy the CAPI contract")
 	}
 	if bytes.Equal(actual.Data["value"], kubeconfig) && len(actual.Data) == 1 {
@@ -1096,17 +1098,17 @@ func workloadAPIReady(ctx context.Context, kubeconfig []byte, endpoint clusterv1
 func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, clusterName string, ordinal int32, failureDomain, name string) (*clusterv1.Machine, error) {
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
 	if err != nil {
-		return nil, &controlPlaneFailure{reason: reasonMachineNameInvalid, message: bootstrapConfigNameInvalidMessage}
+		return nil, &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: controller.BootstrapConfigNameInvalidMessage}
 	}
 	objectLabels, annotations := controlPlaneMetadata(cp.Spec.MachineTemplate.ObjectMeta, clusterName, cp.Name, ordinal)
 	machine := &clusterv1.Machine{
 		APIVersion:      clusterv1.GroupVersion.String(),
-		Kind:            capiMachineKind,
+		Kind:            controller.CAPIMachineKind,
 		Name:            name,
 		Namespace:       cp.Namespace,
 		Labels:          objectLabels,
 		Annotations:     annotations,
-		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind)},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cp, controlplanev1alpha1.GroupVersion.String(), controller.TartControlPlaneKind)},
 		Spec: clusterv1.MachineSpec{
 			ClusterName:    clusterName,
 			Version:        cp.Spec.Version,
@@ -1116,12 +1118,12 @@ func (r *TartControlPlaneReconciler) createMachine(ctx context.Context, cp *cont
 			Deletion:       machineDeletionSpec(cp.Spec.MachineTemplate.Spec.Deletion),
 			Bootstrap: clusterv1.Bootstrap{ConfigRef: clusterv1.ContractVersionedObjectReference{
 				APIGroup: bootstrapv1alpha1.GroupVersion.Group,
-				Kind:     tartBootstrapConfigKind,
+				Kind:     controller.TartBootstrapConfigKind,
 				Name:     bootstrapName,
 			}},
 			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 				APIGroup: infrav1alpha1.GroupVersion.Group,
-				Kind:     tartMachineKind,
+				Kind:     controller.TartMachineKind,
 				Name:     name,
 			},
 		},
@@ -1144,11 +1146,11 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	providerLabels, _ := controlPlaneMetadata(machineTemplate.Spec.Template.ObjectMeta, clusterName, cp.Name, ordinal)
 	expectedMachine := &infrav1alpha1.TartMachine{
 		APIVersion:      infrav1alpha1.GroupVersion.String(),
-		Kind:            tartMachineKind,
+		Kind:            controller.TartMachineKind,
 		Name:            machineName,
 		Namespace:       cp.Namespace,
 		Labels:          providerLabels,
-		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind)},
 		Spec: infrav1alpha1.TartMachineSpec{
 			HostSelector: machineTemplate.Spec.Template.Spec.HostSelector.DeepCopy(),
 			Image:        machineTemplate.Spec.Template.Spec.Image,
@@ -1166,25 +1168,25 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			return err
 		}
 	}
-	if err := validateProviderOwner(&tartMachine, machine, infrav1alpha1.GroupVersion.String(), tartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(&tartMachine, machine, infrav1alpha1.GroupVersion.String(), controller.TartMachineKind); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.Image != expectedMachine.Spec.Image {
-		return &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The existing TartMachine does not match its immutable control-plane template."}
+		return &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The existing TartMachine does not match its immutable control-plane template."}
 	}
 
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
 	if err != nil {
-		return &controlPlaneFailure{reason: reasonMachineNameInvalid, message: bootstrapConfigNameInvalidMessage}
+		return &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: controller.BootstrapConfigNameInvalidMessage}
 	}
 	bootstrapLabels, _ := controlPlaneMetadata(bootstrapTemplate.Spec.Template.ObjectMeta, clusterName, cp.Name, ordinal)
 	expectedBootstrap := &bootstrapv1alpha1.TartBootstrapConfig{
 		APIVersion:      bootstrapv1alpha1.GroupVersion.String(),
-		Kind:            tartBootstrapConfigKind,
+		Kind:            controller.TartBootstrapConfigKind,
 		Name:            bootstrapName,
 		Namespace:       cp.Namespace,
 		Labels:          bootstrapLabels,
-		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), capiMachineKind)},
+		OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind)},
 		Spec: bootstrapv1alpha1.TartBootstrapConfigSpec{
 			ConfigPatchesSecretRef: bootstrapTemplate.Spec.Template.Spec.ConfigPatchesSecretRef.DeepCopy(),
 			UpdatePolicy:           bootstrapTemplate.Spec.Template.Spec.UpdatePolicy,
@@ -1202,7 +1204,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			return err
 		}
 	}
-	if err := validateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), tartBootstrapConfigKind); err != nil {
+	if err := controller.ValidateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), controller.TartBootstrapConfigKind); err != nil {
 		return err
 	}
 	actualRef := bootstrapConfig.Spec.ConfigPatchesSecretRef
@@ -1214,26 +1216,10 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 }
 
 func validateMachineReference(machine *clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane, clusterName, machineName, bootstrapName, version string) error {
-	if !hasControllerOwner(machine, cp, controlplanev1alpha1.GroupVersion.String(), tartControlPlaneKind) || machine.Spec.ClusterName != clusterName || machine.Spec.Version != version || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name != machineName || machine.Spec.Bootstrap.ConfigRef.APIGroup != bootstrapv1alpha1.GroupVersion.Group || machine.Spec.Bootstrap.ConfigRef.Kind != tartBootstrapConfigKind || machine.Spec.Bootstrap.ConfigRef.Name != bootstrapName {
-		return &controlPlaneFailure{reason: reasonMachineSpecMismatch, message: "The existing control-plane Machine does not match the TartControlPlane references."}
+	if !controller.HasControllerOwner(machine, cp, controlplanev1alpha1.GroupVersion.String(), controller.TartControlPlaneKind) || machine.Spec.ClusterName != clusterName || machine.Spec.Version != version || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name != machineName || machine.Spec.Bootstrap.ConfigRef.APIGroup != bootstrapv1alpha1.GroupVersion.Group || machine.Spec.Bootstrap.ConfigRef.Kind != controller.TartBootstrapConfigKind || machine.Spec.Bootstrap.ConfigRef.Name != bootstrapName {
+		return &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The existing control-plane Machine does not match the TartControlPlane references."}
 	}
 	return nil
-}
-
-func validateProviderOwner(object metav1.Object, machine *clusterv1.Machine, apiVersion, kind string) error {
-	if len(object.GetOwnerReferences()) != 1 || !hasControllerOwner(object, machine, apiVersion, kind) {
-		return &controlPlaneFailure{reason: "MachineOwnershipMismatch", message: "A provider resource is not owned by its corresponding CAPI Machine."}
-	}
-	return nil
-}
-
-func hasControllerOwner(object metav1.Object, owner metav1.Object, apiVersion, kind string) bool {
-	for _, reference := range object.GetOwnerReferences() {
-		if reference.APIVersion == apiVersion && reference.Kind == kind && reference.Name == owner.GetName() && reference.UID == owner.GetUID() && reference.Controller != nil && *reference.Controller {
-			return true
-		}
-	}
-	return false
 }
 
 func controllerOwnerReference(owner metav1.Object, apiVersion, kind string) metav1.OwnerReference {
@@ -1306,20 +1292,20 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	availableReason := "MachinesNotAvailable"
 	availableMessage := "Not all desired control-plane Machines are available."
 	if !bootstrapState.workloadReady {
-		availableReason = reasonWorkloadAPIUnavailable
+		availableReason = controller.ReasonWorkloadAPIUnavailable
 		availableMessage = "The workload Kubernetes API is not available yet."
 	} else if controlPlaneReady {
 		availableReason = "Available"
 		availableMessage = "All desired control-plane Machines and the workload Kubernetes API are available."
 	}
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, conditionStatus(controlPlaneReady), availableReason, availableMessage, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, conditionStatus(controlPlaneReady), availableReason, availableMessage, cp.Generation)
 	// Kubernetes version upgradeが未収束の間はUpToDateへ倒さない。desired versionのsource of truthはspec.versionである。
 	kubernetesUpToDate := talos.NormalizeKubernetesVersion(upgradeState.observedVersion) == talos.NormalizeKubernetesVersion(cp.Spec.Version)
 	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired && kubernetesUpToDate && !upgradeState.active && upgradeState.failureMessage == ""
 	upToDateReason := "MachinesNotUpToDate"
 	upToDateMessage := "Not all desired control-plane Machines report UpToDate."
 	if !bootstrapState.workloadReady {
-		upToDateReason = reasonWorkloadAPIUnavailable
+		upToDateReason = controller.ReasonWorkloadAPIUnavailable
 		upToDateMessage = "The workload Kubernetes API is not ready yet."
 	} else if !kubernetesUpToDate || upgradeState.active || upgradeState.failureMessage != "" {
 		upToDateReason = "KubernetesVersionNotUpToDate"
@@ -1328,22 +1314,22 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 		upToDateReason = "UpToDate"
 		upToDateMessage = "All desired control-plane Machines and the workload Kubernetes API are up to date."
 	}
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, conditionStatus(upToDateReady), upToDateReason, upToDateMessage, cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneRollingOutCondition, metav1.ConditionFalse, "NotRollingOut", "The control plane is not performing a rollout.", cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingUpCondition, conditionStatus(actual < desired), scalingReason(actual < desired, "ScalingUp"), scalingMessage(actual < desired, "Control-plane Machines are being created.", "The desired control-plane replica count is satisfied."), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down is waiting for quorum-safe etcd member removal.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneCARotatingCondition, conditionStatus(caRotationState.active), caRotationState.reason, caRotationState.message, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneUpToDateCondition, conditionStatus(upToDateReady), upToDateReason, upToDateMessage, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneRollingOutCondition, metav1.ConditionFalse, "NotRollingOut", "The control plane is not performing a rollout.", cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingUpCondition, conditionStatus(actual < desired), scalingReason(actual < desired, "ScalingUp"), scalingMessage(actual < desired, "Control-plane Machines are being created.", "The desired control-plane replica count is satisfied."), cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneScalingDownCondition, conditionStatus(actual > desired), scalingReason(actual > desired, "ScalingDown"), scalingMessage(actual > desired, "Control-plane scale-down is waiting for quorum-safe etcd member removal.", "The desired control-plane replica count is not above the observed count."), cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesReadyCondition, conditionStatus(desired > 0 && ready == desired), machineReadinessReason(desired > 0 && ready == desired), machineReadinessMessage(desired > 0 && ready == desired), cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneCARotatingCondition, conditionStatus(caRotationState.active), caRotationState.reason, caRotationState.message, cp.Generation)
 	cp.Status.KubernetesUpgrade = controlplanev1alpha1.TartControlPlaneKubernetesUpgradeStatus{
 		TargetVersion:   upgradeState.targetVersion,
 		ObservedVersion: upgradeState.observedVersion,
 		FailureMessage:  upgradeState.failureMessage,
 	}
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneKubernetesUpgradingCondition, conditionStatus(upgradeState.active), upgradeState.reason, upgradeState.message, cp.Generation)
-	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
-	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneKubernetesUpgradingCondition, conditionStatus(upgradeState.active), upgradeState.reason, upgradeState.message, cp.Generation)
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
+	controller.SetPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
 }
 
@@ -1457,7 +1443,7 @@ func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.C
 		if err != nil {
 			return nil, &controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "A control-plane Machine could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}
 		}
-		endpoint := hostTalosEndpoint(hostObject)
+		endpoint := controller.HostTalosEndpoint(hostObject)
 		talosClient, usedPending, err := r.dialForRotation(ctx, endpoint, activeBundle, pendingBundle)
 		if err != nil {
 			return nil, &controlPlaneCARotationState{active: true, reason: "MachineUnreachable", message: "A control-plane Machine Talos API could not be reached; CA rotation is paused.", requeueAfter: 30 * time.Second}
@@ -1486,7 +1472,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 	if scaleDownPending {
 		return controlPlaneCARotationState{active: true, reason: "ScaleDownInProgress", message: "CA rotation is paused while a control-plane scale-down is in progress.", requeueAfter: controlPlaneScaleDownRequeue}, nil
 	}
-	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
 	if err != nil {
 		return notRequested, nil //nolint:nilerr // cluster identityが未確定な段階はgetTartClusterで既に停止しているため、ここでは静かに何もしない。
 	}

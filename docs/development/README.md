@@ -32,7 +32,7 @@ support policyの正本はこのドキュメントであり、`go.mod`/`mise.tom
 ## 現状の既知の制約
 
 - 実機・VMでの動作確認は未実施(検証はユーザー自身が行う)。
-- node cordon/drain(`extensions/drain.go`)には専用のtest coverageがなく、drain timeoutは大規模clusterのdrain所要時間を考慮していない。
+- node cordon/drain(`controller/runtimeextension/drain.go`)には専用のtest coverageがなく、drain timeoutは大規模clusterのdrain所要時間を考慮していない。
 
 ## 静的検証
 

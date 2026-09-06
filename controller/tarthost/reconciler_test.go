@@ -1,4 +1,4 @@
-package controller
+package tarthost
 
 import (
 	"fmt"
@@ -16,7 +16,27 @@ import (
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
+
+func mustHostID(t *testing.T, value string) hostdomain.HostID {
+	t.Helper()
+	id, err := hostdomain.ParseHostID(value)
+	if err != nil {
+		t.Fatalf("ParseHostID() error = %v", err)
+	}
+	return id
+}
+
+func mustMACAddress(t *testing.T, value string) network.MACAddress {
+	t.Helper()
+	address, err := network.ParseMACAddress(value)
+	if err != nil {
+		t.Fatalf("ParseMACAddress() error = %v", err)
+	}
+	return address
+}
 
 func TestRecordBootAttemptMaintainsBoundedObservedHistory(t *testing.T) {
 	t.Parallel()

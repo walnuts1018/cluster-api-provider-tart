@@ -1,4 +1,4 @@
-package controller
+package tartcluster
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -41,7 +42,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		}
 		return ctrl.Result{}, err
 	}
-	if isPaused(&cluster) {
+	if controller.IsPaused(&cluster) {
 		return ctrl.Result{}, nil
 	}
 	if !cluster.DeletionTimestamp.IsZero() {
@@ -62,7 +63,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	if generation == 0 {
 		generation = 1
 	}
-	clusterID, err := parseClusterID(cluster.Spec.ClusterID)
+	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
 	if err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
 	}
@@ -90,7 +91,7 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	original := cluster.DeepCopy()
 	cluster.Status.Initialization.Provisioned = new(true)
 	cluster.Status.FailureDomains = failureDomains
-	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, readyStatus, readyReason, readyMessage, cluster.Generation)
+	controller.SetCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, readyStatus, readyReason, readyMessage, cluster.Generation)
 	cluster.Status.ActiveSecretGeneration = generation
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, &cluster, client.MergeFrom(original)); err != nil {
@@ -147,7 +148,7 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 		}
 		expected, buildErr := domaincontrolplane.BuildActiveSecret(cluster.Namespace, cluster.Name, clusterID, generation, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
-			Kind:       tartClusterKind,
+			Kind:       controller.TartClusterKind,
 			Name:       cluster.Name,
 			UID:        cluster.UID,
 		}, data)
@@ -219,7 +220,7 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 		}
 		expected, err := domaincontrolplane.BuildPendingSecret(cluster.Namespace, cluster.Name, clusterID, target, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
-			Kind:       tartClusterKind,
+			Kind:       controller.TartClusterKind,
 			Name:       cluster.Name,
 			UID:        cluster.UID,
 		}, data)
@@ -242,7 +243,7 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 
 func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *infrav1alpha1.TartCluster, bundleErr error) (ctrl.Result, error) {
 	original := cluster.DeepCopy()
-	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonSecretBundleUnavailable, "The immutable cluster secret bundle is unavailable or does not satisfy its identity contract.", cluster.Generation)
+	controller.SetCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, infrav1alpha1.ReasonSecretBundleUnavailable, "The immutable cluster secret bundle is unavailable or does not satisfy its identity contract.", cluster.Generation)
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, cluster, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -253,7 +254,7 @@ func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *
 func (r *TartClusterReconciler) reportFailureDomainError(ctx context.Context, cluster *infrav1alpha1.TartCluster, observeErr error) (ctrl.Result, error) {
 	original := cluster.DeepCopy()
 	cluster.Status.FailureDomains = nil
-	setCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, "FailureDomainsUnavailable", "The complete Host inventory could not be observed; failure domains are not surfaced.", cluster.Generation)
+	controller.SetCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, "FailureDomainsUnavailable", "The complete Host inventory could not be observed; failure domains are not surfaced.", cluster.Generation)
 	cluster.Status.ObservedGeneration = cluster.Generation
 	if err := r.Status().Patch(ctx, cluster, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err

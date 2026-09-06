@@ -1,4 +1,4 @@
-package controller
+package tartbootstrapconfig
 
 import (
 	"bytes"
@@ -17,7 +17,9 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -47,7 +49,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		return ctrl.Result{}, err
 	}
-	if isPaused(&config) {
+	if controller.IsPaused(&config) {
 		return ctrl.Result{}, nil
 	}
 
@@ -66,7 +68,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
-		if retryable := errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable); retryable {
+		if retryable := errors.Is(err, controller.ErrCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable); retryable {
 			result, reportErr := r.report(ctx, &config, "ClusterContextUnavailable", "The CAPI Cluster and active Talos secret bundle are not available for configuration generation yet.")
 			if reportErr != nil {
 				return ctrl.Result{}, reportErr
@@ -88,7 +90,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	owner := metav1.OwnerReference{
 		APIVersion: bootstrapv1alpha1.GroupVersion.String(),
-		Kind:       tartBootstrapConfigKind,
+		Kind:       controller.TartBootstrapConfigKind,
 		Name:       config.Name,
 		UID:        config.UID,
 	}
@@ -136,7 +138,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	config.Status.Initialization.DataSecretCreated = new(true)
 	config.Status.DataSecretName = actual.Name
 	config.Status.ConfigurationDigest = digest
-	setCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionTrue, "DataSecretCreated", "The immutable Bootstrap Secret is available.", config.Generation)
+	controller.SetCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionTrue, "DataSecretCreated", "The immutable Bootstrap Secret is available.", config.Generation)
 	config.Status.ObservedGeneration = config.Generation
 	if err := r.Status().Patch(ctx, &config, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
@@ -178,7 +180,7 @@ func (r *TartBootstrapConfigReconciler) configurationFromPatches(ctx context.Con
 }
 
 func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (bootstrap.MachineConfigurationContext, error) {
-	clusterMachine, err := findCAPIMachineForBootstrap(ctx, r.Client, config)
+	clusterMachine, err := controller.FindCAPIMachineForBootstrap(ctx, r.Client, config)
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, err
 	}
@@ -190,7 +192,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		return bootstrap.MachineConfigurationContext{}, err
 	}
 	clusterRef := cluster.Spec.InfrastructureRef
-	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != tartClusterKind || clusterRef.Name == "" {
+	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != controller.TartClusterKind || clusterRef.Name == "" {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
 
@@ -204,7 +206,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 	if providerCluster.Spec.ClusterID == "" || providerCluster.Status.ActiveSecretGeneration < 1 {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
-	clusterID, err := parseClusterID(providerCluster.Spec.ClusterID)
+	clusterID, err := clusterdomain.ParseClusterID(providerCluster.Spec.ClusterID)
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
@@ -249,7 +251,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 }
 
 func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Context, machine *clusterv1.Machine) (domainbootstrap.InstallDisk, error) {
-	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != tartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
+	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
 		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	providerMachine := &infrav1alpha1.TartMachine{}
@@ -259,7 +261,7 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 		}
 		return domainbootstrap.InstallDisk{}, err
 	}
-	if err := validateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), tartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
 		return domainbootstrap.InstallDisk{}, err
 	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {
@@ -273,7 +275,7 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 		return domainbootstrap.InstallDisk{}, err
 	}
 	consumer := host.Spec.ConsumerRef
-	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != tartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
+	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != controller.TartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
 		return domainbootstrap.InstallDisk{}, errBootstrapContextUnavailable
 	}
 	allHosts := &infrav1alpha1.TartHostList{}
@@ -322,7 +324,7 @@ func classifyConfigurationError(err error) (reason, message string) {
 
 func (r *TartBootstrapConfigReconciler) report(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, reason, message string) (ctrl.Result, error) {
 	original := config.DeepCopy()
-	setCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionFalse, reason, message, config.Generation)
+	controller.SetCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionFalse, reason, message, config.Generation)
 	config.Status.ObservedGeneration = config.Generation
 	if err := r.Status().Patch(ctx, config, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err

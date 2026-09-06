@@ -1,5 +1,5 @@
 // Package extensionsはCAPI Runtime Extensionのwire protocolとTalos image in-place update hookを実装する。安全に完全評価できない差分はpatchなしで拒否し、実行時には現行Host bindingとimmutable Bootstrap Secretを再観測してからTalos APIへ委譲する。
-package extensions
+package runtimeextension
 
 import (
 	"fmt"

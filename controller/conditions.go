@@ -8,7 +8,7 @@ import (
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 )
 
-func setCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) {
+func SetCondition(conditions *[]metav1.Condition, conditionType string, status metav1.ConditionStatus, reason, message string, generation int64) {
 	meta.SetStatusCondition(conditions, metav1.Condition{
 		Type:               conditionType,
 		Status:             status,
@@ -18,11 +18,11 @@ func setCondition(conditions *[]metav1.Condition, conditionType string, status m
 	})
 }
 
-func isPaused(object metav1.Object) bool {
+func IsPaused(object metav1.Object) bool {
 	return capiannotations.HasPaused(object)
 }
 
-func setPausedCondition(conditions *[]metav1.Condition, paused bool, generation int64) {
+func SetPausedCondition(conditions *[]metav1.Condition, paused bool, generation int64) {
 	status := metav1.ConditionFalse
 	reason := "NotPaused"
 	message := "Reconciliation is not paused."
@@ -31,5 +31,5 @@ func setPausedCondition(conditions *[]metav1.Condition, paused bool, generation 
 		reason = "Paused"
 		message = "Reconciliation is paused by the cluster.x-k8s.io/paused annotation."
 	}
-	setCondition(conditions, controlplanev1alpha1.TartControlPlanePausedCondition, status, reason, message, generation)
+	SetCondition(conditions, controlplanev1alpha1.TartControlPlanePausedCondition, status, reason, message, generation)
 }

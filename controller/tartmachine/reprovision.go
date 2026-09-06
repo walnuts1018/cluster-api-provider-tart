@@ -1,4 +1,4 @@
-package controller
+package tartmachine
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -213,7 +215,7 @@ func (r *TartMachineReconciler) recoveryMaterial(ctx context.Context, identity *
 // activeSecretsBundleはこのMachineが所属するTartClusterの現在activeなcluster secret bundleを解決する。
 // Bootstrap Providerがmachine configurationを生成するときと同じbundleを参照し、recovery identityの正本を一つに保つ。
 func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine *infrav1alpha1.TartMachine) (*secrets.Bundle, error) {
-	capiMachine, err := findCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
 		return nil, err
 	}
@@ -222,17 +224,17 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 		return nil, err
 	}
 	clusterRef := cluster.Spec.InfrastructureRef
-	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != tartClusterKind || clusterRef.Name == "" {
-		return nil, errBootstrapDataUnavailable
+	if clusterRef.APIGroup != infrav1alpha1.GroupVersion.Group || clusterRef.Kind != controller.TartClusterKind || clusterRef.Name == "" {
+		return nil, ErrBootstrapDataUnavailable
 	}
 	providerCluster := &infrav1alpha1.TartCluster{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: clusterRef.Name}, providerCluster); err != nil {
 		return nil, err
 	}
 	if providerCluster.Status.ActiveSecretGeneration < 1 {
-		return nil, errBootstrapDataUnavailable
+		return nil, ErrBootstrapDataUnavailable
 	}
-	clusterID, err := parseClusterID(providerCluster.Spec.ClusterID)
+	clusterID, err := clusterdomain.ParseClusterID(providerCluster.Spec.ClusterID)
 	if err != nil {
 		return nil, err
 	}

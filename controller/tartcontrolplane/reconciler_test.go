@@ -1,10 +1,11 @@
-package controller
+package tartcontrolplane
 
 import (
 	"testing"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -31,15 +32,15 @@ func TestValidateControlPlaneMachineOwnersRejectsLabeledMachineFromAnotherOwner(
 	cp := &controlplanev1alpha1.TartControlPlane{}
 	cp.Name = "control-plane"
 	cp.UID = types.UID("control-plane-uid")
-	controller := true
+	isController := true
 	machines := []clusterv1.Machine{{
 		Name: "control-plane-1",
 		OwnerReferences: []metav1.OwnerReference{{
 			APIVersion: controlplanev1alpha1.GroupVersion.String(),
-			Kind:       tartControlPlaneKind,
+			Kind:       controller.TartControlPlaneKind,
 			Name:       cp.Name,
 			UID:        types.UID("another-control-plane-uid"),
-			Controller: &controller,
+			Controller: &isController,
 		}},
 	}}
 	if err := validateControlPlaneMachineOwners(machines, cp); err == nil {

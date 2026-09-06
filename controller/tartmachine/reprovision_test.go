@@ -1,4 +1,4 @@
-package controller
+package tartmachine
 
 import (
 	"context"
@@ -21,6 +21,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
@@ -184,7 +185,7 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 			Power:           infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendManual},
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
-				Kind:       tartMachineKind,
+				Kind:       controller.TartMachineKind,
 				Namespace:  "default",
 				Name:       "previous",
 				UID:        previousMachineUID,

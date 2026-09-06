@@ -1,4 +1,4 @@
-package controller
+package tartcontrolplane
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 )
 
 // Kubernetes version upgradeはcluster-wide operationであり、TartControlPlaneだけが所有する。
@@ -104,7 +105,7 @@ func evaluateKubernetesUpgrade(preflight kubernetesUpgradePreflight) kubernetesU
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionNone, reason: "UpToDate", message: "The cluster is running the desired Kubernetes version."}
 	}
 	if !preflight.workloadAPIReady {
-		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: reasonWorkloadAPIUnavailable, message: "The workload Kubernetes API is not available; the Kubernetes version upgrade is not started."}
+		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: controller.ReasonWorkloadAPIUnavailable, message: "The workload Kubernetes API is not available; the Kubernetes version upgrade is not started."}
 	}
 	if !preflight.talosReachable {
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: "TalosAPIUnavailable", message: "The Talos API of the control-plane nodes is not reachable; the Kubernetes version upgrade is not started."}
@@ -298,7 +299,7 @@ func (r *TartControlPlaneReconciler) observeKubernetesUpgradeTarget(ctx context.
 	}
 	first := observations[0]
 	return &kubernetesUpgradeObservation{
-		endpoint:      hostTalosEndpoint(first.host),
+		endpoint:      controller.HostTalosEndpoint(first.host),
 		configuration: first.config,
 	}, true
 }

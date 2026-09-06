@@ -1,4 +1,4 @@
-package controller
+package tartmachine
 
 import (
 	"testing"
@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
@@ -51,7 +52,7 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 		UID:       machine.UID,
 		Spec: clusterv1.MachineSpec{InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 			APIGroup: infrav1alpha1.GroupVersion.Group,
-			Kind:     tartMachineKind,
+			Kind:     controller.TartMachineKind,
 			Name:     machine.Name,
 		}},
 	}
@@ -117,7 +118,7 @@ func TestTartMachineReconcilerDoesNotClaimWrongFailureDomain(t *testing.T) {
 			FailureDomain: "zone-b",
 			InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 				APIGroup: infrav1alpha1.GroupVersion.Group,
-				Kind:     tartMachineKind,
+				Kind:     controller.TartMachineKind,
 				Name:     machine.Name,
 			},
 		},
@@ -229,7 +230,7 @@ func TestTartMachineReconcilerChecksProviderIDBeforeClaim(t *testing.T) {
 		UID:       machine.UID,
 		Spec: clusterv1.MachineSpec{InfrastructureRef: clusterv1.ContractVersionedObjectReference{
 			APIGroup: infrav1alpha1.GroupVersion.Group,
-			Kind:     tartMachineKind,
+			Kind:     controller.TartMachineKind,
 			Name:     machine.Name,
 		}},
 	}
@@ -281,7 +282,7 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 			HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String(),
 			ConsumerRef: &corev1.ObjectReference{
 				APIVersion: infrav1alpha1.GroupVersion.String(),
-				Kind:       tartMachineKind,
+				Kind:       controller.TartMachineKind,
 				Namespace:  machine.Namespace,
 				Name:       machine.Name,
 				UID:        machine.UID,

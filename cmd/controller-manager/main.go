@@ -28,7 +28,7 @@ import (
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/cmd/kessoku"
-	"github.com/walnuts1018/cluster-api-provider-tart/extensions"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller/runtimeextension"
 	applogger "github.com/walnuts1018/cluster-api-provider-tart/utils/logger"
 	"github.com/walnuts1018/cluster-api-provider-tart/utils/telemetry"
 	// +kubebuilder:scaffold:imports
@@ -199,12 +199,12 @@ func main() {
 	}
 
 	if enableRuntimeExtension {
-		catalog, err := extensions.NewCatalog()
+		catalog, err := runtimeextension.NewCatalog()
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension catalog")
 			os.Exit(1)
 		}
-		extManager, err := extensions.NewManager(catalog, runtimeExtensionCertPath, mgr.GetClient())
+		extManager, err := runtimeextension.NewManager(catalog, runtimeExtensionCertPath, mgr.GetClient())
 		if err != nil {
 			setupLog.Error(err, "Failed to create Runtime Extension manager")
 			os.Exit(1)

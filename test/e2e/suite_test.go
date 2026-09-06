@@ -135,18 +135,16 @@ var _ = BeforeSuite(func() {
 
 	Expect(framework.InstallCAPICore(ctx)).To(Succeed())
 
-	// CIがlocalでbuildしたcontroller-manager imageをkindへloadする(TART_E2E_PROVIDER_IMAGESが
-	// 設定されている場合のみ)。
-	// TODO: config/default配下のkustomizationは現状ghcr.io上のtagged imageを参照するため、
-	// ここでloadしたlocal imageを実際に使わせるには、各config/manager/*/kustomization.yamlへ
-	// images(newName/newTag)patchを追加するか、E2E専用のoverlayを用意する必要がある。
-	// 現時点ではこの配線は未接続であり、providerは既定のkustomize manifestが参照する
-	// registry imageで起動する。
-	if images := envOrDefault("TART_E2E_PROVIDER_IMAGES", ""); images != "" {
-		Expect(framework.LoadProviderImages(splitCommaList(images)...)).To(Succeed())
+	// CIがlocalでbuildしたcontroller-manager/netboot-server imageをkindへloadし、config/default
+	// 配下のkustomize manifestが参照する仮image(':latest'固定、実在しないregistry)を実際に
+	// このimageへ置き換える。TART_E2E_PROVIDER_IMAGE_TAGが空の場合は仮imageのままapplyされ、
+	// 通常はImagePullBackOffになる(ローカル検証用の抜け道として残す)。
+	providerImageTag := envOrDefault("TART_E2E_PROVIDER_IMAGE_TAG", "")
+	if providerImageTag != "" {
+		Expect(framework.LoadProviderImagesForTag(providerImageTag)).To(Succeed())
 	}
 
-	Expect(framework.InstallTartProviders(ctx)).To(Succeed())
+	Expect(framework.InstallTartProviders(ctx, providerImageTag)).To(Succeed())
 
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfigPath)
 	Expect(err).NotTo(HaveOccurred())
@@ -213,25 +211,6 @@ func exportKindKubeconfig(clusterName, path string) error {
 	cmd := exec.CommandContext(ctx, "kind", "export", "kubeconfig", "--name", clusterName, "--kubeconfig", path)
 	_, err := testutils.Run(cmd)
 	return err
-}
-
-func splitCommaList(value string) []string {
-	var result []string
-	current := ""
-	for _, r := range value {
-		if r == ',' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-			continue
-		}
-		current += string(r)
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
 }
 
 func envOrDefault(key, fallback string) string {

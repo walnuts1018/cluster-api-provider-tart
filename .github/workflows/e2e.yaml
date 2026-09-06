@@ -71,18 +71,24 @@ jobs:
           sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/wol-libvirt-gateway
 
       - name: Build controller-manager images
+        # imageの名前はconfig/manager/*/manager.yaml(およびconfig/netboot-server)が参照する
+        # placeholder名(infrastructure-controller等)と一致させる。tagのみをe2eへ置き換えて
+        # framework.InstallTartProvidersのkustomize images overrideと対応させる。
         run: |
           set -euxo pipefail
-          docker build --target bootstrap-manager -t localhost/tart/bootstrap-manager:e2e .
-          docker build --target control-plane-manager -t localhost/tart/control-plane-manager:e2e .
-          docker build --target infrastructure-manager -t localhost/tart/infrastructure-manager:e2e .
+          docker build --target bootstrap-manager -t bootstrap-controller:e2e .
+          docker build --target control-plane-manager -t control-plane-controller:e2e .
+          docker build --target infrastructure-manager -t infrastructure-controller:e2e .
+          docker build --target netboot-server -t netboot-server:e2e .
 
       - name: Run E2E suite (kind + CAPI + Tart provider + bare-metal lab)
         env:
           KUBECONFIG: ${{ runner.temp }}/tart-e2e-kubeconfig
+          KIND_CLUSTER: tart-e2e
           TART_E2E_ARTIFACT_DIR: ${{ github.workspace }}/_artifacts/e2e
           TART_E2E_LAB_WORKDIR: ${{ runner.temp }}/tart-e2e-lab
           TART_E2E_WOL_GATEWAY_BINARY: /usr/local/bin/wol-libvirt-gateway
+          TART_E2E_PROVIDER_IMAGE_TAG: e2e
         # usermodによるlibvirtグループ付与は同一ジョブ内の既存shellへ即座には反映されないため、
         # sgで新しいgroupを適用したshellを起動してからlibvirtソケットへ接続する。
         run: sg libvirt -c "mise run test-e2e"

@@ -9,8 +9,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	testutils "github.com/walnuts1018/cluster-api-provider-tart/test/utils"
@@ -87,21 +90,61 @@ var TartProviderDeployments = map[string]string{
 	"config/default/control-plane":  "cluster-api-provider-tart-control-plane-controller-manager",
 }
 
+// providerImageは、E2Eがローカルでbuild/loadするimageと、それをkustomize buildの結果へ
+// 反映させるために必要な情報を持つ。
+type providerImage struct {
+	// Nameはローカルでdocker buildする際のimage名(tagなし)であり、kind clusterへloadする
+	// 際にも"<Name>:<tag>"として使う。
+	Name string
+	// KustomizePlaceholderは、このE2E overlayを適用する時点でkustomizeのimages transformerが
+	// マッチさせるべき既存のimage名である。通常はNameと同じだが、config/netboot-serverのように
+	// 内側のkustomizationで既にnewNameが適用されている場合はその適用後の名前を指定する。
+	KustomizePlaceholder string
+}
+
+// TartProviderImagesは、config/manager配下のDeployment/Podが参照するimage(kubebuilder scaffold
+// 由来の':latest'固定値や、config/netboot-serverのplaceholder registryのように実在しない仮の値)
+// を列挙する。E2Eではこれをローカルでbuildしkindへloadしたimageへ置き換える必要がある
+// (さもなくば常にImagePullBackOffになる)。
+var TartProviderImages = map[string][]providerImage{
+	"config/default/infrastructure": {
+		{Name: "infrastructure-controller", KustomizePlaceholder: "infrastructure-controller"},
+		{Name: "netboot-server", KustomizePlaceholder: "ghcr.io/example/netboot-server"},
+	},
+	"config/default/bootstrap": {
+		{Name: "bootstrap-controller", KustomizePlaceholder: "bootstrap-controller"},
+	},
+	"config/default/control-plane": {
+		{Name: "control-plane-controller", KustomizePlaceholder: "control-plane-controller"},
+	},
+}
+
 // InstallTartProvidersは、kustomize buildの出力をkubectl applyし、3つのmanager Deploymentが
-// Availableになるまで待つ。
-func InstallTartProviders(ctx context.Context) error {
+// Availableになるまで待つ。imageTagが空でない場合、TartProviderImagesの各imageのtagをimageTag
+// へ置き換えてからapplyする(LoadProviderImagesForTagで事前にkindへloadしたローカルimageを
+// 実際に使わせるため)。
+func InstallTartProviders(ctx context.Context, imageTag string) error {
 	projectDir, err := testutils.GetProjectDir()
 	if err != nil {
 		return fmt.Errorf("resolve project directory: %w", err)
 	}
 
 	for _, manifestDir := range TartProviderManifests {
+		buildTarget := filepath.Join(projectDir, manifestDir)
+		if imageTag != "" {
+			overlayDir, overlayErr := renderImageOverlay(projectDir, manifestDir, TartProviderImages[manifestDir], imageTag)
+			if overlayErr != nil {
+				return fmt.Errorf("render image overlay for %q: %w", manifestDir, overlayErr)
+			}
+			defer os.RemoveAll(overlayDir) //nolint:errcheck // best-effort cleanup of temp overlay
+			buildTarget = overlayDir
+		}
+
 		// config/crd配下はinfrastructure/bootstrap/control-plane用に分割されており、各々が
 		// 兄弟directoryの../bases/*.yamlを参照する(kubebuilder標準の構成)。kustomizeの既定の
 		// load restrictorはこの兄弟参照をsecurity違反として拒否するため、明示的に無効化する
 		// (参照先はすべてこのrepository内のローカルfileであり、外部/remoteは一切関与しない)。
-		buildCmd := exec.CommandContext(ctx, "kustomize", "build", manifestDir, "--load-restrictor", "LoadRestrictionsNone")
-		buildCmd.Dir = projectDir
+		buildCmd := exec.CommandContext(ctx, "kustomize", "build", buildTarget, "--load-restrictor", "LoadRestrictionsNone")
 		var stderr bytes.Buffer
 		buildCmd.Stderr = &stderr
 		output, err := buildCmd.Output()
@@ -124,13 +167,45 @@ func InstallTartProviders(ctx context.Context) error {
 	return nil
 }
 
-// LoadProviderImagesは、ローカルでbuildしたcontroller-manager imageをkind clusterへloadする。
-// CIではE2E実行前にdocker buildしたimageをkustomizeのnewNameで参照させるため、
-// providerのmanifestをapplyする前に呼び出す想定である。
-func LoadProviderImages(images ...string) error {
+// renderImageOverlayは、manifestDir(projectDirからの相対path)をresourceとして参照しつつ、
+// 各imageをローカルbuild済みのimage(name:newTag)へ置き換えるkustomization.yamlを、projectDir
+// 直下の一時directoryへ書き出す。checked-in fileを直接変更せずに済むよう、独立した一時overlay
+// として構成する。projectDir配下に作ることで、絶対pathやsymlink解決の差異
+// (例: macOSの/tmp→/private/tmp)に依存しない単純な相対参照("../"+manifestDir)を使える。
+func renderImageOverlay(projectDir, manifestDir string, images []providerImage, newTag string) (string, error) {
+	dir, err := os.MkdirTemp(projectDir, ".tart-e2e-image-overlay-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp overlay directory: %w", err)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n")
+	fmt.Fprintf(&sb, "- ../%s\n", manifestDir)
+	sb.WriteString("images:\n")
 	for _, image := range images {
-		if err := testutils.LoadImageToKindClusterWithName(image); err != nil {
-			return fmt.Errorf("load image %q into kind cluster: %w", image, err)
+		fmt.Fprintf(&sb, "- name: %s\n  newName: %s\n  newTag: %s\n", image.KustomizePlaceholder, image.Name, newTag)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte(sb.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write overlay kustomization: %w", err)
+	}
+	return dir, nil
+}
+
+// LoadProviderImagesForTagは、TartProviderImagesの各imageについて"<Name>:<imageTag>"という
+// 名前でローカルにdocker buildされている前提で、kind clusterへloadする。
+func LoadProviderImagesForTag(imageTag string) error {
+	loaded := map[string]struct{}{}
+	for _, images := range TartProviderImages {
+		for _, image := range images {
+			ref := image.Name + ":" + imageTag
+			if _, ok := loaded[ref]; ok {
+				continue
+			}
+			loaded[ref] = struct{}{}
+			if err := testutils.LoadImageToKindClusterWithName(ref); err != nil {
+				return fmt.Errorf("load image %q into kind cluster: %w", ref, err)
+			}
 		}
 	}
 	return nil

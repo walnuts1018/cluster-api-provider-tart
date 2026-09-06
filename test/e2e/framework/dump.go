@@ -27,6 +27,19 @@ func DumpAll(artifactDir string) {
 	if err := testutils.DumpControllerLogs(filepath.Join(artifactDir, "controller-logs")); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: failed to dump controller logs: %v\n", err)
 	}
+	// CAPI core/cert-managerのcrash等はcluster-api-provider-tart-system以外のnamespaceで起きるため、
+	// testutils.DumpControllerLogs(Tart自身のnamespace専用)とは別に、関連する全namespaceの
+	// pod logをまとめて収集する。
+	for _, namespace := range []string{
+		"capi-system",
+		"capi-kubeadm-bootstrap-system",
+		"capi-kubeadm-control-plane-system",
+		"cert-manager",
+	} {
+		if err := dumpNamespacePodLogs(namespace, filepath.Join(artifactDir, "pod-logs", namespace)); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: failed to dump pod logs for namespace %q: %v\n", namespace, err)
+		}
+	}
 	if err := testutils.DumpDnsmasqState(filepath.Join(artifactDir, "network-state")); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: failed to dump dnsmasq/network state: %v\n", err)
 	}
@@ -76,6 +89,48 @@ func dumpLibvirtState(artifactDir string) error {
 		}
 		if writeErr := os.WriteFile(filepath.Join(artifactDir, name+".xml"), dumpOutput, 0o644); writeErr != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "warning: failed to write dumpxml for %q: %v\n", name, writeErr)
+		}
+	}
+	return nil
+}
+
+// dumpNamespacePodLogsは指定されたnamespace内の全podについて、現在のcontainer logと直前の
+// (crashした場合の)container logを収集する。namespace自体が存在しない場合はbest-effortでskipする。
+func dumpNamespacePodLogs(namespace, artifactDir string) error {
+	output, err := exec.Command("kubectl", "get", "pods", "-n", namespace,
+		"-o", "go-template={{ range .items }}{{ .metadata.name }}{{ \"\\n\" }}{{ end }}").CombinedOutput()
+	if err != nil {
+		//nolint:nilerr // namespace未作成(providerがそもそもinstallされていない)場合のbest-effort skip
+		return nil
+	}
+	podNames := testutils.GetNonEmptyLines(string(output))
+	if len(podNames) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return fmt.Errorf("create artifact directory: %w", err)
+	}
+
+	for _, podName := range podNames {
+		logOutput, logErr := exec.Command("kubectl", "logs", podName, "-n", namespace, "--all-containers", "--tail=500").CombinedOutput()
+		if logErr == nil {
+			if writeErr := os.WriteFile(filepath.Join(artifactDir, podName+".log"), logOutput, 0o644); writeErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "warning: failed to write log for pod %s/%s: %v\n", namespace, podName, writeErr)
+			}
+		}
+
+		prevLogOutput, prevErr := exec.Command("kubectl", "logs", podName, "-n", namespace, "--all-containers", "--previous", "--tail=500").CombinedOutput()
+		if prevErr == nil && len(prevLogOutput) > 0 {
+			if writeErr := os.WriteFile(filepath.Join(artifactDir, podName+"-previous.log"), prevLogOutput, 0o644); writeErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "warning: failed to write previous log for pod %s/%s: %v\n", namespace, podName, writeErr)
+			}
+		}
+
+		descOutput, descErr := exec.Command("kubectl", "describe", "pod", podName, "-n", namespace).CombinedOutput()
+		if descErr == nil {
+			if writeErr := os.WriteFile(filepath.Join(artifactDir, podName+"-describe.txt"), descOutput, 0o644); writeErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "warning: failed to write describe for pod %s/%s: %v\n", namespace, podName, writeErr)
+			}
 		}
 	}
 	return nil

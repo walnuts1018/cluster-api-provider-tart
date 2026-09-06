@@ -16,30 +16,21 @@ type MachineConfigurationContext struct {
 	KubernetesVersion    string
 	MachineRole          domainbootstrap.MachineRole
 	SecretsBundle        any
-	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はuser patchまたは
-	// complete configurationがinstall targetを含まなければならない。
-	InstallDisk *domainbootstrap.InstallDisk
+	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はraw patchが
+	// install targetを含まなければならない。
+	InstallDisk *domainbootstrap.DiskIdentity
 }
 
 // ConfigRendererは、domain/bootstrapが表現する合成順序の意思決定を実際のTalos machine configuration
 // byte列へ変換するinterfaceである。実装はsiderolabs machinery型への変換を全て自身に閉じ込める。
+// TartはTart生成のbase configurationへuser patchを適用したものだけをeffective machine
+// configurationとする一方向モデルを取るため、complete configurationを直接受け取る経路は持たない。
 type ConfigRenderer interface {
-	// Renderは、完全なbase configurationへraw patchを順番に適用したcanonical configurationを返す。
-	Render(base []byte, patches ...[]byte) ([]byte, error)
 	// Generateは、Talos machineryのbase configurationを生成し、raw patchとprovider-owned install
-	// diskを適用したcanonical configurationを返す。
+	// diskを適用したcanonical configurationを返す。Talos client-side validationも内部で行う。
 	Generate(input MachineConfigurationContext, patches ...[]byte) ([]byte, error)
-	// ValidateProviderOwnedは、configurationが同じclusterから生成したprovider-owned基準
-	// (PKI、token、cluster identity、Kubernetesコンポーネントimage)と一致するかを検証する。
-	ValidateProviderOwned(configuration []byte, input MachineConfigurationContext) error
-	// Validateは、configurationがTalos client-side validationを満たすかを検証する。
-	Validate(configuration []byte) error
 	// Digestは、redaction済みcanonical configurationのSHA-256 digestを返す。
 	Digest(completeConfiguration []byte) (string, error)
-	// HasInstallDiskは、configurationが既にinstall targetを含むかを判定する。
-	HasInstallDisk(configuration []byte) (bool, error)
-	// EnsureInstallDiskは、install targetを含まないconfigurationへprovider-owned install diskを追加する。
-	EnsureInstallDisk(configuration []byte, disk domainbootstrap.InstallDisk) ([]byte, error)
-	// SelectInstallDiskは、観測したdisk群から一意に識別できるinstall対象を選択する。
-	SelectInstallDisk(disks []domainbootstrap.InstallDisk) (domainbootstrap.InstallDisk, error)
+	// SelectDiskは、観測したdisk群から一意に識別できるinstall対象を選択する。
+	SelectDisk(disks []domainbootstrap.DiskIdentity) (domainbootstrap.DiskIdentity, error)
 }

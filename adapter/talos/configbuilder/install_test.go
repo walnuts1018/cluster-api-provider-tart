@@ -14,66 +14,10 @@ import (
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
-func TestSelectInstallDisk(t *testing.T) {
-	t.Parallel()
-
-	base := domainbootstrap.InstallDisk{
-		DevicePath: "/dev/vda",
-		SizeBytes:  64 * 1024 * 1024 * 1024,
-		Model:      "TART DISK",
-		Serial:     "disk-a",
-		WWID:       "wwid-a",
-		BusPath:    "pci-0000:00:05.0",
-		Transport:  "virtio",
-	}
-
-	tests := map[string]struct {
-		disks []domainbootstrap.InstallDisk
-		want  domainbootstrap.InstallDisk
-		err   error
-	}{
-		"unique stable disk": {
-			disks: []domainbootstrap.InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: 128 * 1024 * 1024 * 1024, Model: "TART DATA", Serial: "disk-b", Transport: "virtio"}},
-			want:  base,
-		},
-		"single disk without transport metadata": {
-			disks: []domainbootstrap.InstallDisk{{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial}},
-			want:  domainbootstrap.InstallDisk{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial},
-		},
-		"ambiguous disk identity": {
-			disks: []domainbootstrap.InstallDisk{base, {DevicePath: "/dev/vdb", SizeBytes: base.SizeBytes, Model: base.Model, Serial: base.Serial, WWID: base.WWID, BusPath: base.BusPath, Transport: base.Transport}},
-			err:   domainbootstrap.ErrInstallDiskAmbiguous,
-		},
-		"no writable disk": {
-			disks: []domainbootstrap.InstallDisk{{DevicePath: "/dev/vda", SizeBytes: base.SizeBytes, Transport: "virtio", ReadOnly: true}},
-			err:   domainbootstrap.ErrInstallDiskUnavailable,
-		},
-	}
-
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			got, err := SelectInstallDisk(tt.disks)
-			if tt.err != nil {
-				if !errors.Is(err, tt.err) {
-					t.Fatalf("SelectInstallDisk() error = %v, want %v", err, tt.err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("SelectInstallDisk() error = %v", err)
-			}
-			if got != tt.want {
-				t.Fatalf("SelectInstallDisk() = %#v, want %#v", got, tt.want)
-			}
-		})
-	}
-}
-
 func TestEnsureInstallDiskAddsUnattendedConfiguration(t *testing.T) {
 	t.Parallel()
 
-	disk := domainbootstrap.InstallDisk{
+	disk := domainbootstrap.DiskIdentity{
 		DevicePath: "/dev/vda",
 		SizeBytes:  64 * 1024 * 1024 * 1024,
 		Serial:     "disk-a",
@@ -126,7 +70,7 @@ func TestTalosModernDocumentsAreRequiredForProviderPatches(t *testing.T) {
 func TestEnsureInstallDiskRejectsTargetForAnotherDisk(t *testing.T) {
 	t.Parallel()
 
-	selected := domainbootstrap.InstallDisk{
+	selected := domainbootstrap.DiskIdentity{
 		DevicePath: "/dev/vda",
 		SizeBytes:  64 * 1024 * 1024 * 1024,
 		Serial:     "disk-a",
@@ -137,7 +81,7 @@ func TestEnsureInstallDiskRejectsTargetForAnotherDisk(t *testing.T) {
 		t.Fatalf("EnsureInstallDisk() error = %v", err)
 	}
 
-	other := domainbootstrap.InstallDisk{
+	other := domainbootstrap.DiskIdentity{
 		DevicePath: "/dev/vdb",
 		SizeBytes:  128 * 1024 * 1024 * 1024,
 		Serial:     "disk-b",
@@ -161,7 +105,7 @@ func TestGenerateMachineConfigurationIncludesInstallTarget(t *testing.T) {
 		KubernetesVersion:    "1.34.0",
 		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &domainbootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.DiskIdentity{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",

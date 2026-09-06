@@ -68,8 +68,10 @@ type TartControlPlaneMachineTemplateSpec struct {
 
 // TartControlPlaneSpecはTartControlPlaneのdesired stateを定義する。Tartはcontrol plane endpoint(VIPやLB)をprovisionせず、endpointはCluster.spec.controlPlaneEndpointから外部に供給される。control planeのin-place updateはCAPI KCP patternに従い、CanUpdateMachine検証、Machine/InfraMachine/BootstrapConfigのdesired spec更新、in-place-updates.internal.cluster.x-k8s.io/update-in-progress annotation設定、UpdateMachine hook pending設定、Machine controller連携の順で扱う。
 type TartControlPlaneSpec struct {
-	// versionはdesired Kubernetes versionである。先頭にvを付けたsemantic versioningに従わなければならない。
-	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
+	// versionはdesired Kubernetes versionである。先頭にvを付けたsemantic versioning(prerelease/build
+	// metadataは任意)に従わなければならない。下限versionの強制はTalos/Kubernetesの互換性表に委ねるため、
+	// ここではsemver形式としてparse可能であることだけを検証する。
+	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=256
 	Version string `json:"version"`
@@ -134,11 +136,6 @@ type TartControlPlaneKubernetesUpgradeStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	ObservedVersion string `json:"observedVersion,omitempty"`
-
-	// failureMessageは最後のupgrade試行が失敗した理由である。成功または未実行の場合は空になる。
-	// +optional
-	// +kubebuilder:validation:MaxLength=1024
-	FailureMessage string `json:"failureMessage,omitempty"`
 }
 
 // TartControlPlaneInitializationStatusは初回etcd/API server bootstrapを追跡する。

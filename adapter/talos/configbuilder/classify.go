@@ -7,7 +7,10 @@ import (
 	"reflect"
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	coreconfig "github.com/siderolabs/talos/pkg/machinery/config/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
+	blockconfig "github.com/siderolabs/talos/pkg/machinery/config/types/block"
+	storageconfig "github.com/siderolabs/talos/pkg/machinery/config/types/storage"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
@@ -111,6 +114,143 @@ func destructiveChange(active, desired talosconfig.Provider) string {
 		if activeInstall.VolumeWipe() != desiredInstall.VolumeWipe() {
 			return "The install wipe setting changed; the Machine must be reprovisioned."
 		}
+	}
+	if reason := destructiveStorageChange(active, desired); reason != "" {
+		return reason
+	}
+	return ""
+}
+
+// storageDocumentKindsは、physical diskへのbindingやLVM layoutを保持し、destructiveな変更をここで
+// 検出しなければならないTalos storage document kindである。VolumeConfig/UserVolumeConfigは
+// EPHEMERALやLonghornなどのmounted local storage、RawVolumeConfigは裸のpartition、
+// LVMVolumeGroupConfig/LVMLogicalVolumeConfigはTopoLVMのようなLVM layoutを表す。
+var storageDocumentKinds = []string{
+	blockconfig.VolumeConfigKind,
+	blockconfig.UserVolumeConfigKind,
+	blockconfig.RawVolumeConfigKind,
+	storageconfig.LVMVolumeGroupConfigKind,
+	storageconfig.LVMLogicalVolumeConfigKind,
+}
+
+// provisionedVolumeDocumentは、VolumeConfig/UserVolumeConfig/RawVolumeConfigに共通するprovisioning
+// accessorである。
+type provisionedVolumeDocument interface {
+	coreconfig.NamedDocument
+	Provisioning() coreconfig.VolumeProvisioningConfig
+}
+
+// destructiveStorageChangeは、physical diskをbindするstorage document(VolumeConfig、
+// UserVolumeConfig、RawVolumeConfig、LVMVolumeGroupConfig、LVMLogicalVolumeConfig)の破壊的な
+// 変更を検出する。documentの削除、disk/volume selectorの変更、sizeの縮小、LVM layoutの変更は
+// 既存dataを破壊し得るため、常にreprovisionを要求する。documentの追加やsizeの拡大(grow)は
+// 既存dataを保持するため許可する。
+func destructiveStorageChange(active, desired talosconfig.Provider) string {
+	activeDocs := indexNamedDocuments(active, storageDocumentKinds)
+	desiredDocs := indexNamedDocuments(desired, storageDocumentKinds)
+
+	for key, activeDoc := range activeDocs {
+		desiredDoc, ok := desiredDocs[key]
+		if !ok {
+			return fmt.Sprintf("The storage document %q was removed; the Machine must be reprovisioned.", key)
+		}
+		if reason := destructiveStorageDocumentChange(activeDoc, desiredDoc); reason != "" {
+			return reason
+		}
+	}
+	return ""
+}
+
+func indexNamedDocuments(provider talosconfig.Provider, kinds []string) map[string]coreconfig.Document {
+	index := make(map[string]coreconfig.Document)
+	for _, doc := range provider.Documents() {
+		named, ok := doc.(coreconfig.NamedDocument)
+		if !ok {
+			continue
+		}
+		for _, kind := range kinds {
+			if doc.Kind() == kind {
+				index[doc.Kind()+"/"+named.Name()] = doc
+				break
+			}
+		}
+	}
+	return index
+}
+
+func destructiveStorageDocumentChange(active, desired coreconfig.Document) string {
+	kind := active.Kind()
+	switch kind {
+	case blockconfig.VolumeConfigKind, blockconfig.UserVolumeConfigKind, blockconfig.RawVolumeConfigKind:
+		activeVolume, activeOK := active.(provisionedVolumeDocument)
+		desiredVolume, desiredOK := desired.(provisionedVolumeDocument)
+		if !activeOK || !desiredOK {
+			return fmt.Sprintf("The %s document is not a recognized storage document; the Machine must be reprovisioned.", kind)
+		}
+		return destructiveVolumeProvisioningChange(kind, activeVolume.Name(), activeVolume.Provisioning(), desiredVolume.Provisioning())
+	case storageconfig.LVMVolumeGroupConfigKind:
+		activeGroup, activeOK := active.(coreconfig.LVMVolumeGroupConfig)
+		desiredGroup, desiredOK := desired.(coreconfig.LVMVolumeGroupConfig)
+		if !activeOK || !desiredOK {
+			return fmt.Sprintf("The %s document is not a recognized LVM volume group document; the Machine must be reprovisioned.", kind)
+		}
+		if activeGroup.PhysicalVolumeSelector().String() != desiredGroup.PhysicalVolumeSelector().String() {
+			return fmt.Sprintf("The LVMVolumeGroupConfig %q physical volume selector changed; the Machine must be reprovisioned.", activeGroup.Name())
+		}
+		return ""
+	case storageconfig.LVMLogicalVolumeConfigKind:
+		activeVolume, activeOK := active.(coreconfig.LVMLogicalVolumeConfig)
+		desiredVolume, desiredOK := desired.(coreconfig.LVMLogicalVolumeConfig)
+		if !activeOK || !desiredOK {
+			return fmt.Sprintf("The %s document is not a recognized LVM logical volume document; the Machine must be reprovisioned.", kind)
+		}
+		return destructiveLVMLogicalVolumeChange(activeVolume, desiredVolume)
+	default:
+		return fmt.Sprintf("The %s storage document kind is not recognized; the Machine must be reprovisioned.", kind)
+	}
+}
+
+func destructiveVolumeProvisioningChange(kind, name string, active, desired coreconfig.VolumeProvisioningConfig) string {
+	activeSelector, activeHasSelector := active.DiskSelector().Get()
+	desiredSelector, desiredHasSelector := desired.DiskSelector().Get()
+	if activeHasSelector != desiredHasSelector || (activeHasSelector && activeSelector.String() != desiredSelector.String()) {
+		return fmt.Sprintf("The %s %q disk selector changed; the Machine must be reprovisioned.", kind, name)
+	}
+	activeMin, activeHasMin := active.MinSize().Get()
+	desiredMin, desiredHasMin := desired.MinSize().Get()
+	if activeHasMin && desiredHasMin && desiredMin < activeMin {
+		return fmt.Sprintf("The %s %q minimum size shrank; the Machine must be reprovisioned.", kind, name)
+	}
+	activeMax, activeHasMax := active.MaxSize().Get()
+	desiredMax, desiredHasMax := desired.MaxSize().Get()
+	if activeHasMax && desiredHasMax && desiredMax < activeMax {
+		return fmt.Sprintf("The %s %q maximum size shrank; the Machine must be reprovisioned.", kind, name)
+	}
+	if activeHasMax != desiredHasMax {
+		return fmt.Sprintf("The %s %q size bound changed; the Machine must be reprovisioned.", kind, name)
+	}
+	return ""
+}
+
+func destructiveLVMLogicalVolumeChange(active, desired coreconfig.LVMLogicalVolumeConfig) string {
+	name := active.Name()
+	if active.VolumeGroup() != desired.VolumeGroup() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q volume group changed; the Machine must be reprovisioned.", name)
+	}
+	if active.Type() != desired.Type() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q layout type changed; the Machine must be reprovisioned.", name)
+	}
+	if active.Mirrors() != desired.Mirrors() || active.Stripes() != desired.Stripes() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q mirror/stripe layout changed; the Machine must be reprovisioned.", name)
+	}
+	if desired.MinSizeBytes() < active.MinSizeBytes() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q minimum size shrank; the Machine must be reprovisioned.", name)
+	}
+	if active.MaxSizePercentVG() != desired.MaxSizePercentVG() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q percentage size changed; the Machine must be reprovisioned.", name)
+	}
+	if active.MaxSizeBytes() != 0 && desired.MaxSizeBytes() != 0 && desired.MaxSizeBytes() < active.MaxSizeBytes() {
+		return fmt.Sprintf("The LVMLogicalVolumeConfig %q maximum size shrank; the Machine must be reprovisioned.", name)
 	}
 	return ""
 }

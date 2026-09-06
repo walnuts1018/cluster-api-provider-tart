@@ -44,6 +44,7 @@ func TestEvaluateKubernetesUpgrade(t *testing.T) {
 	healthy := kubernetesUpgradePreflight{
 		desiredVersion:          "v1.34.1",
 		observedVersion:         "1.33.4",
+		versionObserved:         true,
 		controlPlaneInitialized: true,
 		workloadAPIReady:        true,
 		talosReachable:          true,
@@ -64,13 +65,30 @@ func TestEvaluateKubernetesUpgrade(t *testing.T) {
 		{name: "healthy cluster upgrades", preflight: healthy, want: kubernetesUpgradeActionUpgrade},
 		{name: "empty desired version stops", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.desiredVersion = "" }), want: kubernetesUpgradeActionFail},
 		{name: "already converged does nothing", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.observedVersion = "v1.34.1" }), want: kubernetesUpgradeActionNone},
+		{
+			name: "stale observed version matching desired without a fresh observation does not skip",
+			preflight: mutate(func(p *kubernetesUpgradePreflight) {
+				p.observedVersion = "v1.34.1"
+				p.versionObserved = false
+			}),
+			want: kubernetesUpgradeActionUpgrade,
+		},
 		{name: "uninitialized control plane waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.controlPlaneInitialized = false }), want: kubernetesUpgradeActionWait},
 		{name: "unavailable workload API waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.workloadAPIReady = false }), want: kubernetesUpgradeActionWait},
-		{name: "unreachable Talos API waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.talosReachable = false }), want: kubernetesUpgradeActionWait},
+		{name: "unreachable Talos API is unknown", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.talosReachable = false }), want: kubernetesUpgradeActionUnknown},
 		{name: "unproven etcd quorum waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.etcdQuorumHealthy = false }), want: kubernetesUpgradeActionWait},
 		{name: "not ready machines wait", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.machinesReady = false }), want: kubernetesUpgradeActionWait},
 		{name: "another operation waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.otherOperationInProgress = true }), want: kubernetesUpgradeActionWait},
 		{name: "unobserved version waits", preflight: mutate(func(p *kubernetesUpgradePreflight) { p.observedVersion = "" }), want: kubernetesUpgradeActionWait},
+		{
+			name: "stale cache matching desired is not trusted without a fresh observation",
+			preflight: mutate(func(p *kubernetesUpgradePreflight) {
+				p.observedVersion = "v1.34.1"
+				p.versionObserved = false
+				p.talosReachable = false
+			}),
+			want: kubernetesUpgradeActionUnknown,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -191,9 +209,11 @@ func TestReconcileKubernetesUpgradeStopsOnPreflight(t *testing.T) {
 	}
 }
 
-// TestReconcileKubernetesUpgradeSkipsConvergedClusterは、controller再起動後にdesired versionへ既に
-// 収束しているclusterに対して、upgradeを再実行しないことを確認する。
-func TestReconcileKubernetesUpgradeSkipsConvergedCluster(t *testing.T) {
+// TestReconcileKubernetesUpgradeDoesNotTrustStaleCacheWithoutFreshObservationは、controller再起動後に
+// 前回reconcileが残したcache上のobservedVersionがdesiredと一致していても、今回Talos APIから新しく
+// 観測できていない場合はUpToDate/収束済みと断定せず、upgradeも起動しないことを確認する
+// (staleなcacheだけを根拠にできないというレビュー対応)。
+func TestReconcileKubernetesUpgradeDoesNotTrustStaleCacheWithoutFreshObservation(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
@@ -211,18 +231,19 @@ func TestReconcileKubernetesUpgradeSkipsConvergedCluster(t *testing.T) {
 	cp.Namespace = "cluster-a"
 	cp.Name = "control-plane"
 	cp.Spec.Version = "v1.34.1"
-	// 再起動直後は、前回のreconcileが残したStatusの観測値からdesired versionとの一致を判断する。
+	// 再起動直後は、前回のreconcileが残したStatusの観測値がキャッシュとして残っているが、
+	// 今回はTalosへ到達できずobservationをやり直せていない(machines=nilのため)。
 	cp.Status.KubernetesUpgrade.ObservedVersion = "1.34.1"
 	cluster := &clusterv1.Cluster{}
 
-	state := reconciler.reconcileKubernetesUpgrade(t.Context(), cp, cluster, nil, controlPlaneBootstrapState{initialized: true}, false, 3)
+	state := reconciler.reconcileKubernetesUpgrade(t.Context(), cp, cluster, nil, controlPlaneBootstrapState{initialized: true, workloadReady: true}, false, 3)
 	if runner.upgrades != 0 {
-		t.Fatalf("upgrades = %d, want 0 for a converged cluster", runner.upgrades)
+		t.Fatalf("upgrades = %d, want 0 without a fresh observation", runner.upgrades)
 	}
 	if state.active {
-		t.Fatal("state.active = true, want false for a converged cluster")
+		t.Fatal("state.active = true, want false while the cluster state is unknown")
 	}
-	if state.targetVersion != cp.Spec.Version {
-		t.Fatalf("state.targetVersion = %q, want %q", state.targetVersion, cp.Spec.Version)
+	if !state.unknown {
+		t.Fatal("state.unknown = false, want true when the cluster state cannot be freshly verified")
 	}
 }

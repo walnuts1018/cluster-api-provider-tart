@@ -17,23 +17,23 @@ const (
 	BootstrapSecretType     = corev1.SecretType("cluster.x-k8s.io/secret")
 	BootstrapSecretKey      = "value"
 	ClusterNameLabel        = "cluster.x-k8s.io/cluster-name"
-	ConfigurationInputKey   = "value"
 	ConfigurationPatchesKey = "patches"
 )
 
 var (
-	ErrMissingConfigSecret         = errors.New("bootstrap configuration Secret is missing")
-	ErrConfigSecretNotImmutable    = errors.New("bootstrap configuration Secret must be immutable")
-	ErrConfigSecretEmpty           = errors.New("bootstrap configuration Secret has no data")
-	ErrInvalidSecretMetadata       = errors.New("bootstrap Secret metadata is incomplete")
-	ErrOwnerReferenceIncomplete    = errors.New("bootstrap Secret owner reference is incomplete")
-	ErrOwnerReferenceInvalid       = errors.New("bootstrap Secret owner reference is invalid")
-	ErrConfigurationInputMissing   = errors.New("bootstrap configuration Secret has no usable configuration input")
-	ErrConfigurationInputAmbiguous = errors.New("bootstrap configuration Secret contains both complete configuration and patches")
+	ErrMissingConfigSecret      = errors.New("bootstrap configuration Secret is missing")
+	ErrConfigSecretNotImmutable = errors.New("bootstrap configuration Secret must be immutable")
+	ErrConfigSecretEmpty        = errors.New("bootstrap configuration Secret has no data")
+	ErrInvalidSecretMetadata    = errors.New("bootstrap Secret metadata is incomplete")
+	ErrOwnerReferenceIncomplete = errors.New("bootstrap Secret owner reference is incomplete")
+	ErrOwnerReferenceInvalid    = errors.New("bootstrap Secret owner reference is invalid")
 )
 
-// ValidateConfigSecretはユーザー所有のraw configuration inputがimmutableであり、空でないことを確認する。
-// Secretの値は返さず、controllerがStatusやlogへ誤って出力しない境界にする。
+// ValidateConfigSecretはユーザー所有のraw configuration patch inputがimmutableであり、
+// patches keyが空でないことを確認する。TartはTart生成のbase configurationへuser patchを適用した
+// ものだけをeffective machine configurationとする一方向モデルを取るため、complete machine
+// configurationを直接受け付ける経路は持たない。Secretの値は返さず、controllerがStatusやlogへ
+// 誤って出力しない境界にする。
 func ValidateConfigSecret(secret *corev1.Secret) error {
 	if secret == nil {
 		return ErrMissingConfigSecret
@@ -41,40 +41,10 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 	if secret.Immutable == nil || !*secret.Immutable {
 		return fmt.Errorf("%w: %s", ErrConfigSecretNotImmutable, secret.Name)
 	}
-	for key, value := range secret.Data {
-		if key != "" && len(value) > 0 {
-			return nil
-		}
+	if len(secret.Data[ConfigurationPatchesKey]) == 0 {
+		return fmt.Errorf("%w: %s", ErrConfigSecretEmpty, secret.Name)
 	}
-	return fmt.Errorf("%w: %s", ErrConfigSecretEmpty, secret.Name)
-}
-
-// CompleteConfigurationFromSecretはimmutableな入力Secretから完全なTalos configurationを取得する。
-// patches keyの入力はBootstrap controllerがcluster、Machine、bundle contextを解決してからGenerateへ渡す。
-func CompleteConfigurationFromSecret(renderer ConfigRenderer, secret *corev1.Secret) ([]byte, error) {
-	if err := ValidateConfigSecret(secret); err != nil {
-		return nil, err
-	}
-	if len(secret.Data[ConfigurationInputKey]) > 0 && len(secret.Data[ConfigurationPatchesKey]) > 0 {
-		return nil, ErrConfigurationInputAmbiguous
-	}
-
-	configuration, ok := secret.Data[ConfigurationInputKey]
-	if !ok {
-		if len(secret.Data) != 1 {
-			return nil, ErrConfigurationInputMissing
-		}
-		for _, value := range secret.Data {
-			configuration = value
-		}
-	}
-
-	rendered, err := renderer.Render(configuration)
-	if err != nil {
-		return nil, fmt.Errorf("render configuration input: %w", err)
-	}
-
-	return rendered, nil
+	return nil
 }
 
 // BuildSecretは完全にrender済みのTalos machine configurationからCAPI Bootstrap Secretを作成する。

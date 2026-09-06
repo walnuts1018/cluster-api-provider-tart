@@ -47,7 +47,7 @@ func newConfiguration(t *testing.T, bundle *secrets.Bundle, options []configurat
 		KubernetesVersion:    "1.34.0",
 		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &domainbootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.DiskIdentity{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",
@@ -86,51 +86,51 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 		wantMode  domainupdate.ApplyMode
 	}{
 		"no difference": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   base,
 			wantClass: domainupdate.ChangeNone,
 		},
 		"auto falls back to a controlled reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   sysctl,
 			wantClass: domainupdate.ChangeUpdatable,
-			wantMode:  domainupdate.ApplyModeReboot,
+			wantMode:  domainupdate.ApplyModeStagedReboot,
 		},
 		"empty policy defaults to auto": {
 			desired:   sysctl,
 			wantClass: domainupdate.ChangeUpdatable,
-			wantMode:  domainupdate.ApplyModeReboot,
+			wantMode:  domainupdate.ApplyModeStagedReboot,
 		},
 		"live policy applies without a reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:   sysctl,
 			wantClass: domainupdate.ChangeUpdatable,
-			wantMode:  domainupdate.ApplyModeNoReboot,
+			wantMode:  domainupdate.ApplyModeApplyOnly,
 		},
 		"reboot policy applies with a reboot": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   sysctl,
 			wantClass: domainupdate.ChangeUpdatable,
-			wantMode:  domainupdate.ApplyModeReboot,
+			wantMode:  domainupdate.ApplyModeStagedReboot,
 		},
 		"volume document is an ordinary Talos change": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:   userVolume,
 			wantClass: domainupdate.ChangeUpdatable,
-			wantMode:  domainupdate.ApplyModeNoReboot,
+			wantMode:  domainupdate.ApplyModeApplyOnly,
 		},
 		"install target change is destructive": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   otherDisk,
 			wantClass: domainupdate.ChangeReprovisionRequired,
 		},
 		"machine role change conflicts with a provider invariant": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   controlPlane,
 			wantClass: domainupdate.ChangeInvariantConflict,
 		},
 		"control-plane endpoint change conflicts with a provider invariant": {
-			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:   otherEndpoint,
 			wantClass: domainupdate.ChangeInvariantConflict,
 		},
@@ -167,7 +167,7 @@ func TestEvaluateIgnoresInstallerImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetInstallerImage() error = %v", err)
 	}
-	decision, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
+	decision, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly, base, upgraded)
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
@@ -182,7 +182,7 @@ func TestEvaluateRejectsUnreadableConfiguration(t *testing.T) {
 
 	bundle := newSecretsBundle(t)
 	base := newConfiguration(t, bundle, nil)
-	if _, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
+	if _, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly, base, []byte("not a machine configuration")); err == nil {
 		t.Fatal("Evaluate() accepted an unreadable configuration")
 	}
 }

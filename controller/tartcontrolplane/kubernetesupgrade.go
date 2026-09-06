@@ -39,12 +39,14 @@ const (
 
 // controlPlaneKubernetesUpgradeStateは、Conditionとstatusへ反映するcoarse-grainedなupgrade観測結果である。
 type controlPlaneKubernetesUpgradeState struct {
-	active          bool
+	active bool
+	// unknownは、Talos APIへ到達できず現在のcluster状態を確認できないことを示す。trueの場合、
+	// KubernetesUpgradingConditionはtrue/falseではなくUnknownにする。
+	unknown         bool
 	reason          string
 	message         string
 	targetVersion   string
 	observedVersion string
-	failureMessage  string
 	requeueAfter    time.Duration
 }
 
@@ -54,7 +56,14 @@ type kubernetesUpgradePreflight struct {
 	// desiredVersionはTartControlPlane.spec.versionである。
 	desiredVersion string
 	// observedVersionはclusterから観測した現在のKubernetes versionである。空の場合は未観測を意味する。
+	// Talos APIへ到達できない間は前回reconcileのcache値をそのまま保持するため、この値だけでは
+	// versionが「今回」観測されたのか「過去のcache」なのかを区別できない。
 	observedVersion string
+	// versionObservedはこのreconcile中にobservedVersionを実際に新しく観測できたことを示す。
+	// falseの場合、observedVersionは過去のcache値であり、これだけを根拠にUpToDateを断定しては
+	// ならない(Talos APIへ到達できない間、staleなcacheがdesiredと偶然一致していても収束済みとは
+	// 断定できないため)。
+	versionObserved bool
 	// controlPlaneInitializedは初回bootstrapが完了していることを示す。
 	controlPlaneInitialized bool
 	// workloadAPIReadyはworkload Kubernetes APIが応答していることを示す。
@@ -81,6 +90,9 @@ const (
 	kubernetesUpgradeActionFail
 	// kubernetesUpgradeActionUpgradeは、upgradeを実行してよいことを示す。
 	kubernetesUpgradeActionUpgrade
+	// kubernetesUpgradeActionUnknownは、Talos APIへ到達できず現在のcluster状態を確認できないことを示す。
+	// staleなcacheがdesiredと一致していても収束済みとは断定せず、ConditionをUnknownにする。
+	kubernetesUpgradeActionUnknown
 )
 
 // kubernetesUpgradeDecisionはpreflightの結論と、そのままCondition/Eventへ出せる理由を保持する。
@@ -101,14 +113,17 @@ func evaluateKubernetesUpgrade(preflight kubernetesUpgradePreflight) kubernetesU
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: "ControlPlaneNotInitialized", message: "The control plane is not initialized yet; the Kubernetes version upgrade is not started."}
 	}
 	observed := talos.NormalizeKubernetesVersion(preflight.observedVersion)
-	if observed == desired {
+	// observedがdesiredと一致していても、このreconcileで新しく観測できていない場合(stale cache)は
+	// 収束済みと断定しない。Talos APIへ到達できない間、偶然一致したcacheだけで安全にUpToDateへ
+	// 倒すことはできないためである。
+	if preflight.versionObserved && observed == desired {
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionNone, reason: "UpToDate", message: "The cluster is running the desired Kubernetes version."}
 	}
 	if !preflight.workloadAPIReady {
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: controller.ReasonWorkloadAPIUnavailable, message: "The workload Kubernetes API is not available; the Kubernetes version upgrade is not started."}
 	}
 	if !preflight.talosReachable {
-		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: "TalosAPIUnavailable", message: "The Talos API of the control-plane nodes is not reachable; the Kubernetes version upgrade is not started."}
+		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionUnknown, reason: "TalosAPIUnavailable", message: "The Talos API of the control-plane nodes is not reachable; the current Kubernetes version cannot be verified."}
 	}
 	if !preflight.etcdQuorumHealthy {
 		return kubernetesUpgradeDecision{action: kubernetesUpgradeActionWait, reason: "EtcdQuorumUnproven", message: "The etcd quorum could not be proven healthy; the Kubernetes version upgrade is not started."}
@@ -334,6 +349,7 @@ func (r *TartControlPlaneReconciler) reconcileKubernetesUpgrade(ctx context.Cont
 				logger.V(1).Info("the cluster Kubernetes version could not be observed", "error", err.Error())
 			} else {
 				preflight.observedVersion = version
+				preflight.versionObserved = true
 			}
 		}
 	}
@@ -344,15 +360,19 @@ func (r *TartControlPlaneReconciler) reconcileKubernetesUpgrade(ctx context.Cont
 		message:         decision.message,
 		targetVersion:   cp.Status.KubernetesUpgrade.TargetVersion,
 		observedVersion: preflight.observedVersion,
-		failureMessage:  cp.Status.KubernetesUpgrade.FailureMessage,
 	}
 	switch decision.action {
 	case kubernetesUpgradeActionNone:
-		state.failureMessage = ""
 		state.targetVersion = desired
 		return state
 	case kubernetesUpgradeActionFail:
-		state.failureMessage = decision.message
+		// desired versionそのものが不正であるため、収束済みとは扱わずactiveにしてUpToDate/Readyへ
+		// 波及させない。
+		state.active = true
+		return state
+	case kubernetesUpgradeActionUnknown:
+		state.unknown = true
+		state.requeueAfter = kubernetesUpgradeRequeue
 		return state
 	case kubernetesUpgradeActionWait:
 		state.active = desired != "" && preflight.observedVersion != "" && talos.NormalizeKubernetesVersion(preflight.observedVersion) != talos.NormalizeKubernetesVersion(desired)
@@ -395,10 +415,8 @@ func (r *TartControlPlaneReconciler) reconcileKubernetesUpgrade(ctx context.Cont
 		logger.Error(upgradeErr, "the cluster-wide Kubernetes version upgrade failed")
 		state.reason = "UpgradeFailed"
 		state.message = "The cluster-wide Kubernetes version upgrade did not complete; it will be retried from the observed cluster state."
-		state.failureMessage = state.message
 		return state
 	}
-	state.failureMessage = ""
 	state.reason = "Upgrading"
 	state.message = "The cluster-wide Kubernetes version upgrade completed; waiting for all components to report the desired version."
 	return state

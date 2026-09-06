@@ -78,7 +78,7 @@ func newUpdateConfiguration(t *testing.T, bundle *secrets.Bundle, serial string,
 		KubernetesVersion:    "1.34.0",
 		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &domainbootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.DiskIdentity{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     serial,
@@ -111,7 +111,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
-			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:  safeDifference,
 		})
 		if outcome.retryMessage == "" || outcome.failureMessage != "" {
@@ -127,7 +127,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100, liveErr: errors.New("talos rejected the live apply")}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
-			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:  safeDifference,
 		})
 		if outcome.failureMessage == "" || outcome.done {
@@ -144,7 +144,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		gateCalls := 0
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
-			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:  safeDifference,
 			rebootGate: func(context.Context) (bool, string) {
 				gateCalls++
@@ -164,7 +164,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:                      node,
-			strategy:                  bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			strategy:                  bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:                   safeDifference,
 			rebootGate:                func(context.Context) (bool, string) { return true, "" },
 			rebootObservationTimeout:  time.Millisecond,
@@ -186,7 +186,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:       node,
-			strategy:   bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			strategy:   bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:    destructiveDifference,
 			rebootGate: func(context.Context) (bool, string) { return true, "" },
 		})
@@ -200,7 +200,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		node := &fakeUpdateNode{active: active, bootTime: 100, servicesErr: errors.New("kubelet is not healthy")}
 		updater := configurationUpdate{
 			node:      node,
-			strategy:  bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
+			strategy:  bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:   active,
 			nodeReady: func(context.Context) (bool, string) { return true, "" },
 		}
@@ -245,9 +245,9 @@ func TestPlanBootstrapConfigPatch(t *testing.T) {
 			desired:   bootstrapObject("patches-b", ""),
 			wantPatch: true,
 		},
-		"raw patch change under the NoReboot strategy": {
-			current:   bootstrapObject("patches-a", "NoReboot"),
-			desired:   bootstrapObject("patches-b", "NoReboot"),
+		"raw patch change under the ApplyOnly strategy": {
+			current:   bootstrapObject("patches-a", "ApplyOnly"),
+			desired:   bootstrapObject("patches-b", "ApplyOnly"),
 			wantPatch: true,
 		},
 		"unknown strategy": {

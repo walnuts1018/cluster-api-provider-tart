@@ -193,7 +193,10 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 		return err
 	}
 	if *requested != target {
-		// 要求されたgenerationが次世代と一致しない場合は無視する。既に昇格済み、または無効な要求である。
+		// 要求されたgenerationが次世代と一致しない場合、Pending bundleの先行生成はここで何もしない。
+		// 既に昇格済み、または無効な要求のいずれかであり、区別できないためこの関数ではsilentに
+		// no-opとするが、利用者への通知はTartControlPlane側のreconcileCARotationが同じ判定を
+		// 行い、"InvalidCARotationRequest" reason/Conditionとwarning Eventとして表面化する。
 		return nil
 	}
 

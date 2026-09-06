@@ -11,21 +11,23 @@ const (
 )
 
 // ConfigurationApplyStrategyは、稼働中NodeへTalos machine configurationを適用するproviderの方針を表す。
-// RebootはSTAGED apply後にproviderが安全なrebootを起動する。NoRebootは通常のTalos applyだけを行い、即時完全反映やrebootを保証しない。
-// +kubebuilder:validation:Enum=Reboot;NoReboot
+// StagedRebootはSTAGED apply後にproviderが安全なrebootを起動する。ApplyOnlyは通常のTalos applyだけを行い、
+// 即時完全反映やrebootを保証しない(Talos 1.14でapply modeとしてのrebootが廃止されたため、この名前は
+// providerの実際の挙動をそのまま表す)。
+// +kubebuilder:validation:Enum=StagedReboot;ApplyOnly
 type ConfigurationApplyStrategy string
 
 const (
-	// ConfigurationApplyStrategyRebootは、STAGED apply後にproviderが安全にNode rebootをorchestrateする。
-	ConfigurationApplyStrategyReboot ConfigurationApplyStrategy = "Reboot"
-	// ConfigurationApplyStrategyNoRebootは、Talosへ通常のconfiguration applyだけを行い、providerからrebootを起動しない。
-	ConfigurationApplyStrategyNoReboot ConfigurationApplyStrategy = "NoReboot"
+	// ConfigurationApplyStrategyStagedRebootは、STAGED apply後にproviderが安全にNode rebootをorchestrateする。
+	ConfigurationApplyStrategyStagedReboot ConfigurationApplyStrategy = "StagedReboot"
+	// ConfigurationApplyStrategyApplyOnlyは、Talosへ通常のconfiguration applyだけを行い、providerからrebootを起動しない。
+	ConfigurationApplyStrategyApplyOnly ConfigurationApplyStrategy = "ApplyOnly"
 )
 
 // TartBootstrapConfigUpdatePolicyはmachine configuration updateの適用方針を保持する。
 type TartBootstrapConfigUpdatePolicy struct {
-	// configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はRebootである。
-	// +kubebuilder:default=Reboot
+	// configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はStagedRebootである。
+	// +kubebuilder:default=StagedReboot
 	// +optional
 	Configuration ConfigurationApplyStrategy `json:"configuration,omitempty"`
 }
@@ -33,7 +35,7 @@ type TartBootstrapConfigUpdatePolicy struct {
 // TartBootstrapConfigSpecはTartBootstrapConfigのdesired stateを定義する。ユーザー所有のraw Talos configuration patchは全てimmutableなSecret-backed inputから供給し、このSpecへinline保存しない。
 // field classification: configPatchesSecretRefはmutableかつUpdate Extensionが所有するlifecycleである。通常のBootstrap reconcilerは初回Bootstrap Secretだけを生成し、稼働中Nodeへin-place変更を適用せず、live updateはUpdate Extensionが実行する。
 type TartBootstrapConfigSpec struct {
-	// configPatchesSecretRefはユーザー所有のraw Talos configuration patchを保持するimmutable Secretを任意に参照する。参照先Secretはimmutable: trueを設定しなければならない。参照先Secretのcontractは、patches keyがTalos multi-document YAMLまたはJSON patch、value keyがcomplete Talos machine configurationである。
+	// configPatchesSecretRefはユーザー所有のraw Talos configuration patchを保持するimmutable Secretを任意に参照する。参照先Secretはimmutable: trueを設定しなければならない。参照先Secretのcontractは、patches keyにTalos multi-document YAMLまたはJSON patchを保持することだけであり、complete machine configurationを直接渡す経路は提供しない。TartはTart生成のbase configurationへこのpatchを適用したものだけをeffective machine configurationとする一方向モデルを取る。
 	// +optional
 	ConfigPatchesSecretRef *corev1.LocalObjectReference `json:"configPatchesSecretRef,omitempty"`
 
@@ -45,7 +47,7 @@ type TartBootstrapConfigSpec struct {
 // EffectiveConfigurationApplyStrategyは、未設定時の既定値を解決したconfiguration apply strategyを返す。
 func (s TartBootstrapConfigSpec) EffectiveConfigurationApplyStrategy() ConfigurationApplyStrategy {
 	if s.UpdatePolicy.Configuration == "" {
-		return ConfigurationApplyStrategyReboot
+		return ConfigurationApplyStrategyStagedReboot
 	}
 	return s.UpdatePolicy.Configuration
 }

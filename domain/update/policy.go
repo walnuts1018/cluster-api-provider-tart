@@ -14,10 +14,10 @@ import (
 type ApplyMode string
 
 const (
-	// ApplyModeNoRebootはTalosの通常applyをrebootなしで行うことを表す。
-	ApplyModeNoReboot ApplyMode = "NoReboot"
-	// ApplyModeRebootはapply後にcontrolled rebootを伴う適用を表す。
-	ApplyModeReboot ApplyMode = "Reboot"
+	// ApplyModeApplyOnlyはTalosの通常applyをrebootなしで行うことを表す。
+	ApplyModeApplyOnly ApplyMode = "ApplyOnly"
+	// ApplyModeStagedRebootはapply後にcontrolled rebootを伴う適用を表す。
+	ApplyModeStagedReboot ApplyMode = "StagedReboot"
 )
 
 // ErrPolicyUnknownは解釈できないapply strategyを表す。
@@ -26,10 +26,10 @@ var ErrPolicyUnknown = errors.New("configuration apply strategy is unknown")
 // ResolveApplyModeはconfiguration apply strategyから適用modeを決定する。
 func ResolveApplyMode(strategy bootstrapv1alpha1.ConfigurationApplyStrategy) (ApplyMode, error) {
 	switch strategy {
-	case bootstrapv1alpha1.ConfigurationApplyStrategyReboot, "":
-		return ApplyModeReboot, nil
-	case bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot:
-		return ApplyModeNoReboot, nil
+	case bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot, "":
+		return ApplyModeStagedReboot, nil
+	case bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly:
+		return ApplyModeApplyOnly, nil
 	default:
 		return "", ErrPolicyUnknown
 	}

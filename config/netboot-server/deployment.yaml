@@ -23,18 +23,15 @@ spec:
         app.kubernetes.io/name: cluster-api-provider-tart
         cluster.x-k8s.io/provider: infrastructure-tart
     spec:
-      # DHCP(port 67)のbroadcast/replyとProxyDHCPの動作にはnode NICへの直接アクセスが必要なため、
-      # hostNetworkで動作させる。controller-managerとは異なりcluster network越しには動かせない。
+      # DHCP(port 67)のbroadcast/replyとProxyDHCPの動作にはnode NICへの直接アクセスが必要なため、hostNetworkで動作させる。controller-managerとは異なりcluster network越しには動かせない。
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       serviceAccountName: netboot-server
       containers:
       - name: netboot-server
         image: netboot-server:latest
-        # advertise-http-base-urlは未設定ならbind addressから自動検出する。discoveryのversion/schematicIDは
-        # 未設定のTartHost/TartMachine不明MACに対する初回enrollment bootでのみ必要であり、環境ごとに
-        # 異なるため既定値を持たない。運用者はDeploymentのenvへTART_NETBOOT_DISCOVERY_TALOS_VERSIONと
-        # TART_NETBOOT_DISCOVERY_SCHEMATIC_IDを追加して設定する(未設定でもPodはCrashLoopしない)。
+        # advertise-http-base-urlは未設定ならbind addressから自動検出する。discoveryのversion/schematicIDは未設定のTartHost/TartMachine不明MACに対する初回enrollment bootでのみ必要であり、環境ごとに異なるため既定値を持たない。
+        # 運用者はDeploymentのenvへTART_NETBOOT_DISCOVERY_TALOS_VERSIONとTART_NETBOOT_DISCOVERY_SCHEMATIC_IDを追加して設定する(未設定でもPodはCrashLoopしない)。
         env:
         - name: TART_NETBOOT_DISCOVERY_TALOS_VERSION
           value: ""

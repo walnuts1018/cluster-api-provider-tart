@@ -20,36 +20,16 @@ func NewBuilder() Builder {
 	return Builder{}
 }
 
-func (Builder) Render(base []byte, patches ...[]byte) ([]byte, error) {
-	return RenderEffectiveConfiguration(base, patches...)
-}
-
 func (Builder) Generate(input usecasebootstrap.MachineConfigurationContext, patches ...[]byte) ([]byte, error) {
 	return GenerateMachineConfiguration(input, patches...)
-}
-
-func (Builder) ValidateProviderOwned(configuration []byte, input usecasebootstrap.MachineConfigurationContext) error {
-	return ValidateProviderOwnedConfiguration(configuration, input)
-}
-
-func (Builder) Validate(configuration []byte) error {
-	return ValidateMachineConfiguration(configuration)
 }
 
 func (Builder) Digest(completeConfiguration []byte) (string, error) {
 	return DigestEffectiveConfiguration(completeConfiguration)
 }
 
-func (Builder) HasInstallDisk(configuration []byte) (bool, error) {
-	return HasInstallDiskConfiguration(configuration)
-}
-
-func (Builder) EnsureInstallDisk(configuration []byte, disk domainbootstrap.InstallDisk) ([]byte, error) {
-	return EnsureInstallDisk(configuration, disk)
-}
-
-func (Builder) SelectInstallDisk(disks []domainbootstrap.InstallDisk) (domainbootstrap.InstallDisk, error) {
-	return SelectInstallDisk(disks)
+func (Builder) SelectDisk(disks []domainbootstrap.DiskIdentity) (domainbootstrap.DiskIdentity, error) {
+	return domainbootstrap.SelectDisk(disks)
 }
 
 func (Builder) ClassifyConfigurationChange(active, desired []byte) (domainupdate.ChangeClass, string, error) {

@@ -15,4 +15,8 @@ var (
 	ErrInstallConfigurationInvalid           = errors.New("machine configuration install target is invalid")
 	ErrMachineConfigurationContextIncomplete = errors.New("machine configuration generation context is incomplete")
 	ErrConfigurationConflict                 = errors.New("machine configuration conflicts with provider-owned invariant")
+	// ErrDiskSelectionUnavailableは、選択対象となる書き込み可能なphysical diskが1件もないことを示す。
+	ErrDiskSelectionUnavailable = errors.New("no disk is available for selection")
+	// ErrDiskSelectionAmbiguousは、disk候補をstable selectorで一意に識別できないことを示す。
+	ErrDiskSelectionAmbiguous = errors.New("disk cannot be selected unambiguously")
 )

@@ -57,8 +57,9 @@ spec:
               configPatchesSecretRef:
                 description: 'configPatchesSecretRefはユーザー所有のraw Talos configuration
                   patchを保持するimmutable Secretを任意に参照する。参照先Secretはimmutable: trueを設定しなければならない。参照先Secretのcontractは、patches
-                  keyがTalos multi-document YAMLまたはJSON patch、value keyがcomplete Talos
-                  machine configurationである。'
+                  keyにTalos multi-document YAMLまたはJSON patchを保持することだけであり、complete
+                  machine configurationを直接渡す経路は提供しない。TartはTart生成のbase configurationへこのpatchを適用したものだけをeffective
+                  machine configurationとする一方向モデルを取る。'
                 properties:
                   name:
                     default: ""
@@ -76,11 +77,11 @@ spec:
                   machine configuration差分の適用方針である。
                 properties:
                   configuration:
-                    default: Reboot
-                    description: configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はRebootである。
+                    default: StagedReboot
+                    description: configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はStagedRebootである。
                     enum:
-                    - Reboot
-                    - NoReboot
+                    - StagedReboot
+                    - ApplyOnly
                     type: string
                 type: object
             type: object

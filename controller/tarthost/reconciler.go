@@ -19,6 +19,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 )
@@ -158,10 +159,11 @@ func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
 		Disks:             make([]infrav1alpha1.DiskInventory, 0, len(inventory.Disks)),
 		NetworkInterfaces: make([]infrav1alpha1.NetworkInterfaceInventory, 0, len(inventory.NetworkInterfaces)),
 	}
+	identities := make([]domainbootstrap.DiskIdentity, 0, len(inventory.Disks))
 	for _, disk := range inventory.Disks {
-		result.Disks = append(result.Disks, infrav1alpha1.DiskInventory{
+		identities = append(identities, domainbootstrap.DiskIdentity{
 			DevicePath: disk.DevicePath,
-			SizeBytes:  int64(disk.SizeBytes),
+			SizeBytes:  disk.SizeBytes,
 			Model:      disk.Model,
 			Serial:     disk.Serial,
 			WWID:       disk.WWID,
@@ -169,7 +171,22 @@ func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
 			Transport:  disk.Transport,
 			Rotational: disk.Rotational,
 			ReadOnly:   disk.ReadOnly,
-			Symlinks:   append([]string(nil), disk.Symlinks...),
+		})
+	}
+	for index, disk := range inventory.Disks {
+		stableSelector, _ := domainbootstrap.UniqueDiskSelector(identities[index], identities)
+		result.Disks = append(result.Disks, infrav1alpha1.DiskInventory{
+			DevicePath:     disk.DevicePath,
+			SizeBytes:      int64(disk.SizeBytes),
+			Model:          disk.Model,
+			Serial:         disk.Serial,
+			WWID:           disk.WWID,
+			BusPath:        disk.BusPath,
+			Transport:      disk.Transport,
+			Rotational:     disk.Rotational,
+			ReadOnly:       disk.ReadOnly,
+			Symlinks:       append([]string(nil), disk.Symlinks...),
+			StableSelector: stableSelector,
 		})
 	}
 	for _, networkInterface := range inventory.NetworkInterfaces {

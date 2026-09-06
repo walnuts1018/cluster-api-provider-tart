@@ -4,6 +4,7 @@ import (
 	"encoding/json/v2"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -250,5 +251,112 @@ func TestCanUpdateMachineAllowsKubernetesVersionPropagation(t *testing.T) {
 	}
 	if !response.MachinePatch.IsDefined() {
 		t.Fatalf("machine patch = %#v, want the desired Kubernetes version propagation", response.MachinePatch)
+	}
+}
+
+// TestUpdateMachineRejectsHostRefDriftは、live TartMachineのhostRefと更新要求のhostRefが
+// 食い違う場合、UpdateMachineがTalosへ一切接続せず、safe-stop(retry)として扱われることを検証する。
+// hostRefはinitial-onlyかつclaim後immutableなfieldであり、この drift は「desired objectが
+// まだ収束していない」状態としてin-place applyへ進めてはならない。
+func TestUpdateMachineRejectsHostRefDrift(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add infrastructure scheme: %v", err)
+	}
+	controller := true
+	providerMachine := &infrav1alpha1.TartMachine{
+		Namespace:       "ns",
+		Name:            "machine-infra",
+		UID:             types.UID("provider-uid"),
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1beta2.GroupVersion.String(), Kind: "Machine", Name: "machine", UID: types.UID("machine-uid"), Controller: &controller}},
+		Spec:            infrav1alpha1.TartMachineSpec{HostRef: &corev1.LocalObjectReference{Name: "host-a"}},
+	}
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerMachine).Build()
+	request := &runtimehooksv1.UpdateMachineRequest{
+		Desired: runtimehooksv1.UpdateMachineRequestObjects{
+			Machine: v1beta2.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "machine", UID: types.UID("machine-uid")},
+				Spec:       v1beta2.MachineSpec{InfrastructureRef: v1beta2.ContractVersionedObjectReference{APIGroup: infrav1alpha1.GroupVersion.Group, Kind: "TartMachine", Name: "machine-infra"}},
+			},
+			// hostRefがlive TartMachine(host-a)と異なるhost-bを指す更新要求。
+			InfrastructureMachine: runtime.RawExtension{Raw: []byte(`{"apiVersion":"infrastructure.cluster.x-k8s.io/v1alpha1","kind":"TartMachine","spec":{"image":{"version":"v1.14.0","schematicID":"schematic"},"hostRef":{"name":"host-b"}}}`)},
+		},
+	}
+	response := &runtimehooksv1.UpdateMachineResponse{}
+	updateMachineWithClient(t.Context(), request, response, reader)
+	if response.Status == runtimehooksv1.ResponseStatusFailure {
+		// hostRef driftはretry(まだ収束していない状態)として扱う実装だが、いずれにせよ
+		// Talosへの接続やin-place applyへ進んではならない。
+		return
+	}
+	if response.RetryAfterSeconds == 0 {
+		t.Fatalf("response = %#v, want either a failure or a retry, never proceeding to apply", response)
+	}
+}
+
+// TestUpdateMachineRejectsHostSelectorDriftは、claimed後に変更できないhostSelectorの drift も
+// 同様にsafe-stopされることを検証する。CanUpdateMachineポリシー層(TestCanUpdateMachineAllowsOnlyTalosImageChange)
+// はhostSelector変更を拒否するが、実際のUpdateMachine/prepareMachineUpdate層でも同じ不変条件が
+// 独立して守られていることを確認する。
+func TestUpdateMachineRejectsHostSelectorDrift(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add infrastructure scheme: %v", err)
+	}
+	controller := true
+	providerMachine := &infrav1alpha1.TartMachine{
+		Namespace:       "ns",
+		Name:            "machine-infra",
+		UID:             types.UID("provider-uid"),
+		OwnerReferences: []metav1.OwnerReference{{APIVersion: v1beta2.GroupVersion.String(), Kind: "Machine", Name: "machine", UID: types.UID("machine-uid"), Controller: &controller}},
+		Spec:            infrav1alpha1.TartMachineSpec{HostSelector: &infrav1alpha1.HostSelector{Architecture: "amd64"}},
+	}
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(providerMachine).Build()
+	request := &runtimehooksv1.UpdateMachineRequest{
+		Desired: runtimehooksv1.UpdateMachineRequestObjects{
+			Machine: v1beta2.Machine{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "ns", Name: "machine", UID: types.UID("machine-uid")},
+				Spec:       v1beta2.MachineSpec{InfrastructureRef: v1beta2.ContractVersionedObjectReference{APIGroup: infrav1alpha1.GroupVersion.Group, Kind: "TartMachine", Name: "machine-infra"}},
+			},
+			InfrastructureMachine: runtime.RawExtension{Raw: []byte(`{"apiVersion":"infrastructure.cluster.x-k8s.io/v1alpha1","kind":"TartMachine","spec":{"image":{"version":"v1.14.0","schematicID":"schematic"},"hostSelector":{"architecture":"arm64"}}}`)},
+		},
+	}
+	response := &runtimehooksv1.UpdateMachineResponse{}
+	updateMachineWithClient(t.Context(), request, response, reader)
+	if response.Status == runtimehooksv1.ResponseStatusFailure {
+		return
+	}
+	if response.RetryAfterSeconds == 0 {
+		t.Fatalf("response = %#v, want either a failure or a retry, never proceeding to apply", response)
+	}
+}
+
+// TestCanUpdateMachineSetRejectsHostRefTemplateChangeは、MachineSet templateのhostRef変更も
+// hostSelector変更と同様にCanUpdateMachineSetがFailureを返すことを検証する。Update Extensionが
+// 差分全体をcoverしない場合、CAPIはimmutable rollout(Machine replacement)にfallbackするため、
+// hostRefのようなinitial-only fieldの変更は明示的にFailureとして止めなければならない。
+func TestCanUpdateMachineSetRejectsHostRefTemplateChange(t *testing.T) {
+	t.Parallel()
+
+	current := runtime.RawExtension{Raw: []byte(`{"apiVersion":"infrastructure.cluster.x-k8s.io/v1alpha1","kind":"TartMachineTemplate","spec":{"template":{"spec":{"image":{"version":"v1.13.0","schematicID":"old"},"hostRef":{"name":"host-a"}}}}}`)}
+	desired := runtime.RawExtension{Raw: []byte(`{"apiVersion":"infrastructure.cluster.x-k8s.io/v1alpha1","kind":"TartMachineTemplate","spec":{"template":{"spec":{"image":{"version":"v1.14.0","schematicID":"new"},"hostRef":{"name":"host-b"}}}}}`)}
+	request := &runtimehooksv1.CanUpdateMachineSetRequest{
+		Current: runtimehooksv1.CanUpdateMachineSetRequestObjects{
+			MachineSet:                    v1beta2.MachineSet{},
+			InfrastructureMachineTemplate: current,
+		},
+		Desired: runtimehooksv1.CanUpdateMachineSetRequestObjects{
+			MachineSet:                    v1beta2.MachineSet{},
+			InfrastructureMachineTemplate: desired,
+		},
+	}
+	response := &runtimehooksv1.CanUpdateMachineSetResponse{}
+	canUpdateMachineSet(t.Context(), request, response)
+	if response.Status != runtimehooksv1.ResponseStatusFailure || response.InfrastructureMachineTemplatePatch.IsDefined() {
+		t.Fatalf("hostRef template mutation response = %#v, want failure without patch", response)
 	}
 }

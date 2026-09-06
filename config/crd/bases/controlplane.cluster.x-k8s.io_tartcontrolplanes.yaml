@@ -279,11 +279,13 @@ spec:
                 format: int32
                 type: integer
               version:
-                description: versionはdesired Kubernetes versionである。先頭にvを付けたsemantic
-                  versioningに従わなければならない。
+                description: |-
+                  versionはdesired Kubernetes versionである。先頭にvを付けたsemantic versioning(prerelease/build
+                  metadataは任意)に従わなければならない。下限versionの強制はTalos/Kubernetesの互換性表に委ねるため、
+                  ここではsemver形式としてparse可能であることだけを検証する。
                 maxLength: 256
                 minLength: 1
-                pattern: ^v[0-9]+\.[0-9]+\.[0-9]+.*$
+                pattern: ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$
                 type: string
             required:
             - bootstrapConfigTemplateRef
@@ -370,10 +372,6 @@ spec:
                   upgrade手順のstepやprogram counterは保持せず、再起動後もspecとcluster観測だけから再計算する。
                 minProperties: 1
                 properties:
-                  failureMessage:
-                    description: failureMessageは最後のupgrade試行が失敗した理由である。成功または未実行の場合は空になる。
-                    maxLength: 1024
-                    type: string
                   observedVersion:
                     description: observedVersionはclusterのKubernetes componentから観測した最も低いversionである。
                     maxLength: 256

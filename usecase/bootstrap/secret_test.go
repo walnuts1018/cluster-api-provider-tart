@@ -20,10 +20,11 @@ func TestValidateConfigSecret(t *testing.T) {
 		want   error
 	}{
 		{name: "nil", want: ErrMissingConfigSecret},
-		{name: "mutable", secret: &corev1.Secret{Name: "config", Data: map[string][]byte{"patch.yaml": []byte("machine: {}")}}, want: ErrConfigSecretNotImmutable},
+		{name: "mutable", secret: &corev1.Secret{Name: "config", Data: map[string][]byte{ConfigurationPatchesKey: []byte("machine: {}")}}, want: ErrConfigSecretNotImmutable},
 		{name: "empty", secret: &corev1.Secret{Name: "config", Immutable: &immutable}, want: ErrConfigSecretEmpty},
-		{name: "only empty values", secret: &corev1.Secret{Name: "config", Immutable: &immutable, Data: map[string][]byte{"patch.yaml": nil}}, want: ErrConfigSecretEmpty},
-		{name: "valid", secret: &corev1.Secret{Name: "config", Immutable: &immutable, Data: map[string][]byte{"patch.yaml": []byte("machine: {}")}}},
+		{name: "only empty values", secret: &corev1.Secret{Name: "config", Immutable: &immutable, Data: map[string][]byte{ConfigurationPatchesKey: nil}}, want: ErrConfigSecretEmpty},
+		{name: "unrecognized key", secret: &corev1.Secret{Name: "config", Immutable: &immutable, Data: map[string][]byte{"value": []byte("machine: {}")}}, want: ErrConfigSecretEmpty},
+		{name: "valid", secret: &corev1.Secret{Name: "config", Immutable: &immutable, Data: map[string][]byte{ConfigurationPatchesKey: []byte("machine: {}")}}},
 	}
 
 	for _, tt := range tests {

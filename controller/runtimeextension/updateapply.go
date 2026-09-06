@@ -87,11 +87,15 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 		return verifyConfigurationRecovered(ctx, updater)
 	case domainupdate.ChangeUpdatable:
 		// strategyに従って適用するため、この関数の後半で扱う。
+	default:
+		// 未知のChangeClassをChangeUpdatableと同じ経路へ暗黙に進めない。安全に評価できない差分は
+		// fail-closedで停止する。
+		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be classified into a recognized change class; the in-place update is stopped."}
 	}
-	if decision.ApplyMode == domainupdate.ApplyModeNoReboot {
+	if decision.ApplyMode == domainupdate.ApplyModeApplyOnly {
 		if err := updater.node.ApplyConfigurationNoReboot(ctx, updater.desired); err != nil {
-			// NoReboot strategyはproviderからrebootへfallbackせず、失敗を明示的に停止する。
-			return configurationUpdateOutcome{failureMessage: "The NoReboot machine configuration apply failed; the update is stopped without falling back to a reboot."}
+			// ApplyOnly strategyはproviderからrebootへfallbackせず、失敗を明示的に停止する。
+			return configurationUpdateOutcome{failureMessage: "The ApplyOnly machine configuration apply failed; the update is stopped without falling back to a reboot."}
 		}
 		return configurationUpdateOutcome{retryMessage: "The machine configuration was applied without a reboot; waiting for the node to report the desired configuration."}
 	}
@@ -185,7 +189,7 @@ func machineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Mac
 // bootstrapUpdateStrategyは、CAPI MachineがreferenceするTartBootstrapConfigのconfiguration apply strategyを返す。
 func bootstrapUpdateStrategy(config *bootstrapv1alpha1.TartBootstrapConfig) bootstrapv1alpha1.ConfigurationApplyStrategy {
 	if config == nil {
-		return bootstrapv1alpha1.ConfigurationApplyStrategyReboot
+		return bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot
 	}
 	return config.Spec.EffectiveConfigurationApplyStrategy()
 }

@@ -18,8 +18,11 @@ const (
 
 // TalosImageSpecはTalos OS versionとsystem extension setの唯一の正本である。同じschematicをboot assetとinstaller imageの双方に使用する。
 type TalosImageSpec struct {
-	// versionはdesired Talos OS versionである。先頭にvを付けたsemantic versioningに従わなければならない。
-	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"
+	// versionはdesired Talos OS versionである。先頭にvを付けたsemantic versioning(prerelease/build metadataは任意)に従わなければならない。
+	// TartはTalos v1.14.0以降の multi-document machine configurationにのみ対応するため、v1.14.0未満は拒否する。
+	// このfieldはTartMachineTemplateからも共有されるため、この検証はTartMachineTemplate経由の作成/更新にも適用される。
+	// +kubebuilder:validation:Pattern="^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+	// +kubebuilder:validation:XValidation:rule="int(self.split('.')[0].substring(1)) > 1 || (int(self.split('.')[0].substring(1)) == 1 && int(self.split('.')[1]) >= 14)",message="Talos version must be v1.14.0 or later"
 	Version string `json:"version"`
 	// schematicIDはImage Factory schematic identifierであり、installされるsystem extension setも決定する。
 	// +kubebuilder:validation:MinLength=1

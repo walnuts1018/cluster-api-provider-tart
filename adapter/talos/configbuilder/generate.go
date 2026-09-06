@@ -101,47 +101,6 @@ func GenerateMachineConfiguration(input usecasebootstrap.MachineConfigurationCon
 	return configuration, nil
 }
 
-// ValidateProviderOwnedConfigurationはユーザーが指定したcomplete configurationを、同じcluster contextから生成したprovider-owned基準と比較する。value入力がprovider invariantを迂回しないよう、configurationの保存またはTalos APIへの送信前に呼び出す。
-func ValidateProviderOwnedConfiguration(configuration []byte, input usecasebootstrap.MachineConfigurationContext) error {
-	if len(bytes.TrimSpace(configuration)) == 0 || strings.TrimSpace(input.ClusterName) == "" {
-		return fmt.Errorf("%w: configuration context is incomplete", domainbootstrap.ErrConfigurationConflict)
-	}
-	bundle, err := secretsBundle(input)
-	if err != nil {
-		return fmt.Errorf("%w: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	mType, err := machineType(input.MachineRole)
-	if err != nil {
-		return fmt.Errorf("%w: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	endpoint, err := canonicalEndpoint(input.ControlPlaneEndpoint)
-	if err != nil {
-		return fmt.Errorf("%w: control-plane endpoint: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	kubernetesVersion := strings.TrimPrefix(strings.TrimSpace(input.KubernetesVersion), "v")
-	if kubernetesVersion == "" {
-		return fmt.Errorf("%w: Kubernetes version is empty", domainbootstrap.ErrConfigurationConflict)
-	}
-	generation, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(bundle))
-	if err != nil {
-		return fmt.Errorf("%w: create provider-owned configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	base, err := generation.Config(mType)
-	if err != nil {
-		return fmt.Errorf("%w: generate provider-owned configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	effective, err := configloader.NewFromBytes(configuration)
-	if err != nil {
-		return fmt.Errorf("%w: load effective configuration: %w", domainbootstrap.ErrConfigurationConflict, err)
-	}
-	if input.InstallDisk != nil {
-		if err := validateInstallDiskConfiguration(effective, *input.InstallDisk); err != nil {
-			return fmt.Errorf("%w: install disk: %w", domainbootstrap.ErrConfigurationConflict, err)
-		}
-	}
-	return validateProviderOwnedConfiguration(base, effective, input.ClusterName, endpoint, mType)
-}
-
 func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, clusterName, endpoint string, machineType talosmachine.Type) error {
 	if base == nil || effective == nil {
 		return fmt.Errorf("%w: configuration provider is unavailable", domainbootstrap.ErrConfigurationConflict)

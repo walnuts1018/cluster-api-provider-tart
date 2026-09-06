@@ -97,11 +97,11 @@ spec:
                           update policyを共有する。
                         properties:
                           configuration:
-                            default: Reboot
-                            description: configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はRebootである。
+                            default: StagedReboot
+                            description: configurationはeffective Talos machine configurationの適用strategyを指定する。既定値はStagedRebootである。
                             enum:
-                            - Reboot
-                            - NoReboot
+                            - StagedReboot
+                            - ApplyOnly
                             type: string
                         type: object
                     type: object

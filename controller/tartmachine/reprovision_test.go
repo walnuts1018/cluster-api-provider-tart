@@ -112,7 +112,7 @@ func testConfiguration(t *testing.T, bundle *secrets.Bundle) []byte {
 		KubernetesVersion:    "v1.34.1",
 		MachineRole:          domainbootstrap.MachineRoleWorker,
 		SecretsBundle:        bundle,
-		InstallDisk: &domainbootstrap.InstallDisk{
+		InstallDisk: &domainbootstrap.DiskIdentity{
 			DevicePath: "/dev/vda",
 			SizeBytes:  64 * 1024 * 1024 * 1024,
 			Serial:     "disk-a",

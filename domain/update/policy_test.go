@@ -15,9 +15,9 @@ func TestResolveApplyMode(t *testing.T) {
 		want   ApplyMode
 		err    error
 	}{
-		"reboot":                                {policy: bootstrapv1alpha1.ConfigurationApplyStrategyReboot, want: ApplyModeReboot},
-		"unset resolves to a controlled reboot": {want: ApplyModeReboot},
-		"no reboot":                             {policy: bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, want: ApplyModeNoReboot},
+		"staged reboot":                         {policy: bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot, want: ApplyModeStagedReboot},
+		"unset resolves to a controlled reboot": {want: ApplyModeStagedReboot},
+		"apply only":                            {policy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly, want: ApplyModeApplyOnly},
 		"unknown strategy":                      {policy: bootstrapv1alpha1.ConfigurationApplyStrategy("Whatever"), err: ErrPolicyUnknown},
 	}
 

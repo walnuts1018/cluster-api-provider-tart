@@ -688,7 +688,7 @@ func validateDesiredBootstrapStrategy(desiredRaw runtime.RawExtension, specPath 
 		return errors.New("bootstrap configuration apply strategy is not a string")
 	}
 	switch bootstrapv1alpha1.ConfigurationApplyStrategy(policy) {
-	case bootstrapv1alpha1.ConfigurationApplyStrategyReboot, bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot:
+	case bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot, bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly:
 		return nil
 	default:
 		return errors.New("bootstrap configuration apply strategy is unknown")

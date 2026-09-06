@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/tools/record"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,6 +63,8 @@ type TartControlPlaneReconciler struct {
 	KubernetesUpgrade talos.KubernetesUpgradeRunner
 	// KubernetesUpgradeIdentityはupgrade leaseのholder identityである。nilの場合はhost名とprocess IDから導出する。
 	KubernetesUpgradeIdentity string
+	// Recorderは不正なCA rotation requestなど利用者へ通知すべき事象をKubernetes Eventとして記録する。SetupWithManagerで未設定の場合はmanagerから解決する。
+	Recorder record.EventRecorder
 }
 
 // NewTartControlPlaneReconcilerはclientのみを設定したTartControlPlaneReconcilerを構築する。
@@ -1306,14 +1309,15 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	}
 	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, conditionStatus(controlPlaneReady), availableReason, availableMessage, cp.Generation)
 	// Kubernetes version upgradeが未収束の間はUpToDateへ倒さない。desired versionのsource of truthはspec.versionである。
-	kubernetesUpToDate := talos.NormalizeKubernetesVersion(upgradeState.observedVersion) == talos.NormalizeKubernetesVersion(cp.Spec.Version)
-	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired && kubernetesUpToDate && !upgradeState.active && upgradeState.failureMessage == ""
+	// upgradeState.unknownの間は、staleなobservedVersionがdesiredと偶然一致していてもUpToDateへ断定しない。
+	kubernetesUpToDate := !upgradeState.unknown && talos.NormalizeKubernetesVersion(upgradeState.observedVersion) == talos.NormalizeKubernetesVersion(cp.Spec.Version)
+	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired && kubernetesUpToDate && !upgradeState.active
 	upToDateReason := "MachinesNotUpToDate"
 	upToDateMessage := "Not all desired control-plane Machines report UpToDate."
 	if !bootstrapState.workloadReady {
 		upToDateReason = controller.ReasonWorkloadAPIUnavailable
 		upToDateMessage = "The workload Kubernetes API is not ready yet."
-	} else if !kubernetesUpToDate || upgradeState.active || upgradeState.failureMessage != "" {
+	} else if !kubernetesUpToDate || upgradeState.active {
 		upToDateReason = "KubernetesVersionNotUpToDate"
 		upToDateMessage = "The cluster has not converged to the desired Kubernetes version yet."
 	} else if upToDateReady {
@@ -1331,9 +1335,12 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	cp.Status.KubernetesUpgrade = controlplanev1alpha1.TartControlPlaneKubernetesUpgradeStatus{
 		TargetVersion:   upgradeState.targetVersion,
 		ObservedVersion: upgradeState.observedVersion,
-		FailureMessage:  upgradeState.failureMessage,
 	}
-	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneKubernetesUpgradingCondition, conditionStatus(upgradeState.active), upgradeState.reason, upgradeState.message, cp.Generation)
+	kubernetesUpgradingStatus := conditionStatus(upgradeState.active)
+	if upgradeState.unknown {
+		kubernetesUpgradingStatus = metav1.ConditionUnknown
+	}
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneKubernetesUpgradingCondition, kubernetesUpgradingStatus, upgradeState.reason, upgradeState.message, cp.Generation)
 	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
 	controller.SetPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation
@@ -1487,7 +1494,12 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 		return controlPlaneCARotationState{active: true, reason: "RotationGenerationInvalid", message: "The next CA rotation secret bundle generation is invalid."}, err
 	}
 	if *cluster.Spec.CARotationRequestedGeneration != target {
-		return notRequested, nil
+		// 要求されたgenerationが次世代と一致しない場合、「未要求」と同じ扱いにはせず、要求自体が
+		// 無効であることを区別できるreasonで返す。clusterは正常稼働中のためactiveにはしない。
+		if r.Recorder != nil {
+			r.Recorder.Eventf(cluster, corev1.EventTypeWarning, "InvalidCARotationRequest", "The requested CA rotation generation %d does not match the next expected generation %d.", *cluster.Spec.CARotationRequestedGeneration, target)
+		}
+		return controlPlaneCARotationState{reason: "InvalidCARotationRequest", message: "The requested CA rotation generation does not match the next expected generation."}, nil
 	}
 
 	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive)
@@ -1722,6 +1734,9 @@ func (r *TartControlPlaneReconciler) enqueueAllControlPlanes(ctx context.Context
 }
 
 func (r *TartControlPlaneReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("tartcontrolplane-controller") //nolint:staticcheck // record.EventRecorderを型として使う既存箇所と合わせるため、新APIへの移行は別途まとめて行う
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&controlplanev1alpha1.TartControlPlane{}).
 		Owns(&clusterv1.Machine{}).

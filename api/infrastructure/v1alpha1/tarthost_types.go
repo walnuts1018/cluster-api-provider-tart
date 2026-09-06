@@ -195,7 +195,7 @@ type TartHostSpec struct {
 	DeletionApproval *DeletionApproval `json:"deletionApproval,omitempty"`
 }
 
-// DiskInventoryはHostのraw hardware inventoryから観測したdiskである。stableなTalos CEL disk selectorはCLIまたはhelper toolが生成し、このinventory schemaへhardcodeしない。
+// DiskInventoryはHostのraw hardware inventoryから観測したdiskである。
 type DiskInventory struct {
 	SizeBytes  int64    `json:"sizeBytes"`
 	DevicePath string   `json:"devicePath,omitempty"`
@@ -207,6 +207,15 @@ type DiskInventory struct {
 	Rotational bool     `json:"rotational"`
 	ReadOnly   bool     `json:"readOnly"`
 	Symlinks   []string `json:"symlinks,omitempty"`
+
+	// stableSelectorは、このdiskを同じHost上の他のdiskと区別できる最も具体的なTalos CEL disk
+	// selectorのpreviewである。install targetの選択が実際に生成するselectorと同じ規則
+	// (WWID→serial→bus path→size/rotationalの順)から算出した観測結果であり、ユーザーが
+	// TartBootstrapConfigのraw patchでstorage documentのdisk selectorを書く際に、WWID等の
+	// 生値を読み取って比較する必要がないようにするための参考情報である。他のdiskと区別できない
+	// 場合は空になる。
+	// +optional
+	StableSelector string `json:"stableSelector,omitempty"`
 }
 
 // NetworkInterfaceInventoryはHostで観測したnetwork interfaceである。

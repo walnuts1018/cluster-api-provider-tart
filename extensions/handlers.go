@@ -34,6 +34,7 @@ const (
 	tartBootstrapConfigKind               = "TartBootstrapConfig"
 	tartBootstrapConfigTemplateKind       = "TartBootstrapConfigTemplate"
 	imageField                            = "image"
+	versionField                          = "version"
 	unsafeUpdateMessage                   = "The requested in-place update contains an unsupported or unsafe difference; no patch was returned."
 	updateClientUnavailable               = "The Runtime Extension Kubernetes client is unavailable; the update cannot be executed safely."
 	updateVersionRejected                 = "The requested Talos version transition is not supported; the in-place update is stopped."
@@ -598,7 +599,7 @@ func planMachineUpdate(req *runtimehooksv1.CanUpdateMachineRequest) (runtimehook
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	infrastructurePatch, err := planRawObjectPatch(req.Current.InfrastructureMachine, req.Desired.InfrastructureMachine, infrav1alpha1.GroupVersion.String(), tartMachineKind, []string{imageField, "version"}, []string{imageField, "schematicID"})
+	infrastructurePatch, err := planRawObjectPatch(req.Current.InfrastructureMachine, req.Desired.InfrastructureMachine, infrav1alpha1.GroupVersion.String(), tartMachineKind, []string{imageField, versionField}, []string{imageField, "schematicID"})
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
@@ -624,7 +625,7 @@ func planMachineSetUpdate(req *runtimehooksv1.CanUpdateMachineSetRequest) (runti
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	infrastructurePatch, err := planRawTemplatePatch(req.Current.InfrastructureMachineTemplate, req.Desired.InfrastructureMachineTemplate, infrav1alpha1.GroupVersion.String(), "TartMachineTemplate", []string{imageField, "version"}, []string{imageField, "schematicID"})
+	infrastructurePatch, err := planRawTemplatePatch(req.Current.InfrastructureMachineTemplate, req.Desired.InfrastructureMachineTemplate, infrav1alpha1.GroupVersion.String(), "TartMachineTemplate", []string{imageField, versionField}, []string{imageField, "schematicID"})
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
@@ -640,7 +641,7 @@ var bootstrapUpdatableSpecPaths = [][]string{{"configPatchesSecretRef"}, {"updat
 // machineUpdatableSpecPathsは、CAPI Machine specのうちin-place updateで変更してよいpathである。
 // versionはTartControlPlaneが実行したcluster-wide Kubernetes upgradeの結果をMachineへ伝播するためだけに許可し、
 // このExtensionからupgrade-k8s相当の処理を実行することはない。
-var machineUpdatableSpecPaths = [][]string{{"version"}}
+var machineUpdatableSpecPaths = [][]string{{versionField}}
 
 // planBootstrapConfigPatchは、TartBootstrapConfigのconfiguration update policyに従ってraw patch参照の変更を許可する。
 // InitialOnly policyのconfigurationは初回provisioning後に変更できないため、patchを返さず安全停止する。

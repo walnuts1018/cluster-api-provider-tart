@@ -22,8 +22,6 @@ const (
 	iPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
 	// iPXEBootFileNameARM64はarm64用のiPXEローダのファイル名である。
 	iPXEBootFileNameARM64 = "ipxe-arm64.efi"
-	// iPXEBootFileNameDefaultは既定のiPXEローダのファイル名である。
-	iPXEBootFileNameDefault = "ipxe.efi"
 
 	// dhcpPortはDHCPサーバーのポートである。
 	dhcpPort = 67

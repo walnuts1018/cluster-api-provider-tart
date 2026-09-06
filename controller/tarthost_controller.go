@@ -98,8 +98,8 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if endpoint != "" {
 			current.Status.Addresses = hostAddresses(endpoint)
 		}
-		observedHosts := make([]infrav1alpha1.TartHost, len(hosts.Items))
-		copy(observedHosts, hosts.Items)
+		observedHosts := make([]infrav1alpha1.TartHost, 0, len(hosts.Items)+1)
+		observedHosts = append(observedHosts, hosts.Items...)
 		foundCurrent := false
 		for index := range observedHosts {
 			if observedHosts[index].Name == current.Name && observedHosts[index].Namespace == current.Namespace {
@@ -346,7 +346,7 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 
 func (r *TartHostReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorderFor("tarthost-controller")
+		r.Recorder = mgr.GetEventRecorderFor("tarthost-controller") //nolint:staticcheck // record.EventRecorderを型として使う既存箇所と合わせるため、新APIへの移行は別途まとめて行う
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&infrav1alpha1.TartHost{}).

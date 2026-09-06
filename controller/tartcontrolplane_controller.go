@@ -43,6 +43,12 @@ const (
 	controlPlaneEtcdMemberID     = "tart.cluster.x-k8s.io/etcd-member-id"
 	controlPlaneEtcdDeleteHook   = clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/tart-etcd-member"
 	controlPlaneScaleDownRequeue = 30 * time.Second
+	// reasonCATrustUpdateFailedはCA rotationの各段階でTalos machine configurationへのapplyが失敗した場合のreasonである。
+	reasonCATrustUpdateFailed = "CATrustUpdateFailed"
+	// reasonCAConfigurationUnrecognizedは、observationのCA trust stageが既知のいずれの段階とも一致しない場合のreasonである。
+	reasonCAConfigurationUnrecognized = "CAConfigurationUnrecognized"
+	// messageCAConfigurationUnrecognizedはreasonCAConfigurationUnrecognizedに対応するmessageである。
+	messageCAConfigurationUnrecognized = "A control-plane Machine reports a CA trust configuration that cannot be safely classified; CA rotation is stopped."
 )
 
 // TartControlPlaneReconcilerはTartControlPlane objectをreconcileする。
@@ -1437,6 +1443,40 @@ type controlPlaneCARotationObservation struct {
 
 // reconcileCARotationはTartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationを、Talos公式の段階的CA更新手順(accepted CA追加→issuing CA切替→旧CA削除)に沿って進める。
 // 進行段階はStatusのstep番号ではなく、毎回Pending/Active bundle Secretと各control-plane Machineの実際のTalos machine configurationから再計算するため、controller再起動後も安全に継続できる。
+// observeControlPlaneCARotationは、削除中でない各control-plane MachineへTalos認証接続してCA trust stageを観測する。
+// 途中で観測不能なMachineがあれば、rotationを一時停止するstateをhaltStateとして返す(errは返さずnilエラーで停止する既存の挙動を維持する)。
+func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.Context, machines []clusterv1.Machine, activeBundle, pendingBundle *secrets.Bundle, activeCAs, pendingCAs controlplane.RotationCertificateAuthorities) ([]controlPlaneCARotationObservation, *controlPlaneCARotationState) {
+	observations := make([]controlPlaneCARotationObservation, 0, len(machines))
+	for index := range machines {
+		machine := &machines[index]
+		if !machine.DeletionTimestamp.IsZero() {
+			continue
+		}
+		hostObject, _, err := r.observeMachineIdentity(ctx, machine)
+		if err != nil {
+			return nil, &controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "A control-plane Machine could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}
+		}
+		endpoint := hostTalosEndpoint(hostObject)
+		talosClient, usedPending, err := r.dialForRotation(ctx, endpoint, activeBundle, pendingBundle)
+		if err != nil {
+			return nil, &controlPlaneCARotationState{active: true, reason: "MachineUnreachable", message: "A control-plane Machine Talos API could not be reached; CA rotation is paused.", requeueAfter: 30 * time.Second}
+		}
+		configuration, configErr := talosClient.ActiveMachineConfiguration(ctx)
+		if closeErr := talosClient.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		if configErr != nil {
+			return nil, &controlPlaneCARotationState{active: true, reason: "MachineConfigurationUnavailable", message: "A control-plane Machine active configuration could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}
+		}
+		stage, stageErr := controlplane.ObserveCATrustStage(configuration, activeCAs, pendingCAs)
+		if stageErr != nil || stage == controlplane.CATrustStageUnknown {
+			return nil, &controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}
+		}
+		observations = append(observations, controlPlaneCARotationObservation{host: hostObject, endpoint: endpoint, usedPending: usedPending, stage: stage})
+	}
+	return observations, nil
+}
+
 func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, machines []clusterv1.Machine, scaleDownPending bool) (controlPlaneCARotationState, error) {
 	notRequested := controlPlaneCARotationState{reason: "NotRequested", message: "No CA rotation has been requested."}
 	if cluster == nil || cluster.Spec.CARotationRequestedGeneration == nil {
@@ -1466,33 +1506,9 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 		return controlPlaneCARotationState{active: true, reason: "PendingBundleUnavailable", message: "The next-generation Pending cluster secret bundle is not available yet.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
 	}
 
-	observations := make([]controlPlaneCARotationObservation, 0, len(machines))
-	for index := range machines {
-		machine := &machines[index]
-		if !machine.DeletionTimestamp.IsZero() {
-			continue
-		}
-		hostObject, _, err := r.observeMachineIdentity(ctx, machine)
-		if err != nil {
-			return controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "A control-plane Machine could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
-		}
-		endpoint := hostTalosEndpoint(hostObject)
-		talosClient, usedPending, err := r.dialForRotation(ctx, endpoint, activeBundle, pendingBundle)
-		if err != nil {
-			return controlPlaneCARotationState{active: true, reason: "MachineUnreachable", message: "A control-plane Machine Talos API could not be reached; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
-		}
-		configuration, configErr := talosClient.ActiveMachineConfiguration(ctx)
-		if closeErr := talosClient.Close(); closeErr != nil {
-			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
-		}
-		if configErr != nil {
-			return controlPlaneCARotationState{active: true, reason: "MachineConfigurationUnavailable", message: "A control-plane Machine active configuration could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
-		}
-		stage, stageErr := controlplane.ObserveCATrustStage(configuration, activeCAs, pendingCAs)
-		if stageErr != nil || stage == controlplane.CATrustStageUnknown {
-			return controlPlaneCARotationState{active: true, reason: "CAConfigurationUnrecognized", message: "A control-plane Machine reports a CA trust configuration that cannot be safely classified; CA rotation is stopped."}, nil //nolint:nilerr
-		}
-		observations = append(observations, controlPlaneCARotationObservation{host: hostObject, endpoint: endpoint, usedPending: usedPending, stage: stage})
+	observations, haltState := r.observeControlPlaneCARotation(ctx, machines, activeBundle, pendingBundle, activeCAs, pendingCAs)
+	if haltState != nil {
+		return *haltState, nil
 	}
 	if len(observations) == 0 {
 		return controlPlaneCARotationState{active: true, reason: "MachineUnavailable", message: "No control-plane Machine is available yet for CA rotation.", requeueAfter: 30 * time.Second}, nil
@@ -1512,7 +1528,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 				continue
 			}
 			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, false); err != nil {
-				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Adding the next-generation certificate authorities to a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+				return controlPlaneCARotationState{active: true, reason: reasonCATrustUpdateFailed, message: "Adding the next-generation certificate authorities to a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "AddingAcceptedCA", message: "CA rotation is adding the next-generation certificate authorities as accepted CAs on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
@@ -1522,7 +1538,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 				continue
 			}
 			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, true); err != nil {
-				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Switching the issuing certificate authority on a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+				return controlPlaneCARotationState{active: true, reason: reasonCATrustUpdateFailed, message: "Switching the issuing certificate authority on a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "SwitchingIssuingCA", message: "CA rotation is switching the issuing certificate authority to the next generation on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
@@ -1532,7 +1548,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 				continue
 			}
 			if err := r.finalizeCATrust(ctx, observation, activeBundle, pendingBundle, pendingCAs); err != nil {
-				return controlPlaneCARotationState{active: true, reason: "CATrustUpdateFailed", message: "Removing the previous-generation certificate authority from a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
+				return controlPlaneCARotationState{active: true, reason: reasonCATrustUpdateFailed, message: "Removing the previous-generation certificate authority from a control-plane Machine failed.", requeueAfter: 15 * time.Second}, err
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "RemovingAcceptedCA", message: "CA rotation is removing the previous-generation certificate authority from every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
@@ -1541,8 +1557,10 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 			return controlPlaneCARotationState{active: true, reason: "CARotationPromotionFailed", message: "CA rotation completed on every control-plane Machine, but promoting the active secret bundle generation failed.", requeueAfter: 15 * time.Second}, err
 		}
 		return controlPlaneCARotationState{reason: "Completed", message: "CA rotation completed; the active cluster secret bundle generation was promoted."}, nil
+	case controlplane.CATrustStageUnknown:
+		return controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}, nil
 	default:
-		return controlPlaneCARotationState{active: true, reason: "CAConfigurationUnrecognized", message: "A control-plane Machine reports a CA trust configuration that cannot be safely classified; CA rotation is stopped."}, nil
+		return controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}, nil
 	}
 }
 

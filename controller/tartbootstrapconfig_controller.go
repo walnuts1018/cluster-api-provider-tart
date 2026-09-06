@@ -64,7 +64,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
-		if errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, bootstrap.ErrInstallDiskUnavailable) {
+		if retryable := errors.Is(err, errCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, bootstrap.ErrInstallDiskUnavailable); retryable {
 			result, reportErr := r.report(ctx, &config, "ClusterContextUnavailable", "The CAPI Cluster and active Talos secret bundle are not available for configuration generation yet.")
 			if reportErr != nil {
 				return ctrl.Result{}, reportErr
@@ -72,16 +72,8 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			result.RequeueAfter = 15 * time.Second
 			return result, nil
 		}
-		if errors.Is(err, errBootstrapIdentityConflict) {
-			return r.report(ctx, &config, infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped.")
-		}
-		if errors.Is(err, bootstrap.ErrConfigurationConflict) {
-			return r.report(ctx, &config, "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant.")
-		}
-		if errors.Is(err, bootstrap.ErrInstallDiskAmbiguous) || errors.Is(err, bootstrap.ErrInstallConfigurationInvalid) || errors.Is(err, bootstrap.ErrConfigurationInputAmbiguous) {
-			return r.report(ctx, &config, "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk.")
-		}
-		return r.report(ctx, &config, "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration.")
+		reason, message := classifyConfigurationError(err)
+		return r.report(ctx, &config, reason, message)
 	}
 	digest, err := bootstrap.DigestEffectiveConfiguration(completeConfiguration)
 	if err != nil {
@@ -333,6 +325,20 @@ func (r *TartBootstrapConfigReconciler) installDiskForMachine(ctx context.Contex
 		})
 	}
 	return bootstrap.SelectInstallDisk(disks)
+}
+
+// classifyConfigurationErrorは、r.configurationが返した非retryableなerrorをReady Conditionのreason/messageへ分類する。
+func classifyConfigurationError(err error) (reason, message string) {
+	switch {
+	case errors.Is(err, errBootstrapIdentityConflict):
+		return infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped."
+	case errors.Is(err, bootstrap.ErrConfigurationConflict):
+		return "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant."
+	case errors.Is(err, bootstrap.ErrInstallDiskAmbiguous), errors.Is(err, bootstrap.ErrInstallConfigurationInvalid), errors.Is(err, bootstrap.ErrConfigurationInputAmbiguous):
+		return "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk."
+	default:
+		return "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration."
+	}
 }
 
 func (r *TartBootstrapConfigReconciler) report(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, reason, message string) (ctrl.Result, error) {

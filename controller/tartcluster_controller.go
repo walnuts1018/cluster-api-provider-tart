@@ -270,7 +270,7 @@ func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			if clusterName == "" {
 				return nil
 			}
-			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.GetNamespace(), Name: clusterName}}}
+			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.GetNamespace(), Name: clusterName}}} //nolint:modernize // NamespacedNameのfield名を明示した方がこの箇所では読みやすい
 		})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
 			clusterName := obj.GetLabels()[controlplane.ClusterNameLabel]

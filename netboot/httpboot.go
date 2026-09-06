@@ -94,7 +94,7 @@ func (h *HTTPBootHandler) handleIPXEScript(w http.ResponseWriter, r *http.Reques
 		if resolved, found, err := h.resolver.ResolveBootImage(r.Context(), mac); err != nil {
 			h.logger.Error("failed to resolve boot image, falling back to discovery image", "mac", mac, "error", err)
 		} else if found {
-			image = DiscoveryImage{Version: resolved.Version, SchematicID: resolved.SchematicID}
+			image = DiscoveryImage(resolved)
 			source = "resolved"
 		}
 	}

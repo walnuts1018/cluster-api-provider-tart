@@ -113,34 +113,28 @@ func (s *Server) Run(ctx context.Context) error {
 	errCh := make(chan error, 3)
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := s.dhcp.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			errCh <- fmt.Errorf("dhcp server: %w", err)
 			cancel()
 			return
 		}
 		errCh <- nil
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		if err := s.tftp.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			errCh <- fmt.Errorf("tftp server: %w", err)
 			cancel()
 			return
 		}
 		errCh <- nil
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		go func() {
 			<-ctx.Done()
-			if err := s.http.Shutdown(context.Background()); err != nil {
+			if err := s.http.Shutdown(context.Background()); err != nil { //nolint:contextcheck // ctxは既にDoneのため、shutdown処理には新しいcontextを使う必要がある
 				s.logger.Error("failed to shut down HTTP boot server", "error", err)
 			}
 		}()
@@ -151,7 +145,7 @@ func (s *Server) Run(ctx context.Context) error {
 			return
 		}
 		errCh <- nil
-	}()
+	})
 
 	wg.Wait()
 	close(errCh)

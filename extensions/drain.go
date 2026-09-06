@@ -112,7 +112,7 @@ func drainNode(ctx context.Context, clientset kubernetes.Interface, nodeName str
 		if !podRequiresEviction(pod) {
 			continue
 		}
-		eviction := &policyv1.Eviction{ObjectMeta: metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace}}
+		eviction := &policyv1.Eviction{ObjectMeta: metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace}} //nolint:modernize // metav1.ObjectMetaはEvictionの唯一のembedded fieldであり、field名を明示した方がこの箇所では読みやすい
 		evictErr := clientset.PolicyV1().Evictions(pod.Namespace).Evict(ctx, eviction)
 		switch {
 		case evictErr == nil:

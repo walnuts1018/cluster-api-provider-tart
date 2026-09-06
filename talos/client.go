@@ -239,6 +239,8 @@ func SetMachineCertificateAuthority(configuration []byte, issuing *x509.PEMEncod
 }
 
 // SetKubernetesAPICertificateAuthorityはKubeAPIServerCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API serverのCA rotationに使う。
+//
+//nolint:dupl // SetKubernetesAggregatorCertificateAuthorityと構造は同じだが、操作対象のTalos config document型が異なるため共通化しない。
 func SetKubernetesAPICertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
@@ -272,6 +274,8 @@ func SetKubernetesAPICertificateAuthority(configuration []byte, issuing *x509.PE
 }
 
 // SetKubernetesAggregatorCertificateAuthorityはKubeAggregatorCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API aggregator flowのCA rotationに使う。
+//
+//nolint:dupl // SetKubernetesAPICertificateAuthorityと構造は同じだが、操作対象のTalos config document型が異なるため共通化しない。
 func SetKubernetesAggregatorCertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")

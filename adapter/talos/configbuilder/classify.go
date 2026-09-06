@@ -1,19 +1,15 @@
-package update
+package configbuilder
 
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"reflect"
 
-	"net/url"
-
-	"github.com/siderolabs/crypto/x509"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
-	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
-	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 )
 
@@ -23,33 +19,9 @@ const (
 	normalizedInstallerSchematic = "normalized"
 )
 
-// ChangeClassはdomain/updateの同名型へのエイリアスである。
-type ChangeClass = domainupdate.ChangeClass
-
-const (
-	ChangeNone                = domainupdate.ChangeNone
-	ChangeUpdatable           = domainupdate.ChangeUpdatable
-	ChangeReprovisionRequired = domainupdate.ChangeReprovisionRequired
-	ChangeInvariantConflict   = domainupdate.ChangeInvariantConflict
-)
-
-// Decisionはdomain/updateの同名型へのエイリアスである。
-type Decision = domainupdate.Decision
-
-// Evaluateはactive configurationとdesired configurationの差分をapply strategyと組み合わせて判定する。
-// 判定はrebootの要否ではなく「data、identityを破壊するか」というsafety boundaryで行う。
-// 純粋なstrategy分岐はdomain/update.Decideへ委譲する。
-func Evaluate(strategy bootstrapv1alpha1.ConfigurationApplyStrategy, active, desired []byte) (Decision, error) {
-	class, reason, err := ClassifyConfigurationChange(active, desired)
-	if err != nil {
-		return Decision{}, err
-	}
-	return domainupdate.Decide(class, reason, strategy)
-}
-
 // ClassifyConfigurationChangeは2つのcomplete machine configurationの差分を分類する。
 // configurationを読み込めない場合は判定できないためerrorを返し、呼び出し側はfail-closedで停止する。
-func ClassifyConfigurationChange(active, desired []byte) (ChangeClass, string, error) {
+func ClassifyConfigurationChange(active, desired []byte) (domainupdate.ChangeClass, string, error) {
 	active, err := normalizeInstallerImage(active)
 	if err != nil {
 		return "", "", err
@@ -66,24 +38,24 @@ func ClassifyConfigurationChange(active, desired []byte) (ChangeClass, string, e
 	if err != nil {
 		return "", "", fmt.Errorf("load desired machine configuration: %w", err)
 	}
-	activeDigest, err := configbuilder.DigestEffectiveConfiguration(active)
+	activeDigest, err := DigestEffectiveConfiguration(active)
 	if err != nil {
 		return "", "", fmt.Errorf("digest active machine configuration: %w", err)
 	}
-	desiredDigest, err := configbuilder.DigestEffectiveConfiguration(desired)
+	desiredDigest, err := DigestEffectiveConfiguration(desired)
 	if err != nil {
 		return "", "", fmt.Errorf("digest desired machine configuration: %w", err)
 	}
 	if activeDigest == desiredDigest {
-		return ChangeNone, "", nil
+		return domainupdate.ChangeNone, "", nil
 	}
 	if reason := invariantConflict(activeProvider, desiredProvider); reason != "" {
-		return ChangeInvariantConflict, reason, nil
+		return domainupdate.ChangeInvariantConflict, reason, nil
 	}
 	if reason := destructiveChange(activeProvider, desiredProvider); reason != "" {
-		return ChangeReprovisionRequired, reason, nil
+		return domainupdate.ChangeReprovisionRequired, reason, nil
 	}
-	return ChangeUpdatable, "The machine configuration difference preserves node data and identity.", nil
+	return domainupdate.ChangeUpdatable, "The machine configuration difference preserves node data and identity.", nil
 }
 
 // invariantConflictは、provider-ownedなcluster identity、PKI、endpoint、machine role、Kubernetes component version、
@@ -143,38 +115,11 @@ func destructiveChange(active, desired talosconfig.Provider) string {
 	return ""
 }
 
-func sameCertificateAndKey(left, right *x509.PEMEncodedCertificateAndKey) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return bytes.Equal(left.Crt, right.Crt) && bytes.Equal(left.Key, right.Key)
-}
-
 func sameEndpoint(left, right *url.URL) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
 	return left.String() == right.String()
-}
-
-func componentImages(provider talosconfig.Provider) [5]string {
-	var images [5]string
-	if config := provider.K8sAPIServerConfig(); config != nil {
-		images[0] = config.Image()
-	}
-	if config := provider.K8sControllerManagerConfig(); config != nil {
-		images[1] = config.Image()
-	}
-	if config := provider.K8sSchedulerConfig(); config != nil {
-		images[2] = config.Image()
-	}
-	if config := provider.K8sProxyConfig(); config != nil {
-		images[3] = config.Image()
-	}
-	if config := provider.K8sKubeletConfig(); config != nil {
-		images[4] = config.Image()
-	}
-	return images
 }
 
 func providerID(provider talosconfig.Provider) string {

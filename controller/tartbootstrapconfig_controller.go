@@ -14,10 +14,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -210,7 +211,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 	if !cluster.Spec.ControlPlaneEndpoint.IsValid() || clusterMachine.Spec.Version == "" {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
-	bundleName, err := controlplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
+	bundleName, err := domaincontrolplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
@@ -221,10 +222,10 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		}
 		return bootstrap.MachineConfigurationContext{}, err
 	}
-	if err := controlplane.ValidateBundleSecretContract(bundleSecret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive, providerCluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(bundleSecret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive, providerCluster.UID); err != nil {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
-	bundle, err := controlplane.DecodeBundleData(bundleSecret.Data, clusterID)
+	bundle, err := certbuilder.DecodeBundleData(bundleSecret.Data, clusterID)
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}

@@ -12,10 +12,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	"k8s.io/apimachinery/pkg/api/meta"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -29,7 +30,7 @@ type TartClusterReconciler struct {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=list;watch
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=list;watch
+// +kubebuilder:rbac:groups=domaincontrolplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -132,7 +133,7 @@ func (r *TartClusterReconciler) observeFailureDomains(ctx context.Context) ([]cl
 }
 
 func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32) error {
-	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
+	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
 		return err
 	}
@@ -140,11 +141,11 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	secret := &corev1.Secret{}
 	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
 	if apierrors.IsNotFound(err) {
-		data, generateErr := controlplane.GenerateBundleData(clusterID)
+		data, generateErr := certbuilder.GenerateBundleData(clusterID)
 		if generateErr != nil {
 			return generateErr
 		}
-		expected, buildErr := controlplane.BuildActiveSecret(cluster.Namespace, cluster.Name, clusterID, generation, metav1.OwnerReference{
+		expected, buildErr := domaincontrolplane.BuildActiveSecret(cluster.Namespace, cluster.Name, clusterID, generation, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
 			Kind:       tartClusterKind,
 			Name:       cluster.Name,
@@ -164,10 +165,10 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 	if err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, clusterID); err != nil {
+	if err := certbuilder.ValidateBundleData(secret.Data, clusterID); err != nil {
 		return err
 	}
 
@@ -181,7 +182,7 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 	if requested == nil {
 		return nil
 	}
-	target, err := controlplane.NextGeneration(activeGeneration)
+	target, err := domaincontrolplane.NextGeneration(activeGeneration)
 	if err != nil {
 		return err
 	}
@@ -190,14 +191,14 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 		return nil
 	}
 
-	name, err := controlplane.BundleName(cluster.Name, clusterID, target)
+	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, target)
 	if err != nil {
 		return err
 	}
 	secret := &corev1.Secret{}
 	err = r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, secret)
 	if apierrors.IsNotFound(err) {
-		activeName, activeErr := controlplane.BundleName(cluster.Name, clusterID, activeGeneration)
+		activeName, activeErr := domaincontrolplane.BundleName(cluster.Name, clusterID, activeGeneration)
 		if activeErr != nil {
 			return activeErr
 		}
@@ -205,18 +206,18 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: activeName}, activeSecret); err != nil {
 			return err
 		}
-		if err := controlplane.ValidateBundleSecretContract(activeSecret, cluster.Namespace, cluster.Name, clusterID, activeGeneration, controlplane.BundleStateActive, cluster.UID); err != nil {
+		if err := domaincontrolplane.ValidateBundleSecretContract(activeSecret, cluster.Namespace, cluster.Name, clusterID, activeGeneration, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
 			return err
 		}
-		activeBundle, err := controlplane.DecodeBundleData(activeSecret.Data, clusterID)
+		activeBundle, err := certbuilder.DecodeBundleData(activeSecret.Data, clusterID)
 		if err != nil {
 			return err
 		}
-		data, err := controlplane.GenerateRotatedBundleData(clusterID, activeBundle)
+		data, err := certbuilder.GenerateRotatedBundleData(clusterID, activeBundle)
 		if err != nil {
 			return err
 		}
-		expected, err := controlplane.BuildPendingSecret(cluster.Namespace, cluster.Name, clusterID, target, metav1.OwnerReference{
+		expected, err := domaincontrolplane.BuildPendingSecret(cluster.Namespace, cluster.Name, clusterID, target, metav1.OwnerReference{
 			APIVersion: infrav1alpha1.GroupVersion.String(),
 			Kind:       tartClusterKind,
 			Name:       cluster.Name,
@@ -233,10 +234,10 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 	if err != nil {
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, target, controlplane.BundleStatePending, cluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, target, domaincontrolplane.BundleStatePending, cluster.UID); err != nil {
 		return err
 	}
-	return controlplane.ValidateBundleData(secret.Data, clusterID)
+	return certbuilder.ValidateBundleData(secret.Data, clusterID)
 }
 
 func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *infrav1alpha1.TartCluster, bundleErr error) (ctrl.Result, error) {
@@ -273,7 +274,7 @@ func (r *TartClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			return []reconcile.Request{{NamespacedName: client.ObjectKey{Namespace: obj.GetNamespace(), Name: clusterName}}} //nolint:modernize // NamespacedNameのfield名を明示した方がこの箇所では読みやすい
 		})).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
-			clusterName := obj.GetLabels()[controlplane.ClusterNameLabel]
+			clusterName := obj.GetLabels()[domaincontrolplane.ClusterNameLabel]
 			if clusterName == "" {
 				return nil
 			}

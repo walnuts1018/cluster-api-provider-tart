@@ -1,4 +1,4 @@
-package update
+package update_test
 
 import (
 	"testing"
@@ -11,7 +11,9 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+	"github.com/walnuts1018/cluster-api-provider-tart/usecase/update"
 )
 
 type configurationOption func(*usecasebootstrap.MachineConfigurationContext)
@@ -80,64 +82,64 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 	tests := map[string]struct {
 		policy    bootstrapv1alpha1.ConfigurationApplyStrategy
 		desired   []byte
-		wantClass ChangeClass
-		wantMode  ApplyMode
+		wantClass domainupdate.ChangeClass
+		wantMode  domainupdate.ApplyMode
 	}{
 		"no difference": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   base,
-			wantClass: ChangeNone,
+			wantClass: domainupdate.ChangeNone,
 		},
 		"auto falls back to a controlled reboot": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   sysctl,
-			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeReboot,
+			wantClass: domainupdate.ChangeUpdatable,
+			wantMode:  domainupdate.ApplyModeReboot,
 		},
 		"empty policy defaults to auto": {
 			desired:   sysctl,
-			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeReboot,
+			wantClass: domainupdate.ChangeUpdatable,
+			wantMode:  domainupdate.ApplyModeReboot,
 		},
 		"live policy applies without a reboot": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   sysctl,
-			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeNoReboot,
+			wantClass: domainupdate.ChangeUpdatable,
+			wantMode:  domainupdate.ApplyModeNoReboot,
 		},
 		"reboot policy applies with a reboot": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   sysctl,
-			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeReboot,
+			wantClass: domainupdate.ChangeUpdatable,
+			wantMode:  domainupdate.ApplyModeReboot,
 		},
 		"volume document is an ordinary Talos change": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   userVolume,
-			wantClass: ChangeUpdatable,
-			wantMode:  ApplyModeNoReboot,
+			wantClass: domainupdate.ChangeUpdatable,
+			wantMode:  domainupdate.ApplyModeNoReboot,
 		},
 		"install target change is destructive": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   otherDisk,
-			wantClass: ChangeReprovisionRequired,
+			wantClass: domainupdate.ChangeReprovisionRequired,
 		},
 		"machine role change conflicts with a provider invariant": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyReboot,
 			desired:   controlPlane,
-			wantClass: ChangeInvariantConflict,
+			wantClass: domainupdate.ChangeInvariantConflict,
 		},
 		"control-plane endpoint change conflicts with a provider invariant": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot,
 			desired:   otherEndpoint,
-			wantClass: ChangeInvariantConflict,
+			wantClass: domainupdate.ChangeInvariantConflict,
 		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			decision, err := Evaluate(tt.policy, base, tt.desired)
+			decision, err := update.Evaluate(tt.policy, base, tt.desired)
 			if err != nil {
 				t.Fatalf("Evaluate() error = %v", err)
 			}
@@ -147,7 +149,7 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 			if decision.ApplyMode != tt.wantMode {
 				t.Fatalf("Evaluate() apply mode = %q, want %q", decision.ApplyMode, tt.wantMode)
 			}
-			if tt.wantClass != ChangeNone && decision.Reason == "" {
+			if tt.wantClass != domainupdate.ChangeNone && decision.Reason == "" {
 				t.Fatal("Evaluate() returned no reason for a reported difference")
 			}
 		})
@@ -165,12 +167,12 @@ func TestEvaluateIgnoresInstallerImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetInstallerImage() error = %v", err)
 	}
-	decision, err := Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
+	decision, err := update.Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, upgraded)
 	if err != nil {
 		t.Fatalf("Evaluate() error = %v", err)
 	}
-	if decision.Class != ChangeNone {
-		t.Fatalf("Evaluate() class = %q (%s), want %q", decision.Class, decision.Reason, ChangeNone)
+	if decision.Class != domainupdate.ChangeNone {
+		t.Fatalf("Evaluate() class = %q (%s), want %q", decision.Class, decision.Reason, domainupdate.ChangeNone)
 	}
 }
 
@@ -180,7 +182,7 @@ func TestEvaluateRejectsUnreadableConfiguration(t *testing.T) {
 
 	bundle := newSecretsBundle(t)
 	base := newConfiguration(t, bundle, nil)
-	if _, err := Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
+	if _, err := update.Evaluate(bootstrapv1alpha1.ConfigurationApplyStrategyNoReboot, base, []byte("not a machine configuration")); err == nil {
 		t.Fatal("Evaluate() accepted an unreadable configuration")
 	}
 }

@@ -9,7 +9,8 @@ import (
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/update"
+	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
+	usecaseupdate "github.com/walnuts1018/cluster-api-provider-tart/usecase/update"
 )
 
 // updateTalosNodeは、machine configuration updateが必要とするTalos APIの観測と操作だけを表す。
@@ -72,21 +73,21 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 	if err != nil {
 		return configurationUpdateOutcome{retryMessage: "The active Talos machine configuration could not be observed while the in-place update is being prepared."}
 	}
-	decision, err := update.Evaluate(updater.strategy, active, updater.desired)
+	decision, err := usecaseupdate.Evaluate(updater.strategy, active, updater.desired)
 	if err != nil {
 		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be evaluated safely; the in-place update is stopped."}
 	}
 	switch decision.Class {
-	case update.ChangeInvariantConflict:
+	case domainupdate.ChangeInvariantConflict:
 		return configurationUpdateOutcome{failureMessage: decision.Reason}
-	case update.ChangeReprovisionRequired:
+	case domainupdate.ChangeReprovisionRequired:
 		return configurationUpdateOutcome{failureMessage: "ReprovisionRequired: " + decision.Reason}
-	case update.ChangeNone:
+	case domainupdate.ChangeNone:
 		return verifyConfigurationRecovered(ctx, updater)
-	case update.ChangeUpdatable:
+	case domainupdate.ChangeUpdatable:
 		// strategyに従って適用するため、この関数の後半で扱う。
 	}
-	if decision.ApplyMode == update.ApplyModeNoReboot {
+	if decision.ApplyMode == domainupdate.ApplyModeNoReboot {
 		if err := updater.node.ApplyConfigurationNoReboot(ctx, updater.desired); err != nil {
 			// NoReboot strategyはproviderからrebootへfallbackせず、失敗を明示的に停止する。
 			return configurationUpdateOutcome{failureMessage: "The NoReboot machine configuration apply failed; the update is stopped without falling back to a reboot."}

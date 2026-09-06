@@ -20,7 +20,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	runtimehooksv1 "sigs.k8s.io/cluster-api/api/runtime/hooks/v1alpha1"
@@ -383,7 +383,7 @@ func controlPlaneUpgradeSafe(ctx context.Context, kubeClient client.Reader, targ
 		observedMemberIDs[status.MemberID] = struct{}{}
 		healthyMembers++
 	}
-	if !controlplane.CanTemporarilyDisruptMember(controlplane.RemovalObservation{
+	if !domaincontrolplane.CanTemporarilyDisruptMember(domaincontrolplane.RemovalObservation{
 		MemberCount:          len(members),
 		HealthyMemberCount:   healthyMembers,
 		TargetHealthy:        true,

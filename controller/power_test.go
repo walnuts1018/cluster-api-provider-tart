@@ -11,8 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/boot"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
@@ -74,19 +74,12 @@ func TestBuildRedfishBackendUsesProviderManagementSecret(t *testing.T) {
 			},
 		},
 	}
-	reconciler := &TartHostReconciler{Client: client, ManagementNamespace: credential.Namespace}
-	state, err := func() (boot.PowerState, error) {
-		backend, backendErr := reconciler.redfishBackend(t.Context(), host)
-		if backendErr != nil {
-			return boot.PowerStateUnknown, backendErr
-		}
-		return backend.PowerState(t.Context())
-	}()
+	state, err := power.RedfishPowerState(t.Context(), client, credential.Namespace, host)
 	if err != nil {
 		t.Fatalf("redfish backend power state error = %v", err)
 	}
-	if state != boot.PowerStateOff {
-		t.Fatalf("power state = %q, want %q", state, boot.PowerStateOff)
+	if state != power.PowerStateOff {
+		t.Fatalf("power state = %q, want %q", state, power.PowerStateOff)
 	}
 }
 

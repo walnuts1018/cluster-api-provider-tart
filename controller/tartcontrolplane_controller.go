@@ -31,11 +31,12 @@ import (
 
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 )
 
 const (
@@ -81,8 +82,8 @@ func (f *controlPlaneFailure) Error() string {
 	return f.reason + ": " + f.message
 }
 
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=controlplane.cluster.x-k8s.io,resources=tartcontrolplanes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=domaincontrolplane.cluster.x-k8s.io,resources=tartcontrolplanes,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=domaincontrolplane.cluster.x-k8s.io,resources=tartcontrolplanes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch
@@ -299,7 +300,7 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 			message: "The TartCluster identity is invalid.",
 		}
 	}
-	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
+	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
@@ -316,13 +317,13 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 		}
 		return err
 	}
-	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, controlplane.BundleStateActive, cluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle does not satisfy its identity contract.",
 		}
 	}
-	if err := controlplane.ValidateBundleData(secret.Data, clusterID); err != nil {
+	if err := certbuilder.ValidateBundleData(secret.Data, clusterID); err != nil {
 		return &controlPlaneFailure{
 			reason:  reasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle data is invalid.",
@@ -667,7 +668,7 @@ func canRemoveObservedEtcdMember(members []talos.EtcdMember, observations []etcd
 			return false
 		}
 	}
-	return controlplane.CanRemoveMember(controlplane.RemovalObservation{
+	return domaincontrolplane.CanRemoveMember(domaincontrolplane.RemovalObservation{
 		MemberCount:          len(members),
 		HealthyMemberCount:   healthyMembers,
 		TargetHealthy:        etcdStatusHealthy(targetObservation.status),
@@ -1438,14 +1439,14 @@ type controlPlaneCARotationObservation struct {
 	host        *infrav1alpha1.TartHost
 	endpoint    string
 	usedPending bool
-	stage       controlplane.CATrustStage
+	stage       domaincontrolplane.CATrustStage
 }
 
 // reconcileCARotationはTartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationを、Talos公式の段階的CA更新手順(accepted CA追加→issuing CA切替→旧CA削除)に沿って進める。
 // 進行段階はStatusのstep番号ではなく、毎回Pending/Active bundle Secretと各control-plane Machineの実際のTalos machine configurationから再計算するため、controller再起動後も安全に継続できる。
 // observeControlPlaneCARotationは、削除中でない各control-plane MachineへTalos認証接続してCA trust stageを観測する。
 // 途中で観測不能なMachineがあれば、rotationを一時停止するstateをhaltStateとして返す(errは返さずnilエラーで停止する既存の挙動を維持する)。
-func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.Context, machines []clusterv1.Machine, activeBundle, pendingBundle *secrets.Bundle, activeCAs, pendingCAs controlplane.RotationCertificateAuthorities) ([]controlPlaneCARotationObservation, *controlPlaneCARotationState) {
+func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.Context, machines []clusterv1.Machine, activeBundle, pendingBundle *secrets.Bundle, activeCAs, pendingCAs domaincontrolplane.CertBundle) ([]controlPlaneCARotationObservation, *controlPlaneCARotationState) {
 	observations := make([]controlPlaneCARotationObservation, 0, len(machines))
 	for index := range machines {
 		machine := &machines[index]
@@ -1468,8 +1469,8 @@ func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.C
 		if configErr != nil {
 			return nil, &controlPlaneCARotationState{active: true, reason: "MachineConfigurationUnavailable", message: "A control-plane Machine active configuration could not be observed; CA rotation is paused.", requeueAfter: 30 * time.Second}
 		}
-		stage, stageErr := controlplane.ObserveCATrustStage(configuration, activeCAs, pendingCAs)
-		if stageErr != nil || stage == controlplane.CATrustStageUnknown {
+		stage, stageErr := certbuilder.ObserveCATrustStage(configuration, activeCAs, pendingCAs)
+		if stageErr != nil || stage == domaincontrolplane.CATrustStageUnknown {
 			return nil, &controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}
 		}
 		observations = append(observations, controlPlaneCARotationObservation{host: hostObject, endpoint: endpoint, usedPending: usedPending, stage: stage})
@@ -1489,7 +1490,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 	if err != nil {
 		return notRequested, nil //nolint:nilerr // cluster identityが未確定な段階はgetTartClusterで既に停止しているため、ここでは静かに何もしない。
 	}
-	target, err := controlplane.NextGeneration(cluster.Status.ActiveSecretGeneration)
+	target, err := domaincontrolplane.NextGeneration(cluster.Status.ActiveSecretGeneration)
 	if err != nil {
 		return controlPlaneCARotationState{active: true, reason: "RotationGenerationInvalid", message: "The next CA rotation secret bundle generation is invalid."}, err
 	}
@@ -1497,11 +1498,11 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 		return notRequested, nil
 	}
 
-	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive)
+	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive)
 	if err != nil {
 		return controlPlaneCARotationState{active: true, reason: "ActiveBundleUnavailable", message: "The active cluster secret bundle could not be observed for CA rotation.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
 	}
-	pendingBundle, pendingCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, target, controlplane.BundleStatePending)
+	pendingBundle, pendingCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, target, domaincontrolplane.BundleStatePending)
 	if err != nil {
 		return controlPlaneCARotationState{active: true, reason: "PendingBundleUnavailable", message: "The next-generation Pending cluster secret bundle is not available yet.", requeueAfter: 30 * time.Second}, nil //nolint:nilerr
 	}
@@ -1522,9 +1523,9 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 	}
 
 	switch minStage {
-	case controlplane.CATrustStageStable:
+	case domaincontrolplane.CATrustStageStable:
 		for _, observation := range observations {
-			if observation.stage != controlplane.CATrustStageStable {
+			if observation.stage != domaincontrolplane.CATrustStageStable {
 				continue
 			}
 			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, false); err != nil {
@@ -1532,9 +1533,9 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "AddingAcceptedCA", message: "CA rotation is adding the next-generation certificate authorities as accepted CAs on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
-	case controlplane.CATrustStageDualTrust:
+	case domaincontrolplane.CATrustStageDualTrust:
 		for _, observation := range observations {
-			if observation.stage != controlplane.CATrustStageDualTrust {
+			if observation.stage != domaincontrolplane.CATrustStageDualTrust {
 				continue
 			}
 			if err := r.advanceCATrust(ctx, observation, activeCAs, pendingCAs, activeBundle, pendingBundle, true); err != nil {
@@ -1542,9 +1543,9 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "SwitchingIssuingCA", message: "CA rotation is switching the issuing certificate authority to the next generation on every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
-	case controlplane.CATrustStageCutover:
+	case domaincontrolplane.CATrustStageCutover:
 		for _, observation := range observations {
-			if observation.stage != controlplane.CATrustStageCutover {
+			if observation.stage != domaincontrolplane.CATrustStageCutover {
 				continue
 			}
 			if err := r.finalizeCATrust(ctx, observation, activeBundle, pendingBundle, pendingCAs); err != nil {
@@ -1552,12 +1553,12 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 			}
 		}
 		return controlPlaneCARotationState{active: true, reason: "RemovingAcceptedCA", message: "CA rotation is removing the previous-generation certificate authority from every control-plane Machine.", requeueAfter: 15 * time.Second}, nil
-	case controlplane.CATrustStageRotated:
+	case domaincontrolplane.CATrustStageRotated:
 		if err := r.promoteCARotation(ctx, cluster, clusterID, target); err != nil {
 			return controlPlaneCARotationState{active: true, reason: "CARotationPromotionFailed", message: "CA rotation completed on every control-plane Machine, but promoting the active secret bundle generation failed.", requeueAfter: 15 * time.Second}, err
 		}
 		return controlPlaneCARotationState{reason: "Completed", message: "CA rotation completed; the active cluster secret bundle generation was promoted."}, nil
-	case controlplane.CATrustStageUnknown:
+	case domaincontrolplane.CATrustStageUnknown:
 		return controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}, nil
 	default:
 		return controlPlaneCARotationState{active: true, reason: reasonCAConfigurationUnrecognized, message: messageCAConfigurationUnrecognized}, nil
@@ -1565,25 +1566,25 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 }
 
 // observeRotationBundleは指定したgenerationとstateのbundle Secretを取得し、契約を検証してrotation対象CAを取り出す。
-func (r *TartControlPlaneReconciler) observeRotationBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32, state string) (*secrets.Bundle, controlplane.RotationCertificateAuthorities, error) {
-	name, err := controlplane.BundleName(cluster.Name, clusterID, generation)
+func (r *TartControlPlaneReconciler) observeRotationBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32, state string) (*secrets.Bundle, domaincontrolplane.CertBundle, error) {
+	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, generation)
 	if err != nil {
-		return nil, controlplane.RotationCertificateAuthorities{}, err
+		return nil, domaincontrolplane.CertBundle{}, err
 	}
 	var secret corev1.Secret
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, &secret); err != nil {
-		return nil, controlplane.RotationCertificateAuthorities{}, err
+		return nil, domaincontrolplane.CertBundle{}, err
 	}
-	if err := controlplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, state, cluster.UID); err != nil {
-		return nil, controlplane.RotationCertificateAuthorities{}, err
+	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, state, cluster.UID); err != nil {
+		return nil, domaincontrolplane.CertBundle{}, err
 	}
-	bundle, err := controlplane.DecodeBundleData(secret.Data, clusterID)
+	bundle, err := certbuilder.DecodeBundleData(secret.Data, clusterID)
 	if err != nil {
-		return nil, controlplane.RotationCertificateAuthorities{}, err
+		return nil, domaincontrolplane.CertBundle{}, err
 	}
-	cas, err := controlplane.ExtractRotationCertificateAuthorities(bundle)
+	cas, err := certbuilder.ExtractRotationCertificateAuthorities(bundle)
 	if err != nil {
-		return nil, controlplane.RotationCertificateAuthorities{}, err
+		return nil, domaincontrolplane.CertBundle{}, err
 	}
 	return bundle, cas, nil
 }
@@ -1615,7 +1616,7 @@ func (r *TartControlPlaneReconciler) dialObservedRotationBundle(ctx context.Cont
 }
 
 // advanceCATrustはstage Stableのnodeへ次generationのCAをaccepted CAとして追加し(cutover=false)、stage DualTrustのnodeへissuing CAを次generationへ切替える(cutover=true)。いずれもTalosのconfig applyへ委譲し、再起動なしでcertificateだけを更新する。
-func (r *TartControlPlaneReconciler) advanceCATrust(ctx context.Context, observation controlPlaneCARotationObservation, active, pending controlplane.RotationCertificateAuthorities, activeBundle, pendingBundle *secrets.Bundle, cutover bool) error {
+func (r *TartControlPlaneReconciler) advanceCATrust(ctx context.Context, observation controlPlaneCARotationObservation, active, pending domaincontrolplane.CertBundle, activeBundle, pendingBundle *secrets.Bundle, cutover bool) error {
 	talosClient, err := r.dialObservedRotationBundle(ctx, observation, activeBundle, pendingBundle)
 	if err != nil {
 		return err
@@ -1656,7 +1657,7 @@ func (r *TartControlPlaneReconciler) advanceCATrust(ctx context.Context, observa
 }
 
 // finalizeCATrustはstage Cutoverのnodeから旧generationのCAをaccepted CAから外し、issuing CAだけを信頼する最終状態にする。Talos公式のCA rotation手順の最終段階(旧CA削除)にあたる。
-func (r *TartControlPlaneReconciler) finalizeCATrust(ctx context.Context, observation controlPlaneCARotationObservation, activeBundle, pendingBundle *secrets.Bundle, pending controlplane.RotationCertificateAuthorities) error {
+func (r *TartControlPlaneReconciler) finalizeCATrust(ctx context.Context, observation controlPlaneCARotationObservation, activeBundle, pendingBundle *secrets.Bundle, pending domaincontrolplane.CertBundle) error {
 	talosClient, err := r.dialObservedRotationBundle(ctx, observation, activeBundle, pendingBundle)
 	if err != nil {
 		return err
@@ -1690,7 +1691,7 @@ func (r *TartControlPlaneReconciler) finalizeCATrust(ctx context.Context, observ
 
 // promoteCARotationはPending bundle Secretのlabelをactiveへ書き換え(dataはimmutableなまま維持する)、TartCluster.status.activeSecretGenerationを新generationへ進める。この呼び出しの直前に全control-plane Machineが新generationのCAだけを信頼していることを確認済みである。
 func (r *TartControlPlaneReconciler) promoteCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, target int32) error {
-	name, err := controlplane.BundleName(cluster.Name, clusterID, target)
+	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, target)
 	if err != nil {
 		return err
 	}
@@ -1698,12 +1699,12 @@ func (r *TartControlPlaneReconciler) promoteCARotation(ctx context.Context, clus
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: name}, &secret); err != nil {
 		return err
 	}
-	if secret.Labels[controlplane.BundleStateLabel] == controlplane.BundleStateActive {
+	if secret.Labels[domaincontrolplane.BundleStateLabel] == domaincontrolplane.BundleStateActive {
 		// 既に他のreconcileで昇格済みである。
 	} else {
 		original := secret.DeepCopy()
 		secret.Labels = maps.Clone(secret.Labels)
-		secret.Labels[controlplane.BundleStateLabel] = controlplane.BundleStateActive
+		secret.Labels[domaincontrolplane.BundleStateLabel] = domaincontrolplane.BundleStateActive
 		if err := r.Patch(ctx, &secret, client.MergeFrom(original)); err != nil {
 			return err
 		}

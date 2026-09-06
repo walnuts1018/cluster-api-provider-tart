@@ -14,8 +14,9 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/controlplane"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	recoveryusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/recovery"
@@ -235,7 +236,7 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 	if err != nil {
 		return nil, err
 	}
-	name, err := controlplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
+	name, err := domaincontrolplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +244,10 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 	if err := r.Get(ctx, client.ObjectKey{Namespace: providerCluster.Namespace, Name: name}, secret); err != nil {
 		return nil, err
 	}
-	if err := controlplane.ValidateBundleSecretContract(secret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, controlplane.BundleStateActive, providerCluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(secret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive, providerCluster.UID); err != nil {
 		return nil, err
 	}
-	return controlplane.DecodeBundleData(secret.Data, clusterID)
+	return certbuilder.DecodeBundleData(secret.Data, clusterID)
 }
 
 func observeResetTarget(ctx context.Context, node TalosNode, endpoint string) (domainrecovery.ObservedIdentity, error) {

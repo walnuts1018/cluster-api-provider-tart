@@ -20,11 +20,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubernetesadapter "github.com/walnuts1018/cluster-api-provider-tart/adapter/kubernetes"
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/configbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/boot"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
@@ -723,7 +723,7 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 		if err != nil {
 			return false, err
 		}
-		return state == boot.PowerStateOff, nil
+		return state == power.PowerStateOff, nil
 	}
 	endpoint := hostTalosEndpoint(selected)
 	if endpoint == "" {

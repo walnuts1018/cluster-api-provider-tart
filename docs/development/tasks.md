@@ -10,11 +10,11 @@
 
 | 機能エリア | 現状 | 該当コード | 主な未実装内容 |
 | --- | --- | --- | --- |
-| **Runtime Extension (Update)** | Talos image変更を実装 | [`extensions/handlers.go`](../../extensions/handlers.go) | machine configuration変更、drain連携、MachineSet実機適用の拡張 |
+| **Runtime Extension (Update)** | Talos image変更とmachine configuration変更のin-place update、cordon/drain連携を実装 | [`extensions/handlers.go`](../../extensions/handlers.go), [`extensions/configuration.go`](../../extensions/configuration.go), [`update/`](../../update) | 実機でのreboot/回復シーケンス検証 |
 | **Control Plane Reconcile** | 初回経路、Failure Domain分散、quorum-safe scale-down、CA rotationステートマシン実装済み | [`controller/tartcontrolplane_controller.go`](../../controller/tartcontrolplane_controller.go) | 実機でのcertificate有効期限・同時cutoverの検証 |
 | **Cluster Reconcile** | 初期bundle経路、Failure Domain観測・反映、Control Plane Availableを集約したReady判定を実装 | [`controller/tartcluster_controller.go`](../../controller/tartcluster_controller.go) | なし |
 | **Machine / Talos Reconcile** | 初回Install、shutdown/retention、Update Extension接続、Reprovision（recovery identityによるTalos Reset連携）を実装 | [`controller/tartmachine_controller.go`](../../controller/tartmachine_controller.go), [`controller/reprovision.go`](../../controller/reprovision.go), [`recovery/`](../../recovery), [`talos/client.go`](../../talos/client.go) | deletion時のCAPI drain連携、停止観測とReprovisionの実機検証 |
-| **Raw Patch 合成** | 初期経路実装済み | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go) | 完全な安全差分判定とUpdate Extensionへの接続 |
+| **Raw Patch 合成** | 初期経路とUpdate Extensionへの接続、destructive差分判定を実装 | [`bootstrap/generate.go`](../../bootstrap/generate.go), [`controller/tartbootstrapconfig_controller.go`](../../controller/tartbootstrapconfig_controller.go), [`update/configuration.go`](../../update/configuration.go) | 実機でのpatch適用検証 |
 | **Hardware Discovery** | 実装済み（初期観測、boot attempt履歴、disk identity重複時のallocation/apply停止） | [`controller/tarthost_controller.go`](../../controller/tarthost_controller.go), [`talos/client.go`](../../talos/client.go), [`host/identity.go`](../../host/identity.go) | なし |
 | **Power Backend** | RedfishとWoLを実装 | [`boot/`](../../boot), [`controller/power.go`](../../controller/power.go) | vendorごとの実機差異とE2E確認 |
 
@@ -25,22 +25,29 @@
 ### タスク1: Runtime Extension (Update Extension) の実装
 
 - **重要度**: 高
-- **現状**: Talos image versionおよびschematic変更は、差分全体を検査して完全な`spec` patchを返し、`UpdateMachine`から現行Hostとimmutable Bootstrap Secretを再観測してTalos `Upgrade` APIへ委譲する。image以外の差分、Bootstrap設定差分、identity変更はpatchなしで安全停止する。
+- **現状**: 実装済み。Talos image（version、schematic）変更に加えて、TartBootstrapConfigのraw patch差し替えによって生じるeffective machine configuration差分もin-place updateとして適用する。
+- **設計の前提**: in-place updateとreboot-free updateは別概念である。rebootが必要であっても、同一CAPI Machine、同一TartMachine、同一TartHost、同一local storageのまま「configuration apply → controlled reboot → health recovery」で完結するならそれは完全なin-place updateであり、Machine replacementへは決してfallbackしない。Talos machine configの全fieldを独自にsafe/unsafeへ分類する巨大allowlistは持たず、ユーザーが明示するupdate policyと「data、identityを破壊するか」という粗いsafety boundaryだけで判断する。
 - **実装内容**:
-  1. **safe-diff判定エンジン**:
-     - `CanUpdateMachineSet` / `CanUpdateMachine`はTartMachineのimage versionとschematicだけを許可し、その他の差分をpatchなしの`Failure`で確実にvetoする（fail-closed）。
-     - effective configurationの差分評価と破壊的でないmachine configuration変更の許可は、Talos configuration read/apply APIの契約を追加した後に拡張する予定だったが、以下の調査により**現時点では安全に実装できないと判断し、着手を見送った**。稼働中nodeから現在のmachine configurationを読み出すAPI（[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)、CA rotationステートマシン実装のために追加済み）自体は利用可能である。
-     - **調査結果と見送りの理由**: Talos machine configurationのfieldごとに「reboot・disk再構成・ネットワーク瞬断なしに安全にapplyできるか」をTalos自身が判定して返す機構があるか確認するため、`github.com/siderolabs/talos/pkg/machinery`が依存するTalos本体v1.14.0の`internal/app/machined/internal/server/v1alpha1/v1alpha1_server.go`の`Server.ApplyConfiguration`実装を読んだ。`ApplyConfigurationRequest_AUTO`モードは、on-diskのfield単位の安全性を判定することなく`ApplyConfigurationRequest_NO_REBOOT`へ無条件で読み替えられるだけであり（`switch in.Mode { case machine.ApplyConfigurationRequest_AUTO: in.Mode = machine.ApplyConfigurationRequest_NO_REBOOT; ... }`）、応答の`ModeDetails`も"Applied configuration without a reboot"という固定文言を返すだけで、実際にその差分がreboot不要で安全に反映されたかどうかを検証・保証しない。つまりTalos側に「この差分は安全」という信頼できる判定根拠が存在しないため、`talos.Client`にconfiguration apply APIを追加してこの応答を安全性判定の根拠に使うことはできない。
-     - Talos machine configurationの各fieldを独自に「安全」「危険」へ分類する案も検討したが、Talos側の裏付けなしに「たぶん安全」なfieldをこちらだけの判断で許可することはfail-closedの原則に反するため採用しない。
-     - **残作業**: Talosの将来versionでfield単位のreboot要否判定APIが追加された場合、または個々のconfiguration documentの反映がreboot-freeであることをTalos公式ドキュメント/ソースから確証できるfield（例: 特定のバージョンのKubeletConfig等）が明確になった場合に、本タスクを再評価する。それまではmachine configuration差分の許可は行わず、Talos image versionとschematicIDの変更のみをin-place updateの対象とする現状を維持する。
-  2. **完全パッチ生成**:
-     - 安全と判定された場合、CAPI MachineSet / Machineに対する完全なJSON patchを返却する。
-  3. **`UpdateMachine` の実行**:
-     - 現行Host binding、Bootstrap Secret、Talos versionを再観測してTalos `Upgrade` APIを呼び出し、reboot後にdesired versionを確認する。
-     - drainとcordonはCAPI Machine controllerの責務として重複実装せず、Availability policyとの連携はCAPI contractを確認して追加する。
-- **解消条件**:
-  - in-place update可能な変更に対して `Success` とpatchが返り、`UpdateMachine` でTalos API呼び出しと完了確認が行われること。
-  - 不安全な変更に対してCAPIがreplacementにfallbackせず安全停止すること。
+  1. **Update Policy**（[`api/bootstrap/v1alpha1/tartbootstrapconfig_types.go`](../../api/bootstrap/v1alpha1/tartbootstrapconfig_types.go)）:
+     - `TartBootstrapConfig.spec.updatePolicy.configuration`が`Auto`（既定）、`Live`、`Reboot`、`InitialOnly`を表す。`TartBootstrapConfigTemplate`にも同じfieldがあり、TartControlPlaneが生成するTartBootstrapConfigへ伝播する。
+     - `Auto`はTalos 1.14時点でreboot要否を信頼できる形で判定できないため`Reboot`として扱う。楽観的なreboot-free applyは行わない。この判定は[`update/policy.go`](../../update/policy.go)の`autoResolvesToReboot`の1箇所だけに存在し、将来Talosが信頼できる判定APIを提供した場合はここだけを変更する。
+     - `Live`はユーザーがlive applyを明示したadvanced optionであり、`ApplyConfigurationRequest_NO_REBOOT`で適用する。失敗時にRebootへ自動fallbackせず、明示的な`Failure`で停止する。
+     - `InitialOnly`は初回provisioning後の変更を許さず、差分検出時に`ReprovisionRequired`として安全停止する。Bootstrap Secretの作り直しも行わない。
+  2. **Destructive判定**（[`update/configuration.go`](../../update/configuration.go)）:
+     - Talos machineryのtyped configuration（`github.com/siderolabs/talos/pkg/machinery/config`）でactive configurationとdesired configurationを読み込み、install disk選択、install wipe設定、volume/LVM/RAID/swap等のdocument変更を`ReprovisionRequired`として除外する。
+     - configuration documentは「data、identityを破壊しないと確証できるkind」のallowlistで判定し、列挙されていないkind（将来Talosへ追加される未知のkindを含む）は安全側としてdestructive扱いにする。
+     - cluster identity/token、machine PKI/token、etcd PKI、Kubernetes PKI、cluster name、control-plane endpoint、machine role、Kubernetes component image、ProviderIDの競合は`InvariantConflict`として`Failure`で停止する。installer image identityの差分はTalos image upgrade pathが所有するため、configuration差分の判定からは正規化して除外する。
+  3. **完全パッチ生成**:
+     - `CanUpdateMachine` / `CanUpdateMachineSet`は、TartMachineのimage差分に加えてTartBootstrapConfigの`configPatchesSecretRef`と`updatePolicy`の差分を許可し、CAPI Machine / MachineSetへ完全なJSON patchを返す。`InitialOnly` policyでのraw patch変更、解釈できないpolicy、その他の差分はpatchなしの`Failure`でvetoする。
+  4. **`UpdateMachine`の実行**（[`extensions/configuration.go`](../../extensions/configuration.go)）:
+     - imageがdesiredへ到達した後、[`talos.Client.ActiveMachineConfiguration`](../../talos/client.go)で観測したactive configurationとimmutable Bootstrap Secretのdesired configurationを比較し、policyに従って適用する。
+     - `Live`は`ApplyConfigurationLive`（NO_REBOOT）で適用する。`Auto`/`Reboot`は、control-planeのetcd quorum判定（`controlPlaneUpgradeSafe`）とcordon/drain（[`extensions/drain.go`](../../extensions/drain.go)の`enforceDrainPolicy`、`TartCluster.spec.updatePolicy.disruptionPolicy`）を満たしてからapplyし、Tart自身がTalos `Reboot` RPCでrebootをorchestrateする。
+     - Update用にcordonしたNodeにはannotationで印を付け、update完了を確認できた時点でそのNodeだけをuncordonする。
+  5. **Apply後の検証**:
+     - 「RPCが成功した」ことを完了条件にしない。Talos APIの到達性、desired machine configurationの反映、rebootを伴う場合はboot時刻（`SystemStat`）の変化、Talos serviceのhealth、workload cluster上のNode Readyを観測してから`UpdateMachine`を完了させる。
+     - Statusにはprogram counterやstep番号を保存せず、呼び出しごとにTalosとworkload clusterの観測から状態を再計算するため、controller再起動後も継続できる。
+- **残作業（実機でのみ検証可能）**: 実際のreboot所要時間とPDBを持つworkloadでのrolling reboot、Live applyがTalos側で拒否されるケースの実挙動、control-planeでのquorum維持。
+- **解消条件**: 達成済み。in-place update可能な変更に対して`Success`とpatchが返り、`UpdateMachine`がTalos APIの呼び出しと完了確認を行うこと。不安全な変更に対してCAPIがreplacementへfallbackせず安全停止すること。
 
 ### タスク2: TartControlPlane の高度なReconcile実装
 
@@ -100,10 +107,10 @@
      - cluster secret bundleとCAPI/Tart contextからbase configurationを生成。
      - `configSecretRef` から読み出したユーザーのraw patchを適用。
      - machine role、cluster endpoint、Kubernetes versionをTalos machineryのbaseへ反映。
-  2. **残タスク**:
-     - Update Extensionで利用するeffective configurationの完全な安全差分判定。[タスク1](#タスク1-runtime-extension-update-extension-の実装)で調査した通り、Talos v1.14.0の`ApplyConfiguration`はAUTOモードをfield単位の安全性判定なしにNO_REBOOTへ読み替えるだけであり、Talos自身から信頼できる安全性判定根拠を得られなかったため着手を見送った。Talos側に判定機構が追加されるか、個別fieldのreboot-freeさを別途確証できるまで、raw patchの差分はUpdate Extensionでのin-place許可対象に含めない。
-- **解消条件**:
-  - ユーザーが任意のTalos raw patchを `configSecretRef` 経由で安全に適用できること。
+  2. **Update Extensionへの接続（実装済み）**:
+     - raw patch差し替えによって生じるeffective configuration差分は、[`update.Evaluate`](../../update/configuration.go)が`None` / `Updatable` / `ReprovisionRequired` / `InvariantConflict`へ分類し、`Updatable`のときだけ`TartBootstrapConfig.spec.updatePolicy.configuration`に従ってin-placeで適用する（詳細は[タスク1](#タスク1-runtime-extension-update-extension-の実装)）。
+     - Bootstrap Secretはimmutableであるため、update policyが変更を許す場合だけ同じ名前で作り直し、desired configurationをUpdate Extensionから観測できるようにする。`InitialOnly` policyでは従来どおり`BootstrapSecretImmutable`として安全停止する。
+- **解消条件**: 達成済み。ユーザーが任意のTalos raw patchを`configPatchesSecretRef`経由で安全に適用でき、破壊的な差分は`ReprovisionRequired`として停止すること。
 
 ### タスク6: Hardware Discovery / Maintenance Boot連携
 

@@ -113,15 +113,35 @@ Tartでは、同一のMachine、TartMachine、TartHost、diskを維持したin-p
 | 更新種別 | 更新方法 | 安全性の判定 |
 | --- | --- | --- |
 | **Talos OS version/image** | Talos upgrade APIを呼出 | desired image、再起動後の接続性、健全性で完了判定 |
-| **Talos machine configuration** | Talos APIでapply | effective configurationのdiffを評価し、安全な場合のみ適用 |
+| **Talos machine configuration** | `TartBootstrapConfig.spec.updatePolicy.configuration`に従いTalos APIでapply（必要ならcontrolled reboot） | effective configurationのdiffを「data、identityを破壊するか」で分類し、破壊しない差分のみ適用 |
 | **Kubernetes version** | 未実装のため安全停止 | cluster-wide orchestrationと完了観測を実装するまでRuntime Extensionがpatchなしで拒否 |
-| **Host identity / 破壊的disk変更** | 自動更新不可 | `UnsafeChange` として安全停止 |
+| **Host identity / 破壊的disk変更 / InitialOnly configuration** | 自動更新不可 | `ReprovisionRequired`として安全停止（Machine replacementへfallbackしない） |
+
+### in-place updateとreboot-free updateの区別
+
+in-place updateとreboot-free updateは別概念である。rebootが必要であっても、同一CAPI Machine、同一TartMachine、同一TartHost、同一local storageのまま「configuration apply → controlled reboot → health recovery」で完結するなら、それは完全なin-place updateである。Machine replacementへは決してfallbackしない。
+
+### Configuration Update Policy
+
+`TartBootstrapConfig.spec.updatePolicy.configuration`（および`TartBootstrapConfigTemplate`の同名field）は、raw patchの差し替えによって生じるeffective machine configuration差分の適用方針を表す。
+
+| Policy | 動作 |
+| --- | --- |
+| **Auto**（既定） | Talos 1.14はreboot要否を信頼できる形で判定できないため、`Auto = Reboot`として扱う。「安全かもしれないからreboot-freeを試す」楽観的動作は行わない。将来Talosが信頼できる判定APIを提供した場合に備え、この判定は[`update/policy.go`](../../update/policy.go)の`autoResolvesToReboot`へ分離してある。 |
+| **Live** | ユーザーがrunning systemへのlive applyを明示的に宣言したadvanced option。Talosのreboot-free apply（`ApplyConfigurationRequest_NO_REBOOT`）を使い、失敗してもRebootへ自動fallbackせず明示的な`Failure`で停止する。 |
+| **Reboot** | configuration applyの後にTartがrebootをorchestrateする。複数node clusterでは既存のcordon/drainと`TartCluster.spec.updatePolicy.disruptionPolicy`（`allowDowntime`）に従って一度に安全な台数だけ更新し、control planeはetcd quorum判定と組み合わせる。single-node clusterではdowntimeを許容する。 |
+| **InitialOnly** | 初回provisioning後に変更してはいけないconfigurationを表す。差分を検出した場合は`ReprovisionRequired`として安全停止し、Bootstrap Secretも作り直さない。 |
+
+### Destructive configurationの扱い
+
+判定基準は「rebootが必要か」ではなく「data、identityを破壊するか」である。disk layout、installation target、既存volumeのwipe/recreate、Talos cluster identity/PKIの置換、machine roleの根本的変更は通常のupdateから除外し、`ReprovisionRequired`として安全停止する。判定は[`update/configuration.go`](../../update/configuration.go)がTalos machineryのtyped configurationとdocument kindから行い、未知のconfiguration document kindはdestructive側（安全側）へ倒す。
 
 ### Update Extensionによる保護
 
 - 初回provisioning後のmutableなTalos OS/config変更を実行できるのはUpdate Extension（Runtime Extension）のみとする。
-- `CanUpdateMachineSet` / `CanUpdateMachine` は、old/new双方のSecretを解決して完全なdiffを評価し、安全な差分のみを `Success` + patch で許可する。危険・未知・部分的な差分は `Failure` で確実にvetoする。
-- 詳細な未実装タスクは[実装タスク一覧 (タスク1)](tasks.md)を参照。
+- `CanUpdateMachineSet` / `CanUpdateMachine` は完全なdiffを評価し、Talos imageとBootstrapConfigのraw patch参照（およびupdate policy）の変更だけを `Success` + 完全なpatchで許可する。危険・未知・部分的な差分は patchなしの `Failure` で確実にvetoする。InitialOnly policy下でのraw patch変更もここでvetoする。
+- Secretの内容に依存するdestructive判定は、Secretを観測できる `UpdateMachine` で行い、`ReprovisionRequired`として停止する。
+- `UpdateMachine`は「RPCが成功した」ことを完了条件にしない。Talos APIの到達性、desired configurationの反映、（rebootを伴う場合は）boot時刻の変化、Talos serviceのhealth、workload cluster上のNode Readyまで観測してから完了とする。Statusにはprogram counterやstep番号を保存せず、controller再起動後も外部観測から再計算する。
 
 ### Workerの標準Rollout Profile
 

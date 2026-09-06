@@ -20,6 +20,10 @@ const (
 	// TartControlPlaneCARotatingConditionは、TartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationの進行状況を示す。
 	// Trueはgeneration N+1のPending bundleへ向けた段階的なCA切替が進行中であることを示し、program counterではなく毎回Talosとbundle Secretの観測から再計算する。
 	TartControlPlaneCARotatingCondition = "CARotating"
+	// TartControlPlaneKubernetesUpgradingConditionは、cluster-wideなKubernetes version upgradeの進行状況を示す。
+	// Kubernetes version upgradeはTartControlPlaneだけが所有し、Machine単位のUpdate Extensionからは実行しない。
+	// この値はprogram counterではなく、spec.versionとcluster側の観測から毎回再計算する。
+	TartControlPlaneKubernetesUpgradingCondition = "KubernetesUpgrading"
 )
 
 // TartControlPlaneMachineTemplateDeletionSpecはnode-disruptiveな削除timeoutを保持する。rolloutを発生させないfieldとは分離する。
@@ -104,6 +108,11 @@ type TartControlPlaneStatus struct {
 	// +optional
 	UpToDateReplicas *int32 `json:"upToDateReplicas,omitempty"`
 
+	// kubernetesUpgradeはcluster-wide Kubernetes upgradeのcoarse-grainedな観測結果である。
+	// upgrade手順のstepやprogram counterは保持せず、再起動後もspecとcluster観測だけから再計算する。
+	// +optional
+	KubernetesUpgrade TartControlPlaneKubernetesUpgradeStatus `json:"kubernetesUpgrade,omitempty,omitzero"`
+
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
@@ -111,6 +120,25 @@ type TartControlPlaneStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// TartControlPlaneKubernetesUpgradeStatusはcluster-wide Kubernetes upgradeの観測結果を保持する。
+// +kubebuilder:validation:MinProperties=1
+type TartControlPlaneKubernetesUpgradeStatus struct {
+	// targetVersionは最後にupgradeを要求したdesired Kubernetes versionである。
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	TargetVersion string `json:"targetVersion,omitempty"`
+
+	// observedVersionはclusterのKubernetes componentから観測した最も低いversionである。
+	// +optional
+	// +kubebuilder:validation:MaxLength=256
+	ObservedVersion string `json:"observedVersion,omitempty"`
+
+	// failureMessageは最後のupgrade試行が失敗した理由である。成功または未実行の場合は空になる。
+	// +optional
+	// +kubebuilder:validation:MaxLength=1024
+	FailureMessage string `json:"failureMessage,omitempty"`
 }
 
 // TartControlPlaneInitializationStatusは初回etcd/API server bootstrapを追跡する。

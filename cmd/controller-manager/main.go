@@ -12,12 +12,14 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"github.com/go-logr/logr"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -155,6 +157,10 @@ func main() {
 		PprofBindAddress:       pprofAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "987dfa6a.cluster.x-k8s.io",
+		Client: client.Options{
+			// Kubernetes upgradeの排他はLeaseのresourceVersion CASで確立するため、cacheした古いresourceVersionを使わない。
+			Cache: &client.CacheOptions{DisableFor: []client.Object{&coordinationv1.Lease{}}},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")

@@ -364,6 +364,25 @@ spec:
                     description: controlPlaneInitializedはworkload Kubernetes API serverがrequestを受理した時点でtrueになる。全NodeがReadyであることやCNIがinstall済みであることは意味しない。
                     type: boolean
                 type: object
+              kubernetesUpgrade:
+                description: |-
+                  kubernetesUpgradeはcluster-wide Kubernetes upgradeのcoarse-grainedな観測結果である。
+                  upgrade手順のstepやprogram counterは保持せず、再起動後もspecとcluster観測だけから再計算する。
+                minProperties: 1
+                properties:
+                  failureMessage:
+                    description: failureMessageは最後のupgrade試行が失敗した理由である。成功または未実行の場合は空になる。
+                    maxLength: 1024
+                    type: string
+                  observedVersion:
+                    description: observedVersionはclusterのKubernetes componentから観測した最も低いversionである。
+                    maxLength: 256
+                    type: string
+                  targetVersion:
+                    description: targetVersionは最後にupgradeを要求したdesired Kubernetes versionである。
+                    maxLength: 256
+                    type: string
+                type: object
               observedGeneration:
                 format: int64
                 type: integer

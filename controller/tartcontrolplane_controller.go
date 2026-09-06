@@ -48,6 +48,11 @@ const (
 // TartControlPlaneReconcilerはTartControlPlane objectをreconcileする。
 type TartControlPlaneReconciler struct {
 	client.Client
+
+	// KubernetesUpgradeはcluster-wide Kubernetes upgradeの実行者である。nilの場合はTalos upstream実装を使う。
+	KubernetesUpgrade talos.KubernetesUpgradeRunner
+	// KubernetesUpgradeIdentityはupgrade leaseのholder identityである。nilの場合はhost名とprocess IDから導出する。
+	KubernetesUpgradeIdentity string
 }
 
 type controlPlaneFailure struct {
@@ -81,6 +86,7 @@ func (f *controlPlaneFailure) Error() string {
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigtemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update
 
 func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cp controlplanev1alpha1.TartControlPlane
@@ -156,8 +162,12 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
+	// Kubernetes version upgradeはcluster-wide operationであり、TartControlPlaneだけが所有する。
+	// CA rotationやscale-downと同時には開始せず、他のlifecycle operationの完了を待つ。
+	upgradeState := r.reconcileKubernetesUpgrade(ctx, &cp, &cluster, machines, bootstrapState, caRotationState.active || scaleDownPending, desiredReplicas)
+
 	original := cp.DeepCopy()
-	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState, caRotationState)
+	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState, caRotationState, upgradeState)
 	if err := r.Status().Patch(ctx, &cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -165,6 +175,9 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	requeueAfter := bootstrapState.requeueAfter
 	if caRotationState.requeueAfter > 0 && (requeueAfter == 0 || caRotationState.requeueAfter < requeueAfter) {
 		requeueAfter = caRotationState.requeueAfter
+	}
+	if upgradeState.requeueAfter > 0 && (requeueAfter == 0 || upgradeState.requeueAfter < requeueAfter) {
+		requeueAfter = upgradeState.requeueAfter
 	}
 	if scaleDownPending && requeueAfter == 0 {
 		requeueAfter = controlPlaneScaleDownRequeue
@@ -1262,7 +1275,7 @@ func bootstrapConfigName(controlPlaneName string, ordinal int32) (string, error)
 	return controlPlaneChildName(controlPlaneName, ordinal, "bootstrap")
 }
 
-func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine, bootstrapState controlPlaneBootstrapState, caRotationState controlPlaneCARotationState) {
+func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterName string, desired int32, machines []clusterv1.Machine, bootstrapState controlPlaneBootstrapState, caRotationState controlPlaneCARotationState, upgradeState controlPlaneKubernetesUpgradeState) {
 	actual := int32(len(machines))
 	ready := countMachineCondition(machines, clusterv1.MachineReadyCondition)
 	available := countMachineCondition(machines, clusterv1.MachineAvailableCondition)
@@ -1293,12 +1306,17 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 		availableMessage = "All desired control-plane Machines and the workload Kubernetes API are available."
 	}
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition, conditionStatus(controlPlaneReady), availableReason, availableMessage, cp.Generation)
-	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired
+	// Kubernetes version upgradeが未収束の間はUpToDateへ倒さない。desired versionのsource of truthはspec.versionである。
+	kubernetesUpToDate := talos.NormalizeKubernetesVersion(upgradeState.observedVersion) == talos.NormalizeKubernetesVersion(cp.Spec.Version)
+	upToDateReady := controlPlaneReady && desired > 0 && upToDate == desired && kubernetesUpToDate && !upgradeState.active && upgradeState.failureMessage == ""
 	upToDateReason := "MachinesNotUpToDate"
 	upToDateMessage := "Not all desired control-plane Machines report UpToDate."
 	if !bootstrapState.workloadReady {
 		upToDateReason = reasonWorkloadAPIUnavailable
 		upToDateMessage = "The workload Kubernetes API is not ready yet."
+	} else if !kubernetesUpToDate || upgradeState.active || upgradeState.failureMessage != "" {
+		upToDateReason = "KubernetesVersionNotUpToDate"
+		upToDateMessage = "The cluster has not converged to the desired Kubernetes version yet."
 	} else if upToDateReady {
 		upToDateReason = "UpToDate"
 		upToDateMessage = "All desired control-plane Machines and the workload Kubernetes API are up to date."
@@ -1311,6 +1329,12 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneMachinesUpToDateCondition, conditionStatus(desired > 0 && upToDate == desired), machineUpToDateReason(desired > 0 && upToDate == desired), machineUpToDateMessage(desired > 0 && upToDate == desired), cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEtcdClusterAvailableCondition, conditionStatus(bootstrapState.etcdReady), bootstrapState.reason, bootstrapState.message, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneCARotatingCondition, conditionStatus(caRotationState.active), caRotationState.reason, caRotationState.message, cp.Generation)
+	cp.Status.KubernetesUpgrade = controlplanev1alpha1.TartControlPlaneKubernetesUpgradeStatus{
+		TargetVersion:   upgradeState.targetVersion,
+		ObservedVersion: upgradeState.observedVersion,
+		FailureMessage:  upgradeState.failureMessage,
+	}
+	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneKubernetesUpgradingCondition, conditionStatus(upgradeState.active), upgradeState.reason, upgradeState.message, cp.Generation)
 	setCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneDeletingCondition, metav1.ConditionFalse, "NotDeleting", "The control plane is not being deleted.", cp.Generation)
 	setPausedCondition(&cp.Status.Conditions, false, cp.Generation)
 	cp.Status.ObservedGeneration = cp.Generation

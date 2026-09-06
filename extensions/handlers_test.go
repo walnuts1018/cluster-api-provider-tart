@@ -229,7 +229,7 @@ func TestCanUpdateMachineRejectsCAPIIdentityChange(t *testing.T) {
 	}
 }
 
-func TestCanUpdateMachineRejectsKubernetesVersionChange(t *testing.T) {
+func TestCanUpdateMachineAllowsKubernetesVersionPropagation(t *testing.T) {
 	t.Parallel()
 
 	request := &runtimehooksv1.CanUpdateMachineRequest{
@@ -244,10 +244,11 @@ func TestCanUpdateMachineRejectsKubernetesVersionChange(t *testing.T) {
 	}
 	response := &runtimehooksv1.CanUpdateMachineResponse{}
 	canUpdateMachine(t.Context(), request, response)
-	if response.Status != runtimehooksv1.ResponseStatusFailure {
-		t.Fatalf("status = %q, want failure", response.Status)
+	// Kubernetes version upgradeそのものはTartControlPlaneが所有するため、ここではdesired versionの伝播だけを許可する。
+	if response.Status != runtimehooksv1.ResponseStatusSuccess {
+		t.Fatalf("status = %q, want success", response.Status)
 	}
-	if response.MachinePatch.IsDefined() || response.InfrastructureMachinePatch.IsDefined() {
-		t.Fatalf("Kubernetes version change returned patches: machine=%#v infrastructure=%#v", response.MachinePatch, response.InfrastructureMachinePatch)
+	if !response.MachinePatch.IsDefined() {
+		t.Fatalf("machine patch = %#v, want the desired Kubernetes version propagation", response.MachinePatch)
 	}
 }

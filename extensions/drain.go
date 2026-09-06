@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -251,4 +252,39 @@ func uncordonNode(ctx context.Context, clientset kubernetes.Interface, node *cor
 	delete(updated.Annotations, updateCordonAnnotation)
 	_, err := clientset.CoreV1().Nodes().Update(ctx, updated, metav1.UpdateOptions{})
 	return err
+}
+
+// kubernetesVersionConvergedは、観測したKubernetes versionがdesired versionと一致するかを判定する。
+// CAPIは先頭にvを付けたversionを扱い、kubeletの報告も同様のため、前後の空白とv接頭辞を無視して比較する。
+func kubernetesVersionConverged(observed, desired string) bool {
+	normalize := func(value string) string {
+		return strings.TrimPrefix(strings.TrimSpace(value), "v")
+	}
+	desiredVersion := normalize(desired)
+	if desiredVersion == "" {
+		return false
+	}
+	return normalize(observed) == desiredVersion
+}
+
+// nodeKubernetesVersionConvergedは、対象Nodeのkubeletがdesired Kubernetes versionを報告しているかを確認する。
+// Kubernetes version upgradeそのものはTartControlPlaneがcluster単位で実行するため、ここでは収束の観測だけを行う。
+func nodeKubernetesVersionConverged(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine, providerID, desiredVersion string) (bool, string) {
+	if desiredVersion == "" {
+		return false, "The desired Kubernetes version of the Machine is empty; the in-place update is waiting for a valid desired state."
+	}
+	clientset, err := workloadClientForMachine(ctx, kubeClient, machine)
+	if err != nil {
+		return false, "The workload cluster Kubernetes client is not available while verifying the Kubernetes version of the Node."
+	}
+	observationContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	defer cancel()
+	node, err := findNodeByProviderID(observationContext, clientset, providerID)
+	if err != nil {
+		return false, "The workload cluster Node could not be observed while verifying its Kubernetes version."
+	}
+	if !kubernetesVersionConverged(node.Status.NodeInfo.KubeletVersion, desiredVersion) {
+		return false, "The workload cluster Node has not converged to the desired Kubernetes version yet; waiting for the cluster-wide Kubernetes upgrade owned by the TartControlPlane."
+	}
+	return true, ""
 }

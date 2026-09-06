@@ -254,8 +254,14 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		case outcome.retryMessage != "":
 			setUpdateRetry(resp, outcome.retryMessage)
 		default:
+			// Kubernetes version upgradeはTartControlPlaneがcluster単位で実行済みである。ここでは自Nodeの
+			// observed Kubernetes versionがdesired versionへ収束したことだけを確認し、個別のupgradeは行わない。
+			if converged, retryMessage := nodeKubernetesVersionConverged(ctx, kubeClient, &req.Desired.Machine, string(preparation.providerMachine.Spec.ProviderID), req.Desired.Machine.Spec.Version); !converged {
+				setUpdateRetry(resp, retryMessage)
+				return
+			}
 			resp.Status = runtimehooksv1.ResponseStatusSuccess
-			resp.Message = "The Talos node is running the desired image and machine configuration."
+			resp.Message = "The Talos node is running the desired image, machine configuration, and Kubernetes version."
 			resp.RetryAfterSeconds = 0
 		}
 		return
@@ -584,10 +590,11 @@ func planMachineUpdate(req *runtimehooksv1.CanUpdateMachineRequest) (runtimehook
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	// CAPI MachineのKubernetes version変更はTalosのcluster-wide upgrade sequenceが必要であり、
-	// このExtension単体では実行できないためpatchを返さずに停止する。cluster、bootstrap、
-	// infrastructure、ProviderIDなどの差分も同じくpatch経由で変更できないようにする。
-	machinePatch, err := planSpecPatch(currentMachine, desiredMachine, nil, "/spec")
+	// Kubernetes version変更はTartControlPlaneが所有するcluster-wide upgradeで実行済みであり、
+	// Machine単位ではdesired versionの伝播だけを許可する。UpdateMachineでは自Nodeのobserved versionが
+	// desired versionへ収束したことだけを確認する。cluster、bootstrap、infrastructure、ProviderIDなどの
+	// 差分は引き続きpatch経由で変更できないようにする。
+	machinePatch, err := planSpecPatch(currentMachine, desiredMachine, machineUpdatableSpecPaths, "/spec")
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
@@ -611,9 +618,9 @@ func planMachineSetUpdate(req *runtimehooksv1.CanUpdateMachineSetRequest) (runti
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
-	// MachineSetのtemplateでも、Kubernetes version変更はcluster-wide upgrade sequenceへ委譲する。
-	// このExtensionはTalos OS image変更だけを扱うため、CAPI MachineSet側のspec差分は許可しない。
-	machinePatch, err := planSpecPatch(currentMachine, desiredMachine, nil, "/spec/template/spec")
+	// MachineSetのtemplateでも、Kubernetes version upgradeそのものはTartControlPlaneが所有する。
+	// このExtensionはdesired versionの伝播とTalos OS image変更だけを許可する。
+	machinePatch, err := planSpecPatch(currentMachine, desiredMachine, machineUpdatableSpecPaths, "/spec/template/spec")
 	if err != nil {
 		return runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, runtimehooksv1.Patch{}, err
 	}
@@ -629,6 +636,11 @@ func planMachineSetUpdate(req *runtimehooksv1.CanUpdateMachineSetRequest) (runti
 // configPatchesSecretRefが指すimmutable Secretの差し替えによって生じるeffective configuration差分の安全性は、
 // Secretの内容を観測できるUpdateMachineでdestructive判定を行って決める。CanUpdateMachineはpolicyだけをfail-closedで確認する。
 var bootstrapUpdatableSpecPaths = [][]string{{"configPatchesSecretRef"}, {"updatePolicy"}}
+
+// machineUpdatableSpecPathsは、CAPI Machine specのうちin-place updateで変更してよいpathである。
+// versionはTartControlPlaneが実行したcluster-wide Kubernetes upgradeの結果をMachineへ伝播するためだけに許可し、
+// このExtensionからupgrade-k8s相当の処理を実行することはない。
+var machineUpdatableSpecPaths = [][]string{{"version"}}
 
 // planBootstrapConfigPatchは、TartBootstrapConfigのconfiguration update policyに従ってraw patch参照の変更を許可する。
 // InitialOnly policyのconfigurationは初回provisioning後に変更できないため、patchを返さず安全停止する。

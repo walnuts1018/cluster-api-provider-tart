@@ -111,7 +111,7 @@ type upgradeProvider struct {
 
 func (p *upgradeProvider) close() {
 	// clientの寿命は呼び出し側のTart Clientが持つため、ここではupstreamがcacheしたKubernetes clientだけを解放する。
-	_ = p.KubernetesClient.K8sClose()
+	_ = p.K8sClose()
 }
 
 // upstreamは、requestからupstream実装が要求するproviderとoptionを組み立てる。

@@ -185,12 +185,10 @@ func (r *TartControlPlaneReconciler) acquireKubernetesUpgradeLease(ctx context.C
 	err := r.Get(ctx, key, lease)
 	if apierrors.IsNotFound(err) {
 		created := &coordinationv1.Lease{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace:       key.Namespace,
-				Name:            key.Name,
-				Labels:          map[string]string{clusterv1.ClusterNameLabel: cp.Labels[clusterv1.ClusterNameLabel]},
-				OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cp, controlplanev1alpha1.GroupVersion.String(), "TartControlPlane")},
-			},
+			Namespace:       key.Namespace,
+			Name:            key.Name,
+			Labels:          map[string]string{clusterv1.ClusterNameLabel: cp.Labels[clusterv1.ClusterNameLabel]},
+			OwnerReferences: []metav1.OwnerReference{controllerOwnerReference(cp, controlplanev1alpha1.GroupVersion.String(), "TartControlPlane")},
 			Spec: coordinationv1.LeaseSpec{
 				HolderIdentity:       &identity,
 				LeaseDurationSeconds: &seconds,
@@ -359,6 +357,8 @@ func (r *TartControlPlaneReconciler) reconcileKubernetesUpgrade(ctx context.Cont
 		state.active = desired != "" && preflight.observedVersion != "" && talos.NormalizeKubernetesVersion(preflight.observedVersion) != talos.NormalizeKubernetesVersion(desired)
 		state.requeueAfter = kubernetesUpgradeRequeue
 		return state
+	case kubernetesUpgradeActionUpgrade:
+		// 排他を確立したうえでupgradeを実行する。処理はswitchの後に続く。
 	}
 
 	lease, err := r.acquireKubernetesUpgradeLease(ctx, cp)

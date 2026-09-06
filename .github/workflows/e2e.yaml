@@ -83,7 +83,9 @@ jobs:
           TART_E2E_ARTIFACT_DIR: ${{ github.workspace }}/_artifacts/e2e
           TART_E2E_LAB_WORKDIR: ${{ runner.temp }}/tart-e2e-lab
           TART_E2E_WOL_GATEWAY_BINARY: /usr/local/bin/wol-libvirt-gateway
-        run: mise run test-e2e
+        # usermodによるlibvirtグループ付与は同一ジョブ内の既存shellへ即座には反映されないため、
+        # sgで新しいgroupを適用したshellを起動してからlibvirtソケットへ接続する。
+        run: sg libvirt -c "mise run test-e2e"
 
       - name: Dump cluster/lab state
         if: always()

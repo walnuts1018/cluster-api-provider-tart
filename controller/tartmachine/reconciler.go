@@ -519,9 +519,22 @@ func (r *TartMachineReconciler) applyTalosUpgrade(ctx context.Context, machine *
 			strategy = bootstrapConfig.Spec.EffectiveConfigurationApplyStrategy()
 		}
 	}
+	// immutable Bootstrap Secretの生bytesにはinstaller imageとkubelet provider-idがまだ
+	// 埋め込まれていない(reconcileMaintenanceTalosが初回applyの直前に同じ2つのpatchを都度
+	// 適用しているのと同じ理由)。これらを適用しないまま"desired"としてdiff評価へ渡すと、
+	// 稼働中nodeのactive configuration(既にpatch済み)との比較で常にprovider-idの不一致を
+	// invariant conflictとして誤検出してしまう。
+	desiredConfiguration, err := talos.SetInstallerImage(configuration, machine.Spec.Image.Version, machine.Spec.Image.SchematicID)
+	if err != nil {
+		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The desired Talos installer image could not be applied to the machine configuration; the in-place update is stopped."}
+	}
+	desiredConfiguration, err = talos.SetProviderID(desiredConfiguration, machine.Spec.ProviderID.String())
+	if err != nil {
+		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The Talos machine configuration could not be prepared with the allocated ProviderID; the in-place update is stopped."}
+	}
 	preparation := &runtimeextension.MachineUpdatePreparation{
 		ProviderMachine: machine,
-		Configuration:   configuration,
+		Configuration:   desiredConfiguration,
 		Strategy:        strategy,
 	}
 	// ApplyConfigurationUpdateは本来RuntimeSDK HTTPサーバーのhandler timeout(10秒)の内側で

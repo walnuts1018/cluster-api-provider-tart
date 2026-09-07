@@ -59,6 +59,12 @@ const (
 	// inventory観測前に接続先IPを知る必要があるため、この固定IPをTartHost.spec.talosAPIAddress
 	// へ明示設定して使う。
 	controlPlaneVMStaticIP = "198.51.100.200"
+
+	// labNetbootAdvertiseIPは、netboot-server(DHCP/TFTP/HTTP)がlab bridge(tartlab0)上で使う
+	// 専用IPである。libvirtのdnsmasq(gateway=198.51.100.1)と同じIPを共有すると、PXE clientが
+	// 「本物のDHCPサーバー」と「ProxyDHCP」を送信元IPで区別できず2段階のPXE handshakeが
+	// 成立しない。EnsureNetworkがこのIPをbridgeのsecondary addressとして追加する。
+	labNetbootAdvertiseIP = "198.51.100.2"
 )
 
 var (
@@ -109,11 +115,12 @@ var _ = BeforeSuite(func() {
 		},
 	}
 	testLab, err = lab.NewLibvirtLab("qemu:///system", lab.Config{
-		NetworkName:   labNetworkName,
-		NetworkBridge: labBridgeName,
-		NetworkCIDR:   labNetworkCIDR,
-		WorkDir:       labWorkDir,
-		VMs:           vmSpecs,
+		NetworkName:        labNetworkName,
+		NetworkBridge:      labBridgeName,
+		NetworkCIDR:        labNetworkCIDR,
+		NetbootAdvertiseIP: labNetbootAdvertiseIP,
+		WorkDir:            labWorkDir,
+		VMs:                vmSpecs,
 	})
 	Expect(err).NotTo(HaveOccurred(), "failed to connect to libvirt; this suite requires a linux runner with KVM/libvirt (see .github/actions/setup-lab)")
 	Expect(testLab.EnsureNetwork(ctx)).To(Succeed())
@@ -162,10 +169,10 @@ var _ = BeforeSuite(func() {
 	netbootServer, err = e2enetboot.Start(ctx, e2enetboot.Config{
 		KubeconfigPath:         kubeconfigPath,
 		TFTPRoot:               filepath.Join(labWorkDir, "tftp"),
-		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", "0.0.0.0"),
-		TFTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_TFTP_BIND", "0.0.0.0:69"),
-		HTTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_HTTP_BIND", ":8080"),
-		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", ""),
+		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", labNetbootAdvertiseIP),
+		TFTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_TFTP_BIND", labNetbootAdvertiseIP+":69"),
+		HTTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_HTTP_BIND", labNetbootAdvertiseIP+":8080"),
+		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", labNetbootAdvertiseIP),
 		AdvertiseHTTPBaseURL:   envOrDefault("TART_E2E_NETBOOT_ADVERTISE_HTTP_BASE_URL", ""),
 		ImageFactoryPXEBaseURL: envOrDefault("TART_E2E_IMAGE_FACTORY_PXE_BASE_URL", ""),
 		DiscoveryTalosVersion:  envOrDefault("TART_E2E_DISCOVERY_TALOS_VERSION", ""),

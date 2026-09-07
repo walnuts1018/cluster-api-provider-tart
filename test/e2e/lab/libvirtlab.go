@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -97,6 +98,19 @@ func (l *libvirtLab) EnsureNetwork(_ context.Context) error {
 	}
 	if err := network.Create(); err != nil {
 		return fmt.Errorf("start libvirt network %q: %w", l.cfg.NetworkName, err)
+	}
+
+	if l.cfg.NetbootAdvertiseIP != "" {
+		prefix, prefixErr := netip.ParsePrefix(l.cfg.NetworkCIDR)
+		if prefixErr != nil {
+			return fmt.Errorf("parse network CIDR %q: %w", l.cfg.NetworkCIDR, prefixErr)
+		}
+		addOutput, addErr := exec.Command("ip", "addr", "add",
+			fmt.Sprintf("%s/%d", l.cfg.NetbootAdvertiseIP, prefix.Bits()),
+			"dev", l.cfg.NetworkBridge).CombinedOutput()
+		if addErr != nil && !strings.Contains(string(addOutput), "File exists") {
+			return fmt.Errorf("add netboot advertise address %q to %q: %w: %s", l.cfg.NetbootAdvertiseIP, l.cfg.NetworkBridge, addErr, string(addOutput))
+		}
 	}
 	return nil
 }

@@ -43,6 +43,11 @@ type Config struct {
 	// NetworkCIDRはlab network(dnsmasqによる通常DHCP付き)のCIDRである。
 	// RFC 5737で予約されたTEST-NET rangeを使う。
 	NetworkCIDR string
+	// NetbootAdvertiseIPは、netboot-server(DHCP/TFTP/HTTP)がbridge上で使う専用IPである。
+	// libvirtのdnsmasq(gatewayアドレス)と同じIPを共有すると、PXE clientが「本物のDHCP
+	// サーバー」と「ProxyDHCP」を送信元IPで区別できず2段階のPXE handshakeが成立しないため、
+	// EnsureNetworkがこのIPをbridgeのsecondary addressとして追加する。
+	NetbootAdvertiseIP string
 	// WorkDirはdisk image等の作業ファイルを置くディレクトリである。
 	WorkDir string
 	// VMsはlabで管理するVMの一覧である。

@@ -357,8 +357,10 @@ func diskStableSelectorByWWID(host infrav1alpha1.TartHost, wwid string) string {
 	return selector
 }
 
+// labDiskWWIDは、Talosが観測するDiskInventory.WWID(およびdisk.wwid CEL式)の表記に合わせ、
+// lab.DiskWWNが返す生のhex値へ"naa."prefixを付けて返す。
 func labDiskWWID(role string) string {
-	return lab.DiskWWN(role, controlPlaneVMName)
+	return "naa." + lab.DiskWWN(role, controlPlaneVMName)
 }
 
 func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion string) {

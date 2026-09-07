@@ -184,9 +184,14 @@ func freshProvisionSpecs() {
 			cluster := &clusterv1.Cluster{
 				Name: e2eClusterName, Namespace: e2eNamespace,
 				Spec: clusterv1.ClusterSpec{
-					// TODO: 実CI実行時、workload cluster APIサーバへE2Eテストプロセスから到達できる
-					// endpoint(lab networkのVM IP)を確定させてから設定する。現状はcontrolPlaneEndpoint
-					// を空のままにし、TartClusterがReadyになるまでの待機挙動を確認する用途に留める。
+					// TartBootstrapConfigのmachineConfigurationContextはcluster.Spec.ControlPlaneEndpoint
+					// が有効であることを要求する(configuration生成前にAPI serverの到達先を確定させる
+					// ため)。labではcontrol-plane VMのIPをDHCP static reservationで固定済みのため、
+					// その既知のIPとKubernetes API serverの標準port(6443)を明示設定する。
+					ControlPlaneEndpoint: clusterv1.APIEndpoint{
+						Host: controlPlaneVMStaticIP,
+						Port: 6443,
+					},
 					ControlPlaneRef: clusterv1.ContractVersionedObjectReference{
 						Kind:     "TartControlPlane",
 						Name:     controlPlane.Name,

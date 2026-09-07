@@ -5,10 +5,10 @@ go 1.27.1
 tool github.com/mazrean/kessoku/cmd/kessoku
 
 require (
+	cel.dev/cel-go v0.32.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/cosi-project/runtime v1.16.3
 	github.com/go-logr/logr v1.4.4
-	github.com/google/cel-go v0.31.0
 	github.com/insomniacslk/dhcp v0.0.0-20260901064844-234b97448fae
 	github.com/mazrean/kessoku v1.1.1
 	github.com/onsi/ginkgo/v2 v2.32.1
@@ -89,6 +89,7 @@ require (
 	github.com/go-openapi/swag/yamlutils v0.28.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
+	github.com/google/cel-go v0.31.0 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.21.9 // indirect

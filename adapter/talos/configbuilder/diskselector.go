@@ -1,7 +1,7 @@
 package configbuilder
 
 import (
-	googlecel "github.com/google/cel-go/cel"
+	googlecel "cel.dev/cel-go/cel"
 	"github.com/siderolabs/talos/pkg/machinery/cel"
 
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"

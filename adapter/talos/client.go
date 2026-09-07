@@ -512,6 +512,14 @@ func (c *Client) Upgrade(ctx context.Context, image string) error {
 	if !exitStatusObserved {
 		return errors.New("upgrade Talos OS ended without an exit status")
 	}
+	// LifecycleService.Upgradeはimageのpullとdisk上への書き込み(staging)だけを行い、実際の再起動は
+	// 別のMachineService.Reboot呼び出しに委ねられている(talosctl upgradeの実装でも
+	// upgradeInternal完了後に明示的にrebootInternalを呼んでいる)。ここでRebootを呼ばない場合、
+	// staged imageが存在するにもかかわらずnodeは旧versionのまま動き続け、TalosUpToDateが
+	// 恒久的にfalseへ張り付く。
+	if err := c.raw.Reboot(ctx); err != nil {
+		return fmt.Errorf("reboot Talos after staged upgrade: %w", err)
+	}
 	return nil
 }
 

@@ -52,3 +52,5 @@ artifact/mkosi/mkosi.packages/
 !.agents/skills/
 !.agents/skills/*/
 !.agents/skills/*/SKILL.md
+
+.DS_Store

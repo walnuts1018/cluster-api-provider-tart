@@ -5,6 +5,7 @@ import (
 	"time"
 
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
@@ -13,6 +14,11 @@ import (
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 	usecaseupdate "github.com/walnuts1018/cluster-api-provider-tart/usecase/update"
 )
+
+// talosImageUpgradeTimeoutは、installer imageのpullとdisk書き込みが完了するまでstreamを読み切る
+// Upgrade() RPC専用のtimeoutである。Version/EtcdStatus等の単発RPC向けtalosUpdateTimeout(20秒)を
+// 使うと、image pullが完了する前に必ずcontext deadline exceededで失敗する。
+const talosImageUpgradeTimeout = 5 * time.Minute
 
 // updateTalosNodeは、machine configuration updateが必要とするTalos APIの観測と操作だけを表す。
 // 実機のTalos APIを必要とする経路をここへ閉じ込め、strategy部分をGo testから検証できるようにする。
@@ -204,10 +210,15 @@ func PerformImageUpgrade(ctx context.Context, kubeClient client.Reader, machine 
 	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, machine, providerID); !proceed {
 		return ConfigurationUpdateOutcome{RetryMessage: retryMessage}
 	}
-	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	// Upgrade()はinstaller image pull・disk書き込みを行うcontainerの終了(ExitCode progress
+	// message)までstreamを読み切って初めて返る、他の単発RPCとは性質が異なる長時間実行の呼び出し
+	// である。talosUpdateTimeout(20秒、Version/EtcdStatus等の単発RPC向け)を流用するとimage
+	// pullが完了する前に必ずcontext deadline exceededで失敗するため、専用の長いtimeoutを使う。
+	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosImageUpgradeTimeout)
 	upgradeErr := authenticated.Upgrade(upgradeContext, image)
 	upgradeCancel()
 	if upgradeErr != nil {
+		ctrl.LoggerFrom(ctx).Info("Talos image upgrade RPC failed", "error", upgradeErr.Error())
 		return ConfigurationUpdateOutcome{FailureMessage: "The Talos API rejected the requested image upgrade; the Machine remains stopped for safety."}
 	}
 	return ConfigurationUpdateOutcome{RetryMessage: "The Talos image upgrade was requested; waiting for the node to reboot and report the desired version and schematic."}

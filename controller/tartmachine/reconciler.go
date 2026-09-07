@@ -521,10 +521,11 @@ func (r *TartMachineReconciler) applyTalosUpgrade(ctx context.Context, machine *
 	if err != nil {
 		return runtimeextension.ConfigurationUpdateOutcome{RetryMessage: "The owning CAPI Machine could not be observed while the Talos in-place update is being prepared."}
 	}
-	// PerformImageUpgradeは本来RuntimeSDK HTTPサーバーのhandler timeout(20秒)の内側で呼ばれる
-	// 前提であり、この呼び出し元にも明示的なboundを与えないと、外部Talos APIが応答しない場合に
-	// reconcile workerが無期限に停止しうる。
-	upgradeContext, cancel := context.WithTimeout(ctx, talosReconcileTimeout*3)
+	// PerformImageUpgradeが呼ぶUpgrade() RPCはinstaller imageのpullとdisk書き込みが完了するまで
+	// streamを読み切る長時間実行の呼び出しであり(talosImageUpgradeTimeout=5分)、それに加えて
+	// etcd quorum gate/drain policyの評価時間も見込む必要がある。この呼び出し元にも明示的な
+	// boundを与えないと、外部Talos APIが応答しない場合にreconcile workerが無期限に停止しうる。
+	upgradeContext, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
 	return runtimeextension.PerformImageUpgrade(upgradeContext, r.Client, clusterMachine, machine.Spec.ProviderID.String(), image, authenticated)
 }

@@ -1,4 +1,4 @@
-name: E2E (bare-metal lab)
+name: E2E Test
 
 on:
   workflow_dispatch:

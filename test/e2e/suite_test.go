@@ -184,8 +184,12 @@ var _ = BeforeSuite(func() {
 		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", labNetbootAdvertiseIP),
 		AdvertiseHTTPBaseURL:   envOrDefault("TART_E2E_NETBOOT_ADVERTISE_HTTP_BASE_URL", ""),
 		ImageFactoryPXEBaseURL: envOrDefault("TART_E2E_IMAGE_FACTORY_PXE_BASE_URL", ""),
-		DiscoveryTalosVersion:  envOrDefault("TART_E2E_DISCOVERY_TALOS_VERSION", ""),
-		DiscoverySchematicID:   envOrDefault("TART_E2E_DISCOVERY_SCHEMATIC_ID", ""),
+		// discovery boot(TartMachineがまだ存在せずdesired imageが決まっていない初回PXE boot)
+		// では、netboot-serverはこのdiscovery imageをmaintenance mode boot用に案内する。
+		// fresh_provision_test.goのe2eTalosVersion/e2eSchematicID(TartMachineTemplateが後で
+		// 要求するのと同じimage)を流用する。
+		DiscoveryTalosVersion: envOrDefault("TART_E2E_DISCOVERY_TALOS_VERSION", e2eTalosVersion),
+		DiscoverySchematicID:  envOrDefault("TART_E2E_DISCOVERY_SCHEMATIC_ID", e2eSchematicID),
 	})
 	Expect(err).NotTo(HaveOccurred())
 	// TODO: netboot-serverのProxyDHCPが、lab networkのdnsmasq(通常DHCP)と同一segmentで

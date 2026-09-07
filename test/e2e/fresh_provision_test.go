@@ -110,6 +110,11 @@ func freshProvisionSpecs() {
 			var host infrav1alpha1.TartHost
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
 
+			// install disk(system disk)の選択はprovider-owned invariantであり、
+			// TartBootstrapConfigのreconcilerがclaimしたTartHostのinventoryからdomainbootstrap.
+			// SelectDiskで自動的に選び、生成後のconfigurationへEnsureInstallDiskで強制する。
+			// ユーザーのraw patchでinstall.diskSelectorを指定する経路ではないため、ここでは
+			// 空でない無害なpatch(Secret-backed input自体の受け渡し経路を検証する目的)のみ渡す。
 			systemDiskSelector := systemDiskStableSelector(host)
 			Expect(systemDiskSelector).NotTo(BeEmpty())
 
@@ -118,7 +123,7 @@ func freshProvisionSpecs() {
 				Name: e2eClusterName + "-cp-patches", Namespace: e2eNamespace,
 				Immutable: new(true),
 				StringData: map[string]string{
-					"patches": controlPlanePatches(systemDiskSelector),
+					"patches": "cluster: {}\n",
 				},
 			}
 			Expect(k8sClient.Create(ctx, patchesSecret)).To(Succeed())
@@ -285,17 +290,6 @@ func systemDiskStableSelector(host infrav1alpha1.TartHost) string {
 		}
 	}
 	return largest.StableSelector
-}
-
-// controlPlanePatchesは、単一disk(systemDiskSelector)へのinstallを指定する最小限のTalos
-// machine configuration patchをYAMLで返す。
-func controlPlanePatches(systemDiskSelector string) string {
-	return fmt.Sprintf(`apiVersion: v1alpha1
-kind: InstallConfig
-install:
-  diskSelector:
-    match: %s
-`, systemDiskSelector)
 }
 
 // labBroadcastAddressは、lab network CIDR上のbroadcast address(host部が全1)にWoL標準port 9を

@@ -109,32 +109,32 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 	t.Run("live policy applies without a reboot", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
 			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:  safeDifference,
 		})
-		if outcome.retryMessage == "" || outcome.failureMessage != "" {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a retry", outcome)
+		if outcome.RetryMessage == "" || outcome.FailureMessage != "" {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want a retry", outcome)
 		}
 		if node.liveApplies != 1 || node.rebootApplies != 0 {
-			t.Fatalf("applyConfigurationUpdate() applied live = %d, reboot = %d", node.liveApplies, node.rebootApplies)
+			t.Fatalf("ApplyConfigurationUpdate() applied live = %d, reboot = %d", node.liveApplies, node.rebootApplies)
 		}
 	})
 
 	t.Run("live policy does not fall back to a reboot", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100, liveErr: errors.New("talos rejected the live apply")}
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
 			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:  safeDifference,
 		})
-		if outcome.failureMessage == "" || outcome.done {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a failure", outcome)
+		if outcome.FailureMessage == "" || outcome.Done {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want a failure", outcome)
 		}
 		if node.rebootApplies != 0 {
-			t.Fatalf("applyConfigurationUpdate() fell back to %d reboot applies", node.rebootApplies)
+			t.Fatalf("ApplyConfigurationUpdate() fell back to %d reboot applies", node.rebootApplies)
 		}
 	})
 
@@ -142,7 +142,7 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
 		gateCalls := 0
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:     node,
 			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:  safeDifference,
@@ -151,18 +151,18 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 				return false, "The Node drain was blocked."
 			},
 		})
-		if gateCalls != 1 || outcome.retryMessage != "The Node drain was blocked." {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, gate calls = %d", outcome, gateCalls)
+		if gateCalls != 1 || outcome.RetryMessage != "The Node drain was blocked." {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, gate calls = %d", outcome, gateCalls)
 		}
 		if node.rebootApplies != 0 || node.liveApplies != 0 {
-			t.Fatal("applyConfigurationUpdate() applied a configuration while the drain gate was closed")
+			t.Fatal("ApplyConfigurationUpdate() applied a configuration while the drain gate was closed")
 		}
 	})
 
 	t.Run("reboot policy applies after the drain gate", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:                      node,
 			strategy:                  bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:                   safeDifference,
@@ -170,28 +170,28 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 			rebootObservationTimeout:  time.Millisecond,
 			rebootObservationInterval: time.Millisecond,
 		})
-		if outcome.retryMessage == "" || outcome.failureMessage != "" {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a retry", outcome)
+		if outcome.RetryMessage == "" || outcome.FailureMessage != "" {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want a retry", outcome)
 		}
 		if node.rebootApplies != 1 || node.liveApplies != 0 {
-			t.Fatalf("applyConfigurationUpdate() applied live = %d, reboot = %d", node.liveApplies, node.rebootApplies)
+			t.Fatalf("ApplyConfigurationUpdate() applied live = %d, reboot = %d", node.liveApplies, node.rebootApplies)
 		}
 		if node.bootTime != 101 {
-			t.Fatalf("applyConfigurationUpdate() did not observe a reboot, boot time = %d", node.bootTime)
+			t.Fatalf("ApplyConfigurationUpdate() did not observe a reboot, boot time = %d", node.bootTime)
 		}
 	})
 
 	t.Run("destructive difference stops the update", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100}
-		outcome := applyConfigurationUpdate(t.Context(), configurationUpdate{
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
 			node:       node,
 			strategy:   bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot,
 			desired:    destructiveDifference,
 			rebootGate: func(context.Context) (bool, string) { return true, "" },
 		})
-		if outcome.failureMessage == "" || node.rebootApplies != 0 {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, reboot applies = %d", outcome, node.rebootApplies)
+		if outcome.FailureMessage == "" || node.rebootApplies != 0 {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, reboot applies = %d", outcome, node.rebootApplies)
 		}
 	})
 
@@ -204,17 +204,17 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 			desired:   active,
 			nodeReady: func(context.Context) (bool, string) { return true, "" },
 		}
-		if outcome := applyConfigurationUpdate(t.Context(), updater); outcome.done || outcome.retryMessage == "" {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want a retry while Talos is unhealthy", outcome)
+		if outcome := ApplyConfigurationUpdate(t.Context(), updater); outcome.Done || outcome.RetryMessage == "" {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want a retry while Talos is unhealthy", outcome)
 		}
 		node.servicesErr = nil
 		updater.nodeReady = func(context.Context) (bool, string) { return false, "The Node is not Ready yet." }
-		if outcome := applyConfigurationUpdate(t.Context(), updater); outcome.done {
-			t.Fatal("applyConfigurationUpdate() completed while the Node was not Ready")
+		if outcome := ApplyConfigurationUpdate(t.Context(), updater); outcome.Done {
+			t.Fatal("ApplyConfigurationUpdate() completed while the Node was not Ready")
 		}
 		updater.nodeReady = func(context.Context) (bool, string) { return true, "" }
-		if outcome := applyConfigurationUpdate(t.Context(), updater); !outcome.done {
-			t.Fatalf("applyConfigurationUpdate() outcome = %+v, want completion", outcome)
+		if outcome := ApplyConfigurationUpdate(t.Context(), updater); !outcome.Done {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want completion", outcome)
 		}
 	})
 }

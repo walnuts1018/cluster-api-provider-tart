@@ -28,6 +28,7 @@ import (
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller/runtimeextension"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/domain/machine"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
@@ -74,6 +75,7 @@ func NewTartMachineReconciler(c client.Client) *TartMachineReconciler {
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartmachines/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tarthosts/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
@@ -455,20 +457,80 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	previousUpToDate := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition)
 	wasUpToDate := previousUpToDate != nil && previousUpToDate.Status == metav1.ConditionTrue
 	if wasUpToDate && machine.Status.TalosVersion == machine.Spec.Image.Version && machine.Status.TalosSchematicID == machine.Spec.Image.SchematicID {
-		mismatchReason = infrav1alpha1.ReasonRolledBack
+		// 一度desired imageへ到達した後にrollbackした場合は、自動復旧を試みずfail-closedで停止する。
+		// この分岐だけはapplyTalosUpgradeを呼ばない。
 		mismatchMessage = "The previously observed Talos image is no longer running; automatic rollback recovery is stopped."
 		readyMessage = "The Host no longer reports the previously observed desired Talos image."
+		if closeErr := authenticated.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		result, err := r.reportTalosStatusWithVersion(ctx, machine, version.Tag, observedSchematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionFalse, infrav1alpha1.ReasonRolledBack, mismatchMessage,
+			metav1.ConditionFalse, infrav1alpha1.ReasonRolledBack, readyMessage,
+			0)
+		return result, true, err
 	}
+
+	// version/schematicがdesiredと一致しない場合、in-place updateを試みる。CAPI coreのRuntimeSDK
+	// ExtensionConfig経由のUpdateMachine hookはKubeadmControlPlaneの内部実装専用であり、独自の
+	// TartControlPlaneを持つこのproviderでは決して呼び出されない。そのためcontroller/runtimeextension
+	// が実装済みの安全なstaged apply+reboot engine(etcd quorum gate、drain policy含む)を
+	// このreconcile loopから直接呼び出す。
+	outcome := r.applyTalosUpgrade(ctx, machine, configuration, authenticated)
 	if closeErr := authenticated.Close(); closeErr != nil {
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+	}
+	if outcome.FailureMessage != "" {
+		result, err := r.reportTalosStatusWithVersion(ctx, machine, version.Tag, observedSchematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionFalse, mismatchReason, outcome.FailureMessage,
+			metav1.ConditionFalse, mismatchReason, readyMessage,
+			0)
+		return result, true, err
+	}
+	progressMessage := outcome.RetryMessage
+	if progressMessage == "" {
+		progressMessage = mismatchMessage
 	}
 	result, err := r.reportTalosStatusWithVersion(ctx, machine, version.Tag, observedSchematicID,
 		metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
 		metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
-		metav1.ConditionFalse, mismatchReason, mismatchMessage,
+		metav1.ConditionFalse, mismatchReason, progressMessage,
 		metav1.ConditionFalse, mismatchReason, readyMessage,
-		0)
+		talosRequeue)
 	return result, true, err
+}
+
+// applyTalosUpgradeは、controller/runtimeextensionが実装するstaged apply+reboot engineを直接呼び出し、
+// 観測したTalos version/schematicのmismatchをin-placeで解消しようと試みる。安全条件(etcd quorum、
+// drain policy)の評価は全てそのengineに委譲し、ここでは呼び出しに必要なcontextの組み立てだけを行う。
+func (r *TartMachineReconciler) applyTalosUpgrade(ctx context.Context, machine *infrav1alpha1.TartMachine, configuration []byte, authenticated *talos.Client) runtimeextension.ConfigurationUpdateOutcome {
+	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if err != nil {
+		return runtimeextension.ConfigurationUpdateOutcome{RetryMessage: "The owning CAPI Machine could not be observed while the Talos in-place update is being prepared."}
+	}
+	strategy := bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot
+	if ref := clusterMachine.Spec.Bootstrap.ConfigRef; ref.Name != "" && ref.Kind == controller.TartBootstrapConfigKind && ref.APIGroup == bootstrapv1alpha1.GroupVersion.Group {
+		bootstrapConfig := &bootstrapv1alpha1.TartBootstrapConfig{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, bootstrapConfig); err == nil {
+			strategy = bootstrapConfig.Spec.EffectiveConfigurationApplyStrategy()
+		}
+	}
+	preparation := &runtimeextension.MachineUpdatePreparation{
+		ProviderMachine: machine,
+		Configuration:   configuration,
+		Strategy:        strategy,
+	}
+	// ApplyConfigurationUpdateは本来RuntimeSDK HTTPサーバーのhandler timeout(10秒)の内側で
+	// 呼ばれる前提であり、内部のreboot観測ループ自体もdefaultRebootObservationTimeout(90秒)
+	// までのpollingを行うため、この呼び出し元にも明示的なboundを与えないと、外部Talos APIが
+	// 応答しない場合にreconcile workerが無期限に停止しうる。
+	upgradeContext, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	return runtimeextension.ApplyConfigurationUpdate(upgradeContext, runtimeextension.MachineConfigurationUpdate(r.Client, clusterMachine, preparation, authenticated))
 }
 
 func (r *TartMachineReconciler) reconcileMaintenanceTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, endpoint string, configuration []byte) (ctrl.Result, error) {

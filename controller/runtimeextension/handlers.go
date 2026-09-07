@@ -103,13 +103,13 @@ func newUpdateMachineHandler(kubeClient client.Reader) func(context.Context, *ru
 	}
 }
 
-type machineUpdatePreparation struct {
-	desiredInfrastructure *infrav1alpha1.TartMachine
-	providerMachine       *infrav1alpha1.TartMachine
-	endpoint              string
-	configuration         []byte
-	image                 string
-	strategy              bootstrapv1alpha1.ConfigurationApplyStrategy
+type MachineUpdatePreparation struct {
+	DesiredInfrastructure *infrav1alpha1.TartMachine
+	ProviderMachine       *infrav1alpha1.TartMachine
+	Endpoint              string
+	Configuration         []byte
+	Image                 string
+	Strategy              bootstrapv1alpha1.ConfigurationApplyStrategy
 }
 
 type updateRetryError struct {
@@ -145,7 +145,7 @@ func updateMachineWithClient(ctx context.Context, req *runtimehooksv1.UpdateMach
 	updateMachineAtTalos(ctx, req, resp, kubeClient, preparation)
 }
 
-func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachineRequest, kubeClient client.Reader) (*machineUpdatePreparation, error) {
+func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachineRequest, kubeClient client.Reader) (*MachineUpdatePreparation, error) {
 	desiredInfrastructure, err := decodeTartMachine(req.Desired.InfrastructureMachine)
 	if err != nil || desiredInfrastructure.Spec.Image.Version == "" || desiredInfrastructure.Spec.Image.SchematicID == "" {
 		return nil, errors.New("desired TartMachine image is invalid")
@@ -196,19 +196,19 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		}
 		return nil, errors.New("the immutable Bootstrap Secret does not satisfy the update contract")
 	}
-	return &machineUpdatePreparation{
-		desiredInfrastructure: desiredInfrastructure,
-		providerMachine:       providerMachine,
-		endpoint:              endpoint,
-		configuration:         configuration,
-		image:                 image,
-		strategy:              bootstrapUpdateStrategy(bootstrapConfig),
+	return &MachineUpdatePreparation{
+		DesiredInfrastructure: desiredInfrastructure,
+		ProviderMachine:       providerMachine,
+		Endpoint:              endpoint,
+		Configuration:         configuration,
+		Image:                 image,
+		Strategy:              bootstrapUpdateStrategy(bootstrapConfig),
 	}, nil
 }
 
-func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachineRequest, resp *runtimehooksv1.UpdateMachineResponse, kubeClient client.Reader, preparation *machineUpdatePreparation) {
+func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachineRequest, resp *runtimehooksv1.UpdateMachineResponse, kubeClient client.Reader, preparation *MachineUpdatePreparation) {
 	connectionContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
-	authenticated, err := talos.DialAuthenticatedFromConfiguration(connectionContext, preparation.endpoint, preparation.configuration)
+	authenticated, err := talos.DialAuthenticatedFromConfiguration(connectionContext, preparation.Endpoint, preparation.Configuration)
 	cancel()
 	if err != nil {
 		setUpdateRetry(resp, "The authenticated Talos API is not reachable while the in-place update is being prepared.")
@@ -234,7 +234,7 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		setUpdateRetry(resp, "The Talos schematic identity could not be observed while the in-place update is being prepared.")
 		return
 	}
-	if preparation.providerMachine.Status.TalosVersion == preparation.desiredInfrastructure.Spec.Image.Version && preparation.providerMachine.Status.TalosSchematicID == preparation.desiredInfrastructure.Spec.Image.SchematicID && (version.Tag != preparation.desiredInfrastructure.Spec.Image.Version || observedSchematicID != preparation.desiredInfrastructure.Spec.Image.SchematicID) && machineWasPreviouslyUpToDate(preparation.providerMachine) {
+	if preparation.ProviderMachine.Status.TalosVersion == preparation.DesiredInfrastructure.Spec.Image.Version && preparation.ProviderMachine.Status.TalosSchematicID == preparation.DesiredInfrastructure.Spec.Image.SchematicID && (version.Tag != preparation.DesiredInfrastructure.Spec.Image.Version || observedSchematicID != preparation.DesiredInfrastructure.Spec.Image.SchematicID) && machineWasPreviouslyUpToDate(preparation.ProviderMachine) {
 		if !closeAuthenticatedForUpdate(resp, authenticated) {
 			return
 		}
@@ -242,22 +242,22 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		resp.Message = "The Talos node rolled back after reaching the desired image; automatic recovery is stopped until the image transition is reviewed."
 		return
 	}
-	if version.Tag == preparation.desiredInfrastructure.Spec.Image.Version && observedSchematicID == preparation.desiredInfrastructure.Spec.Image.SchematicID {
+	if version.Tag == preparation.DesiredInfrastructure.Spec.Image.Version && observedSchematicID == preparation.DesiredInfrastructure.Spec.Image.SchematicID {
 		// imageがdesiredへ到達している場合だけ、machine configuration差分をpolicyへ従ってin-placeで適用する。
-		outcome := applyConfigurationUpdate(ctx, machineConfigurationUpdate(kubeClient, &req.Desired.Machine, preparation, authenticated))
+		outcome := ApplyConfigurationUpdate(ctx, MachineConfigurationUpdate(kubeClient, &req.Desired.Machine, preparation, authenticated))
 		if !closeAuthenticatedForUpdate(resp, authenticated) {
 			return
 		}
 		switch {
-		case outcome.failureMessage != "":
+		case outcome.FailureMessage != "":
 			resp.Status = runtimehooksv1.ResponseStatusFailure
-			resp.Message = outcome.failureMessage
-		case outcome.retryMessage != "":
-			setUpdateRetry(resp, outcome.retryMessage)
+			resp.Message = outcome.FailureMessage
+		case outcome.RetryMessage != "":
+			setUpdateRetry(resp, outcome.RetryMessage)
 		default:
 			// Kubernetes version upgradeはTartControlPlaneがcluster単位で実行済みである。ここでは自Nodeの
 			// observed Kubernetes versionがdesired versionへ収束したことだけを確認し、個別のupgradeは行わない。
-			if converged, retryMessage := nodeKubernetesVersionConverged(ctx, kubeClient, &req.Desired.Machine, string(preparation.providerMachine.Spec.ProviderID), req.Desired.Machine.Spec.Version); !converged {
+			if converged, retryMessage := nodeKubernetesVersionConverged(ctx, kubeClient, &req.Desired.Machine, string(preparation.ProviderMachine.Spec.ProviderID), req.Desired.Machine.Spec.Version); !converged {
 				setUpdateRetry(resp, retryMessage)
 				return
 			}
@@ -267,7 +267,7 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		}
 		return
 	}
-	if err := talos.ValidateUpgrade(version.Tag, preparation.desiredInfrastructure.Spec.Image.Version); err != nil {
+	if err := talos.ValidateUpgrade(version.Tag, preparation.DesiredInfrastructure.Spec.Image.Version); err != nil {
 		if !closeAuthenticatedForUpdate(resp, authenticated) {
 			return
 		}
@@ -289,7 +289,7 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 	}
 	// node-disruptiveなTalos restartの前に、workload Podへの影響(availability、PDB)を考慮した
 	// cordon/drainを試みる。allowDowntime policyで緩和されない限り、drain失敗はUpgradeへ進めず安全に中断する。
-	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, &req.Desired.Machine, string(preparation.providerMachine.Spec.ProviderID)); !proceed {
+	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, &req.Desired.Machine, string(preparation.ProviderMachine.Spec.ProviderID)); !proceed {
 		if !closeAuthenticatedForUpdate(resp, authenticated) {
 			return
 		}
@@ -297,7 +297,7 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		return
 	}
 	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosUpdateTimeout)
-	upgradeErr := authenticated.Upgrade(upgradeContext, preparation.image)
+	upgradeErr := authenticated.Upgrade(upgradeContext, preparation.Image)
 	upgradeCancel()
 	if !closeAuthenticatedForUpdate(resp, authenticated) {
 		return

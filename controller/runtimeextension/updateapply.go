@@ -48,15 +48,15 @@ type configurationUpdate struct {
 	rebootObservationInterval time.Duration
 }
 
-// configurationUpdateOutcomeはmachine configuration updateの結果を表す。Statusをprogram counterとして保存しないため、
+// ConfigurationUpdateOutcomeはmachine configuration updateの結果を表す。Statusをprogram counterとして保存しないため、
 // 呼び出しごとにTalosとworkload clusterの観測から再計算できる粗い結果だけを返す。
-type configurationUpdateOutcome struct {
+type ConfigurationUpdateOutcome struct {
 	// doneはdesired configurationの反映とnodeの回復まで確認できたことを示す。
-	done bool
+	Done bool
 	// retryMessageが空でない場合、外部の観測が整うまで待って再試行する。
-	retryMessage string
+	RetryMessage string
 	// failureMessageが空でない場合、安全に継続できないため停止する。Machine replacementへfallbackしない。
-	failureMessage string
+	FailureMessage string
 }
 
 const (
@@ -64,25 +64,25 @@ const (
 	defaultRebootObservationInterval = 5 * time.Second
 )
 
-// applyConfigurationUpdateは、active configurationとdesired configurationの差分をstrategyへ従って適用し、
+// ApplyConfigurationUpdateは、active configurationとdesired configurationの差分をstrategyへ従って適用し、
 // 適用後の反映と回復を観測する。RPCの成功だけでは完了とみなさない。
-func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) configurationUpdateOutcome {
+func ApplyConfigurationUpdate(ctx context.Context, updater configurationUpdate) ConfigurationUpdateOutcome {
 	if updater.node == nil || len(updater.desired) == 0 {
-		return configurationUpdateOutcome{failureMessage: "The desired machine configuration is unavailable; the in-place update is stopped."}
+		return ConfigurationUpdateOutcome{FailureMessage: "The desired machine configuration is unavailable; the in-place update is stopped."}
 	}
 	active, err := updater.node.ActiveMachineConfiguration(ctx)
 	if err != nil {
-		return configurationUpdateOutcome{retryMessage: "The active Talos machine configuration could not be observed while the in-place update is being prepared."}
+		return ConfigurationUpdateOutcome{RetryMessage: "The active Talos machine configuration could not be observed while the in-place update is being prepared."}
 	}
 	decision, err := usecaseupdate.Evaluate(configbuilder.Builder{}, updater.strategy, active, updater.desired)
 	if err != nil {
-		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be evaluated safely; the in-place update is stopped."}
+		return ConfigurationUpdateOutcome{FailureMessage: "The machine configuration difference could not be evaluated safely; the in-place update is stopped."}
 	}
 	switch decision.Class {
 	case domainupdate.ChangeInvariantConflict:
-		return configurationUpdateOutcome{failureMessage: decision.Reason}
+		return ConfigurationUpdateOutcome{FailureMessage: decision.Reason}
 	case domainupdate.ChangeReprovisionRequired:
-		return configurationUpdateOutcome{failureMessage: "ReprovisionRequired: " + decision.Reason}
+		return ConfigurationUpdateOutcome{FailureMessage: "ReprovisionRequired: " + decision.Reason}
 	case domainupdate.ChangeNone:
 		return verifyConfigurationRecovered(ctx, updater)
 	case domainupdate.ChangeUpdatable:
@@ -90,34 +90,34 @@ func applyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 	default:
 		// 未知のChangeClassをChangeUpdatableと同じ経路へ暗黙に進めない。安全に評価できない差分は
 		// fail-closedで停止する。
-		return configurationUpdateOutcome{failureMessage: "The machine configuration difference could not be classified into a recognized change class; the in-place update is stopped."}
+		return ConfigurationUpdateOutcome{FailureMessage: "The machine configuration difference could not be classified into a recognized change class; the in-place update is stopped."}
 	}
 	if decision.ApplyMode == domainupdate.ApplyModeApplyOnly {
 		if err := updater.node.ApplyConfigurationNoReboot(ctx, updater.desired); err != nil {
 			// ApplyOnly strategyはproviderからrebootへfallbackせず、失敗を明示的に停止する。
-			return configurationUpdateOutcome{failureMessage: "The ApplyOnly machine configuration apply failed; the update is stopped without falling back to a reboot."}
+			return ConfigurationUpdateOutcome{FailureMessage: "The ApplyOnly machine configuration apply failed; the update is stopped without falling back to a reboot."}
 		}
-		return configurationUpdateOutcome{retryMessage: "The machine configuration was applied without a reboot; waiting for the node to report the desired configuration."}
+		return ConfigurationUpdateOutcome{RetryMessage: "The machine configuration was applied without a reboot; waiting for the node to report the desired configuration."}
 	}
 	if updater.rebootGate != nil {
 		proceed, message := updater.rebootGate(ctx)
 		if !proceed {
-			return configurationUpdateOutcome{retryMessage: message}
+			return ConfigurationUpdateOutcome{RetryMessage: message}
 		}
 	}
 	bootTime, bootTimeErr := updater.node.BootTime(ctx)
 	if err := updater.node.ApplyConfiguration(ctx, updater.desired); err != nil {
-		return configurationUpdateOutcome{failureMessage: "The Talos API rejected the machine configuration apply; the Machine remains stopped for safety."}
+		return ConfigurationUpdateOutcome{FailureMessage: "The Talos API rejected the machine configuration apply; the Machine remains stopped for safety."}
 	}
 	if err := updater.node.Reboot(ctx); err != nil {
-		return configurationUpdateOutcome{failureMessage: "The Talos API rejected the reboot after the machine configuration apply; the Machine remains stopped for safety."}
+		return ConfigurationUpdateOutcome{FailureMessage: "The Talos API rejected the reboot after the machine configuration apply; the Machine remains stopped for safety."}
 	}
 	if bootTimeErr == nil {
 		if observed := observeReboot(ctx, updater, bootTime); !observed {
-			return configurationUpdateOutcome{retryMessage: "The machine configuration was applied; waiting for the node to reboot into the desired configuration."}
+			return ConfigurationUpdateOutcome{RetryMessage: "The machine configuration was applied; waiting for the node to reboot into the desired configuration."}
 		}
 	}
-	return configurationUpdateOutcome{retryMessage: "The machine configuration was applied and the node rebooted; waiting for the desired configuration and Node readiness to be observed."}
+	return ConfigurationUpdateOutcome{RetryMessage: "The machine configuration was applied and the node rebooted; waiting for the desired configuration and Node readiness to be observed."}
 }
 
 // observeRebootは、reboot要求前に観測したboot時刻が変化することを確認する。API接続が失われている間はerrorになるため、
@@ -148,27 +148,27 @@ func observeReboot(ctx context.Context, updater configurationUpdate, previousBoo
 }
 
 // verifyConfigurationRecoveredは、desired configurationが反映済みのnodeがTalosとKubernetesの双方で回復したことを確認する。
-func verifyConfigurationRecovered(ctx context.Context, updater configurationUpdate) configurationUpdateOutcome {
+func verifyConfigurationRecovered(ctx context.Context, updater configurationUpdate) ConfigurationUpdateOutcome {
 	if err := updater.node.ServicesHealthy(ctx); err != nil {
-		return configurationUpdateOutcome{retryMessage: "The Talos services are not healthy yet after the machine configuration update."}
+		return ConfigurationUpdateOutcome{RetryMessage: "The Talos services are not healthy yet after the machine configuration update."}
 	}
 	if updater.nodeReady != nil {
 		ready, message := updater.nodeReady(ctx)
 		if !ready {
-			return configurationUpdateOutcome{retryMessage: message}
+			return ConfigurationUpdateOutcome{RetryMessage: message}
 		}
 	}
-	return configurationUpdateOutcome{done: true}
+	return ConfigurationUpdateOutcome{Done: true}
 }
 
-// machineConfigurationUpdateは、UpdateMachineの観測結果からmachine configuration updateの実行contextを組み立てる。
+// MachineConfigurationUpdateは、UpdateMachineの観測結果からmachine configuration updateの実行contextを組み立てる。
 // rebootを伴う適用では、control planeのetcd quorum判定とworkload Nodeのcordon/drainを同じ安全条件として要求する。
-func machineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Machine, preparation *machineUpdatePreparation, node *talos.Client) configurationUpdate {
-	providerID := string(preparation.providerMachine.Spec.ProviderID)
+func MachineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Machine, preparation *MachineUpdatePreparation, node *talos.Client) configurationUpdate {
+	providerID := string(preparation.ProviderMachine.Spec.ProviderID)
 	return configurationUpdate{
 		node:     node,
-		strategy: preparation.strategy,
-		desired:  preparation.configuration,
+		strategy: preparation.Strategy,
+		desired:  preparation.Configuration,
 		rebootGate: func(ctx context.Context) (bool, string) {
 			if isControlPlaneMachine(machine) {
 				gateContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)

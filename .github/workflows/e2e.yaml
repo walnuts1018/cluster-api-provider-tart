@@ -15,8 +15,6 @@ concurrency:
 jobs:
   e2e-bare-metal:
     name: FreshProvision / InPlaceUpgrade / ReconcileRecovery
-    # KVM/nested virtualizationが必要であり、実行時間も長いため、通常PRのfast feedbackを
-    # 阻害しない独立したworkflowとして実行する(ci.yamlとは分離)。
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

@@ -54,7 +54,8 @@ jobs:
             dnsmasq-base \
             bridge-utils \
             virtinst \
-            tcpdump
+            tcpdump \
+            ovmf
 
       - name: Grant runner user libvirt access
         run: |
@@ -88,6 +89,16 @@ jobs:
           docker build --target control-plane-manager -t control-plane-controller:e2e .
           docker build --target infrastructure-manager -t infrastructure-controller:e2e .
           docker build --target netboot-server -t netboot-server:e2e .
+
+      - name: Prepare iPXE bootloader for TFTP
+        # OVMFのUEFI PXE stack(iPXEではない)は、adapter/netboot/dhcpが案内するbootfile名
+        # (ipxe-x86_64.efi)を実ファイルとしてTFTP経由でchainloadしようとする。この段階を
+        # 経て初めてクライアントはiPXEとして再DHCPし、HTTP boot URLへ案内される。
+        # 公式のprebuilt binaryをTFTP rootへ配置する。
+        run: |
+          set -euxo pipefail
+          mkdir -p "${{ runner.temp }}/tart-e2e-lab/tftp"
+          curl -fsSL -o "${{ runner.temp }}/tart-e2e-lab/tftp/ipxe-x86_64.efi" https://boot.ipxe.org/ipxe.efi
 
       - name: Run E2E suite (kind + CAPI + Tart provider + bare-metal lab)
         env:

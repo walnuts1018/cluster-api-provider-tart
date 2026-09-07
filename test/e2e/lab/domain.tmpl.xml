@@ -27,7 +27,11 @@ PXE(network)へfallbackするlibvirtの標準挙動を利用する。3disk(syste
   <memory unit='MiB'>{{ .MemoryMiB }}</memory>
   <currentMemory unit='MiB'>{{ .MemoryMiB }}</currentMemory>
   <vcpu placement='static'>{{ .VCPUs }}</vcpu>
-  <os>
+  <!-- adapter/netboot/dhcpのDecideAgentBootFileはDHCP option 93(Client System Architecture)が
+       EFI x86-64であることを要求し、legacy BIOS PXE clientへは応答しない。OVMFでUEFI firmwareを
+       明示し、この要件を満たす。firmware='efi'はlibvirtがovmfパッケージのfirmware descriptorから
+       自動選択する(Ubuntu 24.04のlibvirt/ovmfパッケージで対応)。 -->
+  <os firmware='efi'>
     <type arch='x86_64' machine='q35'>hvm</type>
     <boot dev='hd'/>
     <boot dev='network'/>

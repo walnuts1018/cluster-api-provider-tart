@@ -116,9 +116,9 @@ func recordCurrentIdentity(ctx context.Context) upgradeIdentityRecord {
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
 	Expect(tartMachine.Status.HostRef).NotTo(BeNil())
 
-	var node corev1.Node
 	Expect(machine.Status.NodeRef.IsDefined()).To(BeTrue(), "CAPI Machine must reference a Node before writing the UserVolume marker")
-	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Status.NodeRef.Name}, &node)).To(Succeed())
+	node, err := getWorkloadNode(ctx, machine.Status.NodeRef.Name)
+	Expect(err).NotTo(HaveOccurred())
 
 	sum := sha256.Sum256([]byte(upgradeDataPayload))
 	checksum := hex.EncodeToString(sum[:])
@@ -147,8 +147,8 @@ func assertIdentityUnchanged(ctx context.Context, before upgradeIdentityRecord) 
 	Expect(tartMachine.Status.HostRef.Name).To(Equal(before.tartHostName), "TartHost binding must not change across in-place upgrade")
 
 	Expect(machine.Status.NodeRef.IsDefined()).To(BeTrue())
-	var node corev1.Node
-	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Status.NodeRef.Name}, &node)).To(Succeed())
+	node, err := getWorkloadNode(ctx, machine.Status.NodeRef.Name)
+	Expect(err).NotTo(HaveOccurred())
 	Expect(node.UID).To(Equal(before.nodeUID), "Node UID must not change across in-place upgrade")
 	Expect(verifyUserVolumeMarker(ctx, node.Name, before.dataChecksum)).To(Succeed())
 }
@@ -257,6 +257,21 @@ func newWorkloadClient(ctx context.Context) (kubernetes.Interface, error) {
 		return nil, fmt.Errorf("create workload Kubernetes client: %w", err)
 	}
 	return workload, nil
+}
+
+// getWorkloadNodeは、CAPI Machine.Status.NodeRefが指すNodeを取得する。NodeはTalosが構築する
+// workload clusterのapiserverだけが保持しており、management (kind) clusterのk8sClientでは
+// 参照できないため、newWorkloadClientが生成するworkload cluster向けclient-go clientを使う。
+func getWorkloadNode(ctx context.Context, name string) (corev1.Node, error) {
+	workload, err := newWorkloadClient(ctx)
+	if err != nil {
+		return corev1.Node{}, err
+	}
+	node, err := workload.CoreV1().Nodes().Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return corev1.Node{}, fmt.Errorf("get workload Node %q: %w", name, err)
+	}
+	return *node, nil
 }
 
 func writeUserVolumeMarker(ctx context.Context, nodeName string) error {

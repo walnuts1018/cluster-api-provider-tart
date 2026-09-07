@@ -167,9 +167,14 @@ var _ = BeforeSuite(func() {
 
 	By("netboot-serverをテストプロセス内で起動する(ProxyDHCP/TFTP/HTTP)")
 	netbootServer, err = e2enetboot.Start(ctx, e2enetboot.Config{
-		KubeconfigPath:         kubeconfigPath,
-		TFTPRoot:               filepath.Join(labWorkDir, "tftp"),
-		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", labNetbootAdvertiseIP),
+		KubeconfigPath: kubeconfigPath,
+		TFTPRoot:       filepath.Join(labWorkDir, "tftp"),
+		// DHCPはbroadcast(255.255.255.255)宛のDHCPDISCOVERを受信する必要があるため、
+		// 特定IPではなく0.0.0.0でbindする(Linuxのbroadcast配送は0.0.0.0 bindのsocketにのみ
+		// 行われ、特定unicast addressにbindしたsocketには配送されない)。返信に埋め込む
+		// Server Identifier(Option 54)はAdvertiseAddress(labNetbootAdvertiseIP)を使うため、
+		// bind addressとは独立してPXE clientから区別できる。
+		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", "0.0.0.0"),
 		TFTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_TFTP_BIND", labNetbootAdvertiseIP+":69"),
 		HTTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_HTTP_BIND", labNetbootAdvertiseIP+":8080"),
 		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", labNetbootAdvertiseIP),

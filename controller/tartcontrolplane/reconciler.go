@@ -991,15 +991,24 @@ func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Contex
 }
 
 func (r *TartControlPlaneReconciler) reconcileFirstControlPlaneTalos(ctx context.Context, cp *controlplanev1alpha1.TartControlPlane, cluster *clusterv1.Cluster, observation firstControlPlaneObservation, state controlPlaneBootstrapState) (controlPlaneBootstrapState, error) {
-	authenticated, err := talos.DialAuthenticatedFromConfiguration(ctx, observation.endpoint, observation.configuration)
+	// dialAuthenticatedと同様、外部Talos APIへの呼び出しは必ずbounded contextで行う。
+	// ここへ生のctx(通常deadlineを持たない)を渡すと、endpointが到達不能な場合に
+	// このgRPC呼び出しが無期限にblockし、controller全体の唯一のworkerを永久に停止させる。
+	dialContext, dialCancel := context.WithTimeout(ctx, 20*time.Second)
+	authenticated, err := talos.DialAuthenticatedFromConfiguration(dialContext, observation.endpoint, observation.configuration)
+	dialCancel()
 	if err != nil {
 		state.reason = "TalosUnavailable"
 		state.message = "The authenticated Talos API is not reachable on the first control-plane Machine."
 		return state, nil //nolint:nilerr // an unavailable node is a normal reconcile observation.
 	}
-	etcdStatus, etcdErr := authenticated.EtcdStatus(ctx)
+	etcdStatusContext, etcdStatusCancel := context.WithTimeout(ctx, 10*time.Second)
+	etcdStatus, etcdErr := authenticated.EtcdStatus(etcdStatusContext)
+	etcdStatusCancel()
 	if etcdErr == nil && etcdStatusHealthy(etcdStatus) {
-		kubeconfig, kubeconfigErr := authenticated.Kubeconfig(ctx)
+		kubeconfigContext, kubeconfigCancel := context.WithTimeout(ctx, 10*time.Second)
+		kubeconfig, kubeconfigErr := authenticated.Kubeconfig(kubeconfigContext)
+		kubeconfigCancel()
 		if kubeconfigErr != nil {
 			if closeErr := authenticated.Close(); closeErr != nil {
 				ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")

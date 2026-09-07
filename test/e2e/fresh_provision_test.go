@@ -275,7 +275,7 @@ filesystem:
 			Eventually(func() error {
 				return findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)
 			}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
-			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, e2eTalosVersion)
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, e2eTalosVersion, e2eSchematicID)
 		})
 	})
 }
@@ -361,7 +361,7 @@ func labDiskWWID(role string) string {
 	return "naa." + lab.DiskWWN(role, controlPlaneVMName)
 }
 
-func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion string) {
+func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion, expectedSchematicID string) {
 	framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, name), infrav1alpha1.TartMachineReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute)
 
 	var machine infrav1alpha1.TartMachine
@@ -377,7 +377,7 @@ func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion str
 		Expect(condition.Status).To(Equal(metav1.ConditionTrue), "TartMachine condition %q should be True", conditionType)
 	}
 	Expect(machine.Status.TalosVersion).To(Equal(expectedVersion))
-	Expect(machine.Status.TalosSchematicID).To(Equal(e2eSchematicID))
+	Expect(machine.Status.TalosSchematicID).To(Equal(expectedSchematicID))
 }
 
 // labBroadcastAddressは、lab network CIDR上のbroadcast address(host部が全1)にWoL標準port 9を

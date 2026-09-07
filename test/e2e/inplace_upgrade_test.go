@@ -31,10 +31,20 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/framework"
 )
 
-// upgradeTargetTalosVersion/upgradeTargetKubernetesVersionは、FreshProvisionが構築した
-// clusterに対してin-place upgradeを要求するdesired versionである。
+// upgradeTargetTalosVersion/upgradeTargetSchematicID/upgradeTargetKubernetesVersionは、
+// FreshProvisionが構築したclusterに対してin-place upgradeを要求するdesired stateである。
+// upgradeTargetTalosVersionはe2eTalosVersionと意図的に同じ値を使う: Talos Image Factoryは
+// リリース済みのversionにしかinstaller imageを提供しないため、実在しないversionを指定すると
+// Upgrade RPCが正当な"image not found"で失敗し、provider側の欠陥ではなくtest fixtureの欠陥に
+// なってしまう。かわりにupgradeTargetSchematicIDでsystem extension setを変更し、
+// SchematicMismatch検知経由のin-place upgrade経路(applyTalosUpgrade→PerformImageUpgrade→
+// 実際のimage pull+Upgrade RPC)を実在するimageで検証する。
 const (
-	upgradeTargetTalosVersion      = "v1.14.1"
+	upgradeTargetTalosVersion = e2eTalosVersion
+	// upgradeTargetSchematicIDは、qemu-guest-agent extensionを追加したcustomizationに対応する
+	// Talos Image Factoryのschematic identifierである(POST https://factory.talos.dev/schematics
+	// で払い出し済みのものを固定値として使用する)。
+	upgradeTargetSchematicID       = "ce4c980550dd2ab1b17bbf2b08801c7eb59418eafe8f279833297925d67c7515"
 	upgradeTargetKubernetesVersion = "v1.34.1"
 
 	upgradeDataPayload = "tart-e2e-in-place-upgrade-marker"
@@ -70,11 +80,11 @@ func inPlaceUpgradeSpecs() {
 			// reconcilerの実装挙動を実CIで確認して確定する必要がある。骨格実装では両方を明示的に
 			// 更新することで、どちらの経路でもTalosUpToDate=Trueへ収束することを期待する。
 			By("bumping TartMachineTemplate's desired Talos image and waiting for TalosUpToDate")
-			Expect(updateMachineTemplateImage(ctx, upgradeTargetTalosVersion)).To(Succeed())
+			Expect(updateMachineTemplateImage(ctx, upgradeTargetTalosVersion, upgradeTargetSchematicID)).To(Succeed())
 
 			var machine clusterv1.Machine
 			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-			updatedGeneration, err := updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
+			updatedGeneration, err := updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion, upgradeTargetSchematicID)
 			Expect(err).NotTo(HaveOccurred())
 
 			// TartMachineはimage更新前から既にTalosUpToDate=Trueだったため、単純にcondition.Status
@@ -83,7 +93,7 @@ func inPlaceUpgradeSpecs() {
 			// 「まだ報告されていない」ものとして扱うことで、実際に再reconcileされたことを保証する。
 			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
 			framework.WaitForConditionUntilTerminal(ctx, conditionsAtGeneration(tartMachineConditions(e2eNamespace, machine.Spec.InfrastructureRef.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, updatedGeneration), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
-			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion, upgradeTargetSchematicID)
 
 			assertIdentityUnchanged(ctx, recordedIdentity)
 		})
@@ -106,7 +116,7 @@ func inPlaceUpgradeSpecs() {
 
 			var machine clusterv1.Machine
 			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion, upgradeTargetSchematicID)
 			assertIdentityUnchanged(ctx, recordedIdentity)
 		})
 	})
@@ -181,13 +191,14 @@ func findMachineForCluster(ctx context.Context, namespace, clusterName string, o
 	return fmt.Errorf("no Machine found for cluster %s/%s", namespace, clusterName)
 }
 
-func updateMachineTemplateImage(ctx context.Context, version string) error {
+func updateMachineTemplateImage(ctx context.Context, version, schematicID string) error {
 	return updateOnConflict(ctx, func() error {
 		var machineTemplate infrav1alpha1.TartMachineTemplate
 		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp"}, &machineTemplate); err != nil {
 			return err
 		}
 		machineTemplate.Spec.Template.Spec.Image.Version = version
+		machineTemplate.Spec.Template.Spec.Image.SchematicID = schematicID
 		return k8sClient.Update(ctx, &machineTemplate)
 	})
 }
@@ -195,7 +206,7 @@ func updateMachineTemplateImage(ctx context.Context, version string) error {
 // updateTartMachineImageはTartMachine.Spec.Image.Versionを更新し、成功したUpdate呼び出しが
 // 返した更新後のGenerationを返す。呼び出し側はこのGenerationを使って、更新前から既に
 // True/満たされていたConditionの古い観測値と、再reconcile後の新しい観測値を区別できる。
-func updateTartMachineImage(ctx context.Context, name, version string) (int64, error) {
+func updateTartMachineImage(ctx context.Context, name, version, schematicID string) (int64, error) {
 	var generation int64
 	err := updateOnConflict(ctx, func() error {
 		var machine infrav1alpha1.TartMachine
@@ -203,6 +214,7 @@ func updateTartMachineImage(ctx context.Context, name, version string) (int64, e
 			return err
 		}
 		machine.Spec.Image.Version = version
+		machine.Spec.Image.SchematicID = schematicID
 		if err := k8sClient.Update(ctx, &machine); err != nil {
 			return err
 		}

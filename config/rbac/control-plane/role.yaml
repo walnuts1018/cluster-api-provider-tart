@@ -84,6 +84,7 @@ rules:
   - infrastructure.cluster.x-k8s.io
   resources:
   - tartclusters
+  - tarthosts
   - tartmachinetemplates
   verbs:
   - get
@@ -97,12 +98,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - infrastructure.cluster.x-k8s.io
-  resources:
-  - tarthosts
-  verbs:
-  - get
 - apiGroups:
   - infrastructure.cluster.x-k8s.io
   resources:

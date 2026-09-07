@@ -443,7 +443,7 @@ func (r *TartControlPlaneReconciler) ensureMachines(ctx context.Context, cp *con
 		if nameErr != nil {
 			return nil, &controlPlaneFailure{reason: controller.ReasonMachineNameInvalid, message: controller.BootstrapConfigNameInvalidMessage}
 		}
-		if err := validateMachineReference(machine, cp, clusterName, machineName, bootstrapName, cp.Spec.Version); err != nil {
+		if err := validateMachineReference(machine, cp, clusterName, machineName, bootstrapName); err != nil {
 			return nil, err
 		}
 		if machine.Spec.FailureDomain != "" && !containsControlPlaneFailureDomain(failureDomains, machine.Spec.FailureDomain) {
@@ -521,13 +521,18 @@ func (r *TartControlPlaneReconciler) ensureMachineTemplateFields(ctx context.Con
 	expectedReadinessGates := slices.Clone(cp.Spec.MachineTemplate.Spec.ReadinessGates)
 	expectedTaints := slices.Clone(cp.Spec.MachineTemplate.Spec.Taints)
 	expectedDeletion := machineDeletionSpec(cp.Spec.MachineTemplate.Spec.Deletion)
-	if reflect.DeepEqual(machine.Spec.ReadinessGates, expectedReadinessGates) && reflect.DeepEqual(machine.Spec.Taints, expectedTaints) && reflect.DeepEqual(machine.Spec.Deletion, expectedDeletion) {
+	// Spec.Versionはcluster-wide Kubernetes upgradeでreconcileKubernetesUpgradeがin-placeに
+	// desired versionへ収束させるmutable fieldである。ここで同期しない場合、cp.Spec.Versionを
+	// 変更してもMachine.Spec.Versionが古いままとなり、validateMachineReferenceとは別の
+	// 場所で不整合が残り続ける。
+	if reflect.DeepEqual(machine.Spec.ReadinessGates, expectedReadinessGates) && reflect.DeepEqual(machine.Spec.Taints, expectedTaints) && reflect.DeepEqual(machine.Spec.Deletion, expectedDeletion) && machine.Spec.Version == cp.Spec.Version {
 		return nil
 	}
 	original := machine.DeepCopy()
 	machine.Spec.ReadinessGates = expectedReadinessGates
 	machine.Spec.Taints = expectedTaints
 	machine.Spec.Deletion = expectedDeletion
+	machine.Spec.Version = cp.Spec.Version
 	return r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
@@ -1261,8 +1266,11 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	return nil
 }
 
-func validateMachineReference(machine *clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane, clusterName, machineName, bootstrapName, version string) error {
-	if !controller.HasControllerOwner(machine, cp, controlplanev1alpha1.GroupVersion.String(), controller.TartControlPlaneKind) || machine.Spec.ClusterName != clusterName || machine.Spec.Version != version || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name != machineName || machine.Spec.Bootstrap.ConfigRef.APIGroup != bootstrapv1alpha1.GroupVersion.Group || machine.Spec.Bootstrap.ConfigRef.Kind != controller.TartBootstrapConfigKind || machine.Spec.Bootstrap.ConfigRef.Name != bootstrapName {
+// validateMachineReferenceは、既存Machineのimmutableな参照fieldがTartControlPlaneの期待と
+// 一致しているかを検証する。Spec.Versionはcluster-wide Kubernetes upgradeでin-placeに変化する
+// mutable fieldであるため、ここでは検証しない(同期はensureMachineTemplateFieldsが担う)。
+func validateMachineReference(machine *clusterv1.Machine, cp *controlplanev1alpha1.TartControlPlane, clusterName, machineName, bootstrapName string) error {
+	if !controller.HasControllerOwner(machine, cp, controlplanev1alpha1.GroupVersion.String(), controller.TartControlPlaneKind) || machine.Spec.ClusterName != clusterName || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name != machineName || machine.Spec.Bootstrap.ConfigRef.APIGroup != bootstrapv1alpha1.GroupVersion.Group || machine.Spec.Bootstrap.ConfigRef.Kind != controller.TartBootstrapConfigKind || machine.Spec.Bootstrap.ConfigRef.Name != bootstrapName {
 		return &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The existing control-plane Machine does not match the TartControlPlane references."}
 	}
 	return nil

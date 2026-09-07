@@ -28,14 +28,16 @@ const tartSystemNamespace = "cluster-api-provider-tart-system"
 func reconcileRecoverySpecs() {
 	Describe("ReconcileRecovery", Ordered, func() {
 		It("recovers automatically when the infrastructure-manager Pod is deleted after discovery", func() {
+			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
+
 			By("waiting for the current InventoryReady condition to be observed at least once")
-			framework.WaitForCondition(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, 15*time.Minute)
+			framework.WaitForConditionUntilTerminal(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 15*time.Minute, controllerHealthy)
 
 			By("force-deleting the infrastructure-manager controller Pod")
 			Expect(deleteControllerPods("infrastructure-controller-manager")).To(Succeed())
 
 			By("confirming the TartHost still converges to InventoryReady=True without manual intervention")
-			framework.WaitForCondition(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, 10*time.Minute)
+			framework.WaitForConditionUntilTerminal(ctx, tartHostConditions(e2eHostName), infrav1alpha1.TartHostInventoryReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 10*time.Minute, controllerHealthy)
 		})
 
 		It("recovers automatically when the bootstrap-manager and control-plane-manager Pods are deleted around configuration apply/reboot", func() {
@@ -44,7 +46,8 @@ func reconcileRecoverySpecs() {
 			Expect(deleteControllerPods("control-plane-controller-manager")).To(Succeed())
 
 			By("confirming the cluster still converges to Ready without manual intervention")
-			framework.WaitForCondition(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, 20*time.Minute)
+			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
+			framework.WaitForConditionUntilTerminal(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 		})
 	})
 }
@@ -78,6 +81,7 @@ func deleteControllerPods(component string) error {
 }
 
 func waitDeploymentPodReady(component string) error {
+	start := time.Now()
 	Eventually(func(g Gomega) {
 		var pods corev1.PodList
 		g.Expect(k8sClient.List(context.Background(), &pods,
@@ -89,6 +93,8 @@ func waitDeploymentPodReady(component string) error {
 		for i := range pods.Items {
 			pod := &pods.Items[i]
 			found = true
+			GinkgoWriter.Printf("[%s elapsed] pod %s/%s (component %q): phase=%s\n",
+				time.Since(start).Round(time.Second), pod.Namespace, pod.Name, component, pod.Status.Phase)
 			g.Expect(pod.Status.Phase).To(Equal(corev1.PodRunning))
 			for _, cond := range pod.Status.Conditions {
 				if cond.Type == corev1.PodReady {

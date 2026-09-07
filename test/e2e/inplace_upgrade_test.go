@@ -75,7 +75,8 @@ func inPlaceUpgradeSpecs() {
 			tartMachine.Spec.Image.Version = upgradeTargetTalosVersion
 			Expect(k8sClient.Update(ctx, &tartMachine)).To(Succeed())
 
-			framework.WaitForCondition(ctx, tartMachineConditions(e2eNamespace, tartMachine.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, 20*time.Minute)
+			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
+			framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, tartMachine.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 
 			assertIdentityUnchanged(recordedIdentity)
 		})
@@ -86,13 +87,18 @@ func inPlaceUpgradeSpecs() {
 			controlPlane.Spec.Version = upgradeTargetKubernetesVersion
 			Expect(k8sClient.Update(ctx, &controlPlane)).To(Succeed())
 
+			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
+			upgradeWaitStart := time.Now()
 			Eventually(func(g Gomega) {
+				g.Expect(controllerHealthy(ctx)).To(Succeed())
 				var updated controlplanev1alpha1.TartControlPlane
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &updated)).To(Succeed())
+				GinkgoWriter.Printf("[%s elapsed] TartControlPlane %s/%s: KubernetesUpgrade.ObservedVersion=%q (want %q)\n",
+					time.Since(upgradeWaitStart).Round(time.Second), e2eNamespace, e2eClusterName, updated.Status.KubernetesUpgrade.ObservedVersion, upgradeTargetKubernetesVersion)
 				g.Expect(updated.Status.KubernetesUpgrade.ObservedVersion).To(Equal(upgradeTargetKubernetesVersion))
 			}).WithContext(ctx).WithTimeout(20 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 
-			framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
+			framework.WaitForConditionUntilTerminal(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 
 			assertIdentityUnchanged(recordedIdentity)
 		})

@@ -41,6 +41,22 @@ const (
 	e2eKubernetesVersion = "v1.34.0"
 )
 
+// clusterProvisioningTerminalReasonsは、TartCluster/TartControlPlane/MachineのConditionが
+// これらのReasonを報告し続けている場合、reconcilerが外部からの承認や入力なしには自己解決
+// できないと判断し、20分のtimeoutを待たずfail-fastするためのReason集合である。
+// TalosUnreachable/MaintenanceUnavailable等、正常な起動シーケンスの途中で一時的に現れうる
+// Reasonは、恒久障害と誤認してfail-fastが誤発火しないよう意図的に含めない。
+var clusterProvisioningTerminalReasons = framework.TerminalReasons{
+	infrav1alpha1.ReasonIdentityConflict:         "duplicated stable Host identity requires manual resolution",
+	infrav1alpha1.ReasonDiskIdentityConflict:     "duplicated disk identity requires manual resolution",
+	infrav1alpha1.ReasonUnsafeUpdate:             "an in-place update was judged unsafe and stopped fail-closed",
+	infrav1alpha1.ReasonHostMismatch:             "the allocated Host does not match the Machine's placement constraints",
+	infrav1alpha1.ReasonNoEligibleHost:           "no eligible fresh Host is available",
+	infrav1alpha1.ReasonDeletionApprovalRequired: "the Host requires an explicit deletion approval",
+	infrav1alpha1.ReasonReuseApprovalRequired:    "the Host requires an explicit reuse approval",
+	infrav1alpha1.ReasonNotImplemented:           "the required behavior is not implemented by this provider",
+}
+
 // freshProvisionSpecsは、FreshProvision specをginkgoのspec treeへ登録する。InPlaceUpgrade/
 // ReconcileRecoveryはこのspecが構築した共有state(TartHost/Cluster)へ依存するため、suite_test.go
 // の共通Ordered containerから宣言順(Fresh→InPlace→Reconcile)で呼び出される想定である
@@ -212,9 +228,10 @@ func freshProvisionSpecs() {
 			Expect(k8sClient.Create(ctx, cluster)).To(Succeed())
 
 			By("waiting for TartCluster, TartControlPlane, Machine and Node to become Ready")
-			framework.WaitForCondition(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, 20*time.Minute)
-			framework.WaitForCondition(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, 20*time.Minute)
-			framework.WaitForCondition(ctx, machineConditionsForCluster(e2eNamespace, e2eClusterName), clusterv1.MachineNodeHealthyCondition, metav1.ConditionTrue, 20*time.Minute)
+			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
+			framework.WaitForConditionUntilTerminal(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+			framework.WaitForConditionUntilTerminal(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+			framework.WaitForConditionUntilTerminal(ctx, machineConditionsForCluster(e2eNamespace, e2eClusterName), clusterv1.MachineNodeHealthyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 		})
 	})
 }

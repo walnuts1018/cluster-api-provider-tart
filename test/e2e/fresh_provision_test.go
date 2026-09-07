@@ -23,6 +23,7 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/framework"
+	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/lab"
 )
 
 // e2eNamespaceとe2eClusterNameは、本suiteが作成する全リソースの一貫した命名に使う。
@@ -124,15 +125,15 @@ func freshProvisionSpecs() {
 			}
 			Expect(physicalDisks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
 			for _, role := range []string{"system", "ssd", "hdd"} {
-				serial := labDiskSerial(role)
+				wwid := labDiskWWID(role)
 				matches := make([]infrav1alpha1.DiskInventory, 0, 1)
 				for _, disk := range physicalDisks {
-					if disk.Serial == serial {
+					if disk.WWID == wwid {
 						matches = append(matches, disk)
 					}
 				}
-				Expect(matches).To(HaveLen(1), "expected exactly one %s disk with serial %q", role, serial)
-				Expect(matches[0].StableSelector).NotTo(BeEmpty(), "disk with serial %q should have a stable selector", serial)
+				Expect(matches).To(HaveLen(1), "expected exactly one %s disk with wwid %q", role, wwid)
+				Expect(matches[0].StableSelector).NotTo(BeEmpty(), "disk with wwid %q should have a stable selector", wwid)
 			}
 		})
 
@@ -152,7 +153,7 @@ func freshProvisionSpecs() {
 			Expect(systemDiskSelector).NotTo(BeEmpty())
 
 			By("creating the immutable Secret-backed machine configuration patch input")
-			dataDiskSelector := fmt.Sprintf(`disk.serial == %q`, labDiskSerial("hdd"))
+			dataDiskSelector := fmt.Sprintf(`disk.wwid == %q`, labDiskWWID("hdd"))
 			patches := fmt.Sprintf(`cluster: {}
 ---
 apiVersion: v1alpha1
@@ -331,18 +332,21 @@ func machineConditionsForCluster(namespace, clusterName string) framework.Condit
 	}
 }
 
-// systemDiskStableSelectorは、labがsystem diskへ設定したserialを使ってStableSelectorを解決する。
+// systemDiskStableSelectorは、labがsystem diskへ設定したwwidを使ってStableSelectorを解決する。
+// virtio-scsi busではlibvirt domain XMLの<disk><serial>がguestまで伝播しないため、Talosの
+// hardware discoveryはこれらのdiskのserial fieldを一切報告しない。<wwn>由来のwwidだけが
+// package外から観測できる安定識別子である。
 func systemDiskStableSelector(host infrav1alpha1.TartHost) string {
-	return diskStableSelectorBySerial(host, labDiskSerial("system"))
+	return diskStableSelectorByWWID(host, labDiskWWID("system"))
 }
 
-func diskStableSelectorBySerial(host infrav1alpha1.TartHost, serial string) string {
-	if host.Status.Inventory == nil || serial == "" {
+func diskStableSelectorByWWID(host infrav1alpha1.TartHost, wwid string) string {
+	if host.Status.Inventory == nil || wwid == "" {
 		return ""
 	}
 	selector := ""
 	for _, disk := range host.Status.Inventory.Disks {
-		if disk.Serial != serial {
+		if disk.WWID != wwid {
 			continue
 		}
 		if selector != "" {
@@ -353,8 +357,8 @@ func diskStableSelectorBySerial(host infrav1alpha1.TartHost, serial string) stri
 	return selector
 }
 
-func labDiskSerial(role string) string {
-	return role + "-" + controlPlaneVMName
+func labDiskWWID(role string) string {
+	return lab.DiskWWN(role, controlPlaneVMName)
 }
 
 func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion string) {

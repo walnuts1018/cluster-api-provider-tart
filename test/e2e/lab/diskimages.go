@@ -37,6 +37,14 @@ func diskWWN(role diskRole, vmName string) string {
 	return "5" + seed[:15]
 }
 
+// DiskWWNは、libvirt domain XMLの<disk><serial>と異なりQEMUのvirtio-scsi bus経由では
+// guestまで伝播しない(Talosのhardware discoveryはこのdiskのserial fieldを一切報告しない)
+// ため、package外から観測可能な唯一の安定識別子であるwwid(<wwn>要素、DiskInventory.WWID)を
+// 計算するためにdiskWWNを公開する。
+func DiskWWN(role, vmName string) string {
+	return diskWWN(diskRole(role), vmName)
+}
+
 // createQcow2は指定サイズ(GiB)のsparse qcow2 disk imageをqemu-imgで作成する。
 // 既にファイルが存在する場合は何もしない(idempotent)。
 func createQcow2(ctx context.Context, path string, sizeGiB uint64) error {

@@ -162,8 +162,7 @@ func assertIdentityUnchanged(ctx context.Context, before upgradeIdentityRecord) 
 	Expect(tartMachine.Status.HostRef.Name).To(Equal(before.tartHostName), "TartHost binding must not change across in-place upgrade")
 
 	Expect(machine.Status.NodeRef.IsDefined()).To(BeTrue())
-	node, err := getWorkloadNode(ctx, machine.Status.NodeRef.Name)
-	Expect(err).NotTo(HaveOccurred())
+	node := waitForWorkloadNode(ctx, machine.Status.NodeRef.Name)
 	Expect(node.UID).To(Equal(before.nodeUID), "Node UID must not change across in-place upgrade")
 	Expect(verifyUserVolumeMarker(ctx, node.Name, before.dataChecksum)).To(Succeed())
 }
@@ -319,6 +318,20 @@ func getWorkloadNode(ctx context.Context, name string) (corev1.Node, error) {
 		return corev1.Node{}, fmt.Errorf("get workload Node %q: %w", name, err)
 	}
 	return *node, nil
+}
+
+// waitForWorkloadNodeは、in-place upgradeでTalosが再起動した直後、kube-apiserverの静的Podが
+// まだ起動しきっていない一時的な接続不可期間を許容してNodeを取得する。TalosUpToDate/Ready
+// conditionはTalos APIの到達性だけを見て収束するため、それらのconditionがTrueになった直後でも
+// kube-apiserverはまだ受け付け可能になっていないことがある。
+func waitForWorkloadNode(ctx context.Context, name string) corev1.Node {
+	var node corev1.Node
+	Eventually(func(g Gomega) {
+		observed, err := getWorkloadNode(ctx, name)
+		g.Expect(err).NotTo(HaveOccurred())
+		node = observed
+	}).WithContext(ctx).WithTimeout(3 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
+	return node
 }
 
 func writeUserVolumeMarker(ctx context.Context, nodeName string) error {

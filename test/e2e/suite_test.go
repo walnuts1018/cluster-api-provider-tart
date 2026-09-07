@@ -12,6 +12,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,9 +22,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
@@ -37,6 +40,12 @@ import (
 )
 
 func TestE2E(t *testing.T) {
+	// controller-runtime clientはlog.SetLoggerが未設定だと警告を出しつつ内部logを全て捨てる。
+	// この警告自体は無害だが、GinkgoWriterへ流すことでclient-goのretry/warning等CIログからは
+	// 見えなかった情報も長時間待ちの診断に使えるようにする。cmd/internal/managersetup.
+	// SetupLoggingと同じslog+logrの組み合わせで統一し、出力先だけos.StdoutからGinkgoWriterへ変える。
+	slogLogger := slog.New(slog.NewTextHandler(GinkgoWriter, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	ctrl.SetLogger(logr.FromSlogHandler(slogLogger.Handler()))
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Tart bare-metal E2E Suite")
 }

@@ -478,7 +478,7 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	// TartControlPlaneを持つこのproviderでは決して呼び出されない。そのためcontroller/runtimeextension
 	// が実装済みの安全なstaged apply+reboot engine(etcd quorum gate、drain policy含む)を
 	// このreconcile loopから直接呼び出す。
-	outcome := r.applyTalosUpgrade(ctx, machine, configuration, authenticated)
+	outcome := r.applyTalosUpgrade(ctx, machine, version.Tag, authenticated)
 	if closeErr := authenticated.Close(); closeErr != nil {
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 	}
@@ -504,46 +504,29 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	return result, true, err
 }
 
-// applyTalosUpgradeは、controller/runtimeextensionが実装するstaged apply+reboot engineを直接呼び出し、
-// 観測したTalos version/schematicのmismatchをin-placeで解消しようと試みる。安全条件(etcd quorum、
-// drain policy)の評価は全てそのengineに委譲し、ここでは呼び出しに必要なcontextの組み立てだけを行う。
-func (r *TartMachineReconciler) applyTalosUpgrade(ctx context.Context, machine *infrav1alpha1.TartMachine, configuration []byte, authenticated *talos.Client) runtimeextension.ConfigurationUpdateOutcome {
+// applyTalosUpgradeは、観測したTalos version/schematicのmismatchを実際のOS image upgrade(Talosの
+// Upgrade RPC)でin-placeに解消しようと試みる。安全条件(control planeのetcd quorum、workload Podの
+// drain policy)の評価はcontroller/runtimeextensionが実装済みのPerformImageUpgradeへ委譲する
+// (これはversionが既にdesiredへ到達済みの場合のmachine configuration差分適用とは別の経路であり、
+// そちらが使うApplyConfigurationUpdate/MachineConfigurationUpdateはここでは使わない)。
+func (r *TartMachineReconciler) applyTalosUpgrade(ctx context.Context, machine *infrav1alpha1.TartMachine, observedVersion string, authenticated *talos.Client) runtimeextension.ConfigurationUpdateOutcome {
+	if err := talos.ValidateUpgrade(observedVersion, machine.Spec.Image.Version); err != nil {
+		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The requested Talos version transition is not supported; the in-place update is stopped."}
+	}
+	image, err := talos.InstallerImage(machine.Spec.Image.Version, machine.Spec.Image.SchematicID)
+	if err != nil {
+		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The desired Talos installer image is invalid; the in-place update is stopped."}
+	}
 	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
 		return runtimeextension.ConfigurationUpdateOutcome{RetryMessage: "The owning CAPI Machine could not be observed while the Talos in-place update is being prepared."}
 	}
-	strategy := bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot
-	if ref := clusterMachine.Spec.Bootstrap.ConfigRef; ref.Name != "" && ref.Kind == controller.TartBootstrapConfigKind && ref.APIGroup == bootstrapv1alpha1.GroupVersion.Group {
-		bootstrapConfig := &bootstrapv1alpha1.TartBootstrapConfig{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, bootstrapConfig); err == nil {
-			strategy = bootstrapConfig.Spec.EffectiveConfigurationApplyStrategy()
-		}
-	}
-	// immutable Bootstrap Secretの生bytesにはinstaller imageとkubelet provider-idがまだ
-	// 埋め込まれていない(reconcileMaintenanceTalosが初回applyの直前に同じ2つのpatchを都度
-	// 適用しているのと同じ理由)。これらを適用しないまま"desired"としてdiff評価へ渡すと、
-	// 稼働中nodeのactive configuration(既にpatch済み)との比較で常にprovider-idの不一致を
-	// invariant conflictとして誤検出してしまう。
-	desiredConfiguration, err := talos.SetInstallerImage(configuration, machine.Spec.Image.Version, machine.Spec.Image.SchematicID)
-	if err != nil {
-		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The desired Talos installer image could not be applied to the machine configuration; the in-place update is stopped."}
-	}
-	desiredConfiguration, err = talos.SetProviderID(desiredConfiguration, machine.Spec.ProviderID.String())
-	if err != nil {
-		return runtimeextension.ConfigurationUpdateOutcome{FailureMessage: "The Talos machine configuration could not be prepared with the allocated ProviderID; the in-place update is stopped."}
-	}
-	preparation := &runtimeextension.MachineUpdatePreparation{
-		ProviderMachine: machine,
-		Configuration:   desiredConfiguration,
-		Strategy:        strategy,
-	}
-	// ApplyConfigurationUpdateは本来RuntimeSDK HTTPサーバーのhandler timeout(10秒)の内側で
-	// 呼ばれる前提であり、内部のreboot観測ループ自体もdefaultRebootObservationTimeout(90秒)
-	// までのpollingを行うため、この呼び出し元にも明示的なboundを与えないと、外部Talos APIが
-	// 応答しない場合にreconcile workerが無期限に停止しうる。
-	upgradeContext, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	// PerformImageUpgradeは本来RuntimeSDK HTTPサーバーのhandler timeout(20秒)の内側で呼ばれる
+	// 前提であり、この呼び出し元にも明示的なboundを与えないと、外部Talos APIが応答しない場合に
+	// reconcile workerが無期限に停止しうる。
+	upgradeContext, cancel := context.WithTimeout(ctx, talosReconcileTimeout*3)
 	defer cancel()
-	return runtimeextension.ApplyConfigurationUpdate(upgradeContext, runtimeextension.MachineConfigurationUpdate(r.Client, clusterMachine, preparation, authenticated))
+	return runtimeextension.PerformImageUpgrade(upgradeContext, r.Client, clusterMachine, machine.Spec.ProviderID.String(), image, authenticated)
 }
 
 func (r *TartMachineReconciler) reconcileMaintenanceTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, endpoint string, configuration []byte) (ctrl.Result, error) {

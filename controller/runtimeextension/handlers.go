@@ -275,39 +275,16 @@ func updateMachineAtTalos(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		resp.Message = updateVersionRejected
 		return
 	}
-	if isControlPlaneMachine(&req.Desired.Machine) {
-		gateContext, gateCancel := context.WithTimeout(ctx, talosUpdateTimeout)
-		gateErr := controlPlaneUpgradeSafe(gateContext, kubeClient, &req.Desired.Machine, authenticated)
-		gateCancel()
-		if gateErr != nil {
-			if !closeAuthenticatedForUpdate(resp, authenticated) {
-				return
-			}
-			setUpdateRetry(resp, "The control-plane etcd quorum could not be proven safe for a Talos restart; waiting before the upgrade.")
-			return
-		}
-	}
-	// node-disruptiveなTalos restartの前に、workload Podへの影響(availability、PDB)を考慮した
-	// cordon/drainを試みる。allowDowntime policyで緩和されない限り、drain失敗はUpgradeへ進めず安全に中断する。
-	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, &req.Desired.Machine, string(preparation.ProviderMachine.Spec.ProviderID)); !proceed {
-		if !closeAuthenticatedForUpdate(resp, authenticated) {
-			return
-		}
-		setUpdateRetry(resp, retryMessage)
-		return
-	}
-	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosUpdateTimeout)
-	upgradeErr := authenticated.Upgrade(upgradeContext, preparation.Image)
-	upgradeCancel()
+	outcome := PerformImageUpgrade(ctx, kubeClient, &req.Desired.Machine, string(preparation.ProviderMachine.Spec.ProviderID), preparation.Image, authenticated)
 	if !closeAuthenticatedForUpdate(resp, authenticated) {
 		return
 	}
-	if upgradeErr != nil {
+	if outcome.FailureMessage != "" {
 		resp.Status = runtimehooksv1.ResponseStatusFailure
-		resp.Message = "The Talos API rejected the requested image upgrade; the Machine remains stopped for safety."
+		resp.Message = outcome.FailureMessage
 		return
 	}
-	setUpdateRetry(resp, "The Talos image upgrade was requested; waiting for the node to reboot and report the desired version and schematic.")
+	setUpdateRetry(resp, outcome.RetryMessage)
 }
 
 func closeAuthenticatedForUpdate(resp *runtimehooksv1.UpdateMachineResponse, authenticated *talos.Client) bool {

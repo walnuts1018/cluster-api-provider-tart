@@ -186,6 +186,33 @@ func MachineConfigurationUpdate(kubeClient client.Reader, machine *clusterv1.Mac
 	}
 }
 
+// PerformImageUpgradeは、control-planeのetcd quorumとworkload Podのdrain policyを安全条件として
+// 満たした上で、Talosの新しいOS imageへのUpgrade RPCを要求する。imageのversion互換性
+// (talos.ValidateUpgrade)の検証は呼び出し側の責務とする(呼び出し文脈によってrejectのmessageを
+// 使い分けるため)。呼び出し元はauthenticatedのClose()を行う責任を持つ。
+func PerformImageUpgrade(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine, providerID, image string, authenticated *talos.Client) ConfigurationUpdateOutcome {
+	if isControlPlaneMachine(machine) {
+		gateContext, gateCancel := context.WithTimeout(ctx, talosUpdateTimeout)
+		gateErr := controlPlaneUpgradeSafe(gateContext, kubeClient, machine, authenticated)
+		gateCancel()
+		if gateErr != nil {
+			return ConfigurationUpdateOutcome{RetryMessage: "The control-plane etcd quorum could not be proven safe for a Talos restart; waiting before the upgrade."}
+		}
+	}
+	// node-disruptiveなTalos restartの前に、workload Podへの影響(availability、PDB)を考慮した
+	// cordon/drainを試みる。allowDowntime policyで緩和されない限り、drain失敗はUpgradeへ進めず安全に中断する。
+	if proceed, retryMessage := enforceDrainPolicy(ctx, kubeClient, machine, providerID); !proceed {
+		return ConfigurationUpdateOutcome{RetryMessage: retryMessage}
+	}
+	upgradeContext, upgradeCancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	upgradeErr := authenticated.Upgrade(upgradeContext, image)
+	upgradeCancel()
+	if upgradeErr != nil {
+		return ConfigurationUpdateOutcome{FailureMessage: "The Talos API rejected the requested image upgrade; the Machine remains stopped for safety."}
+	}
+	return ConfigurationUpdateOutcome{RetryMessage: "The Talos image upgrade was requested; waiting for the node to reboot and report the desired version and schematic."}
+}
+
 // bootstrapUpdateStrategyは、CAPI MachineがreferenceするTartBootstrapConfigのconfiguration apply strategyを返す。
 func bootstrapUpdateStrategy(config *bootstrapv1alpha1.TartBootstrapConfig) bootstrapv1alpha1.ConfigurationApplyStrategy {
 	if config == nil {

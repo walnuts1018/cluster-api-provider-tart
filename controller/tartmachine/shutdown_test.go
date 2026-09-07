@@ -19,38 +19,38 @@ func TestShutdownConfirmed(t *testing.T) {
 	host.Status.Inventory = &infrav1alpha1.HostInventory{BootID: "boot-123"}
 
 	tests := map[string]struct {
-		confirmation *infrav1alpha1.ShutdownConfirmation
+		confirmation    *infrav1alpha1.ShutdownConfirmation
 		inventoryBootID string
-		want           bool
+		want            bool
 	}{
 		"valid with BootID": {
 			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: hostID, BootID: "boot-123"},
-			want: true,
+			want:         true,
 		},
 		"BootID mismatch": {
 			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: hostID, BootID: "boot-999"},
-			want: false,
+			want:         false,
 		},
 		"inventory BootID present but confirmation BootID empty": {
 			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: hostID, BootID: ""},
-			want: false,
+			want:         false,
 		},
 		"consumerUID mismatch": {
 			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: "other-uid", HostID: hostID, BootID: "boot-123"},
-			want: false,
+			want:         false,
 		},
 		"hostID mismatch": {
 			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: "other-host-id", BootID: "boot-123"},
-			want: false,
+			want:         false,
 		},
 		"nil confirmation": {
 			confirmation: nil,
-			want: false,
+			want:         false,
 		},
 		"empty BootID allowed when inventory BootID empty": {
-			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: hostID, BootID: ""},
+			confirmation:    &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: hostID, BootID: ""},
 			inventoryBootID: "",
-			want: true,
+			want:            true,
 		},
 	}
 	for name, tt := range tests {

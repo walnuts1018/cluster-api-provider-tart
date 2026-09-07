@@ -394,10 +394,7 @@ func bootstrapSecretName(configName, digest string) string {
 	name := configName + "-" + digest
 	if len(name) > 253 {
 		// Kubernetes nameは253文字まで。configNameが長い場合は切り詰める。
-		maxConfig := 253 - len(digest) - 1
-		if maxConfig < 1 {
-			maxConfig = 1
-		}
+		maxConfig := max(253-len(digest)-1, 1)
 		if len(configName) > maxConfig {
 			configName = configName[:maxConfig]
 		}

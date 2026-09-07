@@ -87,12 +87,12 @@ const (
 
 // ClaimRequestはHost claim時に成立しなければならないpreconditionをまとめた要求である。
 type ClaimRequest struct {
-	Consumer      corev1.ObjectReference
+	Consumer       corev1.ObjectReference
 	ExpectedHostID string
-	Selector      *infrav1alpha1.HostSelector
-	FailureDomain string
-	Mode          ClaimMode
-	ConsumerUID   types.UID
+	Selector       *infrav1alpha1.HostSelector
+	FailureDomain  string
+	Mode           ClaimMode
+	ConsumerUID    types.UID
 }
 
 // ValidateClaimCandidateは、現在のHost stateがClaimRequestのpreconditionを満たすかを検証する。

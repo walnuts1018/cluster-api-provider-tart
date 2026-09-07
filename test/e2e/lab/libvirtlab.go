@@ -112,6 +112,21 @@ func (l *libvirtLab) EnsureNetwork(_ context.Context) error {
 			return fmt.Errorf("add netboot advertise address %q to %q: %w: %s", l.cfg.NetbootAdvertiseIP, l.cfg.NetworkBridge, addErr, string(addOutput))
 		}
 	}
+
+	// libvirtのNAT forward modeは、bridge上のguestが自発的に開始した接続(とその戻りの
+	// established/related応答)のみを許可し、他のlocal interface(kind clusterのdocker
+	// bridge等)からguestへの新規接続は既定でblockする。infrastructure-managerはkind cluster
+	// (別のdocker bridge network)からこのbridge上のVMへ新規にTalos APIへ接続する必要がある
+	// ため、明示的にFORWARDを許可する(このhostは使い捨てのCI runnerであり、他のtenantとの
+	// 分離を考慮する必要はない)。
+	for _, args := range [][]string{
+		{"-I", "FORWARD", "-o", l.cfg.NetworkBridge, "-j", "ACCEPT"},
+		{"-I", "FORWARD", "-i", l.cfg.NetworkBridge, "-j", "ACCEPT"},
+	} {
+		if output, err := exec.Command("iptables", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("insert iptables FORWARD rule %v: %w: %s", args, err, string(output))
+		}
+	}
 	return nil
 }
 

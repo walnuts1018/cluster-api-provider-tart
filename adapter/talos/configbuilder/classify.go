@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -345,37 +344,57 @@ func sameCertificateAndKeyDER(left, right *siderox509.PEMEncodedCertificateAndKe
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	if certificateFingerprint(left.Crt) != certificateFingerprint(right.Crt) {
+	leftCrtFP, err := certificateFingerprint(left.Crt)
+	if err != nil {
 		return false
 	}
-	if keyFingerprint(left.Key) != keyFingerprint(right.Key) {
+	rightCrtFP, err := certificateFingerprint(right.Crt)
+	if err != nil {
 		return false
 	}
-	return true
+	if leftCrtFP != rightCrtFP {
+		return false
+	}
+	leftKeyFP, err := keyFingerprint(left.Key)
+	if err != nil {
+		return false
+	}
+	rightKeyFP, err := keyFingerprint(right.Key)
+	if err != nil {
+		return false
+	}
+	return leftKeyFP == rightKeyFP
 }
 
 func samePEMEncodedKeyDER(left, right *siderox509.PEMEncodedKey) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	return keyFingerprint(left.Key) == keyFingerprint(right.Key)
+	leftFP, err := keyFingerprint(left.Key)
+	if err != nil {
+		return false
+	}
+	rightFP, err := keyFingerprint(right.Key)
+	if err != nil {
+		return false
+	}
+	return leftFP == rightFP
 }
 
 func equalCertificateSet(left, right []*siderox509.PEMEncodedCertificate) bool {
-	if len(left) == 0 && len(right) == 0 {
-		return true
-	}
-	if len(left) != len(right) {
-		// 長さが異なる場合、集合として異なる。ただし順序違いでなくても長さで早期returnできる。
-		// 重複を許すため、fingerprintのmultiset比較を行う。
-	}
-	leftCounts := certificateFingerprintCounts(left)
-	rightCounts := certificateFingerprintCounts(right)
-	if len(leftCounts) != len(rightCounts) {
+	leftSet, err := certificateSet(left)
+	if err != nil {
 		return false
 	}
-	for fingerprint, count := range leftCounts {
-		if rightCounts[fingerprint] != count {
+	rightSet, err := certificateSet(right)
+	if err != nil {
+		return false
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for fingerprint := range leftSet {
+		if _, ok := rightSet[fingerprint]; !ok {
 			return false
 		}
 	}
@@ -383,16 +402,19 @@ func equalCertificateSet(left, right []*siderox509.PEMEncodedCertificate) bool {
 }
 
 func equalKeySetDER(left, right []*siderox509.PEMEncodedKey) bool {
-	if len(left) == 0 && len(right) == 0 {
-		return true
-	}
-	leftCounts := keyFingerprintCounts(left)
-	rightCounts := keyFingerprintCounts(right)
-	if len(leftCounts) != len(rightCounts) {
+	leftSet, err := keySet(left)
+	if err != nil {
 		return false
 	}
-	for fingerprint, count := range leftCounts {
-		if rightCounts[fingerprint] != count {
+	rightSet, err := keySet(right)
+	if err != nil {
+		return false
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for fingerprint := range leftSet {
+		if _, ok := rightSet[fingerprint]; !ok {
 			return false
 		}
 	}
@@ -400,122 +422,97 @@ func equalKeySetDER(left, right []*siderox509.PEMEncodedKey) bool {
 }
 
 func equalStringSet(left, right []string) bool {
-	normalize := func(values []string) map[string]int {
-		counts := make(map[string]int, len(values))
-		for _, value := range values {
-			trimmed := strings.TrimSpace(value)
-			if trimmed == "" {
-				continue
-			}
-			counts[trimmed]++
-		}
-		return counts
+	leftSet := stringSet(left)
+	rightSet := stringSet(right)
+	if len(leftSet) != len(rightSet) {
+		return false
 	}
-	leftCounts := normalize(left)
-	rightCounts := normalize(right)
-	if len(leftCounts) != len(rightCounts) {
-		// 両方空の場合は上で処理済みだが、片方のみ空の差もここで検出される。
-		// ただし空文字列除去後の差を正しく判定するため、長さ比較で判定する。
-		// 両方とも実質空ならtrueを返す。
-		if len(leftCounts) == 0 && len(rightCounts) == 0 {
-			return true
-		}
-		// 長さ不一致は不一致。
-		if len(leftCounts) != len(rightCounts) {
-			return false
-		}
-	}
-	for key, count := range leftCounts {
-		if rightCounts[key] != count {
+	for value := range leftSet {
+		if _, ok := rightSet[value]; !ok {
 			return false
 		}
 	}
 	return true
 }
 
-func certificateFingerprint(pemBytes []byte) string {
-	trimmed := bytes.TrimSpace(pemBytes)
-	if len(trimmed) == 0 {
-		return ""
-	}
-	// PEMをdecodeし、DERのSHA-256をfingerprintとする。decode失敗時は正規化したPEM文字列のhashで代替する。
-	// これによりPEM formatting差(改行、ヘッダ順序)は吸収される。
-	var derBytes []byte
-	rest := trimmed
-	for len(rest) > 0 {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			break
+func stringSet(values []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
 		}
-		// 証明書または公開鍵のDERを連結してhashする。複数blockが含まれるPEMも対応する。
-		derBytes = append(derBytes, block.Bytes...)
+		result[trimmed] = struct{}{}
 	}
-	if len(derBytes) > 0 {
-		// 証明書DERをx509.ParseCertificateで検証できれば、正規のDERとしてhashする。
-		// Parse失敗時でもDER bytes自体のhashで比較する。
-		if _, err := x509.ParseCertificate(derBytes); err == nil {
-			// 単一証明書の正常なDER
-		}
-		hash := sha256.Sum256(derBytes)
-		return hex.EncodeToString(hash[:])
-	}
-	// PEM decodeできない場合は正規化した文字列のhash。
-	hash := sha256.Sum256(trimmed)
-	return hex.EncodeToString(hash[:])
+	return result
 }
 
-func keyFingerprint(pemBytes []byte) string {
-	trimmed := bytes.TrimSpace(pemBytes)
+func certificateFingerprint(data []byte) ([32]byte, error) {
+	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
-		return ""
+		return [32]byte{}, ErrInvalidPKIMaterial
 	}
-	var derBytes []byte
-	rest := trimmed
-	for len(rest) > 0 {
-		var block *pem.Block
-		block, rest = pem.Decode(rest)
-		if block == nil {
-			break
-		}
-		derBytes = append(derBytes, block.Bytes...)
+	block, rest := pem.Decode(trimmed)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return [32]byte{}, fmt.Errorf("%w: PEM block is not a CERTIFICATE", ErrInvalidPKIMaterial)
 	}
-	if len(derBytes) > 0 {
-		hash := sha256.Sum256(derBytes)
-		return hex.EncodeToString(hash[:])
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return [32]byte{}, fmt.Errorf("%w: PEM contains trailing data", ErrInvalidPKIMaterial)
 	}
-	hash := sha256.Sum256(trimmed)
-	return hex.EncodeToString(hash[:])
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return [32]byte{}, fmt.Errorf("%w: parse certificate: %w", ErrInvalidPKIMaterial, err)
+	}
+	return sha256.Sum256(cert.Raw), nil
 }
 
-func certificateFingerprintCounts(certs []*siderox509.PEMEncodedCertificate) map[string]int {
-	counts := make(map[string]int, len(certs))
+func keyFingerprint(data []byte) ([32]byte, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return [32]byte{}, ErrInvalidPKIMaterial
+	}
+	block, rest := pem.Decode(trimmed)
+	if block == nil {
+		return [32]byte{}, fmt.Errorf("%w: PEM block is not valid", ErrInvalidPKIMaterial)
+	}
+	if len(bytes.TrimSpace(rest)) != 0 {
+		return [32]byte{}, fmt.Errorf("%w: PEM contains trailing data", ErrInvalidPKIMaterial)
+	}
+	if !strings.Contains(block.Type, "PRIVATE KEY") && !strings.Contains(block.Type, "PUBLIC KEY") {
+		return [32]byte{}, fmt.Errorf("%w: unexpected PEM type %q", ErrInvalidPKIMaterial, block.Type)
+	}
+	hash := sha256.Sum256(block.Bytes)
+	return hash, nil
+}
+
+func certificateSet(certs []*siderox509.PEMEncodedCertificate) (map[[32]byte]struct{}, error) {
+	result := make(map[[32]byte]struct{}, len(certs))
 	for _, cert := range certs {
 		if cert == nil {
-			continue
+			return nil, ErrInvalidPKIMaterial
 		}
-		fingerprint := certificateFingerprint(cert.Crt)
-		if fingerprint == "" {
-			continue
+		fingerprint, err := certificateFingerprint(cert.Crt)
+		if err != nil {
+			return nil, err
 		}
-		counts[fingerprint]++
+		result[fingerprint] = struct{}{}
 	}
-	return counts
+	return result, nil
 }
 
-func keyFingerprintCounts(keys []*siderox509.PEMEncodedKey) map[string]int {
-	counts := make(map[string]int, len(keys))
+func keySet(keys []*siderox509.PEMEncodedKey) (map[[32]byte]struct{}, error) {
+	result := make(map[[32]byte]struct{}, len(keys))
 	for _, key := range keys {
 		if key == nil {
-			continue
+			return nil, ErrInvalidPKIMaterial
 		}
-		fingerprint := keyFingerprint(key.Key)
-		if fingerprint == "" {
-			continue
+		fingerprint, err := keyFingerprint(key.Key)
+		if err != nil {
+			return nil, err
 		}
-		counts[fingerprint]++
+		result[fingerprint] = struct{}{}
 	}
-	return counts
+	return result, nil
 }
 
 // normalizeInstallerImageは、比較対象のconfigurationからinstaller image identityの差分を取り除く。

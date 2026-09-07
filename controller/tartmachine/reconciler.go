@@ -811,18 +811,15 @@ func shutdownConfirmed(host *infrav1alpha1.TartHost, machine *infrav1alpha1.Tart
 	if confirmation == nil {
 		return false
 	}
-	if confirmation.ConsumerUID != machine.UID {
+	if strings.TrimSpace(string(confirmation.ConsumerUID)) == "" || confirmation.ConsumerUID != machine.UID {
 		return false
 	}
 	if strings.TrimSpace(confirmation.HostID) == "" || confirmation.HostID != host.Spec.HostID {
 		return false
 	}
-	if strings.TrimSpace(confirmation.BootID) != "" {
-		inventory := host.Status.Inventory
-		if inventory == nil || strings.TrimSpace(inventory.BootID) == "" {
-			return false
-		}
-		if confirmation.BootID != inventory.BootID {
+	// inventoryにBootIDが存在する場合は、confirmationでも必須とする。stale confirmationで再起動後のHostを誤って停止済み扱いしないため。
+	if inventory := host.Status.Inventory; inventory != nil && strings.TrimSpace(inventory.BootID) != "" {
+		if strings.TrimSpace(confirmation.BootID) == "" || confirmation.BootID != inventory.BootID {
 			return false
 		}
 	}
@@ -837,13 +834,12 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 		}
 		return state == power.PowerStateOff, nil
 	}
-	if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && shutdownConfirmed(selected, machine) {
-		return true, nil
-	}
 	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
 		return false, controller.ErrHostEndpointUnavailable
 	}
+	// WoL/Manualでは、まずTalosが現在動いているという正の証拠を優先する。confirmationが存在しても、Talosが応答している間は停止済み扱いにしない。
+	var authenticatedErr error
 	if len(bytes.TrimSpace(configuration)) > 0 {
 		connectionContext, cancel := context.WithTimeout(ctx, talosReconcileTimeout)
 		authenticated, err := talos.DialAuthenticatedFromConfiguration(connectionContext, endpoint, configuration)
@@ -858,31 +854,39 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 			if versionErr == nil {
 				return false, nil
 			}
-			// TLS接続が成立した状態でのAPI観測失敗は、shutdown中または一時的なTalos障害と区別できない。
-			// maintenance endpointへ接続できないことだけを根拠に停止済みへ遷移させない。
-			return false, fmt.Errorf("authenticated Talos API stopped responding before shutdown was confirmed: %w", versionErr)
+			// TLS接続自体は成功しており、hostはまだ応答している。confirmationで上書きしない。
+			return false, nil
 		}
+		authenticatedErr = err
 	}
-
 	dialCtx, cancel := context.WithTimeout(ctx, maintenanceDialTimeout)
 	maintenance, err := talos.DialMaintenance(dialCtx, endpoint)
 	cancel()
-	if err != nil {
-		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, err)
+	if err == nil {
+		inventoryCtx, cancel := context.WithTimeout(ctx, maintenanceObserveTimeout)
+		identity, identityErr := maintenance.Inventory(inventoryCtx)
+		cancel()
+		if closeErr := maintenance.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+		}
+		if identityErr == nil {
+			if !identity.HasMAC(selected.Spec.MACAddress) {
+				return false, controller.ErrHostIdentityMismatch
+			}
+			// maintenanceが正しいidentityで応答している間は、confirmationより優先して起動中として扱う。
+			return false, nil
+		}
+		// Dialは成功したがInventory取得に失敗した場合も、TCP/TLSレベルでhostは応答しているため、停止証拠とはしない。
+		return false, nil
 	}
-	inventoryCtx, cancel := context.WithTimeout(ctx, maintenanceObserveTimeout)
-	identity, identityErr := maintenance.Inventory(inventoryCtx)
-	cancel()
-	if closeErr := maintenance.Close(); closeErr != nil {
-		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
+	// ここまでで、どのTalos APIも正の証拠として応答していない。独立observerがないため、operatorの明示的なconfirmationが必要。
+	if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && shutdownConfirmed(selected, machine) {
+		return true, nil
 	}
-	if identityErr != nil {
-		return false, fmt.Errorf("%w: maintenance identity observation failed: %w", ErrShutdownStateUnverifiable, identityErr)
+	if authenticatedErr != nil {
+		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off (authenticated error: %v): %w", ErrShutdownStateUnverifiable, authenticatedErr, err)
 	}
-	if !identity.HasMAC(selected.Spec.MACAddress) {
-		return false, controller.ErrHostIdentityMismatch
-	}
-	return false, nil
+	return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, err)
 }
 
 func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine *infrav1alpha1.TartMachine, consumer corev1.ObjectReference) (infrav1alpha1.PreviousConsumerRef, error) {

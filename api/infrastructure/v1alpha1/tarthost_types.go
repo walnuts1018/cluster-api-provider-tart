@@ -137,10 +137,13 @@ type ReuseApproval struct {
 // ShutdownConfirmationは、WoL/Manualなど独立したpower-state observerを持たないbackendで、ユーザーからの明示的な停止確認を表す。Redfishでは使わず、自動的なpower state観測を優先する。stale confirmationの再利用を防ぐため、現在のbindingとHostID、BootIDに紐付ける。
 type ShutdownConfirmation struct {
 	// consumerUIDは現在削除中のTartMachineのUIDへbindする。
+	// +kubebuilder:validation:MinLength=1
 	ConsumerUID types.UID `json:"consumerUID"`
 	// hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale confirmationを別Hostへ流用できないようにする。
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	HostID string `json:"hostID"`
-	// bootIDは前回bootに対するconfirmationであることを保証する。Talosから安定して取得できる場合に含め、空の場合はhostIDとconsumerUIDだけで検証する。
+	// bootIDは前回bootに対するconfirmationであることを保証する。inventoryにBootIDが存在する場合は必須とし、空の場合はhostIDとconsumerUIDだけで検証する。
 	// +optional
 	BootID string `json:"bootID,omitempty"`
 }

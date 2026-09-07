@@ -82,7 +82,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			result.RequeueAfter = 15 * time.Second
 			return result, nil
 		}
-		if errors.Is(err, errBootstrapBindingMismatch) {
+		if errors.Is(err, errBootstrapBindingMismatch) || errors.Is(err, errBootstrapHostUnavailable) {
 			return r.report(ctx, &config, "HostBindingMismatch", "The TartHost binding does not match the CAPI/TartMachine identity; configuration generation is stopped.")
 		}
 		if errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable) || errors.Is(err, errBootstrapDiskUnavailable) {
@@ -158,6 +158,7 @@ var errBootstrapContextPending = errors.New("bootstrap context is pending")
 var errBootstrapBindingMismatch = errors.New("bootstrap host binding mismatch")
 var errBootstrapInventoryPending = errors.New("host inventory is pending")
 var errBootstrapDiskUnavailable = errors.New("safe install disk is unavailable")
+var errBootstrapHostUnavailable = errors.New("bootstrap host is unavailable")
 
 func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, input *corev1.Secret) ([]byte, error) {
 	if input == nil {
@@ -274,7 +275,7 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 	host := &infrav1alpha1.TartHost{}
 	if err := r.Get(ctx, client.ObjectKey{Name: providerMachine.Status.HostRef.Name}, host); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: TartHost %s is not available", errBootstrapInventoryPending, providerMachine.Status.HostRef.Name)
+			return nil, fmt.Errorf("%w: TartHost %s is not available", errBootstrapHostUnavailable, providerMachine.Status.HostRef.Name)
 		}
 		return nil, err
 	}
@@ -293,7 +294,7 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 		return nil, fmt.Errorf("%w: Host %s inventory is not observed", errBootstrapInventoryPending, host.Name)
 	}
 	if len(host.Status.Inventory.Disks) == 0 {
-		return nil, fmt.Errorf("%w: Host %s has no disks", errBootstrapInventoryPending, host.Name)
+		return nil, fmt.Errorf("%w: Host %s reports no disks", errBootstrapDiskUnavailable, host.Name)
 	}
 	disks := make([]domainbootstrap.DiskIdentity, 0, len(host.Status.Inventory.Disks))
 	for _, disk := range host.Status.Inventory.Disks {

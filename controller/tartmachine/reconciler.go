@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kubernetesadapter "github.com/walnuts1018/cluster-api-provider-tart/adapter/kubernetes"
@@ -220,8 +221,10 @@ func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine 
 }
 
 func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
+	logger := log.FromContext(ctx)
 	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
+		logger.Info("bootstrap data unavailable: CAPI Machine not found for TartMachine")
 		return nil, ErrBootstrapDataUnavailable
 	}
 	if err != nil {
@@ -229,33 +232,41 @@ func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, mach
 	}
 	ref := clusterMachine.Spec.Bootstrap.ConfigRef
 	if ref.Name == "" || ref.Kind != controller.TartBootstrapConfigKind || ref.APIGroup != bootstrapv1alpha1.GroupVersion.Group {
+		logger.Info("bootstrap data unavailable: Machine.spec.bootstrap.configRef does not reference a TartBootstrapConfig", "configRef", ref)
 		return nil, ErrBootstrapDataUnavailable
 	}
 
 	config := &bootstrapv1alpha1.TartBootstrapConfig{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
 		if apierrors.IsNotFound(err) {
+			logger.Info("bootstrap data unavailable: TartBootstrapConfig not found", "name", ref.Name)
 			return nil, ErrBootstrapDataUnavailable
 		}
 		return nil, err
 	}
 	if strings.TrimSpace(config.Status.DataSecretName) == "" {
+		logger.Info("bootstrap data unavailable: TartBootstrapConfig has no dataSecretName yet", "name", ref.Name)
 		return nil, ErrBootstrapDataUnavailable
 	}
 
 	secret := &corev1.Secret{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
+			logger.Info("bootstrap data unavailable: bootstrap Secret not found", "name", config.Status.DataSecretName)
 			return nil, ErrBootstrapDataUnavailable
 		}
 		return nil, err
 	}
 	clusterName := config.Labels[bootstrap.ClusterNameLabel]
 	if !bootstrap.IsContractSecret(secret, clusterName, config.UID) {
+		logger.Info("bootstrap data unavailable: bootstrap Secret does not satisfy the contract",
+			"secretType", secret.Type, "secretImmutable", secret.Immutable, "secretDataKeys", len(secret.Data),
+			"secretLabels", secret.Labels, "clusterName", clusterName, "secretOwnerReferences", secret.OwnerReferences, "configUID", config.UID)
 		return nil, ErrBootstrapDataUnavailable
 	}
 	configuration, ok := secret.Data[bootstrap.BootstrapSecretKey]
 	if !ok || len(bytes.TrimSpace(configuration)) == 0 {
+		logger.Info("bootstrap data unavailable: bootstrap Secret has no configuration payload")
 		return nil, ErrBootstrapDataUnavailable
 	}
 	return bytes.Clone(configuration), nil

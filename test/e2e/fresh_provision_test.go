@@ -31,10 +31,12 @@ const (
 	e2eHostName    = "tart-e2e-host-0"
 
 	// e2eTalosVersion/e2eSchematicIDはlab上のTalos installで使うimageを固定する。
-	// TODO: image factory schematicとTalos versionの組み合わせは、実CI実行時にlabのhardware
-	// (QEMU virtio-scsi + virtio-net構成)向けの正しいschematic IDへ差し替える必要がある。
+	// e2eSchematicIDは"customization: {}"(カスタマイズ無し)に対応する、Talos Image Factoryの
+	// 実際のAPI(POST https://factory.talos.dev/schematics)から得られる値である。
+	// QEMU virtio-scsi/virtio-net構成はTalosの標準extension setで十分動作するため、
+	// system extensionのカスタマイズは不要。
 	e2eTalosVersion = "v1.14.0"
-	e2eSchematicID  = "376567988ad370138ad8b2698212367b8edcb69b54a3628f6634457f479530d"
+	e2eSchematicID  = "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba"
 
 	e2eKubernetesVersion = "v1.34.0"
 )

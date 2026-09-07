@@ -81,11 +81,6 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build controller-manager images
-        # imageの名前はconfig/manager/*/manager.yaml(およびconfig/netboot-server)が参照する
-        # placeholder名(infrastructure-controller等)と一致させる。tagのみをe2eへ置き換えて
-        # framework.InstallTartProvidersのkustomize images overrideと対応させる。
-        # docker-bake.release.hclと同様にBuildKitのGitHub Actions cache backend(type=gha)を
-        # 使い、go compile層をjobをまたいで再利用する(docker-bake.e2e.hcl)。
         uses: docker/bake-action@d3418bd7d0e9324001bca92fa8ba175ea7e6dc9b # v7.3.0
         with:
           files: docker-bake.e2e.hcl

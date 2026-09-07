@@ -18,7 +18,7 @@ import (
 // talosImageUpgradeTimeoutは、installer imageのpullとdisk書き込みが完了するまでstreamを読み切る
 // Upgrade() RPC専用のtimeoutである。Version/EtcdStatus等の単発RPC向けtalosUpdateTimeout(20秒)を
 // 使うと、image pullが完了する前に必ずcontext deadline exceededで失敗する。
-const talosImageUpgradeTimeout = 5 * time.Minute
+const talosImageUpgradeTimeout = 8 * time.Minute
 
 // updateTalosNodeは、machine configuration updateが必要とするTalos APIの観測と操作だけを表す。
 // 実機のTalos APIを必要とする経路をここへ閉じ込め、strategy部分をGo testから検証できるようにする。

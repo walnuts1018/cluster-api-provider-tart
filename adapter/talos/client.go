@@ -438,6 +438,38 @@ func (c *Client) ServicesHealthy(ctx context.Context) error {
 	return nil
 }
 
+// upgradeContainerdInstanceは、talosctl upgradeのsystem namespace相当のcontainerd instanceである。
+// LifecycleService.Upgradeはimageが既にこのstoreへpull済みであることを前提としており、pullを
+// 自動では行わない(talosctl upgradeも別途ImageService.Pullを先に呼んでいる)。
+func upgradeContainerdInstance() *common.ContainerdInstance {
+	return &common.ContainerdInstance{
+		Driver:    common.ContainerDriver_CRI,
+		Namespace: common.ContainerdNamespace_NS_SYSTEM,
+	}
+}
+
+// pullImageは指定したimageをupgrade先のcontainerd storeへ事前にpullする。LifecycleService.Upgrade
+// はimageが既にstoreへ存在することを前提とするため、これを省略すると
+// 「image ... not found in containerd store」でupgradeが即座に拒否される。
+func (c *Client) pullImage(ctx context.Context, image string) error {
+	stream, err := c.raw.ImageClient.Pull(ctx, &machine.ImageServicePullRequest{
+		Containerd: upgradeContainerdInstance(),
+		ImageRef:   image,
+	})
+	if err != nil {
+		return fmt.Errorf("pull talos upgrade image: %w", err)
+	}
+	for {
+		_, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("receive talos upgrade image pull progress: %w", err)
+		}
+	}
+}
+
 // UpgradeはTalos公式のLifecycle APIへdesired installer imageを渡し、upgrade完了のexit statusを確認する。既存データの保持と再起動はTalosのupgrade semanticsへ委譲する。
 func (c *Client) Upgrade(ctx context.Context, image string) error {
 	if c == nil || c.raw == nil {
@@ -447,12 +479,12 @@ func (c *Client) Upgrade(ctx context.Context, image string) error {
 	if image == "" {
 		return errors.New("talos upgrade image is empty")
 	}
+	if err := c.pullImage(ctx, image); err != nil {
+		return err
+	}
 	stream, err := c.raw.LifecycleClient.Upgrade(ctx, &machine.LifecycleServiceUpgradeRequest{
-		Containerd: &common.ContainerdInstance{
-			Driver:    common.ContainerDriver_CRI,
-			Namespace: common.ContainerdNamespace_NS_SYSTEM,
-		},
-		Source: &machine.InstallArtifactsSource{ImageName: image},
+		Containerd: upgradeContainerdInstance(),
+		Source:     &machine.InstallArtifactsSource{ImageName: image},
 	})
 	if err != nil {
 		return fmt.Errorf("upgrade Talos OS: %w", err)

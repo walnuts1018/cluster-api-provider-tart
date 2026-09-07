@@ -89,8 +89,19 @@ func freshProvisionSpecs() {
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, host)).To(Succeed())
 			Expect(host.Status.Inventory).NotTo(BeNil())
-			Expect(host.Status.Inventory.Disks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
+			// Talosのhardware discoveryは、Talos自身のsquashfs用loop device(/dev/loop*、
+			// transport無し)も含めて全block deviceを正しく報告する。labが用意した3disk
+			// (system/ssd/hdd)はvirtio transportのSCSI diskとしてのみ現れるため、それだけを
+			// 抽出して検証する。
+			var physicalDisks []infrav1alpha1.DiskInventory
 			for _, disk := range host.Status.Inventory.Disks {
+				if disk.Transport == "" {
+					continue
+				}
+				physicalDisks = append(physicalDisks, disk)
+			}
+			Expect(physicalDisks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
+			for _, disk := range physicalDisks {
 				Expect(disk.StableSelector).NotTo(BeEmpty(), "disk %+v should have a unique stable selector", disk)
 			}
 		})

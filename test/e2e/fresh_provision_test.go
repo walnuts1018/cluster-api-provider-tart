@@ -170,8 +170,6 @@ volumeType: disk
 provisioning:
   diskSelector:
     match: %q
-  minSize: 1GiB
-  maxSize: 10GiB
 filesystem:
   type: ext4
 `, systemDiskSelector, e2eDataVolumeName, dataDiskSelector)

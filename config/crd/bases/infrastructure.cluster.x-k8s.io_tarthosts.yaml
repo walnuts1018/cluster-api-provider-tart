@@ -253,14 +253,17 @@ spec:
                   state観測を優先する。
                 properties:
                   bootID:
-                    description: bootIDは前回bootに対するconfirmationであることを保証する。Talosから安定して取得できる場合に含め、空の場合はhostIDとconsumerUIDだけで検証する。
+                    description: bootIDは前回bootに対するconfirmationであることを保証する。inventoryにBootIDが存在する場合は必須とし、空の場合はhostIDとconsumerUIDだけで検証する。
                     type: string
                   consumerUID:
                     description: consumerUIDは現在削除中のTartMachineのUIDへbindする。
+                    minLength: 1
                     type: string
                   hostID:
                     description: hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale
                       confirmationを別Hostへ流用できないようにする。
+                    minLength: 1
+                    pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                     type: string
                 required:
                 - consumerUID

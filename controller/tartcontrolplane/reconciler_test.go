@@ -52,14 +52,37 @@ func TestMachineDeletionSpecClonesControlPlaneTemplateValues(t *testing.T) {
 	t.Parallel()
 
 	drainTimeout := int32(30)
-	spec := controlplanev1alpha1.TartControlPlaneMachineTemplateDeletionSpec{NodeDrainTimeoutSeconds: &drainTimeout}
+	deletionTimeout := int32(45)
+	spec := controlplanev1alpha1.TartControlPlaneMachineTemplateDeletionSpec{
+		NodeDrainTimeoutSeconds:    &drainTimeout,
+		NodeDeletionTimeoutSeconds: &deletionTimeout,
+	}
 	deletion := machineDeletionSpec(spec)
 	if deletion.NodeDrainTimeoutSeconds == nil || *deletion.NodeDrainTimeoutSeconds != drainTimeout {
 		t.Fatalf("machineDeletionSpec() = %#v, want drain timeout %d", deletion, drainTimeout)
 	}
+	if deletion.NodeDeletionTimeoutSeconds == nil || *deletion.NodeDeletionTimeoutSeconds != deletionTimeout {
+		t.Fatalf("machineDeletionSpec() = %#v, want node deletion timeout %d", deletion, deletionTimeout)
+	}
 	drainTimeout = 60
 	if *deletion.NodeDrainTimeoutSeconds != 30 {
 		t.Fatalf("machineDeletionSpec() reused source pointer, got %d", *deletion.NodeDrainTimeoutSeconds)
+	}
+	deletionTimeout = 60
+	if *deletion.NodeDeletionTimeoutSeconds != 45 {
+		t.Fatalf("machineDeletionSpec() reused source pointer, got %d", *deletion.NodeDeletionTimeoutSeconds)
+	}
+}
+
+func TestMachineDeletionSpecUsesCAPIDefaultNodeDeletionTimeout(t *testing.T) {
+	t.Parallel()
+
+	deletion := machineDeletionSpec(controlplanev1alpha1.TartControlPlaneMachineTemplateDeletionSpec{})
+	if deletion.NodeDeletionTimeoutSeconds == nil {
+		t.Fatal("machineDeletionSpec() returned nil NodeDeletionTimeoutSeconds")
+	}
+	if got := *deletion.NodeDeletionTimeoutSeconds; got != capiDefaultNodeDeletionTimeoutSeconds {
+		t.Errorf("machineDeletionSpec() default NodeDeletionTimeoutSeconds = %d, want %d", got, capiDefaultNodeDeletionTimeoutSeconds)
 	}
 }
 

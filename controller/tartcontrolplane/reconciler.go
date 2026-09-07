@@ -47,6 +47,8 @@ const (
 	controlPlaneEtcdMemberID     = "tart.cluster.x-k8s.io/etcd-member-id"
 	controlPlaneEtcdDeleteHook   = clusterv1.PreTerminateDeleteHookAnnotationPrefix + "/tart-etcd-member"
 	controlPlaneScaleDownRequeue = 30 * time.Second
+	// CAPI v1.14のMachine admission webhookは未指定のNodeDeletionTimeoutSecondsを10秒にdefaultする。
+	capiDefaultNodeDeletionTimeoutSeconds = int32(10)
 	// reasonCATrustUpdateFailedはCA rotationの各段階でTalos machine configurationへのapplyが失敗した場合のreasonである。
 	reasonCATrustUpdateFailed = "CATrustUpdateFailed"
 	// reasonCAConfigurationUnrecognizedは、observationのCA trust stageが既知のいずれの段階とも一致しない場合のreasonである。
@@ -530,10 +532,14 @@ func (r *TartControlPlaneReconciler) ensureMachineTemplateFields(ctx context.Con
 }
 
 func machineDeletionSpec(spec controlplanev1alpha1.TartControlPlaneMachineTemplateDeletionSpec) clusterv1.MachineDeletionSpec {
+	nodeDeletionTimeout := cloneInt32(spec.NodeDeletionTimeoutSeconds)
+	if nodeDeletionTimeout == nil {
+		nodeDeletionTimeout = new(capiDefaultNodeDeletionTimeoutSeconds)
+	}
 	return clusterv1.MachineDeletionSpec{
 		NodeDrainTimeoutSeconds:        cloneInt32(spec.NodeDrainTimeoutSeconds),
 		NodeVolumeDetachTimeoutSeconds: cloneInt32(spec.NodeVolumeDetachTimeoutSeconds),
-		NodeDeletionTimeoutSeconds:     cloneInt32(spec.NodeDeletionTimeoutSeconds),
+		NodeDeletionTimeoutSeconds:     nodeDeletionTimeout,
 	}
 }
 

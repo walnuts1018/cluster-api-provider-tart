@@ -107,50 +107,55 @@ func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 }
 
 func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machine *infrav1alpha1.TartMachine) (ctrl.Result, error) {
-	allHosts := &infrav1alpha1.TartHostList{}
-	if err := r.List(ctx, allHosts); err != nil {
+	selected, result, handled, err := r.reconcileProvisioningHost(ctx, machine)
+	if handled {
+		return result, err
+	}
+	if err != nil {
 		return ctrl.Result{}, err
 	}
+
+	configuration, result, handled, err := r.reconcileProvisioningStatus(ctx, machine, selected)
+	if handled {
+		return result, err
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	return r.reconcileTalos(ctx, machine, selected, configuration)
+}
+
+func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, machine *infrav1alpha1.TartMachine) (*infrav1alpha1.TartHost, ctrl.Result, bool, error) {
+	allHosts := &infrav1alpha1.TartHostList{}
+	if err := r.List(ctx, allHosts); err != nil {
+		return nil, ctrl.Result{}, false, err
+	}
 	if hostusecase.HasIdentityConflictForAny(allHosts.Items) {
-		return r.report(ctx, machine, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation is stopped until the conflict is resolved.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonIdentityConflict, "Stable Host identity is duplicated; allocation is stopped until the conflict is resolved.")
 	}
 
 	selected, err := r.observedOrSelectedHost(ctx, machine, allHosts.Items)
 	if err != nil {
-		if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The corresponding CAPI Machine is not available to determine Host placement.", 30*time.Second)
-		}
-		if errors.Is(err, controller.ErrCAPIMachineReferenceMismatch) || errors.Is(err, controller.ErrCAPIMachineAmbiguous) {
-			return r.report(ctx, machine, "CAPIMachineInvalid", "The CAPI Machine reference is structurally invalid; allocation is stopped.")
-		}
-		if errors.Is(err, errHostSelectionMismatch) {
-			return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The allocated TartHost does not match the CAPI Machine Failure Domain or HostSelector.")
-		}
-		if errors.Is(err, hostusecase.ErrNoEligibleHost) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonNoEligibleHost, "No eligible fresh TartHost is available for this Machine.", 30*time.Second)
-		}
-		if apierrors.IsNotFound(err) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostNotFound, "The referenced TartHost was not found.", 30*time.Second)
-		}
-		return ctrl.Result{}, err
+		return r.reconcileProvisioningHostSelectionError(ctx, machine, err)
 	}
 	if selected == nil {
-		return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
 	}
 
 	if selected.Spec.HostID == "" {
-		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
 	hostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
 	if err != nil {
-		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
 	providerID, err := hostdomain.NewProviderID(hostID)
 	if err != nil {
-		return r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
 	if !machine.Spec.ProviderID.IsZero() && machine.Spec.ProviderID != providerID {
-		return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The existing ProviderID does not match the allocated TartHost identity.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The existing ProviderID does not match the allocated TartHost identity.")
 	}
 
 	consumer := corev1.ObjectReference{
@@ -184,21 +189,22 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 				reason = infrav1alpha1.ReasonHostMismatch
 				msg = "The selected TartHost no longer matches the Machine placement constraints."
 			}
-			return r.reportAndRequeue(ctx, machine, reason, msg, 2*time.Second)
+			result, reportErr := r.reportAndRequeue(ctx, machine, reason, msg, 2*time.Second)
+			return nil, result, true, reportErr
 		}
-		return ctrl.Result{}, err
+		return nil, ctrl.Result{}, false, err
 	}
 	// ProviderIDはclaim成功後のfresh Hostからのみ導出する。stale snapshot由来の値を再利用しない。
 	if strings.TrimSpace(selected.Spec.HostID) == "" {
-		return r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
 	}
 	freshHostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
 	if err != nil {
-		return r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
 	}
 	freshProviderID, err := hostdomain.NewProviderID(freshHostID)
 	if err != nil {
-		return r.report(ctx, machine, "ProviderIDInvalid", "A ProviderID could not be derived from the claimed Host identity.")
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, "ProviderIDInvalid", "A ProviderID could not be derived from the claimed Host identity.")
 	}
 	providerID = freshProviderID
 
@@ -206,16 +212,42 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		original := machine.DeepCopy()
 		machine.Spec.ProviderID = providerID
 		if err := r.Patch(ctx, machine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
-			return ctrl.Result{}, err
+			return nil, ctrl.Result{}, false, err
 		}
 	}
 	if err := r.syncCAPIProviderID(ctx, machine, providerID); err != nil {
 		if errors.Is(err, errCAPIProviderIDMismatch) {
-			return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The CAPI Machine ProviderID does not match the allocated TartHost identity.")
+			return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The CAPI Machine ProviderID does not match the allocated TartHost identity.")
 		}
-		return ctrl.Result{}, err
+		return nil, ctrl.Result{}, false, err
 	}
 
+	return selected, ctrl.Result{}, false, nil
+}
+
+func (r *TartMachineReconciler) reconcileProvisioningHostSelectionError(ctx context.Context, machine *infrav1alpha1.TartMachine, err error) (*infrav1alpha1.TartHost, ctrl.Result, bool, error) {
+	if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
+		result, reportErr := r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The corresponding CAPI Machine is not available to determine Host placement.", 30*time.Second)
+		return nil, result, true, reportErr
+	}
+	if errors.Is(err, controller.ErrCAPIMachineReferenceMismatch) || errors.Is(err, controller.ErrCAPIMachineAmbiguous) {
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, "CAPIMachineInvalid", "The CAPI Machine reference is structurally invalid; allocation is stopped.")
+	}
+	if errors.Is(err, errHostSelectionMismatch) {
+		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The allocated TartHost does not match the CAPI Machine Failure Domain or HostSelector.")
+	}
+	if errors.Is(err, hostusecase.ErrNoEligibleHost) {
+		result, reportErr := r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonNoEligibleHost, "No eligible fresh TartHost is available for this Machine.", 30*time.Second)
+		return nil, result, true, reportErr
+	}
+	if apierrors.IsNotFound(err) {
+		result, reportErr := r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostNotFound, "The referenced TartHost was not found.", 30*time.Second)
+		return nil, result, true, reportErr
+	}
+	return nil, ctrl.Result{}, false, err
+}
+
+func (r *TartMachineReconciler) reconcileProvisioningStatus(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost) ([]byte, ctrl.Result, bool, error) {
 	statusOriginal := machine.DeepCopy()
 	machine.Status.HostRef = &corev1.LocalObjectReference{Name: selected.Name}
 	if endpoint := controller.HostTalosEndpoint(selected); endpoint != "" {
@@ -225,22 +257,23 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		machine.Status.FailureDomain = selected.Spec.FailureDomain
 	}
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(statusOriginal)); err != nil {
-		return ctrl.Result{}, err
+		return nil, ctrl.Result{}, false, err
 	}
 	configuration, err := r.BootstrapConfiguration(ctx, machine)
 	if err != nil {
 		if errors.Is(err, ErrBootstrapDataUnavailable) {
-			return r.reportTalosStatus(ctx, machine,
+			result, reportErr := r.reportTalosStatus(ctx, machine,
 				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
 				metav1.ConditionFalse, "BootstrapDataUnavailable", "Talos provisioning is waiting for bootstrap data.",
 				"BootstrapDataUnavailable", "Talos version cannot be verified before provisioning.",
 				"BootstrapDataUnavailable", "The immutable Bootstrap Secret is not available yet.",
 				talosRequeue)
+			return nil, result, true, reportErr
 		}
-		return ctrl.Result{}, err
+		return nil, ctrl.Result{}, false, err
 	}
 
-	return r.reconcileTalos(ctx, machine, selected, configuration)
+	return configuration, ctrl.Result{}, false, nil
 }
 
 func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine *infrav1alpha1.TartMachine, providerID hostdomain.ProviderID) error {
@@ -924,20 +957,19 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 	return previous, nil
 }
 
-func (r *TartMachineReconciler) report(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string) (ctrl.Result, error) {
+func (r *TartMachineReconciler) report(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string) error {
 	original := machine.DeepCopy()
 	controller.SetCondition(&machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition, metav1.ConditionFalse, reason, message, machine.Generation)
 	machine.Status.ObservedGeneration = machine.Generation
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(original)); err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *TartMachineReconciler) reportAndRequeue(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string, after time.Duration) (ctrl.Result, error) {
-	result, err := r.report(ctx, machine, reason, message)
-	result.RequeueAfter = after
-	return result, err
+	err := r.report(ctx, machine, reason, message)
+	return ctrl.Result{RequeueAfter: after}, err
 }
 
 func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {

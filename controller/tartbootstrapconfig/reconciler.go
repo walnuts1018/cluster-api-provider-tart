@@ -59,40 +59,16 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	var input *corev1.Secret
-	if config.Spec.ConfigPatchesSecretRef != nil {
-		if config.Spec.ConfigPatchesSecretRef.Name == "" {
-			return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The configuration Secret reference has no name.")
-		}
-		input = &corev1.Secret{}
-		if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigPatchesSecretRef.Name}, input); err != nil {
-			if apierrors.IsNotFound(err) {
-				return r.report(ctx, &config, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.")
-			}
-			return ctrl.Result{}, err
-		}
+	input, reason, message, err := r.configurationInput(ctx, &config)
+	if reason != "" {
+		return r.report(ctx, &config, reason, message)
+	}
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
-		if errors.Is(err, controller.ErrCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextPending) || errors.Is(err, errBootstrapInventoryPending) || errors.Is(err, errBootstrapContextUnavailable) {
-			result, reportErr := r.report(ctx, &config, "ClusterContextPending", "Bootstrap configuration is waiting for required observed state.")
-			if reportErr != nil {
-				return ctrl.Result{}, reportErr
-			}
-			result.RequeueAfter = 15 * time.Second
-			return result, nil
-		}
-		if errors.Is(err, errBootstrapBindingMismatch) || errors.Is(err, errBootstrapHostUnavailable) {
-			return r.report(ctx, &config, "HostBindingMismatch", "The TartHost binding does not match the CAPI/TartMachine identity; configuration generation is stopped.")
-		}
-		if errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable) || errors.Is(err, errBootstrapDiskUnavailable) {
-			return r.report(ctx, &config, "InstallDiskUnavailable", "No writable disk with a safe stable identity is available for Talos installation.")
-		}
-		if errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous) || errors.Is(err, domainbootstrap.ErrInstallDiskAmbiguous) {
-			return r.report(ctx, &config, "InstallDiskAmbiguous", "Multiple writable disks are available but no explicit install disk policy is configured; installation is stopped.")
-		}
-		reason, message := classifyConfigurationError(err)
-		return r.report(ctx, &config, reason, message)
+		return r.reportConfigurationError(ctx, &config, err)
 	}
 	digest, err := r.Renderer.Digest(completeConfiguration)
 	if err != nil {
@@ -115,40 +91,96 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.report(ctx, &config, "BootstrapSecretInvalid", "The Bootstrap Secret owner or metadata cannot satisfy the CAPI contract.")
 	}
 
+	actual, reason, message, result, err := r.ensureBootstrapSecret(ctx, &config, expected, clusterName, secretName, completeConfiguration)
+	if reason != "" {
+		return r.report(ctx, &config, reason, message)
+	}
+	if err != nil {
+		return result, err
+	}
+	if actual == nil {
+		return result, nil
+	}
+
+	return r.markReady(ctx, &config, actual, digest)
+}
+
+func (r *TartBootstrapConfigReconciler) configurationInput(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (*corev1.Secret, string, string, error) {
+	if config.Spec.ConfigPatchesSecretRef == nil {
+		return nil, "", "", nil
+	}
+	if config.Spec.ConfigPatchesSecretRef.Name == "" {
+		return nil, "ConfigurationSecretUnavailable", "The configuration Secret reference has no name.", errors.New("configuration Secret reference has no name")
+	}
+	input := &corev1.Secret{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Spec.ConfigPatchesSecretRef.Name}, input); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, "ConfigurationSecretUnavailable", "The referenced immutable configuration Secret is not available.", err
+		}
+		return nil, "", "", err
+	}
+	return input, "", "", nil
+}
+
+func (r *TartBootstrapConfigReconciler) reportConfigurationError(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, err error) (ctrl.Result, error) {
+	if errors.Is(err, controller.ErrCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextPending) || errors.Is(err, errBootstrapInventoryPending) || errors.Is(err, errBootstrapContextUnavailable) {
+		result, reportErr := r.report(ctx, config, "ClusterContextPending", "Bootstrap configuration is waiting for required observed state.")
+		if reportErr != nil {
+			return ctrl.Result{}, reportErr
+		}
+		result.RequeueAfter = 15 * time.Second
+		return result, nil
+	}
+	if errors.Is(err, errBootstrapBindingMismatch) || errors.Is(err, errBootstrapHostUnavailable) {
+		return r.report(ctx, config, "HostBindingMismatch", "The TartHost binding does not match the CAPI/TartMachine identity; configuration generation is stopped.")
+	}
+	if errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable) || errors.Is(err, errBootstrapDiskUnavailable) {
+		return r.report(ctx, config, "InstallDiskUnavailable", "No writable disk with a safe stable identity is available for Talos installation.")
+	}
+	if errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous) || errors.Is(err, domainbootstrap.ErrInstallDiskAmbiguous) {
+		return r.report(ctx, config, "InstallDiskAmbiguous", "Multiple writable disks are available but no explicit install disk policy is configured; installation is stopped.")
+	}
+	reason, message := classifyConfigurationError(err)
+	return r.report(ctx, config, reason, message)
+}
+
+func (r *TartBootstrapConfigReconciler) ensureBootstrapSecret(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, expected *corev1.Secret, clusterName, secretName string, completeConfiguration []byte) (*corev1.Secret, string, string, ctrl.Result, error) {
 	actual := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: secretName}, actual)
+	err := r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: secretName}, actual)
 	switch {
 	case apierrors.IsNotFound(err):
 		if err := r.Create(ctx, expected); err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
+				return nil, "", "", ctrl.Result{RequeueAfter: time.Nanosecond}, nil
 			}
-			return ctrl.Result{}, err
+			return nil, "", "", ctrl.Result{}, err
 		}
-		actual = expected
+		return expected, "", "", ctrl.Result{}, nil
 	case err != nil:
-		return ctrl.Result{}, err
+		return nil, "", "", ctrl.Result{}, err
 	default:
 		if !bootstrap.IsContractSecret(actual, clusterName, config.UID) {
-			return r.report(ctx, &config, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.")
+			return nil, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.", ctrl.Result{}, nil
 		}
 		if !bytes.Equal(actual.Data[bootstrap.BootstrapSecretKey], completeConfiguration) {
-			return r.report(ctx, &config, "BootstrapSecretDigestMismatch", "The immutable Bootstrap Secret does not match its configuration digest.")
+			return nil, "BootstrapSecretDigestMismatch", "The immutable Bootstrap Secret does not match its configuration digest.", ctrl.Result{}, nil
 		}
+		return actual, "", "", ctrl.Result{}, nil
 	}
+}
 
+func (r *TartBootstrapConfigReconciler) markReady(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, secret *corev1.Secret, digest string) (ctrl.Result, error) {
 	// Bootstrap Secretはimmutableであり、同じdesired stateの再reconcileでは既存Secretを観測してStatusだけを更新する。
 	// desired configurationが変わった場合の扱いはconfiguration update policyが決める。
 	original := config.DeepCopy()
 	config.Status.Initialization.DataSecretCreated = new(true)
-	config.Status.DataSecretName = actual.Name
+	config.Status.DataSecretName = secret.Name
 	config.Status.ConfigurationDigest = digest
 	controller.SetCondition(&config.Status.Conditions, bootstrapv1alpha1.TartBootstrapConfigReadyCondition, metav1.ConditionTrue, "DataSecretCreated", "The immutable Bootstrap Secret is available.", config.Generation)
 	config.Status.ObservedGeneration = config.Generation
-	if err := r.Status().Patch(ctx, &config, client.MergeFrom(original)); err != nil {
+	if err := r.Status().Patch(ctx, config, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}
-
 	return ctrl.Result{}, nil
 }
 

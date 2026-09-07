@@ -271,8 +271,20 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, err
 	}
+	// SelectDiskはwritable diskが複数存在する場合、暗黙のfallbackを避けるため意図的に
+	// fail-closedでErrDiskSelectionAmbiguousを返す。MachineConfigurationContext.InstallDisk
+	// はこの場合nilのままにする契約であり(usecase/bootstrap/dependencies.goのdoc参照)、
+	// raw patchがinstall targetを明示することを期待して render 自体は続行する。raw patchも
+	// install targetを含まなければ、EnsureInstallDisk/HasInstallDiskConfigurationが
+	// 検証時にErrInstallConfigurationInvalid等で改めてfail-closedにする。
+	var installDiskPtr *domainbootstrap.DiskIdentity
 	installDisk, err := r.Renderer.SelectDisk(disks)
-	if err != nil {
+	switch {
+	case err == nil:
+		installDiskPtr = &installDisk
+	case errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous), errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable):
+		installDiskPtr = nil
+	default:
 		return bootstrap.MachineConfigurationContext{}, err
 	}
 	return bootstrap.MachineConfigurationContext{
@@ -281,7 +293,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		KubernetesVersion:    clusterMachine.Spec.Version,
 		MachineRole:          machineRole,
 		SecretsBundle:        bundle,
-		InstallDisk:          &installDisk,
+		InstallDisk:          installDiskPtr,
 	}, nil
 }
 

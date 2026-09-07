@@ -126,20 +126,32 @@ func freshProvisionSpecs() {
 			var host infrav1alpha1.TartHost
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
 
-			// install disk(system disk)の選択はprovider-owned invariantであり、
-			// TartBootstrapConfigのreconcilerがclaimしたTartHostのinventoryからdomainbootstrap.
-			// SelectDiskで自動的に選び、生成後のconfigurationへEnsureInstallDiskで強制する。
-			// ユーザーのraw patchでinstall.diskSelectorを指定する経路ではないため、ここでは
-			// 空でない無害なpatch(Secret-backed input自体の受け渡し経路を検証する目的)のみ渡す。
+			// このlabは3disk(system/ssd/hdd)を持ち、writableなdisk候補が複数存在するため、
+			// domainbootstrap.SelectDiskは自動選択をfail-closedで拒否する
+			// (reason=InstallDiskAmbiguous)。この場合はusecase/bootstrap.
+			// MachineConfigurationContext.InstallDiskがnilのまま render され、
+			// raw patchがinstall targetを明示しなければならない設計になっているため、
+			// 観測したStableSelector(CEL式)をUnattendedInstallConfig documentとして
+			// 明示的に渡す。CEL式は`!`始まりの値がYAML tag directiveと誤解釈される
+			// 事故を避けるため、必ず%qで二重引用符化してから埋め込む。
 			systemDiskSelector := systemDiskStableSelector(host)
 			Expect(systemDiskSelector).NotTo(BeEmpty())
 
 			By("creating the immutable Secret-backed machine configuration patch input")
+			patches := fmt.Sprintf(`cluster: {}
+---
+apiVersion: v1alpha1
+kind: UnattendedInstallConfig
+provisioning:
+  diskSelector:
+    match: %q
+  wipe: false
+`, systemDiskSelector)
 			patchesSecret := &corev1.Secret{
 				Name: e2eClusterName + "-cp-patches", Namespace: e2eNamespace,
 				Immutable: new(true),
 				StringData: map[string]string{
-					"patches": "cluster: {}\n",
+					"patches": patches,
 				},
 			}
 			Expect(k8sClient.Create(ctx, patchesSecret)).To(Succeed())

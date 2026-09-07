@@ -447,7 +447,11 @@ func (r *TartMachineReconciler) reconcileMaintenanceTalos(ctx context.Context, m
 	if err := configbuilder.ValidateMachineConfiguration(effectiveConfiguration); err != nil {
 		return r.reportMaintenanceConfigurationError(ctx, machine, maintenance, "ConfigurationInvalid", "The complete Talos machine configuration failed client-side validation.", "The complete Talos machine configuration is invalid.")
 	}
-	if err := maintenance.ApplyConfiguration(ctx, effectiveConfiguration); err != nil {
+	// maintenance mode(未installのnode)ではSTAGED modeはpersisted configを書くだけでSetConfigを
+	// 呼ばないため、boot sequenceがconfig完了を検知できず永久にmaintenance modeへ留まる。
+	// NO_REBOOT(AUTO) modeはpersisted configに加えてSetConfigも呼ぶため、Talos自身のmaintenance
+	// mode boot sequenceがconfigの完了を検知し、自動でinstallとrebootへ進む。
+	if err := maintenance.ApplyConfigurationNoReboot(ctx, effectiveConfiguration); err != nil {
 		return r.reportMaintenanceConfigurationError(ctx, machine, maintenance, "ConfigurationApplyFailed", "The complete Talos machine configuration could not be applied.", "The Talos maintenance API rejected the machine configuration.")
 	}
 	if closeErr := maintenance.Close(); closeErr != nil {

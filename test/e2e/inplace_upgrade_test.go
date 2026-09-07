@@ -74,10 +74,15 @@ func inPlaceUpgradeSpecs() {
 
 			var machine clusterv1.Machine
 			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-			Expect(updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)).To(Succeed())
+			updatedGeneration, err := updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
+			Expect(err).NotTo(HaveOccurred())
 
+			// TartMachineはimage更新前から既にTalosUpToDate=Trueだったため、単純にcondition.Status
+			// だけを見るとreconcilerがまだ新しいgenerationを処理していない古い観測値へ即座に
+			// マッチしてしまう。condition.ObservedGenerationが更新後のgeneration以上になるまでは
+			// 「まだ報告されていない」ものとして扱うことで、実際に再reconcileされたことを保証する。
 			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
-			framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, machine.Spec.InfrastructureRef.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+			framework.WaitForConditionUntilTerminal(ctx, conditionsAtGeneration(tartMachineConditions(e2eNamespace, machine.Spec.InfrastructureRef.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, updatedGeneration), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
 
 			assertIdentityUnchanged(ctx, recordedIdentity)
@@ -187,15 +192,45 @@ func updateMachineTemplateImage(ctx context.Context, version string) error {
 	})
 }
 
-func updateTartMachineImage(ctx context.Context, name, version string) error {
-	return updateOnConflict(ctx, func() error {
+// updateTartMachineImageはTartMachine.Spec.Image.Versionを更新し、成功したUpdate呼び出しが
+// 返した更新後のGenerationを返す。呼び出し側はこのGenerationを使って、更新前から既に
+// True/満たされていたConditionの古い観測値と、再reconcile後の新しい観測値を区別できる。
+func updateTartMachineImage(ctx context.Context, name, version string) (int64, error) {
+	var generation int64
+	err := updateOnConflict(ctx, func() error {
 		var machine infrav1alpha1.TartMachine
 		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: name}, &machine); err != nil {
 			return err
 		}
 		machine.Spec.Image.Version = version
-		return k8sClient.Update(ctx, &machine)
+		if err := k8sClient.Update(ctx, &machine); err != nil {
+			return err
+		}
+		generation = machine.Generation
+		return nil
 	})
+	return generation, err
+}
+
+// conditionsAtGenerationは、指定したconditionTypeの観測値がminGenerationより古い
+// (ObservedGeneration < minGeneration)場合、そのconditionを「まだ報告されていない」ものとして
+// 除外するConditionGetterラッパーである。更新前から既にexpected statusを満たしていた
+// conditionが、更新後の再reconcileを経ずに古い観測値のままEventuallyを通過することを防ぐ。
+func conditionsAtGeneration(get framework.ConditionGetter, conditionType string, minGeneration int64) framework.ConditionGetter {
+	return func(ctx context.Context) ([]metav1.Condition, error) {
+		conditions, err := get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]metav1.Condition, 0, len(conditions))
+		for _, condition := range conditions {
+			if condition.Type == conditionType && condition.ObservedGeneration < minGeneration {
+				continue
+			}
+			filtered = append(filtered, condition)
+		}
+		return filtered, nil
+	}
 }
 
 func updateControlPlaneKubernetesVersion(ctx context.Context, version string) error {

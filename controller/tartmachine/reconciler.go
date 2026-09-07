@@ -298,13 +298,15 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	authenticated, authErr := talos.DialAuthenticatedFromConfiguration(connectionContext, endpoint, configuration)
 	cancel()
 	if authErr != nil {
-		return ctrl.Result{}, false, nil //nolint:nilerr // failed authenticated access falls through to maintenance mode observation.
+		ctrl.LoggerFrom(ctx).Info("authenticated Talos dial failed; falling back to maintenance mode observation", "error", authErr.Error(), "endpoint", endpoint)
+		return ctrl.Result{}, false, nil
 	}
 
 	versionContext, versionCancel := context.WithTimeout(ctx, talosReconcileTimeout)
 	version, versionErr := authenticated.Version(versionContext)
 	versionCancel()
 	if versionErr != nil {
+		ctrl.LoggerFrom(ctx).Info("authenticated Talos Version() call failed", "error", versionErr.Error(), "endpoint", endpoint)
 		if closeErr := authenticated.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 		}

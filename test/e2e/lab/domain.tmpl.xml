@@ -32,6 +32,13 @@ PXE(network)へfallbackするlibvirtの標準挙動を利用する。3disk(syste
        明示し、この要件を満たす。firmware='efi'はlibvirtがovmfパッケージのfirmware descriptorから
        自動選択する(Ubuntu 24.04のlibvirt/ovmfパッケージで対応)。 -->
   <os firmware='efi'>
+    <!-- Secure Bootが有効なfirmware variantが自動選択されると、TFTP経由でchainloadする
+         未署名のiPXE EFI binaryの検証・実行が拒否され、boot処理が次の候補(OVMFのnative UEFI
+         HTTP Boot等)へ進んでしまいPXE handshakeが完結しない(実機のpcap調査で発覚)。
+         secure-boot featureを明示的に無効化する。 -->
+    <firmware>
+      <feature enabled='no' name='secure-boot'/>
+    </firmware>
     <type arch='x86_64' machine='q35'>hvm</type>
     <boot dev='hd'/>
     <boot dev='network'/>

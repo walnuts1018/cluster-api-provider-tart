@@ -25,6 +25,12 @@ import (
 	"path/filepath"
 )
 
+const (
+	// Tart E2Eがlibvirt networkに割り当てるbridge interface名である。
+	defaultLabBridgeName       = "tartlab0"
+	controllerPodLabelSelector = "app.kubernetes.io/name=cluster-api-provider-tart"
+)
+
 // DumpClusterStateはclusterの包括的なdebug情報を収集し、指定されたartifacts directoryへfileとして保存する。
 func DumpClusterState(artifactDir string) error {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
@@ -62,14 +68,14 @@ func DumpClusterState(artifactDir string) error {
 	return nil
 }
 
-// DumpControllerLogsは全controller-manager podのlogを収集し、指定されたartifacts directoryのfileへ保存する。
+// DumpControllerLogsはTart providerのcontroller-managerとnetboot-serverのPodログを収集し、指定されたartifacts directoryのfileへ保存する。
 func DumpControllerLogs(artifactDir string) error {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create artifact directory: %w", err)
 	}
 
 	// controller pod名を取得する。
-	cmd := exec.Command("kubectl", "get", "pods", "-l", "control-plane=controller-manager",
+	cmd := exec.Command("kubectl", "get", "pods", "-l", controllerPodLabelSelector,
 		"-o", "go-template={{ range .items }}{{ .metadata.name }}{{ \"\\n\" }}{{ end }}",
 		"-n", "cluster-api-provider-tart-system")
 	output, err := cmd.CombinedOutput()
@@ -150,8 +156,8 @@ func DumpDnsmasqState(artifactDir string) error {
 	}{
 		{"dnsmasq-process.txt", "pgrep", []string{"-af", "dnsmasq"}},
 		{"dnsmasq-leases.txt", "cat", []string{"/tmp/dnsmasq.leases"}},
-		{"bridge-info.txt", "ip", []string{"link", "show", "br0"}},
-		{"bridge-addresses.txt", "ip", []string{"addr", "show", "br0"}},
+		{"bridge-info.txt", "ip", []string{"link", "show", defaultLabBridgeName}},
+		{"bridge-addresses.txt", "ip", []string{"addr", "show", defaultLabBridgeName}},
 		{"route-table.txt", "ip", []string{"route"}},
 		{"iptables-nat.txt", "sudo", []string{"iptables", "-t", "nat", "-L", "-n", "-v"}},
 		{"iptables-filter.txt", "sudo", []string{"iptables", "-L", "-n", "-v"}},

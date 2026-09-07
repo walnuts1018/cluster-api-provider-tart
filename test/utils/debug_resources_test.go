@@ -29,12 +29,12 @@ func TestDebugClusterAPIResourcesAvoidsRemovedResourceNames(t *testing.T) {
 	}
 }
 
-func TestDebugClusterAPIResourcesIncludesTartOperationState(t *testing.T) {
+func TestDebugClusterAPIResourcesIncludesTartResources(t *testing.T) {
 	want := map[string]bool{
-		"tartclusters.infrastructure.cluster.x-k8s.io":       false,
-		"tarthosts.infrastructure.cluster.x-k8s.io":          false,
-		"tarthostoperations.infrastructure.cluster.x-k8s.io": false,
-		"tartmachines.infrastructure.cluster.x-k8s.io":       false,
+		"tartclusters.infrastructure.cluster.x-k8s.io":         false,
+		"tartclustertemplates.infrastructure.cluster.x-k8s.io": false,
+		"tarthosts.infrastructure.cluster.x-k8s.io":            false,
+		"tartmachines.infrastructure.cluster.x-k8s.io":         false,
 	}
 
 	for _, resource := range debugClusterAPIResources() {

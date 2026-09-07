@@ -8,6 +8,7 @@ package framework
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -130,32 +131,8 @@ func InstallTartProviders(ctx context.Context, imageTag string) error {
 	}
 
 	for _, manifestDir := range TartProviderManifests {
-		buildTarget := filepath.Join(projectDir, manifestDir)
-		if imageTag != "" {
-			overlayDir, overlayErr := renderImageOverlay(projectDir, manifestDir, TartProviderImages[manifestDir], imageTag)
-			if overlayErr != nil {
-				return fmt.Errorf("render image overlay for %q: %w", manifestDir, overlayErr)
-			}
-			defer os.RemoveAll(overlayDir) //nolint:errcheck // best-effort cleanup of temp overlay
-			buildTarget = overlayDir
-		}
-
-		// config/crd配下はinfrastructure/bootstrap/control-plane用に分割されており、各々が
-		// 兄弟directoryの../bases/*.yamlを参照する(kubebuilder標準の構成)。kustomizeの既定の
-		// load restrictorはこの兄弟参照をsecurity違反として拒否するため、明示的に無効化する
-		// (参照先はすべてこのrepository内のローカルfileであり、外部/remoteは一切関与しない)。
-		buildCmd := exec.CommandContext(ctx, "kustomize", "build", buildTarget, "--load-restrictor", "LoadRestrictionsNone")
-		var stderr bytes.Buffer
-		buildCmd.Stderr = &stderr
-		output, err := buildCmd.Output()
-		if err != nil {
-			return fmt.Errorf("kustomize build %q: %w: %s", manifestDir, err, stderr.String())
-		}
-
-		applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
-		applyCmd.Stdin = bytes.NewReader(output)
-		if _, err := testutils.Run(applyCmd); err != nil {
-			return fmt.Errorf("kubectl apply %q: %w", manifestDir, err)
+		if err := installTartProvider(ctx, projectDir, manifestDir, imageTag); err != nil {
+			return err
 		}
 	}
 
@@ -163,6 +140,47 @@ func InstallTartProviders(ctx context.Context, imageTag string) error {
 		if err := waitDeploymentAvailable(ctx, tartNamespace, deploymentName, 5*time.Minute); err != nil {
 			return fmt.Errorf("wait for %s (from %s) to become available: %w", deploymentName, manifestDir, err)
 		}
+	}
+	return nil
+}
+
+// installTartProviderは1つのprovider manifestをbuildしてapplyする。providerごとに関数を分け、image overlayの一時directoryをそのproviderの処理が終わった時点で解放する。
+func installTartProvider(ctx context.Context, projectDir, manifestDir, imageTag string) (returnErr error) {
+	buildTarget := filepath.Join(projectDir, manifestDir)
+	var overlayDir string
+	if imageTag != "" {
+		var err error
+		overlayDir, err = renderImageOverlay(projectDir, manifestDir, TartProviderImages[manifestDir], imageTag)
+		if err != nil {
+			return fmt.Errorf("render image overlay for %q: %w", manifestDir, err)
+		}
+		buildTarget = overlayDir
+	}
+	defer func() {
+		if overlayDir == "" {
+			return
+		}
+		if err := os.RemoveAll(overlayDir); err != nil {
+			returnErr = errors.Join(returnErr, fmt.Errorf("remove image overlay for %q: %w", manifestDir, err))
+		}
+	}()
+
+	// config/crd配下はinfrastructure/bootstrap/control-plane用に分割されており、各々が
+	// 兄弟directoryの../bases/*.yamlを参照する(kubebuilder標準の構成)。kustomizeの既定の
+	// load restrictorはこの兄弟参照をsecurity違反として拒否するため、明示的に無効化する
+	// (参照先はすべてこのrepository内のローカルfileであり、外部/remoteは一切関与しない)。
+	buildCmd := exec.CommandContext(ctx, "kustomize", "build", buildTarget, "--load-restrictor", "LoadRestrictionsNone")
+	var stderr bytes.Buffer
+	buildCmd.Stderr = &stderr
+	output, err := buildCmd.Output()
+	if err != nil {
+		return fmt.Errorf("kustomize build %q: %w: %s", manifestDir, err, stderr.String())
+	}
+
+	applyCmd := exec.CommandContext(ctx, "kubectl", "apply", "-f", "-")
+	applyCmd.Stdin = bytes.NewReader(output)
+	if _, err := testutils.Run(applyCmd); err != nil {
+		return fmt.Errorf("kubectl apply %q: %w", manifestDir, err)
 	}
 	return nil
 }

@@ -109,6 +109,7 @@ var _ = BeforeSuite(func() {
 
 	labWorkDir = envOrDefault("TART_E2E_LAB_WORKDIR", filepath.Join(os.TempDir(), "tart-e2e-lab"))
 	Expect(os.Setenv("TART_E2E_LAB_WORKDIR", labWorkDir)).To(Succeed())
+	Expect(os.Setenv("TART_E2E_LAB_BRIDGE", labBridgeName)).To(Succeed())
 
 	By("bare-metal labを構築する(libvirt network + VM定義。電源はshutoffのまま)")
 	vmSpecs := []lab.VMSpec{
@@ -160,12 +161,10 @@ var _ = BeforeSuite(func() {
 
 	// CIがlocalでbuildしたcontroller-manager/netboot-server imageをkindへloadし、config/default
 	// 配下のkustomize manifestが参照する仮image(':latest'固定、実在しないregistry)を実際に
-	// このimageへ置き換える。TART_E2E_PROVIDER_IMAGE_TAGが空の場合は仮imageのままapplyされ、
-	// 通常はImagePullBackOffになる(ローカル検証用の抜け道として残す)。
-	providerImageTag := envOrDefault("TART_E2E_PROVIDER_IMAGE_TAG", "")
-	if providerImageTag != "" {
-		Expect(framework.LoadProviderImagesForTag(providerImageTag)).To(Succeed())
-	}
+	// このimageへ置き換える。image tagが無い場合はlocal imageのload時点で失敗させ、provider
+	// PodがImagePullBackOffのまま長時間待つことを防ぐ。
+	providerImageTag := envOrDefault("TART_E2E_PROVIDER_IMAGE_TAG", "e2e")
+	Expect(framework.LoadProviderImagesForTag(providerImageTag)).To(Succeed())
 
 	Expect(framework.InstallTartProviders(ctx, providerImageTag)).To(Succeed())
 

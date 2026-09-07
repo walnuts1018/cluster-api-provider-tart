@@ -87,9 +87,17 @@ func WaitForConditionUntilTerminal(ctx context.Context, get ConditionGetter, con
 			}
 		}
 		conditions, err := get(ctx)
-		g.Expect(err).NotTo(HaveOccurred(), "failed to fetch conditions while waiting for %s=%s", conditionType, expectedStatus)
+		if err != nil {
+			terminalStreak = 0
+			g.Expect(err).NotTo(HaveOccurred(), "failed to fetch conditions while waiting for %s=%s", conditionType, expectedStatus)
+			return
+		}
 		condition := findCondition(conditions, conditionType)
-		g.Expect(condition).NotTo(BeNil(), "condition %s not yet reported", conditionType)
+		if condition == nil {
+			terminalStreak = 0
+			g.Expect(condition).NotTo(BeNil(), "condition %s not yet reported", conditionType)
+			return
+		}
 		logConditionHeartbeat(start, conditionType, condition)
 		if explanation, terminal := terminalReasons[condition.Reason]; terminal {
 			terminalStreak++

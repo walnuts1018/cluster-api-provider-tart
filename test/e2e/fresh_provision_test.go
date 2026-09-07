@@ -12,9 +12,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
@@ -26,9 +28,10 @@ import (
 // e2eNamespaceとe2eClusterNameは、本suiteが作成する全リソースの一貫した命名に使う。
 // FreshProvision/InPlaceUpgrade/ReconcileRecoveryの3specは同一clusterを対象に順に実行される。
 const (
-	e2eNamespace   = "tart-e2e-workload"
-	e2eClusterName = "tart-e2e-cluster"
-	e2eHostName    = "tart-e2e-host-0"
+	e2eNamespace      = "tart-e2e-workload"
+	e2eClusterName    = "tart-e2e-cluster"
+	e2eHostName       = "tart-e2e-host-0"
+	e2eDataVolumeName = "tart-e2e-data"
 
 	// e2eTalosVersion/e2eSchematicIDはlab上のTalos installで使うimageを固定する。
 	// e2eSchematicIDは"customization: {}"(カスタマイズ無し)に対応する、Talos Image Factoryの
@@ -40,6 +43,8 @@ const (
 
 	e2eKubernetesVersion = "v1.34.0"
 )
+
+const e2eDataVolumeHostPath = "/var/mnt/" + e2eDataVolumeName
 
 // clusterProvisioningTerminalReasonsは、TartCluster/TartControlPlane/MachineのConditionが
 // これらのReasonを報告し続けている場合、reconcilerが外部からの承認や入力なしには自己解決
@@ -54,6 +59,7 @@ var clusterProvisioningTerminalReasons = framework.TerminalReasons{
 	infrav1alpha1.ReasonNoEligibleHost:           "no eligible fresh Host is available",
 	infrav1alpha1.ReasonDeletionApprovalRequired: "the Host requires an explicit deletion approval",
 	infrav1alpha1.ReasonReuseApprovalRequired:    "the Host requires an explicit reuse approval",
+	infrav1alpha1.ReasonRolledBack:               "the previously observed Talos image is no longer running",
 	infrav1alpha1.ReasonNotImplemented:           "the required behavior is not implemented by this provider",
 }
 
@@ -117,8 +123,16 @@ func freshProvisionSpecs() {
 				physicalDisks = append(physicalDisks, disk)
 			}
 			Expect(physicalDisks).To(HaveLen(3), "expected system/ssd/hdd disks to be observed")
-			for _, disk := range physicalDisks {
-				Expect(disk.StableSelector).NotTo(BeEmpty(), "disk %+v should have a unique stable selector", disk)
+			for _, role := range []string{"system", "ssd", "hdd"} {
+				serial := labDiskSerial(role)
+				matches := make([]infrav1alpha1.DiskInventory, 0, 1)
+				for _, disk := range physicalDisks {
+					if disk.Serial == serial {
+						matches = append(matches, disk)
+					}
+				}
+				Expect(matches).To(HaveLen(1), "expected exactly one %s disk with serial %q", role, serial)
+				Expect(matches[0].StableSelector).NotTo(BeEmpty(), "disk with serial %q should have a stable selector", serial)
 			}
 		})
 
@@ -138,6 +152,7 @@ func freshProvisionSpecs() {
 			Expect(systemDiskSelector).NotTo(BeEmpty())
 
 			By("creating the immutable Secret-backed machine configuration patch input")
+			dataDiskSelector := fmt.Sprintf(`disk.serial == %q`, labDiskSerial("hdd"))
 			patches := fmt.Sprintf(`cluster: {}
 ---
 apiVersion: v1alpha1
@@ -146,7 +161,19 @@ provisioning:
   diskSelector:
     match: %q
   wipe: false
-`, systemDiskSelector)
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: %s
+volumeType: disk
+provisioning:
+  diskSelector:
+    match: %q
+  minSize: 1GiB
+  maxSize: 10GiB
+filesystem:
+  type: ext4
+`, systemDiskSelector, e2eDataVolumeName, dataDiskSelector)
 			patchesSecret := &corev1.Secret{
 				Name: e2eClusterName + "-cp-patches", Namespace: e2eNamespace,
 				Immutable: new(true),
@@ -244,6 +271,12 @@ provisioning:
 			framework.WaitForConditionUntilTerminal(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 			framework.WaitForConditionUntilTerminal(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 			framework.WaitForConditionUntilTerminal(ctx, machineConditionsForCluster(e2eNamespace, e2eClusterName), clusterv1.MachineNodeHealthyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+
+			var machine clusterv1.Machine
+			Eventually(func() error {
+				return findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)
+			}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, e2eTalosVersion)
 		})
 	})
 }
@@ -284,15 +317,11 @@ func tartControlPlaneConditions(namespace, name string) framework.ConditionGette
 func machineConditionsForCluster(namespace, clusterName string) framework.ConditionGetter {
 	return func(ctx context.Context) ([]metav1.Condition, error) {
 		var machines clusterv1.MachineList
-		if err := k8sClient.List(ctx, &machines); // namespaceとcluster nameでの絞り込みだけで、本suiteの範囲では十分に一意である。
-		err != nil {
+		if err := k8sClient.List(ctx, &machines, client.InNamespace(namespace)); err != nil {
 			return nil, fmt.Errorf("list Machines: %w", err)
 		}
 		for i := range machines.Items {
 			machine := &machines.Items[i]
-			if machine.Namespace != namespace {
-				continue
-			}
 			if machine.Spec.ClusterName != clusterName {
 				continue
 			}
@@ -302,23 +331,49 @@ func machineConditionsForCluster(namespace, clusterName string) framework.Condit
 	}
 }
 
-// systemDiskStableSelectorは、Host inventoryのdisk一覧からsystem disk(容量最大のdisk、
-// このE2E labではSystemDiskGiB=40が最大)に対応するStableSelectorを返す。
-// TODO: 容量だけによる推定は複数のdiskが同容量になる構成では機能しない。lab側でdiskサイズを
-// 明確に分ける(現状は40/20/20 GiB)ことで一意性を担保しているが、より頑健にするには
-// disk role(system/ssd/hdd)をserial命名規則(lab/diskimages.goのdiskSerial)から
-// 直接読み取る方式への変更を検討する。
+// systemDiskStableSelectorは、labがsystem diskへ設定したserialを使ってStableSelectorを解決する。
 func systemDiskStableSelector(host infrav1alpha1.TartHost) string {
-	if host.Status.Inventory == nil {
+	return diskStableSelectorBySerial(host, labDiskSerial("system"))
+}
+
+func diskStableSelectorBySerial(host infrav1alpha1.TartHost, serial string) string {
+	if host.Status.Inventory == nil || serial == "" {
 		return ""
 	}
-	var largest infrav1alpha1.DiskInventory
+	selector := ""
 	for _, disk := range host.Status.Inventory.Disks {
-		if disk.SizeBytes > largest.SizeBytes {
-			largest = disk
+		if disk.Serial != serial {
+			continue
 		}
+		if selector != "" {
+			return ""
+		}
+		selector = disk.StableSelector
 	}
-	return largest.StableSelector
+	return selector
+}
+
+func labDiskSerial(role string) string {
+	return role + "-" + controlPlaneVMName
+}
+
+func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion string) {
+	framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, name), infrav1alpha1.TartMachineReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute)
+
+	var machine infrav1alpha1.TartMachine
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: name}, &machine)).To(Succeed())
+	for _, conditionType := range []string{
+		infrav1alpha1.TartMachineTalosReachableCondition,
+		infrav1alpha1.TartMachineProvisionedCondition,
+		infrav1alpha1.TartMachineTalosUpToDateCondition,
+		infrav1alpha1.TartMachineReadyCondition,
+	} {
+		condition := meta.FindStatusCondition(machine.Status.Conditions, conditionType)
+		Expect(condition).NotTo(BeNil(), "TartMachine condition %q should be reported", conditionType)
+		Expect(condition.Status).To(Equal(metav1.ConditionTrue), "TartMachine condition %q should be True", conditionType)
+	}
+	Expect(machine.Status.TalosVersion).To(Equal(expectedVersion))
+	Expect(machine.Status.TalosSchematicID).To(Equal(e2eSchematicID))
 }
 
 // labBroadcastAddressは、lab network CIDR上のbroadcast address(host部が全1)にWoL標準port 9を

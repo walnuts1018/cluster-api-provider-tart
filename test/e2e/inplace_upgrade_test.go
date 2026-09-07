@@ -6,16 +6,25 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -28,8 +37,7 @@ const (
 	upgradeTargetTalosVersion      = "v1.14.1"
 	upgradeTargetKubernetesVersion = "v1.34.1"
 
-	upgradeDataConfigMapName = "tart-e2e-upgrade-marker"
-	upgradeDataPayload       = "tart-e2e-in-place-upgrade-marker"
+	upgradeDataPayload = "tart-e2e-in-place-upgrade-marker"
 )
 
 // upgradeIdentityRecordは、upgrade前後でMachine replacementが発生していないことを検証するために
@@ -40,8 +48,7 @@ type upgradeIdentityRecord struct {
 	tartMachineUID types.UID
 	tartHostName   string
 	nodeUID        types.UID
-	configMapUID   types.UID
-	checksum       string
+	dataChecksum   string
 }
 
 var recordedIdentity upgradeIdentityRecord
@@ -53,7 +60,7 @@ func inPlaceUpgradeSpecs() {
 	Describe("InPlaceUpgrade", Ordered, func() {
 		BeforeAll(func() {
 			By("recording pre-upgrade identity (Machine/TartMachine/TartHost binding/Node UID) and writing a checksummed marker")
-			recordedIdentity = recordCurrentIdentity()
+			recordedIdentity = recordCurrentIdentity(ctx)
 		})
 
 		It("upgrades Talos OS in place without replacing the Machine or losing disk-backed data", func() {
@@ -63,29 +70,21 @@ func inPlaceUpgradeSpecs() {
 			// reconcilerの実装挙動を実CIで確認して確定する必要がある。骨格実装では両方を明示的に
 			// 更新することで、どちらの経路でもTalosUpToDate=Trueへ収束することを期待する。
 			By("bumping TartMachineTemplate's desired Talos image and waiting for TalosUpToDate")
-			var machineTemplate infrav1alpha1.TartMachineTemplate
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp"}, &machineTemplate)).To(Succeed())
-			machineTemplate.Spec.Template.Spec.Image.Version = upgradeTargetTalosVersion
-			Expect(k8sClient.Update(ctx, &machineTemplate)).To(Succeed())
+			Expect(updateMachineTemplateImage(ctx, upgradeTargetTalosVersion)).To(Succeed())
 
 			var machine clusterv1.Machine
-			Expect(findMachineForCluster(e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-			var tartMachine infrav1alpha1.TartMachine
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
-			tartMachine.Spec.Image.Version = upgradeTargetTalosVersion
-			Expect(k8sClient.Update(ctx, &tartMachine)).To(Succeed())
+			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+			Expect(updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)).To(Succeed())
 
 			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
-			framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, tartMachine.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+			framework.WaitForConditionUntilTerminal(ctx, tartMachineConditions(e2eNamespace, machine.Spec.InfrastructureRef.Name), infrav1alpha1.TartMachineTalosUpToDateCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
 
-			assertIdentityUnchanged(recordedIdentity)
+			assertIdentityUnchanged(ctx, recordedIdentity)
 		})
 
 		It("upgrades Kubernetes cluster-wide without replacing any Machine", func() {
-			var controlPlane controlplanev1alpha1.TartControlPlane
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &controlPlane)).To(Succeed())
-			controlPlane.Spec.Version = upgradeTargetKubernetesVersion
-			Expect(k8sClient.Update(ctx, &controlPlane)).To(Succeed())
+			Expect(updateControlPlaneKubernetesVersion(ctx, upgradeTargetKubernetesVersion)).To(Succeed())
 
 			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
 			upgradeWaitStart := time.Now()
@@ -100,54 +99,45 @@ func inPlaceUpgradeSpecs() {
 
 			framework.WaitForConditionUntilTerminal(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
 
-			assertIdentityUnchanged(recordedIdentity)
+			var machine clusterv1.Machine
+			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion)
+			assertIdentityUnchanged(ctx, recordedIdentity)
 		})
 	})
 }
 
-// recordCurrentIdentityは、Machine/TartMachine/TartHost binding/Node UIDと、data disk上へ
-// 書き込んだmarker(ConfigMapで代替。UserVolume+PV/PVC経由のファイル書き込みはlab固有の
-// storage classセットアップが必要なため、本骨格ではConfigMap UID + SHA256を最小の代理指標として扱う)
-// を記録する。
-//
-// TODO: 本来の計画通り、data disk(hdd.qcow2)上のUserVolume + Local PV/PVCへ実際にファイルを
-// 書き込みSHA256を記録する実装へ差し替える。StorageClass/PV定義がlab環境のnode local pathに
-// 依存するため、実際のTalos install後のUserVolume mount pathが判明してから確定する。
-func recordCurrentIdentity() upgradeIdentityRecord {
+// recordCurrentIdentityはMachine/TartMachine/TartHost binding/Node UIDと、Talos UserVolume上のmarkerを記録する。
+func recordCurrentIdentity(ctx context.Context) upgradeIdentityRecord {
 	var machine clusterv1.Machine
-	Expect(findMachineForCluster(e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+	Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
 
 	var tartMachine infrav1alpha1.TartMachine
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
 	Expect(tartMachine.Status.HostRef).NotTo(BeNil())
 
 	var node corev1.Node
+	Expect(machine.Status.NodeRef.IsDefined()).To(BeTrue(), "CAPI Machine must reference a Node before writing the UserVolume marker")
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Status.NodeRef.Name}, &node)).To(Succeed())
 
 	sum := sha256.Sum256([]byte(upgradeDataPayload))
 	checksum := hex.EncodeToString(sum[:])
-
-	marker := &corev1.ConfigMap{
-		Name: upgradeDataConfigMapName, Namespace: e2eNamespace,
-		Data: map[string]string{"checksum": checksum, "payload": upgradeDataPayload},
-	}
-	Expect(k8sClient.Create(ctx, marker)).To(Succeed())
+	Expect(writeUserVolumeMarker(ctx, node.Name)).To(Succeed())
 
 	return upgradeIdentityRecord{
 		machineUID:     machine.UID,
 		tartMachineUID: tartMachine.UID,
 		tartHostName:   tartMachine.Status.HostRef.Name,
 		nodeUID:        node.UID,
-		configMapUID:   marker.UID,
-		checksum:       checksum,
+		dataChecksum:   checksum,
 	}
 }
 
-// assertIdentityUnchangedは、upgrade前後でMachine/TartMachine/TartHost binding/Node/markerの
-// identityが全て不変であることを検証し、「Machine replacementが起きていないこと」を明示する。
-func assertIdentityUnchanged(before upgradeIdentityRecord) {
+// assertIdentityUnchangedは、upgrade前後でMachine/TartMachine/TartHost binding/Nodeのidentityが
+// 不変であり、UserVolume上のmarkerが読み取れることを検証する。
+func assertIdentityUnchanged(ctx context.Context, before upgradeIdentityRecord) {
 	var machine clusterv1.Machine
-	Expect(findMachineForCluster(e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+	Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
 	Expect(machine.UID).To(Equal(before.machineUID), "Machine UID must not change across in-place upgrade")
 
 	var tartMachine infrav1alpha1.TartMachine
@@ -160,25 +150,264 @@ func assertIdentityUnchanged(before upgradeIdentityRecord) {
 	var node corev1.Node
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: machine.Status.NodeRef.Name}, &node)).To(Succeed())
 	Expect(node.UID).To(Equal(before.nodeUID), "Node UID must not change across in-place upgrade")
-
-	var marker corev1.ConfigMap
-	Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: upgradeDataConfigMapName}, &marker)).To(Succeed())
-	Expect(marker.UID).To(Equal(before.configMapUID))
-	Expect(marker.Data["checksum"]).To(Equal(before.checksum), "data checksum must survive in-place upgrade")
+	Expect(verifyUserVolumeMarker(ctx, node.Name, before.dataChecksum)).To(Succeed())
 }
 
-func findMachineForCluster(namespace, clusterName string, out *clusterv1.Machine) error {
+func findMachineForCluster(ctx context.Context, namespace, clusterName string, out *clusterv1.Machine) error {
 	var machines clusterv1.MachineList
-	if err := k8sClient.List(context.Background(), &machines); err != nil {
+	if err := k8sClient.List(ctx, &machines, client.InNamespace(namespace)); err != nil {
 		return fmt.Errorf("list Machines: %w", err)
 	}
+	var found *clusterv1.Machine
 	for i := range machines.Items {
-		if machines.Items[i].Namespace == namespace && machines.Items[i].Spec.ClusterName == clusterName {
-			*out = machines.Items[i]
-			return nil
+		machine := &machines.Items[i]
+		if machine.Spec.ClusterName != clusterName || !machine.DeletionTimestamp.IsZero() {
+			continue
 		}
+		if found != nil {
+			return fmt.Errorf("multiple active Machines found for cluster %s/%s", namespace, clusterName)
+		}
+		found = machine
+	}
+	if found != nil {
+		*out = *found
+		return nil
 	}
 	return fmt.Errorf("no Machine found for cluster %s/%s", namespace, clusterName)
+}
+
+func updateMachineTemplateImage(ctx context.Context, version string) error {
+	return updateOnConflict(ctx, func() error {
+		var machineTemplate infrav1alpha1.TartMachineTemplate
+		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp"}, &machineTemplate); err != nil {
+			return err
+		}
+		machineTemplate.Spec.Template.Spec.Image.Version = version
+		return k8sClient.Update(ctx, &machineTemplate)
+	})
+}
+
+func updateTartMachineImage(ctx context.Context, name, version string) error {
+	return updateOnConflict(ctx, func() error {
+		var machine infrav1alpha1.TartMachine
+		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: name}, &machine); err != nil {
+			return err
+		}
+		machine.Spec.Image.Version = version
+		return k8sClient.Update(ctx, &machine)
+	})
+}
+
+func updateControlPlaneKubernetesVersion(ctx context.Context, version string) error {
+	return updateOnConflict(ctx, func() error {
+		var controlPlane controlplanev1alpha1.TartControlPlane
+		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &controlPlane); err != nil {
+			return err
+		}
+		controlPlane.Spec.Version = version
+		return k8sClient.Update(ctx, &controlPlane)
+	})
+}
+
+func updateOnConflict(ctx context.Context, update func() error) error {
+	var lastConflict error
+	err := wait.ExponentialBackoffWithContext(ctx, retry.DefaultRetry, func(context.Context) (bool, error) {
+		err := update()
+		if err == nil {
+			return true, nil
+		}
+		if apierrors.IsConflict(err) {
+			lastConflict = err
+			return false, nil
+		}
+		return false, err
+	})
+	if errors.Is(err, wait.ErrWaitTimeout) && lastConflict != nil {
+		return lastConflict
+	}
+	return err
+}
+
+func newWorkloadClient(ctx context.Context) (kubernetes.Interface, error) {
+	var cluster clusterv1.Cluster
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &cluster); err != nil {
+		return nil, fmt.Errorf("get workload Cluster: %w", err)
+	}
+	if !cluster.Spec.ControlPlaneEndpoint.IsValid() {
+		return nil, errors.New("workload Cluster has no valid control-plane endpoint")
+	}
+
+	var secret corev1.Secret
+	if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-kubeconfig"}, &secret); err != nil {
+		return nil, fmt.Errorf("get workload kubeconfig Secret: %w", err)
+	}
+	kubeconfig, ok := secret.Data["value"]
+	if secret.Type != clusterv1.ClusterSecretType || !ok || len(kubeconfig) == 0 {
+		return nil, errors.New("workload kubeconfig Secret does not satisfy the CAPI contract")
+	}
+
+	config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return nil, fmt.Errorf("parse workload kubeconfig: %w", err)
+	}
+	config.Host = "https://" + cluster.Spec.ControlPlaneEndpoint.String()
+	config.Timeout = 30 * time.Second
+	workload, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("create workload Kubernetes client: %w", err)
+	}
+	return workload, nil
+}
+
+func writeUserVolumeMarker(ctx context.Context, nodeName string) error {
+	command := fmt.Sprintf("set -eu; printf '%%s' '%s' > /data/marker; test \"$(cat /data/marker)\" = '%s'; sha256sum /data/marker", upgradeDataPayload, upgradeDataPayload)
+	output, err := runUserVolumeCommand(ctx, nodeName, command)
+	if err != nil {
+		return err
+	}
+	return verifyChecksumOutput(output, dataChecksum())
+}
+
+func verifyUserVolumeMarker(ctx context.Context, nodeName, expectedChecksum string) error {
+	command := fmt.Sprintf("set -eu; test \"$(cat /data/marker)\" = '%s'; sha256sum /data/marker", upgradeDataPayload)
+	output, err := runUserVolumeCommand(ctx, nodeName, command)
+	if err != nil {
+		return err
+	}
+	return verifyChecksumOutput(output, expectedChecksum)
+}
+
+func dataChecksum() string {
+	sum := sha256.Sum256([]byte(upgradeDataPayload))
+	return hex.EncodeToString(sum[:])
+}
+
+func verifyChecksumOutput(output, expected string) error {
+	fields := strings.Fields(output)
+	if len(fields) == 0 || fields[0] != expected {
+		return fmt.Errorf("UserVolume marker checksum %q does not match expected checksum %q", strings.TrimSpace(output), expected)
+	}
+	return nil
+}
+
+func runUserVolumeCommand(ctx context.Context, nodeName, command string) (output string, returnErr error) {
+	workload, err := newWorkloadClient(ctx)
+	if err != nil {
+		return "", err
+	}
+	hostPathType := corev1.HostPathDirectory
+	privileged := true
+	pod := &corev1.Pod{
+		GenerateName: "tart-e2e-volume-check-",
+		Namespace:    "kube-system",
+		Spec: corev1.PodSpec{
+			NodeName:      nodeName,
+			RestartPolicy: corev1.RestartPolicyNever,
+			Containers: []corev1.Container{{
+				Name:    "volume-check",
+				Image:   "busybox:1.36.1",
+				Command: []string{"sh", "-c", command},
+				SecurityContext: &corev1.SecurityContext{
+					Privileged: &privileged,
+				},
+				VolumeMounts: []corev1.VolumeMount{{Name: "user-volume", MountPath: "/data"}},
+			}},
+			Volumes: []corev1.Volume{{
+				Name: "user-volume",
+				VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{
+					Path: e2eDataVolumeHostPath,
+					Type: &hostPathType,
+				}},
+			}},
+		},
+	}
+	created, err := workload.CoreV1().Pods(pod.Namespace).Create(ctx, pod, metav1.CreateOptions{})
+	if err != nil {
+		return "", fmt.Errorf("create UserVolume check Pod: %w", err)
+	}
+
+	completed, runErr := waitForPodCompletion(ctx, workload, created)
+	if runErr == nil {
+		output, runErr = readPodLogs(ctx, workload, completed)
+	}
+	cleanupErr := deletePodAndWait(ctx, workload, created)
+	if runErr != nil && cleanupErr != nil {
+		return "", errors.Join(runErr, cleanupErr)
+	}
+	if runErr != nil {
+		return "", runErr
+	}
+	if cleanupErr != nil {
+		return "", cleanupErr
+	}
+	return output, nil
+}
+
+func waitForPodCompletion(ctx context.Context, workload kubernetes.Interface, pod *corev1.Pod) (corev1.Pod, error) {
+	var completed corev1.Pod
+	err := wait.PollUntilContextTimeout(ctx, framework.DefaultPollInterval, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
+		current, err := workload.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if current.DeletionTimestamp != nil {
+			return false, fmt.Errorf("UserVolume check Pod %s/%s is terminating before completion", current.Namespace, current.Name)
+		}
+		switch current.Status.Phase {
+		case corev1.PodSucceeded:
+			completed = *current
+			return true, nil
+		case corev1.PodFailed:
+			return false, fmt.Errorf("UserVolume check Pod %s/%s failed", current.Namespace, current.Name)
+		default:
+			return false, nil
+		}
+	})
+	if err != nil {
+		return corev1.Pod{}, fmt.Errorf("wait for UserVolume check Pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
+	return completed, nil
+}
+
+func readPodLogs(ctx context.Context, workload kubernetes.Interface, pod corev1.Pod) (string, error) {
+	stream, err := workload.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{Container: "volume-check"}).Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("open UserVolume check Pod logs: %w", err)
+	}
+	data, readErr := io.ReadAll(stream)
+	closeErr := stream.Close()
+	if readErr != nil {
+		return "", fmt.Errorf("read UserVolume check Pod logs: %w", readErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close UserVolume check Pod logs: %w", closeErr)
+	}
+	return string(data), nil
+}
+
+func deletePodAndWait(ctx context.Context, workload kubernetes.Interface, pod *corev1.Pod) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := workload.CoreV1().Pods(pod.Namespace).Delete(cleanupCtx, pod.Name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete UserVolume check Pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	}
+	err := wait.PollUntilContextTimeout(cleanupCtx, framework.DefaultPollInterval, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+		_, err := workload.CoreV1().Pods(pod.Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return false, nil
+	})
+	if err != nil {
+		return fmt.Errorf("wait for UserVolume check Pod %s/%s deletion: %w", pod.Namespace, pod.Name, err)
+	}
+	return nil
 }
 
 func tartMachineConditions(namespace, name string) framework.ConditionGetter {

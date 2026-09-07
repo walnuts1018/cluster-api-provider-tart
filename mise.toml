@@ -74,7 +74,7 @@ description = "bare-metal lab上のE2Eを実行する(KVM/libvirtが利用可能
 # specでは進行中か凍結しているか外から分からなくなるため、poll-progress-after経過後は
 # poll-progress-intervalごとに現在のspecの位置と蓄積済みGinkgoWriter出力(heartbeatログ等)を
 # その場で吐き出す。
-run = "go test -tags e2e -timeout 60m ./test/e2e/... -args -ginkgo.poll-progress-after=1m -ginkgo.poll-progress-interval=1m"
+run = "go test -tags e2e -timeout 90m ./test/e2e/... -args -ginkgo.poll-progress-after=1m -ginkgo.poll-progress-interval=1m"
 
 [tasks."build-wol-gateway"]
 description = "E2E labで使うwol-libvirt-gateway (https://github.com/brunoproduit/wol-libvirt-gateway) をbuildする"

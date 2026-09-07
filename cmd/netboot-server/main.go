@@ -39,6 +39,7 @@ func main() {
 	var (
 		tftpRoot               string
 		dhcpBindAddress        string
+		dhcpInterface          string
 		tftpBindAddress        string
 		httpBindAddress        string
 		advertiseAddress       string
@@ -52,6 +53,7 @@ func main() {
 
 	flag.StringVar(&tftpRoot, "tftp-root", "/var/lib/netboot-server/tftp", "iPXEブートローダを配置するTFTPルートディレクトリ")
 	flag.StringVar(&dhcpBindAddress, "dhcp-bind-address", "0.0.0.0", "ProxyDHCP(port 67/4011)のbind address")
+	flag.StringVar(&dhcpInterface, "dhcp-interface", "", "ProxyDHCP応答の送出先interface名(省略時は固定しない)。DHCP応答はgeneral broadcast宛のため、複数NICを持つhostでは意図しないinterfaceへ送出されないよう明示指定が必要な場合がある")
 	flag.StringVar(&tftpBindAddress, "tftp-bind-address", "0.0.0.0:69", "TFTPサーバーのbind address")
 	flag.StringVar(&httpBindAddress, "http-bind-address", ":8080", "iPXEスクリプト配信用HTTPサーバーのbind address")
 	flag.StringVar(&advertiseAddress, "advertise-address", "", "PXEクライアントへ広告するサーバーIP(省略時は自動検出)")
@@ -78,6 +80,7 @@ func main() {
 	cfg := netboot.Config{
 		TFTPRoot:               tftpRoot,
 		DHCPBindAddress:        dhcpBindAddress,
+		Interface:              dhcpInterface,
 		TFTPBindAddress:        tftpBindAddress,
 		HTTPBindAddress:        httpBindAddress,
 		AdvertiseAddress:       advertiseAddress,

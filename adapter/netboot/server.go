@@ -29,6 +29,11 @@ type Config struct {
 	TFTPRoot string
 	// DHCPBindAddressはProxyDHCPのbind addressである(通常はhostのIP、ポートは内部で67/4011を使う)。
 	DHCPBindAddress string
+	// Interfaceは、DHCP応答の送出先interfaceを明示的に固定する(空文字列なら固定しない)。
+	// DHCP応答はgeneral broadcast(255.255.255.255)宛に送るため、複数NICを持つhostでは
+	// 指定しないとdefault route側などの意図しないinterfaceへ送出され、対象networkへ実際には
+	// 到達しないことがある。bare-metal nodeが複数NIC構成の場合は明示的に設定する。
+	Interface string
 	// TFTPBindAddressはTFTPサーバーのbind address(host:port)である。
 	TFTPBindAddress string
 	// HTTPBindAddressはiPXEスクリプト配信用HTTPサーバーのbind address(host:port)である。
@@ -83,7 +88,7 @@ func NewServer(cfg Config, logger *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("resolve advertise address: %w", err)
 	}
 
-	dhcpServer, err := dhcp.NewServer(cfg.TFTPRoot, cfg.DHCPBindAddress, advertiseIP.String(), cfg.AdvertiseHTTPBaseURL, logger)
+	dhcpServer, err := dhcp.NewServer(cfg.TFTPRoot, cfg.DHCPBindAddress, advertiseIP.String(), cfg.AdvertiseHTTPBaseURL, cfg.Interface, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create DHCP server: %w", err)
 	}

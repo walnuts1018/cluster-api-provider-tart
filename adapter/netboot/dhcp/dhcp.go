@@ -33,6 +33,7 @@ const (
 type Server struct {
 	tftpRoot    string
 	bindIP      string
+	iface       string
 	baseURL     string
 	advertiseIP net.IP
 	logger      *slog.Logger
@@ -45,7 +46,12 @@ type Server struct {
 // NewServerは新しいServerを作成する。
 // tftpRootはTFTPサーバーのルートディレクトリ、bindAddrはProxyDHCPのバインドアドレスである。
 // advertiseAddrはクライアントに広告する到達可能なサーバーIP、baseURLはiPXEスクリプト配信用HTTPサーバーのベースURLである。
-func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *slog.Logger) (*Server, error) {
+// ifaceは応答send先interfaceを明示的に固定する(空文字列なら固定しない)。DHCPの応答はDHCPv4仕様上
+// general broadcast(255.255.255.255)宛に送るため、複数NIC(multi-homed)を持つhostではifaceを
+// 指定しないと、宛先アドレスからは egress interfaceを一意に決められずdefault routeのNIC等
+// 意図しないinterfaceへ送出されてしまい、対象のnetworkへ実際には到達しないことがある
+// (SO_BINDTODEVICEでinterfaceを固定することで解決する)。
+func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL, iface string, logger *slog.Logger) (*Server, error) {
 	if tftpRoot == "" {
 		return nil, errors.New("tftpRoot is required")
 	}
@@ -76,6 +82,7 @@ func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL string, logger *slog.L
 	return &Server{
 		tftpRoot:    tftpRoot,
 		bindIP:      bindIP,
+		iface:       iface,
 		baseURL:     baseURL,
 		advertiseIP: advertiseIP,
 		logger:      logger.With("component", "dhcp"),
@@ -107,7 +114,7 @@ func (s *Server) Start(ctx context.Context) error {
 			return fmt.Errorf("invalid bind address %s: %w", addr, err)
 		}
 
-		server, err := server4.NewServer("", udpAddr, handler)
+		server, err := server4.NewServer(s.iface, udpAddr, handler)
 		if err != nil {
 			return fmt.Errorf("create DHCP server on port %d: %w", port, err)
 		}

@@ -38,8 +38,12 @@ type Config struct {
 	// kind clusterのKubernetes APIへ到達するためのkubeconfig pathである。
 	KubeconfigPath string
 	// TFTPRoot/DHCPBindAddress等はadapter/netboot.Configと同じ意味を持つ。
-	TFTPRoot               string
-	DHCPBindAddress        string
+	TFTPRoot        string
+	DHCPBindAddress string
+	// DHCPInterfaceは、DHCP応答の送出先interfaceを明示的に固定する。CI runnerは複数NICを
+	// 持つため、指定しないとDHCP応答(general broadcast宛)がlab bridge以外へ送出され、
+	// VM側に一切届かないことがある。
+	DHCPInterface          string
 	TFTPBindAddress        string
 	HTTPBindAddress        string
 	AdvertiseAddress       string
@@ -90,6 +94,7 @@ func Start(ctx context.Context, cfg Config) (*Server, error) {
 	serverConfig := netboot.Config{
 		TFTPRoot:               cfg.TFTPRoot,
 		DHCPBindAddress:        cfg.DHCPBindAddress,
+		Interface:              cfg.DHCPInterface,
 		TFTPBindAddress:        cfg.TFTPBindAddress,
 		HTTPBindAddress:        cfg.HTTPBindAddress,
 		AdvertiseAddress:       cfg.AdvertiseAddress,

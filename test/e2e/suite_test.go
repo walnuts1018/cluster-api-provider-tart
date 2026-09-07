@@ -174,7 +174,11 @@ var _ = BeforeSuite(func() {
 		// 行われ、特定unicast addressにbindしたsocketには配送されない)。返信に埋め込む
 		// Server Identifier(Option 54)はAdvertiseAddress(labNetbootAdvertiseIP)を使うため、
 		// bind addressとは独立してPXE clientから区別できる。
-		DHCPBindAddress:        envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", "0.0.0.0"),
+		DHCPBindAddress: envOrDefault("TART_E2E_NETBOOT_DHCP_BIND", "0.0.0.0"),
+		// CI runnerは複数NIC(docker bridge等)を持つため、DHCP応答(general broadcast宛)の
+		// 送出先interfaceをlab bridgeへ明示的に固定しないと、意図しないinterfaceへ送出され
+		// VM側に一切届かない(pcap調査で判明)。
+		DHCPInterface:          labBridgeName,
 		TFTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_TFTP_BIND", labNetbootAdvertiseIP+":69"),
 		HTTPBindAddress:        envOrDefault("TART_E2E_NETBOOT_HTTP_BIND", labNetbootAdvertiseIP+":8080"),
 		AdvertiseAddress:       envOrDefault("TART_E2E_NETBOOT_ADVERTISE_ADDRESS", labNetbootAdvertiseIP),

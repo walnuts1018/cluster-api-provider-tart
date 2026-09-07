@@ -50,7 +50,7 @@ const (
 var (
 	ErrBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
 	// ErrShutdownStateUnverifiableは、WoL/Manualなど独立したpower-state observerを持たないHostで停止検証ができないことを示す。
-	ErrShutdownStateUnverifiable = errors.New("Host shutdown state is unverifiable without an independent power-state observer")
+	ErrShutdownStateUnverifiable = errors.New("host shutdown state is unverifiable without an independent power-state observer")
 	errCAPIProviderIDMismatch    = errors.New("CAPI Machine provider ID does not match TartHost")
 	errHostSelectionMismatch     = errors.New("allocated TartHost does not match CAPI Machine placement")
 )

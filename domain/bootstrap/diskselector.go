@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -121,8 +120,8 @@ type SelectedDisk struct {
 }
 
 // SelectDiskは、観測したdisk群から書き込み可能なcandidateを絞り込み、stableなselectorで一意に識別できる
-// diskだけを返す。boot orderに依存する/dev/sdXなどへfallbackしない。install target、追加volume、
-// LVM member diskのいずれの選択にも共通して使う.
+// diskだけを返す。boot orderに依存する/dev/sdXや暗黙の辞書順選択へfallbackせず、writable diskが
+// 複数存在する場合は明示的なinstall disk policyなしではfail-closedで停止する。
 func SelectDisk(disks []DiskIdentity) (DiskIdentity, error) {
 	candidates := make([]DiskIdentity, 0, len(disks))
 	for _, disk := range disks {
@@ -131,20 +130,19 @@ func SelectDisk(disks []DiskIdentity) (DiskIdentity, error) {
 		}
 		candidates = append(candidates, disk)
 	}
-	if len(candidates) == 0 {
+	switch len(candidates) {
+	case 0:
 		return DiskIdentity{}, ErrDiskSelectionUnavailable
-	}
-	slices.SortFunc(candidates, func(left, right DiskIdentity) int {
-		return cmp.Compare(left.DevicePath, right.DevicePath)
-	})
-
-	for _, candidate := range candidates {
-		if _, ok := UniqueDiskSelector(candidate, candidates); ok {
-			return candidate, nil
+	case 1:
+		selector, ok := UniqueDiskSelector(candidates[0], disks)
+		if !ok {
+			return DiskIdentity{}, ErrDiskSelectionAmbiguous
 		}
+		_ = selector
+		return candidates[0], nil
+	default:
+		return DiskIdentity{}, ErrDiskSelectionAmbiguous
 	}
-
-	return DiskIdentity{}, ErrDiskSelectionAmbiguous
 }
 
 // SelectDiskWithProofはSelectDiskと同じ一意性検証を行い、検証済みのSelectedDiskを返す。

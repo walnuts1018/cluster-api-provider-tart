@@ -339,14 +339,28 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 			message = "This Host reports a disk identity (WWID or serial) that is already reported by another Host; allocation and maintenance configuration are stopped until the conflict is resolved."
 		}
 
-		original := candidate.DeepCopy()
-		controller.SetCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, candidate.Generation)
-		candidate.Status.ObservedGeneration = candidate.Generation
-		if err := r.Status().Patch(ctx, candidate, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil && !apierrors.IsNotFound(err) {
+		// cross-host status writeの競合を避けるため、patch前にfreshなresourceVersionを取得する。List snapshotのstale copyを直接patchしない。
+		fresh := &infrav1alpha1.TartHost{}
+		if err := r.Get(ctx, client.ObjectKey{Name: candidate.Name}, fresh); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return ctrl.Result{}, err
+		}
+		original := fresh.DeepCopy()
+		controller.SetCondition(&fresh.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, fresh.Generation)
+		fresh.Status.ObservedGeneration = fresh.Generation
+		if err := r.Status().Patch(ctx, fresh, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			if apierrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: time.Second}, nil
+			}
 			return ctrl.Result{}, err
 		}
 		if r.Recorder != nil {
-			r.Recorder.Event(candidate, corev1.EventTypeWarning, reason, message)
+			r.Recorder.Event(fresh, corev1.EventTypeWarning, reason, message)
 		}
 	}
 

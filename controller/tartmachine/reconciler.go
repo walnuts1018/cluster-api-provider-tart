@@ -42,6 +42,9 @@ const (
 	shutdownConfirmationDelay   = 30 * time.Second
 	talosReconcileTimeout       = 20 * time.Second
 	talosRequeue                = 30 * time.Second
+	maintenanceDialTimeout      = 10 * time.Second
+	maintenanceObserveTimeout   = 10 * time.Second
+	maintenanceActionTimeout    = 20 * time.Second
 )
 
 var (
@@ -185,14 +188,19 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		}
 		return ctrl.Result{}, err
 	}
-	// ProviderIDはclaim成功後のfresh Hostから導出し、stale snapshotからの導出を避ける。
-	if selected.Spec.HostID != "" {
-		if freshHostID, freshErr := hostdomain.ParseHostID(selected.Spec.HostID); freshErr == nil {
-			if freshProviderID, freshErr2 := hostdomain.NewProviderID(freshHostID); freshErr2 == nil {
-				providerID = freshProviderID
-			}
-		}
+	// ProviderIDはclaim成功後のfresh Hostからのみ導出する。stale snapshot由来の値を再利用しない。
+	if strings.TrimSpace(selected.Spec.HostID) == "" {
+		return r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
 	}
+	freshHostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
+	if err != nil {
+		return r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
+	}
+	freshProviderID, err := hostdomain.NewProviderID(freshHostID)
+	if err != nil {
+		return r.report(ctx, machine, "ProviderIDInvalid", "A ProviderID could not be derived from the claimed Host identity.")
+	}
+	providerID = freshProviderID
 
 	if machine.Spec.ProviderID.IsZero() {
 		original := machine.DeepCopy()
@@ -335,6 +343,15 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	authenticated, authErr := talos.DialAuthenticatedFromConfiguration(connectionContext, endpoint, configuration)
 	cancel()
 	if authErr != nil {
+		if errors.Is(authErr, talos.ErrTalosConfigurationInvalid) || errors.Is(authErr, talos.ErrEndpointEmpty) {
+			result, err := r.reportTalosStatus(ctx, machine,
+				metav1.ConditionFalse, "TalosCredentialInvalid", "The Talos machine configuration cannot be used to establish an authenticated connection.",
+				metav1.ConditionFalse, "TalosCredentialInvalid", "Talos installation is stopped until the machine configuration is valid.",
+				"TalosCredentialInvalid", "The desired Talos credentials cannot be verified.",
+				"TalosCredentialInvalid", "The Talos machine configuration is invalid for authenticated access.",
+				talosRequeue)
+			return result, true, err
+		}
 		ctrl.LoggerFrom(ctx).Info("authenticated Talos dial failed; falling back to maintenance mode observation", "error", authErr.Error(), "endpoint", endpoint)
 		return ctrl.Result{}, false, nil
 	}
@@ -644,11 +661,20 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The Host API is unreachable after shutdown request; waiting for the confirmation interval before retention.", shutdownConfirmationRequeue)
 	}
 
-	stopped, observationErr := r.observeHostStopped(ctx, selected, configuration)
+	stopped, observationErr := r.observeHostStopped(ctx, selected, machine, configuration)
 	if observationErr != nil {
+		if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && !shutdownConfirmed(selected, machine) {
+			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+		}
+		if errors.Is(observationErr, ErrShutdownStateUnverifiable) && isShutdownConfirmationRequired(selected.Spec.Power.Backend) {
+			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+		}
 		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host stop state could not be verified; the Machine finalizer remains.", shutdownConfirmationRequeue)
 	}
 	if !stopped {
+		if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && !shutdownConfirmed(selected, machine) {
+			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+		}
 		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host still responds to a Talos API; the Host claim remains.", shutdownConfirmationRequeue)
 	}
 	consumer := corev1.ObjectReference{
@@ -743,11 +769,15 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 		}
 	}
 
-	maintenance, err := talos.DialMaintenance(ctx, endpoint)
+	dialCtx, cancel := context.WithTimeout(ctx, maintenanceDialTimeout)
+	maintenance, err := talos.DialMaintenance(dialCtx, endpoint)
+	cancel()
 	if err != nil {
 		return false, nil //nolint:nilerr // maintenance mode may not be reachable until the Host finishes shutting down.
 	}
-	identity, identityErr := maintenance.Inventory(ctx)
+	inventoryCtx, cancel := context.WithTimeout(ctx, maintenanceObserveTimeout)
+	identity, identityErr := maintenance.Inventory(inventoryCtx)
+	cancel()
 	if identityErr != nil {
 		if closeErr := maintenance.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
@@ -760,7 +790,9 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 		}
 		return false, controller.ErrHostIdentityMismatch
 	}
-	shutdownErr := maintenance.Shutdown(ctx)
+	shutdownCtx, cancel := context.WithTimeout(ctx, maintenanceActionTimeout)
+	shutdownErr := maintenance.Shutdown(shutdownCtx)
+	cancel()
 	if closeErr := maintenance.Close(); closeErr != nil {
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 	}
@@ -770,13 +802,43 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 	return true, nil
 }
 
-func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
+func isShutdownConfirmationRequired(backend infrav1alpha1.PowerBackend) bool {
+	return backend == infrav1alpha1.PowerBackendWakeOnLAN || backend == infrav1alpha1.PowerBackendManual
+}
+
+func shutdownConfirmed(host *infrav1alpha1.TartHost, machine *infrav1alpha1.TartMachine) bool {
+	confirmation := host.Spec.ShutdownConfirmation
+	if confirmation == nil {
+		return false
+	}
+	if confirmation.ConsumerUID != machine.UID {
+		return false
+	}
+	if strings.TrimSpace(confirmation.HostID) == "" || confirmation.HostID != host.Spec.HostID {
+		return false
+	}
+	if strings.TrimSpace(confirmation.BootID) != "" {
+		inventory := host.Status.Inventory
+		if inventory == nil || strings.TrimSpace(inventory.BootID) == "" {
+			return false
+		}
+		if confirmation.BootID != inventory.BootID {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected *infrav1alpha1.TartHost, machine *infrav1alpha1.TartMachine, configuration []byte) (bool, error) {
 	if selected.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish {
 		state, err := power.RedfishPowerState(ctx, r.Client, r.ManagementNamespace, selected)
 		if err != nil {
 			return false, err
 		}
 		return state == power.PowerStateOff, nil
+	}
+	if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && shutdownConfirmed(selected, machine) {
+		return true, nil
 	}
 	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
@@ -802,11 +864,15 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 		}
 	}
 
-	maintenance, err := talos.DialMaintenance(ctx, endpoint)
+	dialCtx, cancel := context.WithTimeout(ctx, maintenanceDialTimeout)
+	maintenance, err := talos.DialMaintenance(dialCtx, endpoint)
+	cancel()
 	if err != nil {
 		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, err)
 	}
-	identity, identityErr := maintenance.Inventory(ctx)
+	inventoryCtx, cancel := context.WithTimeout(ctx, maintenanceObserveTimeout)
+	identity, identityErr := maintenance.Inventory(inventoryCtx)
+	cancel()
 	if closeErr := maintenance.Close(); closeErr != nil {
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 	}

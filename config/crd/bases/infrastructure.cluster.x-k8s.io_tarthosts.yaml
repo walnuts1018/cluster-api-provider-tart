@@ -247,6 +247,25 @@ spec:
                 - Retain
                 - AllowReuse
                 type: string
+              shutdownConfirmation:
+                description: shutdownConfirmationは、WoL/Manual backendで独立したpower-state
+                  observerがない場合に、ユーザーからの明示的な停止確認を表す。Redfishではこのfieldを無視し、自動的なpower
+                  state観測を優先する。
+                properties:
+                  bootID:
+                    description: bootIDは前回bootに対するconfirmationであることを保証する。Talosから安定して取得できる場合に含め、空の場合はhostIDとconsumerUIDだけで検証する。
+                    type: string
+                  consumerUID:
+                    description: consumerUIDは現在削除中のTartMachineのUIDへbindする。
+                    type: string
+                  hostID:
+                    description: hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale
+                      confirmationを別Hostへ流用できないようにする。
+                    type: string
+                required:
+                - consumerUID
+                - hostID
+                type: object
               talosAPIAddress:
                 description: talosAPIAddressはこのHostのTalos APIへ到達できる任意のaddressまたはDNS
                   nameである。到達性のhintまたはoverrideに過ぎず、controllerはconfiguration apply前にobserved

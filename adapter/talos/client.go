@@ -720,22 +720,24 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	if version, err := c.Version(ctx); err == nil {
 		observed.Architecture = version.Arch
 	}
-	if disks, err := safe.ReaderListAll[*block.Disk](ctx, c.raw.COSI); err == nil {
-		for disk := range disks.All() {
-			spec := disk.TypedSpec()
-			observed.Disks = append(observed.Disks, DiskInventory{
-				DevicePath: spec.DevPath,
-				SizeBytes:  spec.Size,
-				Model:      spec.Model,
-				Serial:     spec.Serial,
-				WWID:       spec.WWID,
-				BusPath:    spec.BusPath,
-				Transport:  spec.Transport,
-				Rotational: spec.Rotational,
-				ReadOnly:   spec.Readonly,
-				Symlinks:   append([]string(nil), spec.Symlinks...),
-			})
-		}
+	disks, err := safe.ReaderListAll[*block.Disk](ctx, c.raw.COSI)
+	if err != nil {
+		return Inventory{}, fmt.Errorf("list talos disks: %w", err)
+	}
+	for disk := range disks.All() {
+		spec := disk.TypedSpec()
+		observed.Disks = append(observed.Disks, DiskInventory{
+			DevicePath: spec.DevPath,
+			SizeBytes:  spec.Size,
+			Model:      spec.Model,
+			Serial:     spec.Serial,
+			WWID:       spec.WWID,
+			BusPath:    spec.BusPath,
+			Transport:  spec.Transport,
+			Rotational: spec.Rotational,
+			ReadOnly:   spec.Readonly,
+			Symlinks:   append([]string(nil), spec.Symlinks...),
+		})
 	}
 
 	slices.SortFunc(observed.MACAddresses, func(left, right network.MACAddress) int {

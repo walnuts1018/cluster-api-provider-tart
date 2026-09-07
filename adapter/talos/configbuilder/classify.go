@@ -2,10 +2,17 @@ package configbuilder
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
+	"strings"
 
+	siderox509 "github.com/siderolabs/crypto/x509"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	coreconfig "github.com/siderolabs/talos/pkg/machinery/config/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
@@ -15,6 +22,8 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
 )
+
+var ErrInvalidPKIMaterial = errors.New("invalid PKI material")
 
 // normalizedInstallerImageは、installer image identityを比較対象から外すためのsentinel値である。
 const (
@@ -81,7 +90,7 @@ func invariantConflict(active, desired talosconfig.Provider) string {
 	if activeCluster.Token().ID() != desiredCluster.Token().ID() || activeCluster.Token().Secret() != desiredCluster.Token().Secret() || !sameCertificateAndKey(activeCluster.Etcd().CA(), desiredCluster.Etcd().CA()) {
 		return "The cluster identity, token, or etcd PKI changed; the update is stopped."
 	}
-	if !reflect.DeepEqual(active.K8sAPIServerCAConfig(), desired.K8sAPIServerCAConfig()) || !reflect.DeepEqual(active.K8sAggregatorCAConfig(), desired.K8sAggregatorCAConfig()) || !reflect.DeepEqual(active.K8sServiceAccountConfig(), desired.K8sServiceAccountConfig()) {
+	if !sameKubernetesPKI(active, desired) {
 		return "The Kubernetes PKI changed; the update is stopped."
 	}
 	activeK8sCluster, desiredK8sCluster := active.K8sClusterConfig(), desired.K8sClusterConfig()
@@ -272,6 +281,241 @@ func providerID(provider talosconfig.Provider) string {
 		return ""
 	}
 	return values[0]
+}
+
+func sameKubernetesPKI(active, desired talosconfig.Provider) bool {
+	return sameK8sAPIServerCAConfig(active.K8sAPIServerCAConfig(), desired.K8sAPIServerCAConfig()) &&
+		sameK8sAggregatorCAConfig(active.K8sAggregatorCAConfig(), desired.K8sAggregatorCAConfig()) &&
+		sameK8sServiceAccountConfig(active.K8sServiceAccountConfig(), desired.K8sServiceAccountConfig())
+}
+
+func sameK8sAPIServerCAConfig(left, right coreconfig.K8sAPIServerCAConfig) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	if left == nil {
+		return true
+	}
+	if !sameCertificateAndKeyDER(left.IssuingCA(), right.IssuingCA()) {
+		return false
+	}
+	return equalCertificateSet(left.AcceptedCAs(), right.AcceptedCAs())
+}
+
+func sameK8sAggregatorCAConfig(left, right coreconfig.K8sAggregatorCAConfig) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	if left == nil {
+		return true
+	}
+	if !sameCertificateAndKeyDER(left.IssuingCA(), right.IssuingCA()) {
+		return false
+	}
+	return equalCertificateSet(left.AcceptedCAs(), right.AcceptedCAs())
+}
+
+func sameK8sServiceAccountConfig(left, right coreconfig.K8sServiceAccountConfig) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	if left == nil {
+		return true
+	}
+	if !equalKeySetDER(left.AcceptedKeys(), right.AcceptedKeys()) {
+		return false
+	}
+	if strings.TrimSpace(left.IssuerURL()) != strings.TrimSpace(right.IssuerURL()) {
+		return false
+	}
+	if !equalStringSet(left.AcceptedIssuers(), right.AcceptedIssuers()) {
+		return false
+	}
+	if !equalStringSet(left.APIAudiences(), right.APIAudiences()) {
+		return false
+	}
+	// IssuingKeyはprivate keyであり、identity比較は厳密に行う。AcceptedKeysに含まれるため、同一性はそちらでも担保されるが、念のため直接比較する。
+	if !samePEMEncodedKeyDER(left.IssuingKey(), right.IssuingKey()) {
+		return false
+	}
+	return true
+}
+
+func sameCertificateAndKeyDER(left, right *siderox509.PEMEncodedCertificateAndKey) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	if certificateFingerprint(left.Crt) != certificateFingerprint(right.Crt) {
+		return false
+	}
+	if keyFingerprint(left.Key) != keyFingerprint(right.Key) {
+		return false
+	}
+	return true
+}
+
+func samePEMEncodedKeyDER(left, right *siderox509.PEMEncodedKey) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return keyFingerprint(left.Key) == keyFingerprint(right.Key)
+}
+
+func equalCertificateSet(left, right []*siderox509.PEMEncodedCertificate) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	if len(left) != len(right) {
+		// 長さが異なる場合、集合として異なる。ただし順序違いでなくても長さで早期returnできる。
+		// 重複を許すため、fingerprintのmultiset比較を行う。
+	}
+	leftCounts := certificateFingerprintCounts(left)
+	rightCounts := certificateFingerprintCounts(right)
+	if len(leftCounts) != len(rightCounts) {
+		return false
+	}
+	for fingerprint, count := range leftCounts {
+		if rightCounts[fingerprint] != count {
+			return false
+		}
+	}
+	return true
+}
+
+func equalKeySetDER(left, right []*siderox509.PEMEncodedKey) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	leftCounts := keyFingerprintCounts(left)
+	rightCounts := keyFingerprintCounts(right)
+	if len(leftCounts) != len(rightCounts) {
+		return false
+	}
+	for fingerprint, count := range leftCounts {
+		if rightCounts[fingerprint] != count {
+			return false
+		}
+	}
+	return true
+}
+
+func equalStringSet(left, right []string) bool {
+	normalize := func(values []string) map[string]int {
+		counts := make(map[string]int, len(values))
+		for _, value := range values {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				continue
+			}
+			counts[trimmed]++
+		}
+		return counts
+	}
+	leftCounts := normalize(left)
+	rightCounts := normalize(right)
+	if len(leftCounts) != len(rightCounts) {
+		// 両方空の場合は上で処理済みだが、片方のみ空の差もここで検出される。
+		// ただし空文字列除去後の差を正しく判定するため、長さ比較で判定する。
+		// 両方とも実質空ならtrueを返す。
+		if len(leftCounts) == 0 && len(rightCounts) == 0 {
+			return true
+		}
+		// 長さ不一致は不一致。
+		if len(leftCounts) != len(rightCounts) {
+			return false
+		}
+	}
+	for key, count := range leftCounts {
+		if rightCounts[key] != count {
+			return false
+		}
+	}
+	return true
+}
+
+func certificateFingerprint(pemBytes []byte) string {
+	trimmed := bytes.TrimSpace(pemBytes)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	// PEMをdecodeし、DERのSHA-256をfingerprintとする。decode失敗時は正規化したPEM文字列のhashで代替する。
+	// これによりPEM formatting差(改行、ヘッダ順序)は吸収される。
+	var derBytes []byte
+	rest := trimmed
+	for len(rest) > 0 {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		// 証明書または公開鍵のDERを連結してhashする。複数blockが含まれるPEMも対応する。
+		derBytes = append(derBytes, block.Bytes...)
+	}
+	if len(derBytes) > 0 {
+		// 証明書DERをx509.ParseCertificateで検証できれば、正規のDERとしてhashする。
+		// Parse失敗時でもDER bytes自体のhashで比較する。
+		if _, err := x509.ParseCertificate(derBytes); err == nil {
+			// 単一証明書の正常なDER
+		}
+		hash := sha256.Sum256(derBytes)
+		return hex.EncodeToString(hash[:])
+	}
+	// PEM decodeできない場合は正規化した文字列のhash。
+	hash := sha256.Sum256(trimmed)
+	return hex.EncodeToString(hash[:])
+}
+
+func keyFingerprint(pemBytes []byte) string {
+	trimmed := bytes.TrimSpace(pemBytes)
+	if len(trimmed) == 0 {
+		return ""
+	}
+	var derBytes []byte
+	rest := trimmed
+	for len(rest) > 0 {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		derBytes = append(derBytes, block.Bytes...)
+	}
+	if len(derBytes) > 0 {
+		hash := sha256.Sum256(derBytes)
+		return hex.EncodeToString(hash[:])
+	}
+	hash := sha256.Sum256(trimmed)
+	return hex.EncodeToString(hash[:])
+}
+
+func certificateFingerprintCounts(certs []*siderox509.PEMEncodedCertificate) map[string]int {
+	counts := make(map[string]int, len(certs))
+	for _, cert := range certs {
+		if cert == nil {
+			continue
+		}
+		fingerprint := certificateFingerprint(cert.Crt)
+		if fingerprint == "" {
+			continue
+		}
+		counts[fingerprint]++
+	}
+	return counts
+}
+
+func keyFingerprintCounts(keys []*siderox509.PEMEncodedKey) map[string]int {
+	counts := make(map[string]int, len(keys))
+	for _, key := range keys {
+		if key == nil {
+			continue
+		}
+		fingerprint := keyFingerprint(key.Key)
+		if fingerprint == "" {
+			continue
+		}
+		counts[fingerprint]++
+	}
+	return counts
 }
 
 // normalizeInstallerImageは、比較対象のconfigurationからinstaller image identityの差分を取り除く。

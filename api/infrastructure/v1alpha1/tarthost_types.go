@@ -23,8 +23,9 @@ const (
 	ReasonIdentityConflict = "IdentityConflict"
 	// ReasonDiskIdentityConflictはIdentityConflictのうち、disk identity(WWIDまたはserial)の重複が原因であることを明示するreasonである。MAC addressやsystem UUIDの重複を含む他のIdentityConflictと区別してEventおよびlogから原因を追いやすくする。
 	ReasonDiskIdentityConflict     = "DiskIdentityConflict"
-	ReasonShutdownUnconfirmed      = "ShutdownUnconfirmed"
-	ReasonUnsafeUpdate             = "UnsafeUpdate"
+	ReasonShutdownUnconfirmed              = "ShutdownUnconfirmed"
+	ReasonShutdownVerificationUnavailable  = "ShutdownVerificationUnavailable"
+	ReasonUnsafeUpdate                     = "UnsafeUpdate"
 	ReasonSecretBundleUnavailable  = "SecretBundleUnavailable"
 	ReasonRolledBack               = "RolledBack"
 	ReasonNoEligibleHost           = "NoEligibleHost"
@@ -133,6 +134,17 @@ type ReuseApproval struct {
 	PreviousConsumerUID types.UID `json:"previousConsumerUID"`
 }
 
+// ShutdownConfirmationは、WoL/Manualなど独立したpower-state observerを持たないbackendで、ユーザーからの明示的な停止確認を表す。Redfishでは使わず、自動的なpower state観測を優先する。stale confirmationの再利用を防ぐため、現在のbindingとHostID、BootIDに紐付ける。
+type ShutdownConfirmation struct {
+	// consumerUIDは現在削除中のTartMachineのUIDへbindする。
+	ConsumerUID types.UID `json:"consumerUID"`
+	// hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale confirmationを別Hostへ流用できないようにする。
+	HostID string `json:"hostID"`
+	// bootIDは前回bootに対するconfirmationであることを保証する。Talosから安定して取得できる場合に含め、空の場合はhostIDとconsumerUIDだけで検証する。
+	// +optional
+	BootID string `json:"bootID,omitempty"`
+}
+
 // DeletionApprovalはClaimedまたはRetained Hostをinventoryから削除することを承認する。controllerは現在のbindingとretention recordのUIDが一致する場合だけ受理する。
 type DeletionApproval struct {
 	ConsumerUID         types.UID `json:"consumerUID,omitempty"`
@@ -192,6 +204,10 @@ type TartHostSpec struct {
 	// deletionApprovalはClaimedまたはRetained Hostを削除する前に現在のHost stateと一致しなければならない。Hostをinventoryから除去することだけを承認し、power off、Talos reset、disk wipeは実行しない。
 	// +optional
 	DeletionApproval *DeletionApproval `json:"deletionApproval,omitempty"`
+
+	// shutdownConfirmationは、WoL/Manual backendで独立したpower-state observerがない場合に、ユーザーからの明示的な停止確認を表す。Redfishではこのfieldを無視し、自動的なpower state観測を優先する。
+	// +optional
+	ShutdownConfirmation *ShutdownConfirmation `json:"shutdownConfirmation,omitempty"`
 }
 
 // DiskInventoryはHostのraw hardware inventoryから観測したdiskである。

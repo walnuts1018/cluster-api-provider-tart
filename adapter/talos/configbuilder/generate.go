@@ -4,10 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
-	"reflect"
 	"strings"
 
-	"github.com/siderolabs/crypto/x509"
+	siderox509 "github.com/siderolabs/crypto/x509"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
@@ -116,7 +115,7 @@ func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, cl
 	if baseCluster == nil || effectiveCluster == nil || baseCluster.Token().ID() != effectiveCluster.Token().ID() || baseCluster.Token().Secret() != effectiveCluster.Token().Secret() || !sameCertificateAndKey(baseCluster.Etcd().CA(), effectiveCluster.Etcd().CA()) {
 		return fmt.Errorf("%w: cluster PKI or token", domainbootstrap.ErrConfigurationConflict)
 	}
-	if !reflect.DeepEqual(base.K8sAPIServerCAConfig(), effective.K8sAPIServerCAConfig()) || !reflect.DeepEqual(base.K8sAggregatorCAConfig(), effective.K8sAggregatorCAConfig()) || !reflect.DeepEqual(base.K8sServiceAccountConfig(), effective.K8sServiceAccountConfig()) {
+	if !sameKubernetesPKI(base, effective) {
 		return fmt.Errorf("%w: Kubernetes PKI", domainbootstrap.ErrConfigurationConflict)
 	}
 
@@ -143,7 +142,7 @@ func validateProviderOwnedConfiguration(base, effective talosconfig.Provider, cl
 	return nil
 }
 
-func sameCertificateAndKey(left, right *x509.PEMEncodedCertificateAndKey) bool {
+func sameCertificateAndKey(left, right *siderox509.PEMEncodedCertificateAndKey) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

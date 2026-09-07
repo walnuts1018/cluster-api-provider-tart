@@ -17,6 +17,11 @@ import (
 // ErrEndpointEmptyはTalos接続先が空でdialできないことを示す。
 var ErrEndpointEmpty = errors.New("talos endpoint is empty")
 
+// ErrTalosConfigurationInvalidは、Talos machine configurationのparseやcredential導出など、
+// localなconfiguration検証で失敗したことを示す。transport層の到達性判定と区別し、
+// このerrorではmaintenance modeへfallbackしない。
+var ErrTalosConfigurationInvalid = errors.New("talos machine configuration is invalid")
+
 // DialMaintenanceは未構成Talos nodeのmaintenance APIへ接続する。connectionはTLSで暗号化されるが、server certificateが自己署名で相互identity検証もないため認証されない。呼び出し側は応答を信頼する前にendpointをexpected Host identity(MAC/DHCP、boot attempt、observed system UUID)へbindし、そのbindなしにこのconnectionでconfiguration apply requestを送信しない。provisioning network上のactive MITMは脅威モデル外とし、L2分離・DHCP snooping・BMC観測とのcross-checkで補完する。将来pinning/OOB bindingを導入する場合はVerifyConnectionでfingerprintを検証する。詳細は.agents/skills/talos/SKILL.md#maintenance-apiを参照する。
 func DialMaintenance(ctx context.Context, endpoint string) (*Client, error) {
 	if err := validateEndpoint(endpoint); err != nil {
@@ -51,16 +56,16 @@ func DialAuthenticated(ctx context.Context, endpoint string, clientCertPEM, clie
 // DialAuthenticatedFromConfigurationはimmutableなcomplete machine configurationから短命なadmin client certificateを導出してauthenticated Talos APIへ接続する。configurationと生成したcredentialはdial中だけメモリに保持する。
 func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, configuration []byte) (*Client, error) {
 	if len(configuration) == 0 {
-		return nil, errors.New("talos machine configuration is empty")
+		return nil, fmt.Errorf("%w: talos machine configuration is empty", ErrTalosConfigurationInvalid)
 	}
 
 	config, err := configloader.NewFromBytes(configuration)
 	if err != nil {
-		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+		return nil, fmt.Errorf("%w: load talos machine configuration: %w", ErrTalosConfigurationInvalid, err)
 	}
 	bundle, err := secrets.NewBundleFromConfig(secrets.NewFixedClock(time.Now()), config)
 	if err != nil {
-		return nil, fmt.Errorf("derive talos credentials from machine configuration: %w", err)
+		return nil, fmt.Errorf("%w: derive talos credentials from machine configuration: %w", ErrTalosConfigurationInvalid, err)
 	}
 	return DialAuthenticatedFromBundle(ctx, endpoint, bundle)
 }
@@ -71,11 +76,11 @@ func DialAuthenticatedFromBundle(ctx context.Context, endpoint string, bundle *s
 		return nil, err
 	}
 	if bundle == nil || bundle.Certs == nil || bundle.Certs.OS == nil {
-		return nil, errors.New("talos secrets bundle has no OS certificate authority")
+		return nil, fmt.Errorf("%w: talos secrets bundle has no OS certificate authority", ErrTalosConfigurationInvalid)
 	}
 	certificate, err := bundle.GenerateTalosAPIClientCertificate(role.MakeSet(role.Admin))
 	if err != nil {
-		return nil, fmt.Errorf("generate talos API client certificate: %w", err)
+		return nil, fmt.Errorf("%w: generate talos API client certificate: %w", ErrTalosConfigurationInvalid, err)
 	}
 	return DialAuthenticated(ctx, endpoint, certificate.Crt, certificate.Key, bundle.Certs.OS.Crt)
 }

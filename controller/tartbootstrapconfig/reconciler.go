@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -73,13 +74,22 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	completeConfiguration, err := r.configuration(ctx, &config, input)
 	if err != nil {
-		if retryable := errors.Is(err, controller.ErrCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable) || errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable); retryable {
-			result, reportErr := r.report(ctx, &config, "ClusterContextUnavailable", "The CAPI Cluster and active Talos secret bundle are not available for configuration generation yet.")
+		if errors.Is(err, controller.ErrCAPIMachineUnavailable) || errors.Is(err, errBootstrapContextPending) || errors.Is(err, errBootstrapInventoryPending) || errors.Is(err, errBootstrapContextUnavailable) {
+			result, reportErr := r.report(ctx, &config, "ClusterContextPending", "Bootstrap configuration is waiting for required observed state.")
 			if reportErr != nil {
 				return ctrl.Result{}, reportErr
 			}
 			result.RequeueAfter = 15 * time.Second
 			return result, nil
+		}
+		if errors.Is(err, errBootstrapBindingMismatch) {
+			return r.report(ctx, &config, "HostBindingMismatch", "The TartHost binding does not match the CAPI/TartMachine identity; configuration generation is stopped.")
+		}
+		if errors.Is(err, domainbootstrap.ErrDiskSelectionUnavailable) || errors.Is(err, domainbootstrap.ErrInstallDiskUnavailable) || errors.Is(err, errBootstrapDiskUnavailable) {
+			return r.report(ctx, &config, "InstallDiskUnavailable", "No writable disk with a safe stable identity is available for Talos installation.")
+		}
+		if errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous) || errors.Is(err, domainbootstrap.ErrInstallDiskAmbiguous) {
+			return r.report(ctx, &config, "InstallDiskAmbiguous", "Multiple writable disks are available but no explicit install disk policy is configured; installation is stopped.")
 		}
 		reason, message := classifyConfigurationError(err)
 		return r.report(ctx, &config, reason, message)
@@ -144,6 +154,10 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 
 var errBootstrapContextUnavailable = errors.New("bootstrap cluster context is unavailable")
 var errBootstrapIdentityConflict = errors.New("bootstrap Host identity conflict")
+var errBootstrapContextPending = errors.New("bootstrap context is pending")
+var errBootstrapBindingMismatch = errors.New("bootstrap host binding mismatch")
+var errBootstrapInventoryPending = errors.New("host inventory is pending")
+var errBootstrapDiskUnavailable = errors.New("safe install disk is unavailable")
 
 func (r *TartBootstrapConfigReconciler) configuration(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig, input *corev1.Secret) ([]byte, error) {
 	if input == nil {
@@ -242,12 +256,12 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 // domainbootstrap.DiskIdentityへ変換して返す。install target選択が使う共通経路である。
 func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, machine *clusterv1.Machine) ([]domainbootstrap.DiskIdentity, error) {
 	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
-		return nil, errBootstrapContextUnavailable
+		return nil, errBootstrapContextPending
 	}
 	providerMachine := &infrav1alpha1.TartMachine{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: machine.Spec.InfrastructureRef.Name}, providerMachine); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapContextUnavailable
+			return nil, fmt.Errorf("%w: TartMachine %s/%s is not available", errBootstrapContextPending, machine.Namespace, machine.Spec.InfrastructureRef.Name)
 		}
 		return nil, err
 	}
@@ -255,18 +269,18 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 		return nil, err
 	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {
-		return nil, errBootstrapContextUnavailable
+		return nil, fmt.Errorf("%w: TartMachine %s/%s has no HostRef", errBootstrapContextPending, providerMachine.Namespace, providerMachine.Name)
 	}
 	host := &infrav1alpha1.TartHost{}
 	if err := r.Get(ctx, client.ObjectKey{Name: providerMachine.Status.HostRef.Name}, host); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, errBootstrapContextUnavailable
+			return nil, fmt.Errorf("%w: TartHost %s is not available", errBootstrapInventoryPending, providerMachine.Status.HostRef.Name)
 		}
 		return nil, err
 	}
 	consumer := host.Spec.ConsumerRef
 	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != controller.TartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
-		return nil, errBootstrapContextUnavailable
+		return nil, fmt.Errorf("%w: Host %s is not claimed by TartMachine %s/%s", errBootstrapBindingMismatch, host.Name, providerMachine.Namespace, providerMachine.Name)
 	}
 	allHosts := &infrav1alpha1.TartHostList{}
 	if err := r.List(ctx, allHosts); err != nil {
@@ -275,8 +289,11 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 	if hostpolicy.HasIdentityConflictForAny(allHosts.Items) {
 		return nil, errBootstrapIdentityConflict
 	}
-	if host.Status.Inventory == nil || len(host.Status.Inventory.Disks) == 0 {
-		return nil, errBootstrapContextUnavailable
+	if host.Status.Inventory == nil {
+		return nil, fmt.Errorf("%w: Host %s inventory is not observed", errBootstrapInventoryPending, host.Name)
+	}
+	if len(host.Status.Inventory.Disks) == 0 {
+		return nil, fmt.Errorf("%w: Host %s has no disks", errBootstrapInventoryPending, host.Name)
 	}
 	disks := make([]domainbootstrap.DiskIdentity, 0, len(host.Status.Inventory.Disks))
 	for _, disk := range host.Status.Inventory.Disks {
@@ -294,6 +311,9 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 			Rotational: disk.Rotational,
 			ReadOnly:   disk.ReadOnly,
 		})
+	}
+	if len(disks) == 0 {
+		return nil, fmt.Errorf("%w: Host %s has no usable disks", errBootstrapDiskUnavailable, host.Name)
 	}
 	return disks, nil
 }

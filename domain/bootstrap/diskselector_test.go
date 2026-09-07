@@ -23,13 +23,17 @@ func TestSelectDisk(t *testing.T) {
 		want  DiskIdentity
 		err   error
 	}{
-		"unique stable disk": {
-			disks: []DiskIdentity{base, {DevicePath: "/dev/vdb", SizeBytes: 128 * 1024 * 1024 * 1024, Model: "TART DATA", Serial: "disk-b", Transport: "virtio"}},
+		"single disk": {
+			disks: []DiskIdentity{base},
 			want:  base,
 		},
 		"single disk without transport metadata": {
 			disks: []DiskIdentity{{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial}},
 			want:  DiskIdentity{DevicePath: base.DevicePath, SizeBytes: base.SizeBytes, Serial: base.Serial},
+		},
+		"multiple writable disks is ambiguous": {
+			disks: []DiskIdentity{base, {DevicePath: "/dev/vdb", SizeBytes: 128 * 1024 * 1024 * 1024, Model: "TART DATA", Serial: "disk-b", Transport: "virtio"}},
+			err:   ErrDiskSelectionAmbiguous,
 		},
 		"ambiguous disk identity": {
 			disks: []DiskIdentity{base, {DevicePath: "/dev/vdb", SizeBytes: base.SizeBytes, Model: base.Model, Serial: base.Serial, WWID: base.WWID, BusPath: base.BusPath, Transport: base.Transport}},

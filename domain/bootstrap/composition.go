@@ -31,8 +31,7 @@ type ConfigPatch struct {
 }
 
 // OrderPatchesは、patchをlayerの昇順(base→user raw patch→provider invariant)へ安定ソートし、
-// 各patchが空でなく既知のlayerに属することを検証する。ソート後もlayerが降順に戻る箇所があれば
-// (=同一layer内で入力順序が矛盾する呼び出し側のバグ)エラーを返す。
+// 各patchが空でなく既知のlayerに属することを検証する。同一layer内では入力順序を保持する。
 // 実際のmerge処理は行わず、どの順序で適用すべきかという意思決定・検証だけを行う。
 func OrderPatches(patches []ConfigPatch) ([]ConfigPatch, error) {
 	ordered := make([]ConfigPatch, len(patches))

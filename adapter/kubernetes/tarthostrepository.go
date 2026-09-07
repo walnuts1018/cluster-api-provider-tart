@@ -29,20 +29,38 @@ func NewTartHostRepository(c client.Client) TartHostRepository {
 
 // ClaimHostは既存claimが別consumerを指す場合は上書きせず、呼び出し側が再選択できる競合として返す。
 func (r TartHostRepository) ClaimHost(ctx context.Context, host *infrav1alpha1.TartHost, consumer corev1.ObjectReference) error {
+	if host == nil {
+		return hostusecase.ErrInvalidClaim
+	}
+	return r.ClaimHostWithRequest(ctx, host, hostusecase.ClaimRequest{
+		Consumer:       consumer,
+		ExpectedHostID: host.Spec.HostID,
+		Mode:           hostusecase.ClaimFreshAutomatic,
+	})
+}
+
+// ClaimHostWithRequestはselection predicateを含めたpreconditionを同じresourceVersion上で検証してからclaimする。
+func (r TartHostRepository) ClaimHostWithRequest(ctx context.Context, host *infrav1alpha1.TartHost, req hostusecase.ClaimRequest) error {
 	if r.Client == nil || host == nil || host.Name == "" {
 		return hostusecase.ErrInvalidClaim
 	}
+	if req.ExpectedHostID == "" {
+		req.ExpectedHostID = host.Spec.HostID
+	}
 	for attempt := range claimAttempts {
-		decision, err := hostusecase.DecideClaim(host.Spec, consumer)
+		decision, err := hostusecase.DecideClaim(host.Spec, req.Consumer)
 		if err != nil {
 			return err
 		}
 		if decision == hostusecase.ClaimNoop {
 			return nil
 		}
+		if err := hostusecase.ValidateClaimCandidate(host, req); err != nil {
+			return err
+		}
 
 		claimed := host.DeepCopy()
-		claimed.Spec.ConsumerRef = &consumer
+		claimed.Spec.ConsumerRef = &req.Consumer
 		if err := r.Client.Update(ctx, claimed); err == nil {
 			*host = *claimed
 			return nil

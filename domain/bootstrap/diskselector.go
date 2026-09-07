@@ -114,9 +114,15 @@ func UniqueDiskSelector(disk DiskIdentity, candidates []DiskIdentity) (string, b
 	return "", false
 }
 
+// SelectedDiskは、SelectDiskがfull inventoryに対して一意性を検証済みのdiskとselectorを束ねるproof型である。
+type SelectedDisk struct {
+	Identity DiskIdentity
+	Selector string
+}
+
 // SelectDiskは、観測したdisk群から書き込み可能なcandidateを絞り込み、stableなselectorで一意に識別できる
 // diskだけを返す。boot orderに依存する/dev/sdXなどへfallbackしない。install target、追加volume、
-// LVM member diskのいずれの選択にも共通して使う。
+// LVM member diskのいずれの選択にも共通して使う.
 func SelectDisk(disks []DiskIdentity) (DiskIdentity, error) {
 	candidates := make([]DiskIdentity, 0, len(disks))
 	for _, disk := range disks {
@@ -139,4 +145,18 @@ func SelectDisk(disks []DiskIdentity) (DiskIdentity, error) {
 	}
 
 	return DiskIdentity{}, ErrDiskSelectionAmbiguous
+}
+
+// SelectDiskWithProofはSelectDiskと同じ一意性検証を行い、検証済みのSelectedDiskを返す。
+func SelectDiskWithProof(disks []DiskIdentity) (SelectedDisk, error) {
+	disk, err := SelectDisk(disks)
+	if err != nil {
+		return SelectedDisk{}, err
+	}
+	selector, ok := UniqueDiskSelector(disk, disks)
+	if !ok {
+		// SelectDiskが一意性を保証するため通常到達しないが、fail-closedで再検証する。
+		return SelectedDisk{}, ErrDiskSelectionAmbiguous
+	}
+	return SelectedDisk{Identity: disk, Selector: selector}, nil
 }

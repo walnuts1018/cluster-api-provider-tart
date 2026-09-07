@@ -14,8 +14,10 @@ import (
 )
 
 var (
-	ErrCAPIMachineUnavailable      = errors.New("CAPI Machine for provider resource is unavailable")
-	ErrCAPIMachineIdentityMismatch = errors.New("CAPI Machine identity does not match provider resource")
+	ErrCAPIMachineUnavailable       = errors.New("CAPI Machine for provider resource is unavailable")
+	ErrCAPIMachineIdentityMismatch  = errors.New("CAPI Machine identity does not match provider resource")
+	ErrCAPIMachineReferenceMismatch = errors.New("CAPI Machine reference does not match provider resource")
+	ErrCAPIMachineAmbiguous         = errors.New("multiple CAPI Machines reference provider resource")
 )
 
 func FindCAPIMachineForInfrastructure(ctx context.Context, c client.Client, object client.Object) (*clusterv1.Machine, error) {
@@ -49,7 +51,7 @@ func findCAPIMachine(ctx context.Context, c client.Client, object client.Object,
 			return nil, ErrCAPIMachineIdentityMismatch
 		}
 		if !matches(machine) {
-			return nil, errors.New("CAPI Machine reference does not match provider resource")
+			return nil, ErrCAPIMachineReferenceMismatch
 		}
 		return machine, nil
 	}
@@ -68,7 +70,7 @@ func findCAPIMachine(ctx context.Context, c client.Client, object client.Object,
 			continue
 		}
 		if matched != nil {
-			return nil, errors.New("multiple CAPI Machines reference provider resource")
+			return nil, ErrCAPIMachineAmbiguous
 		}
 		matched = candidate
 	}

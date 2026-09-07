@@ -41,7 +41,7 @@ func ValidateConfigSecret(secret *corev1.Secret) error {
 	if secret.Immutable == nil || !*secret.Immutable {
 		return fmt.Errorf("%w: %s", ErrConfigSecretNotImmutable, secret.Name)
 	}
-	if len(secret.Data[ConfigurationPatchesKey]) == 0 {
+	if len(bytes.TrimSpace(secret.Data[ConfigurationPatchesKey])) == 0 {
 		return fmt.Errorf("%w: %s", ErrConfigSecretEmpty, secret.Name)
 	}
 	return nil

@@ -99,13 +99,14 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 		Name:       config.Name,
 		UID:        config.UID,
 	}
-	expected, err := bootstrap.BuildSecret(config.Namespace, config.Name, clusterName, owner, completeConfiguration)
+	secretName := bootstrapSecretName(config.Name, digest)
+	expected, err := bootstrap.BuildSecret(config.Namespace, secretName, clusterName, owner, completeConfiguration)
 	if err != nil {
 		return r.report(ctx, &config, "BootstrapSecretInvalid", "The Bootstrap Secret owner or metadata cannot satisfy the CAPI contract.")
 	}
 
 	actual := &corev1.Secret{}
-	err = r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: config.Name}, actual)
+	err = r.Get(ctx, client.ObjectKey{Namespace: config.Namespace, Name: secretName}, actual)
 	switch {
 	case apierrors.IsNotFound(err):
 		if err := r.Create(ctx, expected); err != nil {
@@ -122,18 +123,7 @@ func (r *TartBootstrapConfigReconciler) Reconcile(ctx context.Context, req ctrl.
 			return r.report(ctx, &config, "BootstrapSecretInvalid", "The existing Bootstrap Secret does not satisfy the CAPI contract.")
 		}
 		if !bytes.Equal(actual.Data[bootstrap.BootstrapSecretKey], completeConfiguration) {
-			// Bootstrap Secretはimmutableなためdataを書き換えられない。update policyが変更を許す場合だけ、
-			// 同じ名前で作り直してdesired configurationをUpdate Extensionから観測できるようにする。
-			if err := r.Delete(ctx, actual); err != nil && !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-			if err := r.Create(ctx, expected); err != nil {
-				if apierrors.IsAlreadyExists(err) {
-					return ctrl.Result{RequeueAfter: time.Nanosecond}, nil
-				}
-				return ctrl.Result{}, err
-			}
-			actual = expected
+			return r.report(ctx, &config, "BootstrapSecretDigestMismatch", "The immutable Bootstrap Secret does not match its configuration digest.")
 		}
 	}
 
@@ -375,3 +365,22 @@ func (r *TartBootstrapConfigReconciler) enqueueAllBootstrapConfigs(ctx context.C
 }
 
 const bootstrapConfigSecretIndex = ".spec.configPatchesSecretRef.name"
+
+func bootstrapSecretName(configName, digest string) string {
+	if len(digest) >= 10 {
+		digest = digest[:10]
+	}
+	name := configName + "-" + digest
+	if len(name) > 253 {
+		// Kubernetes nameは253文字まで。configNameが長い場合は切り詰める。
+		maxConfig := 253 - len(digest) - 1
+		if maxConfig < 1 {
+			maxConfig = 1
+		}
+		if len(configName) > maxConfig {
+			configName = configName[:maxConfig]
+		}
+		name = configName + "-" + digest
+	}
+	return name
+}

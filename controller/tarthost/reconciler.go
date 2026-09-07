@@ -342,7 +342,7 @@ func (r *TartHostReconciler) reportIdentityConflicts(ctx context.Context, hosts 
 		original := candidate.DeepCopy()
 		controller.SetCondition(&candidate.Status.Conditions, infrav1alpha1.TartHostReadyCondition, metav1.ConditionFalse, reason, message, candidate.Generation)
 		candidate.Status.ObservedGeneration = candidate.Generation
-		if err := r.Status().Patch(ctx, candidate, client.MergeFrom(original)); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Status().Patch(ctx, candidate, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil && !apierrors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 		if r.Recorder != nil {

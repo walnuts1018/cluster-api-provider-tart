@@ -179,9 +179,12 @@ spec:
                     - address
                     - credentialSecretRef
                     type: object
+                    x-kubernetes-validations:
+                    - message: caSecretRef and insecureSkipVerify are mutually exclusive
+                      rule: '!(has(self.caSecretRef) && self.insecureSkipVerify)'
                   wakeOnLAN:
-                    description: WakeOnLANPowerConfigはWake-on-LANによる電源投入を設定する。このbackendの停止確認はShutdown
-                      RPC受理後にauthenticated Talos APIが到達不能になることを観測するが、物理的な電源断の証明にはならない。
+                    description: WakeOnLANPowerConfigはWake-on-LANによる電源投入を設定する。このbackendは独立したpower-state
+                      observerを持たないため、停止確認はRedfishのように物理的な電源断を証明できず、providerはendpoint消失を停止証拠として扱わない。
                     properties:
                       broadcastAddress:
                         description: broadcastAddressはマジックパケット送信に使用するnetwork broadcast

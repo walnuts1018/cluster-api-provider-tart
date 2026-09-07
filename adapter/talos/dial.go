@@ -17,7 +17,7 @@ import (
 // ErrEndpointEmptyはTalos接続先が空でdialできないことを示す。
 var ErrEndpointEmpty = errors.New("talos endpoint is empty")
 
-// DialMaintenanceは未構成Talos nodeのmaintenance APIへ接続する。connectionはTLSで暗号化されるが、server certificateが自己署名で相互identity検証もないため認証されない。呼び出し側は応答を信頼する前にendpointをexpected Host identity(MAC/DHCP、boot attempt、observed system UUID)へbindし、そのbindなしにこのconnectionでconfiguration apply requestを送信しない。詳細は.agents/skills/talos/SKILL.md#maintenance-apiを参照する。
+// DialMaintenanceは未構成Talos nodeのmaintenance APIへ接続する。connectionはTLSで暗号化されるが、server certificateが自己署名で相互identity検証もないため認証されない。呼び出し側は応答を信頼する前にendpointをexpected Host identity(MAC/DHCP、boot attempt、observed system UUID)へbindし、そのbindなしにこのconnectionでconfiguration apply requestを送信しない。provisioning network上のactive MITMは脅威モデル外とし、L2分離・DHCP snooping・BMC観測とのcross-checkで補完する。将来pinning/OOB bindingを導入する場合はVerifyConnectionでfingerprintを検証する。詳細は.agents/skills/talos/SKILL.md#maintenance-apiを参照する。
 func DialMaintenance(ctx context.Context, endpoint string) (*Client, error) {
 	if err := validateEndpoint(endpoint); err != nil {
 		return nil, err

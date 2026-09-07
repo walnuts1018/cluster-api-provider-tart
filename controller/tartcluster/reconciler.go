@@ -2,6 +2,8 @@ package tartcluster
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -76,6 +78,9 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return r.reportBundleError(ctx, &cluster, err)
 	}
 	if err := r.ensureCARotationBundle(ctx, &cluster, clusterID, generation); err != nil {
+		if errors.Is(err, errInvalidCARotationRequest) {
+			return r.reportCARotationError(ctx, &cluster, err)
+		}
 		return r.reportBundleError(ctx, &cluster, err)
 	}
 	failureDomains, err := r.observeFailureDomains(ctx)
@@ -183,6 +188,8 @@ func (r *TartClusterReconciler) ensureBundle(ctx context.Context, cluster *infra
 
 // ensureCARotationBundleはTartCluster.spec.caRotationRequestedGenerationがactive generationの次世代を指している場合に、そのgenerationのPending bundle Secretを先行生成する。
 // Talos公式の段階的CA更新は、この不変なPending bundleとactive bundleを比較してTartControlPlaneがreconcileする。ここではSecretの先行生成だけを担い、実際のTalos側切替やactive generationの昇格はTartControlPlaneの責務とする。
+var errInvalidCARotationRequest = errors.New("invalid CA rotation request")
+
 func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, activeGeneration int32) error {
 	requested := cluster.Spec.CARotationRequestedGeneration
 	if requested == nil {
@@ -193,11 +200,11 @@ func (r *TartClusterReconciler) ensureCARotationBundle(ctx context.Context, clus
 		return err
 	}
 	if *requested != target {
-		// 要求されたgenerationが次世代と一致しない場合、Pending bundleの先行生成はここで何もしない。
-		// 既に昇格済み、または無効な要求のいずれかであり、区別できないためこの関数ではsilentに
-		// no-opとするが、利用者への通知はTartControlPlane側のreconcileCARotationが同じ判定を
-		// 行い、"InvalidCARotationRequest" reason/Conditionとwarning Eventとして表面化する。
-		return nil
+		if *requested == activeGeneration {
+			// 既に昇格済みの要求はno-opとする。
+			return nil
+		}
+		return fmt.Errorf("%w: requested CA generation %d, expected %d", errInvalidCARotationRequest, *requested, target)
 	}
 
 	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, target)
@@ -257,6 +264,16 @@ func (r *TartClusterReconciler) reportBundleError(ctx context.Context, cluster *
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, bundleErr
+}
+
+func (r *TartClusterReconciler) reportCARotationError(ctx context.Context, cluster *infrav1alpha1.TartCluster, rotationErr error) (ctrl.Result, error) {
+	original := cluster.DeepCopy()
+	controller.SetCondition(&cluster.Status.Conditions, infrav1alpha1.TartClusterReadyCondition, metav1.ConditionFalse, "InvalidCARotationRequest", rotationErr.Error(), cluster.Generation)
+	cluster.Status.ObservedGeneration = cluster.Generation
+	if err := r.Status().Patch(ctx, cluster, client.MergeFrom(original)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, rotationErr
 }
 
 func (r *TartClusterReconciler) reportFailureDomainError(ctx context.Context, cluster *infrav1alpha1.TartCluster, observeErr error) (ctrl.Result, error) {

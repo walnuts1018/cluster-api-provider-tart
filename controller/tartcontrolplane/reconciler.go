@@ -89,6 +89,27 @@ type controlPlaneBootstrapState struct {
 
 var errControlPlaneScaleDownPending = errors.New("control-plane scale-down is waiting for etcd member removal")
 
+// scaleDownPendingErrorはscale-downが通常の待機として継続しているが、原因をrequeue reasonとして観測できるようにする。
+type scaleDownPendingError struct {
+	reason  string
+	message string
+	cause   error
+}
+
+func (e *scaleDownPendingError) Error() string {
+	if e.cause != nil {
+		return e.reason + ": " + e.message + ": " + e.cause.Error()
+	}
+	return e.reason + ": " + e.message
+}
+
+func (e *scaleDownPendingError) Unwrap() error {
+	if e.cause != nil {
+		return errors.Join(errControlPlaneScaleDownPending, e.cause)
+	}
+	return errControlPlaneScaleDownPending
+}
+
 func (f *controlPlaneFailure) Error() string {
 	return f.reason + ": " + f.message
 }
@@ -625,7 +646,7 @@ func (r *TartControlPlaneReconciler) reconcileEtcdMemberRemoval(ctx context.Cont
 	}
 	members, err := r.observeEtcdMembersFromConfiguration(ctx, survivor.host, survivor.config)
 	if err != nil {
-		return true, nil //nolint:nilerr // removal must wait until a survivor exposes stable membership.
+		return true, &scaleDownPendingError{reason: "EtcdSurvivorUnavailable", message: "A surviving control-plane member could not be observed.", cause: err}
 	}
 	if !canRemoveObservedEtcdMember(members, observations, memberID, healthyMembers, targetObservation) {
 		return true, nil
@@ -690,14 +711,14 @@ func canRemoveObservedEtcdMember(members []talos.EtcdMember, observations []etcd
 func (r *TartControlPlaneReconciler) removeObservedEtcdMember(ctx context.Context, survivor *etcdMachineObservation, memberID uint64) (bool, error) {
 	removalClient, err := r.dialAuthenticated(ctx, survivor.host, survivor.config)
 	if err != nil {
-		return true, nil //nolint:nilerr // a survivor connection failure must retain the deletion hook.
+		return true, &scaleDownPendingError{reason: "EtcdSurvivorUnavailable", message: "A surviving control-plane member could not be authenticated for etcd removal.", cause: err}
 	}
 	removeErr := removalClient.RemoveEtcdMember(ctx, memberID)
 	if closeErr := removalClient.Close(); closeErr != nil && removeErr == nil {
 		return true, closeErr
 	}
 	if removeErr != nil {
-		return true, nil //nolint:nilerr // Talos removal is retried from observed membership on the next reconcile.
+		return true, &scaleDownPendingError{reason: "EtcdMemberRemovalFailed", message: "The etcd member removal request did not complete successfully.", cause: removeErr}
 	}
 	return true, nil
 }
@@ -717,7 +738,7 @@ func (r *TartControlPlaneReconciler) reconcileAnnotatedEtcdMember(ctx context.Co
 	}
 	members, err := r.observeEtcdMembers(ctx, survivor)
 	if err != nil {
-		return annotatedID, true, true, nil //nolint:nilerr // etcd observation is transient while the deleting Machine is waiting.
+		return annotatedID, true, true, &scaleDownPendingError{reason: "EtcdObservationTransient", message: "Etcd membership observation is transient while the deleting Machine is waiting.", cause: err}
 	}
 	if !containsEtcdMember(members, memberID) {
 		result, removeErr := r.removeEtcdDeleteHook(ctx, target)

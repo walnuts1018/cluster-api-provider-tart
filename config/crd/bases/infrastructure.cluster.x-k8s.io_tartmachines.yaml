@@ -162,6 +162,12 @@ spec:
             x-kubernetes-validations:
             - message: hostRef and hostSelector are mutually exclusive
               rule: '!(has(self.hostRef) && has(self.hostSelector))'
+            - message: hostRef is immutable after creation
+              rule: '!has(oldSelf.hostRef) || (has(self.hostRef) == has(oldSelf.hostRef)
+                && (!has(self.hostRef) || self.hostRef == oldSelf.hostRef))'
+            - message: hostSelector is immutable after creation
+              rule: '!has(oldSelf.hostSelector) || (has(self.hostSelector) == has(oldSelf.hostSelector)
+                && (!has(self.hostSelector) || self.hostSelector == oldSelf.hostSelector))'
           status:
             description: TartMachineStatusはTartMachineのobserved stateを定義する。
             properties:

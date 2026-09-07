@@ -33,6 +33,8 @@ type TalosImageSpec struct {
 
 // TartMachineSpecはTartMachineのdesired stateを定義する。field classificationは、hostRefがinitial-onlyかつuser-ownedでclaim後immutable、hostSelectorがinitial-onlyかつuser-ownedでclaim後の変更はsafe-stop、imageがmutableかつUpdate Extension-owned lifecycle、providerIDがcontroller-writtenである。
 // +kubebuilder:validation:XValidation:rule="!(has(self.hostRef) && has(self.hostSelector))",message="hostRef and hostSelector are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.hostRef) || (has(self.hostRef) == has(oldSelf.hostRef) && (!has(self.hostRef) || self.hostRef == oldSelf.hostRef))",message="hostRef is immutable after creation"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.hostSelector) || (has(self.hostSelector) == has(oldSelf.hostSelector) && (!has(self.hostSelector) || self.hostSelector == oldSelf.hostSelector))",message="hostSelector is immutable after creation"
 type TartMachineSpec struct {
 	// hostRefはTartHostを明示的に選択する(initial-onlyかつuser-owned)。Host claim成功後はimmutableであり、hostSelectorとは相互排他的である。
 	// +optional

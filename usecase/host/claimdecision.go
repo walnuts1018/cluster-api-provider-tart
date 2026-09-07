@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 )
 
 // ErrClaimConflictは取得後にconsumerRefが変化した場合の競合を表す。
@@ -17,6 +19,18 @@ var ErrInvalidClaim = errors.New("invalid host claim")
 
 // ErrInvalidRetentionは停止確認済みのconsumerをretention recordへ変換できないことを示す。
 var ErrInvalidRetention = errors.New("invalid host retention")
+
+// ErrHostNoLongerEligibleは、claim試行時にHostがAvailableでなくなったことを示す。
+var ErrHostNoLongerEligible = errors.New("host is no longer eligible for automatic allocation")
+
+// ErrReuseApprovalRequiredは、Retained Hostの自動allocationにreuse approvalが必要なことを示す。
+var ErrReuseApprovalRequired = errors.New("host reuse approval is required")
+
+// ErrHostIdentityChangedは、HostIDがselection時と異なることを示す。
+var ErrHostIdentityChanged = errors.New("host identity changed")
+
+// ErrHostSelectionMismatchは、Hostがselector/failureDomainを満たさなくなったことを示す。
+var ErrHostSelectionMismatch = errors.New("host does not match placement constraints")
 
 // ClaimDecisionはclaim/retain要求を現在のspecへ適用すべきかを表す判定結果である。
 type ClaimDecision int
@@ -59,6 +73,48 @@ func DecideRetention(spec infrav1alpha1.TartHostSpec, consumer corev1.ObjectRefe
 		return ClaimNoop, fmt.Errorf("%w: host is claimed by another consumer", ErrClaimConflict)
 	}
 	return ClaimApply, nil
+}
+
+// ClaimModeはHost claimの経路を区別する。
+type ClaimMode int
+
+const (
+	// ClaimFreshAutomaticはAvailable Hostの自動allocationを示す。
+	ClaimFreshAutomatic ClaimMode = iota
+	// ClaimExplicitReusableはRetained Hostの明示的reuseを示す。
+	ClaimExplicitReusable
+)
+
+// ClaimRequestはHost claim時に成立しなければならないpreconditionをまとめた要求である。
+type ClaimRequest struct {
+	Consumer      corev1.ObjectReference
+	ExpectedHostID string
+	Selector      *infrav1alpha1.HostSelector
+	FailureDomain string
+	Mode          ClaimMode
+	ConsumerUID   types.UID
+}
+
+// ValidateClaimCandidateは、現在のHost stateがClaimRequestのpreconditionを満たすかを検証する。
+func ValidateClaimCandidate(host *infrav1alpha1.TartHost, req ClaimRequest) error {
+	if host == nil {
+		return ErrInvalidClaim
+	}
+	if req.ExpectedHostID != "" && host.Spec.HostID != req.ExpectedHostID {
+		return fmt.Errorf("%w: expected %s got %s", ErrHostIdentityChanged, req.ExpectedHostID, host.Spec.HostID)
+	}
+	if req.Mode == ClaimFreshAutomatic {
+		if Classify(host.Spec) != hostdomain.Available {
+			return fmt.Errorf("%w: eligibility is %s", ErrHostNoLongerEligible, Classify(host.Spec))
+		}
+		if host.Spec.PreviousConsumerRef != nil {
+			return ErrReuseApprovalRequired
+		}
+	}
+	if !MatchesForFailureDomain(host.Labels, host.Spec, req.Selector, req.FailureDomain) {
+		return ErrHostSelectionMismatch
+	}
+	return nil
 }
 
 // ValidConsumerReferenceはconsumerがnamespaced object referenceとして安全に識別可能かを返す。

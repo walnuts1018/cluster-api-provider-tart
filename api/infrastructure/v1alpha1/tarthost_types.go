@@ -82,6 +82,7 @@ type ManagementNamespaceSecretReference struct {
 }
 
 // RedfishPowerConfigはRedfish経由のout-of-band電源制御と停止確認を設定する。
+// +kubebuilder:validation:XValidation:rule="!(has(self.caSecretRef) && self.insecureSkipVerify)",message="caSecretRef and insecureSkipVerify are mutually exclusive"
 type RedfishPowerConfig struct {
 	// addressはRedfish service rootのbase URLである。
 	// +kubebuilder:validation:Type=string
@@ -99,7 +100,7 @@ type RedfishPowerConfig struct {
 	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
 }
 
-// WakeOnLANPowerConfigはWake-on-LANによる電源投入を設定する。このbackendの停止確認はShutdown RPC受理後にauthenticated Talos APIが到達不能になることを観測するが、物理的な電源断の証明にはならない。
+// WakeOnLANPowerConfigはWake-on-LANによる電源投入を設定する。このbackendは独立したpower-state observerを持たないため、停止確認はRedfishのように物理的な電源断を証明できず、providerはendpoint消失を停止証拠として扱わない。
 type WakeOnLANPowerConfig struct {
 	// broadcastAddressはマジックパケット送信に使用するnetwork broadcast addressである。
 	// +kubebuilder:validation:Type=string

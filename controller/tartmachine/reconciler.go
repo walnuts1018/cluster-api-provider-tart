@@ -46,8 +46,10 @@ const (
 
 var (
 	ErrBootstrapDataUnavailable = errors.New("bootstrap data is unavailable")
-	errCAPIProviderIDMismatch   = errors.New("CAPI Machine provider ID does not match TartHost")
-	errHostSelectionMismatch    = errors.New("allocated TartHost does not match CAPI Machine placement")
+	// ErrShutdownStateUnverifiableは、WoL/Manualなど独立したpower-state observerを持たないHostで停止検証ができないことを示す。
+	ErrShutdownStateUnverifiable = errors.New("Host shutdown state is unverifiable without an independent power-state observer")
+	errCAPIProviderIDMismatch    = errors.New("CAPI Machine provider ID does not match TartHost")
+	errHostSelectionMismatch     = errors.New("allocated TartHost does not match CAPI Machine placement")
 )
 
 // TartMachineReconcilerはHost claim、Talosの初回configuration apply、認証済みAPIの起動確認を担当する。初回provisioning後のmutableな変更はUpdate Extensionへ委譲する。
@@ -115,6 +117,9 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The corresponding CAPI Machine is not available to determine Host placement.", 30*time.Second)
 		}
+		if errors.Is(err, controller.ErrCAPIMachineReferenceMismatch) || errors.Is(err, controller.ErrCAPIMachineAmbiguous) {
+			return r.report(ctx, machine, "CAPIMachineInvalid", "The CAPI Machine reference is structurally invalid; allocation is stopped.")
+		}
 		if errors.Is(err, errHostSelectionMismatch) {
 			return r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The allocated TartHost does not match the CAPI Machine Failure Domain or HostSelector.")
 		}
@@ -152,11 +157,41 @@ func (r *TartMachineReconciler) reconcileProvisioning(ctx context.Context, machi
 		Name:       machine.Name,
 		UID:        machine.UID,
 	}
-	if err := kubernetesadapter.NewTartHostRepository(r.Client).ClaimHost(ctx, selected, consumer); err != nil {
-		if errors.Is(err, hostusecase.ErrClaimConflict) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostClaimConflict, "The selected TartHost was claimed concurrently; allocation will be retried against current state.", 2*time.Second)
+	// Host claimはselection predicateを含めて同じresourceVersion上で検証する。Retained Hostの自動claimやFailureDomain変更の競合をfail-closedで拒否する。
+	capiMachineForClaim, capiClaimErr := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	failureDomainForClaim := ""
+	if capiClaimErr == nil && capiMachineForClaim != nil {
+		failureDomainForClaim = capiMachineForClaim.Spec.FailureDomain
+	}
+	claimReq := hostusecase.ClaimRequest{
+		Consumer:       consumer,
+		ExpectedHostID: selected.Spec.HostID,
+		Selector:       machine.Spec.HostSelector,
+		FailureDomain:  failureDomainForClaim,
+		Mode:           hostusecase.ClaimFreshAutomatic,
+	}
+	if err := kubernetesadapter.NewTartHostRepository(r.Client).ClaimHostWithRequest(ctx, selected, claimReq); err != nil {
+		if errors.Is(err, hostusecase.ErrClaimConflict) || errors.Is(err, hostusecase.ErrHostNoLongerEligible) || errors.Is(err, hostusecase.ErrReuseApprovalRequired) || errors.Is(err, hostusecase.ErrHostIdentityChanged) || errors.Is(err, hostusecase.ErrHostSelectionMismatch) {
+			reason := infrav1alpha1.ReasonHostClaimConflict
+			msg := "The selected TartHost was claimed concurrently or is no longer eligible; allocation will be retried against current state."
+			if errors.Is(err, hostusecase.ErrReuseApprovalRequired) {
+				reason = infrav1alpha1.ReasonReuseApprovalRequired
+				msg = "The selected TartHost is retained and requires explicit reuse approval; automatic allocation is blocked."
+			} else if errors.Is(err, hostusecase.ErrHostSelectionMismatch) || errors.Is(err, errHostSelectionMismatch) {
+				reason = infrav1alpha1.ReasonHostMismatch
+				msg = "The selected TartHost no longer matches the Machine placement constraints."
+			}
+			return r.reportAndRequeue(ctx, machine, reason, msg, 2*time.Second)
 		}
 		return ctrl.Result{}, err
+	}
+	// ProviderIDはclaim成功後のfresh Hostから導出し、stale snapshotからの導出を避ける。
+	if selected.Spec.HostID != "" {
+		if freshHostID, freshErr := hostdomain.ParseHostID(selected.Spec.HostID); freshErr == nil {
+			if freshProviderID, freshErr2 := hostdomain.NewProviderID(freshHostID); freshErr2 == nil {
+				providerID = freshProviderID
+			}
+		}
 	}
 
 	if machine.Spec.ProviderID.IsZero() {
@@ -521,6 +556,10 @@ func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, mach
 		return nil, err
 	}
 	failureDomain := capiMachine.Spec.FailureDomain
+	// spec.hostRefはclaim後immutableである。statusと不一致の場合はsafe-stopする。
+	if machine.Status.HostRef != nil && machine.Spec.HostRef != nil && machine.Spec.HostRef.Name != "" && machine.Spec.HostRef.Name != machine.Status.HostRef.Name {
+		return nil, errHostSelectionMismatch
+	}
 	if machine.Status.HostRef != nil {
 		observed := &infrav1alpha1.TartHost{}
 		if err := r.Get(ctx, client.ObjectKey{Name: machine.Status.HostRef.Name}, observed); err != nil {
@@ -557,7 +596,7 @@ func (r *TartMachineReconciler) observedOrSelectedHost(ctx context.Context, mach
 		}
 		return selected, nil
 	}
-	selected, err := hostusecase.SelectFreshForFailureDomain(hosts, machine.Spec.HostSelector, failureDomain)
+	selected, err := hostusecase.SelectFreshForFailureDomainWithRendezvous(hosts, machine.Spec.HostSelector, failureDomain, machine.UID)
 	return selected, err
 }
 
@@ -619,7 +658,10 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		Name:       machine.Name,
 		UID:        machine.UID,
 	}
-	previous := r.previousConsumerRef(ctx, machine, consumer)
+	previous, prevErr := r.previousConsumerRef(ctx, machine, consumer)
+	if prevErr != nil {
+		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The previous consumer provenance could not be resolved; Host release remains blocked until ClusterID is observable.", shutdownConfirmationRequeue)
+	}
 	if err := kubernetesadapter.NewTartHostRepository(r.Client).RetainHost(ctx, selected, consumer, previous); err != nil {
 		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The Host retention record could not be written atomically; the Machine finalizer remains.", shutdownConfirmationRequeue)
 	}
@@ -762,14 +804,14 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 
 	maintenance, err := talos.DialMaintenance(ctx, endpoint)
 	if err != nil {
-		return true, nil //nolint:nilerr // 確認待ち時間の経過後はTalos endpointの消失をWoL/manualの停止証拠として扱う。
+		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, err)
 	}
 	identity, identityErr := maintenance.Inventory(ctx)
 	if closeErr := maintenance.Close(); closeErr != nil {
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 	}
 	if identityErr != nil {
-		return false, nil //nolint:nilerr // identity observation must succeed before declaring the Host stopped.
+		return false, fmt.Errorf("%w: maintenance identity observation failed: %w", ErrShutdownStateUnverifiable, identityErr)
 	}
 	if !identity.HasMAC(selected.Spec.MACAddress) {
 		return false, controller.ErrHostIdentityMismatch
@@ -777,7 +819,7 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 	return false, nil
 }
 
-func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine *infrav1alpha1.TartMachine, consumer corev1.ObjectReference) infrav1alpha1.PreviousConsumerRef {
+func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine *infrav1alpha1.TartMachine, consumer corev1.ObjectReference) (infrav1alpha1.PreviousConsumerRef, error) {
 	previous := infrav1alpha1.PreviousConsumerRef{
 		Namespace: consumer.Namespace,
 		Name:      consumer.Name,
@@ -785,20 +827,31 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 	}
 	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
-		return previous
+		if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
+			// CAPI Machineがまだ存在するならClusterIDは解決できるはず。Unavailableは一時的な観測失敗として扱い、releaseをブロックする。
+			return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
+		}
+		return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 	}
 	var cluster clusterv1.Cluster
 	if err := r.Get(ctx, client.ObjectKey{Namespace: capiMachine.Namespace, Name: capiMachine.Spec.ClusterName}, &cluster); err != nil {
-		return previous
+		return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 	}
 	previous.ClusterID = ""
 	if ref := cluster.Spec.InfrastructureRef; ref.APIGroup == infrav1alpha1.GroupVersion.Group && ref.Kind == controller.TartClusterKind && ref.Name != "" {
 		var tartCluster infrav1alpha1.TartCluster
-		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err == nil {
-			previous.ClusterID = tartCluster.Spec.ClusterID
+		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err != nil {
+			return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 		}
+		if tartCluster.Spec.ClusterID == "" {
+			return previous, fmt.Errorf("resolve previous consumer ClusterID: TartCluster ClusterID is empty")
+		}
+		previous.ClusterID = tartCluster.Spec.ClusterID
 	}
-	return previous
+	if previous.ClusterID == "" {
+		return previous, fmt.Errorf("resolve previous consumer ClusterID: ClusterID is empty")
+	}
+	return previous, nil
 }
 
 func (r *TartMachineReconciler) report(ctx context.Context, machine *infrav1alpha1.TartMachine, reason, message string) (ctrl.Result, error) {

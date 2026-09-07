@@ -750,7 +750,7 @@ func (r *TartControlPlaneReconciler) observeMachineIdentity(ctx context.Context,
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, provider); err != nil {
 		return nil, nil, err
 	}
-	if err := controller.ValidateProviderOwner(provider, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(provider, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return nil, nil, err
 	}
 	if provider.Status.HostRef == nil || provider.Status.HostRef.Name == "" {
@@ -919,7 +919,7 @@ func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Contex
 		}
 		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
-	if err := controller.ValidateProviderOwner(&providerMachine, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(&providerMachine, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return firstControlPlaneObservation{}, controlPlaneBootstrapState{}, false, err
 	}
 	ready := meta.FindStatusCondition(providerMachine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
@@ -1177,7 +1177,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			return err
 		}
 	}
-	if err := controller.ValidateProviderOwner(&tartMachine, machine, infrav1alpha1.GroupVersion.String(), controller.TartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(&tartMachine, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.Image != expectedMachine.Spec.Image {
@@ -1213,7 +1213,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			return err
 		}
 	}
-	if err := controller.ValidateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), controller.TartBootstrapConfigKind); err != nil {
+	if err := controller.ValidateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return err
 	}
 	actualRef := bootstrapConfig.Spec.ConfigPatchesSecretRef

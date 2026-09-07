@@ -261,7 +261,7 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 		}
 		return nil, err
 	}
-	if err := controller.ValidateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), controller.TartMachineKind); err != nil {
+	if err := controller.ValidateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return nil, err
 	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {

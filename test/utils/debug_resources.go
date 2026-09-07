@@ -22,5 +22,9 @@ func debugClusterAPIResources() []debugClusterAPIResource {
 		{Filename: "tarthostoperations.yaml", Resource: "tarthostoperations.infrastructure.cluster.x-k8s.io"},
 		{Filename: "tartmachines.yaml", Resource: "tartmachines.infrastructure.cluster.x-k8s.io"},
 		{Filename: "tartmachinetemplates.yaml", Resource: "tartmachinetemplates.infrastructure.cluster.x-k8s.io"},
+		{Filename: "tartcontrolplanes.yaml", Resource: "tartcontrolplanes.controlplane.cluster.x-k8s.io"},
+		{Filename: "tartcontrolplanetemplates.yaml", Resource: "tartcontrolplanetemplates.controlplane.cluster.x-k8s.io"},
+		{Filename: "tartbootstrapconfigs.yaml", Resource: "tartbootstrapconfigs.bootstrap.cluster.x-k8s.io"},
+		{Filename: "tartbootstrapconfigtemplates.yaml", Resource: "tartbootstrapconfigtemplates.bootstrap.cluster.x-k8s.io"},
 	}
 }

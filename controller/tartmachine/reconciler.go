@@ -73,6 +73,7 @@ func NewTartMachineReconciler(c client.Client) *TartMachineReconciler {
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
 
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log.FromContext(ctx).Info("tartmachine reconcile invoked", "request", req)
 	var machine infrav1alpha1.TartMachine
 	if err := r.Get(ctx, req.NamespacedName, &machine); err != nil {
 		if apierrors.IsNotFound(err) {

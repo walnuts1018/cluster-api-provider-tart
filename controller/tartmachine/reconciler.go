@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -306,10 +308,19 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	version, versionErr := authenticated.Version(versionContext)
 	versionCancel()
 	if versionErr != nil {
-		ctrl.LoggerFrom(ctx).Info("authenticated Talos Version() call failed", "error", versionErr.Error(), "endpoint", endpoint)
 		if closeErr := authenticated.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 		}
+		// grpc.Dialはlazy connectionのため、CAの不一致(nodeがまだmaintenance modeで
+		// この設定を適用されていない場合など)はDialAuthenticatedFromConfiguration自体ではなく、
+		// 最初のRPCであるVersion()の呼び出し時にcodes.Unavailableとして顕在化する。この場合は
+		// authErrと同様にmaintenance mode観測へfallbackしなければ、node未設定のまま
+		// 恒久的にTalosUnreachableへ張り付いてしまう。
+		if status.Code(versionErr) == codes.Unavailable {
+			ctrl.LoggerFrom(ctx).Info("authenticated Talos Version() call unavailable; falling back to maintenance mode observation", "error", versionErr.Error(), "endpoint", endpoint)
+			return ctrl.Result{}, false, nil
+		}
+		ctrl.LoggerFrom(ctx).Info("authenticated Talos Version() call failed", "error", versionErr.Error(), "endpoint", endpoint)
 		result, err := r.reportTalosStatus(ctx, machine,
 			metav1.ConditionFalse, "TalosUnreachable", "The authenticated Talos API could not be queried.",
 			metav1.ConditionFalse, "TalosUnreachable", "Talos provisioning has not been confirmed.",

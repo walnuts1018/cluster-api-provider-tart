@@ -98,7 +98,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p "${{ runner.temp }}/tart-e2e-lab/tftp"
-          curl -fsSL -o "${{ runner.temp }}/tart-e2e-lab/tftp/ipxe-x86_64.efi" https://boot.ipxe.org/ipxe.efi
+          curl -fsSL -o "${{ runner.temp }}/tart-e2e-lab/tftp/ipxe-x86_64.efi" https://boot.ipxe.org/x86_64-efi/ipxe.efi
 
       - name: Run E2E suite (kind + CAPI + Tart provider + bare-metal lab)
         env:

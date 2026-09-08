@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
@@ -70,6 +71,52 @@ func TestDialAuthenticatedRejectsInvalidCredentialsBeforeDial(t *testing.T) {
 	}
 	if _, err := DialAuthenticatedFromBundle(t.Context(), endpoint, nil); !errors.Is(err, ErrTalosConfigurationInvalid) {
 		t.Fatalf("DialAuthenticatedFromBundle() error = %v, want ErrTalosConfigurationInvalid", err)
+	}
+}
+
+func TestValidateServicesHealthy(t *testing.T) {
+	t.Parallel()
+
+	service := func(id string, health *machineapi.ServiceHealth) *machineapi.ServiceInfo {
+		return &machineapi.ServiceInfo{Id: id, Health: health}
+	}
+	tests := map[string]struct {
+		response *machineapi.ServiceListResponse
+		wantErr  bool
+	}{
+		"healthy service": {
+			response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: []*machineapi.ServiceInfo{service("apid", &machineapi.ServiceHealth{Healthy: true})}}}},
+		},
+		"healthy and unknown service": {
+			response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: []*machineapi.ServiceInfo{
+				service("apid", &machineapi.ServiceHealth{Healthy: true}),
+				service("containerd", &machineapi.ServiceHealth{Unknown: true}),
+			}}}},
+		},
+		"unknown service only": {
+			response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: []*machineapi.ServiceInfo{service("containerd", &machineapi.ServiceHealth{Unknown: true})}}}},
+			wantErr:  true,
+		},
+		"service without health": {
+			response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: []*machineapi.ServiceInfo{service("containerd", nil)}}}},
+			wantErr:  true,
+		},
+		"unhealthy service": {
+			response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: []*machineapi.ServiceInfo{service("apid", &machineapi.ServiceHealth{})}}}},
+			wantErr:  true,
+		},
+		"no service state": {
+			response: &machineapi.ServiceListResponse{},
+			wantErr:  true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := validateServicesHealthy(tt.response); (err != nil) != tt.wantErr {
+				t.Fatalf("validateServicesHealthy() error = %v, wantErr = %t", err, tt.wantErr)
+			}
+		})
 	}
 }
 

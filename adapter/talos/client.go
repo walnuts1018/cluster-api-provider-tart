@@ -483,6 +483,10 @@ func (c *Client) ServicesHealthy(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list talos services: %w", err)
 	}
+	return validateServicesHealthy(response)
+}
+
+func validateServicesHealthy(response *machine.ServiceListResponse) error {
 	observed := false
 	confirmedHealthy := false
 	for _, message := range response.GetMessages() {

@@ -26,7 +26,7 @@ spec:
       # DHCP(port 67)のbroadcast/replyとProxyDHCPの動作にはnode NICへの直接アクセスが必要なため、hostNetworkで動作させる。controller-managerとは異なりcluster network越しには動かせない。
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      # emptyDirはkubeletがroot所有で作成するため、loader取得とTFTP配信をnon-root UIDで行えるよう共有groupを設定する。
+      # emptyDirはkubeletがroot所有で作成するため、ipxe-loader(non-root UID)がTFTP rootへ書き込めるよう共有groupを設定する。
       securityContext:
         fsGroup: 65532
         fsGroupChangePolicy: OnRootMismatch
@@ -47,10 +47,12 @@ spec:
         - name: tftp-root
           mountPath: /var/lib/netboot-server/tftp
         securityContext:
-          # port 67(DHCP)/69(TFTP)はwell-known portであり、CAP_NET_BIND_SERVICEが必要である。
-          runAsUser: 65532
-          runAsGroup: 65532
-          runAsNonRoot: true
+          # port 67(DHCP)/69(TFTP)はwell-known portでありCAP_NET_BIND_SERVICEが必要だが、
+          # 一部のcontainerd/runc環境ではnon-root UIDに対してambient capabilityが正しく
+          # 反映されずbind(2)がpermission deniedになる(確認済みの既知動作)。そのためrootで実行し、
+          # capabilityをNET_BIND_SERVICEのみに絞ることで権限を最小化する。
+          runAsUser: 0
+          runAsGroup: 0
           allowPrivilegeEscalation: false
           capabilities:
             add:

@@ -340,6 +340,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		InstallDisk:                    installDiskPtr,
 		AllowSchedulingOnControlPlanes: providerCluster.Spec.AllowSchedulingOnControlPlanes,
 		DisableDefaultCNI:              providerCluster.Spec.DisableDefaultCNI,
+		Hostname:                       clusterMachine.Name,
 	}, nil
 }
 

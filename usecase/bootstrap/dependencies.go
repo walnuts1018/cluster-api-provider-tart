@@ -29,6 +29,14 @@ type MachineConfigurationContext struct {
 	// 同時に外部manifestの自動fetch/applyという副作用を持つため使わず、生成後のdocument一覧から
 	// KubeFlannelCNIConfigだけを取り除く形で実現する(Cilium等を別途管理する運用を想定する)。
 	DisableDefaultCNI bool
+	// Hostnameは、この machineのTalos hostnameを静的に固定する値である。Talosの既定生成は
+	// `HostnameConfig{auto: stable}`(machine identityから決定論的に導出したhostname)を
+	// 生成するが、DHCP等の外部sourceがこの自動hostnameより優先されてしまう(Talosの仕様)。
+	// またmulti-doc構成では`auto`と`hostname`を同一documentへ両立できないため、生成後の
+	// config patchで`auto`をnull化して打ち消すこともできない(mergeはnilの右辺を無視する)。
+	// そのためCAPI Machine名など決定論的な値をgenerate時にそのまま渡し、documentを
+	// 静的hostname一本で作り直す。空文字列の場合はTalosの既定(auto: stable)のままにする。
+	Hostname string
 }
 
 // ConfigRendererは、domain/bootstrapが表現する合成順序の意思決定を実際のTalos machine configuration

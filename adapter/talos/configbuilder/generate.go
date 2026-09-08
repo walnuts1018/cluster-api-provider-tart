@@ -87,6 +87,16 @@ func GenerateMachineConfiguration(input usecasebootstrap.MachineConfigurationCon
 			return nil, fmt.Errorf("remove default CNI from generated Talos machine configuration: %w", err)
 		}
 	}
+	if strings.TrimSpace(input.Hostname) != "" {
+		base, err = replaceDocumentByKind(base, "HostnameConfig", map[string]any{
+			"apiVersion": "v1alpha1",
+			"kind":       "HostnameConfig",
+			"hostname":   input.Hostname,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("set static hostname in generated Talos machine configuration: %w", err)
+		}
+	}
 
 	configuration, err := RenderEffectiveConfiguration(base, patches...)
 	if err != nil {
@@ -181,12 +191,10 @@ func componentImages(provider talosconfig.Provider) [5]string {
 	return images
 }
 
-// removeDocumentsByKindは、multi-document Talos machine configurationからkindが一致するdocumentを
-// 取り除く。generate.NewInputはCNI/kube-proxy等をmultidocで生成し、生成後にそれらを個別に無効化する
-// optionを持たないため、この関数でdocument単位に除外する。
-func removeDocumentsByKind(configuration []byte, kind string) ([]byte, error) {
+// decodeConfigurationDocumentsは、multi-document Talos machine configurationを個別のdocumentへ分解する。
+func decodeConfigurationDocuments(configuration []byte) ([]map[string]any, error) {
 	decoder := yaml.NewDecoder(bytes.NewReader(configuration))
-	var kept []map[string]any
+	var docs []map[string]any
 	for {
 		var doc map[string]any
 		err := decoder.Decode(&doc)
@@ -199,15 +207,16 @@ func removeDocumentsByKind(configuration []byte, kind string) ([]byte, error) {
 		if doc == nil {
 			continue
 		}
-		if docKind, _ := doc["kind"].(string); docKind == kind {
-			continue
-		}
-		kept = append(kept, doc)
+		docs = append(docs, doc)
 	}
+	return docs, nil
+}
 
+// encodeConfigurationDocumentsは、decodeConfigurationDocumentsの逆操作である。
+func encodeConfigurationDocuments(docs []map[string]any) ([]byte, error) {
 	var out bytes.Buffer
 	yamlEncoder := yaml.NewEncoder(&out)
-	for _, doc := range kept {
+	for _, doc := range docs {
 		if err := yamlEncoder.Encode(doc); err != nil {
 			return nil, fmt.Errorf("encode machine configuration document: %w", err)
 		}
@@ -216,6 +225,49 @@ func removeDocumentsByKind(configuration []byte, kind string) ([]byte, error) {
 		return nil, fmt.Errorf("close machine configuration encoder: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+// removeDocumentsByKindは、multi-document Talos machine configurationからkindが一致するdocumentを
+// 取り除く。generate.NewInputはCNI/kube-proxy等をmultidocで生成し、生成後にそれらを個別に無効化する
+// optionを持たないため、この関数でdocument単位に除外する。
+func removeDocumentsByKind(configuration []byte, kind string) ([]byte, error) {
+	docs, err := decodeConfigurationDocuments(configuration)
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
+		if docKind, _ := doc["kind"].(string); docKind == kind {
+			continue
+		}
+		kept = append(kept, doc)
+	}
+	return encodeConfigurationDocuments(kept)
+}
+
+// replaceDocumentByKindは、multi-document Talos machine configuration中でkindが一致する最初のdocumentを
+// replacementで置き換える。一致するdocumentがなければreplacementを追加する。config patchのstrategic
+// mergeはnilの右辺(YAMLのnull)を「変更なし」として無視するため、既定生成documentの一部fieldだけを
+// nullで打ち消すことができない(例: HostnameConfigのautoとhostnameは同一document内で排他的だが、
+// autoをpatchでnull化してもmergeでは無視され、生成済みのauto: stableが残ってしまう)。
+// そのためdocument全体を置き換える形で対応する。
+func replaceDocumentByKind(configuration []byte, kind string, replacement map[string]any) ([]byte, error) {
+	docs, err := decodeConfigurationDocuments(configuration)
+	if err != nil {
+		return nil, err
+	}
+	replaced := false
+	for index, doc := range docs {
+		if docKind, _ := doc["kind"].(string); docKind == kind {
+			docs[index] = replacement
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		docs = append(docs, replacement)
+	}
+	return encodeConfigurationDocuments(docs)
 }
 
 func canonicalEndpoint(endpoint string) (string, error) {

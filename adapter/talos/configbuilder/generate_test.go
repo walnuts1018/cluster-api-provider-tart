@@ -163,3 +163,34 @@ func TestGenerateMachineConfigurationAllowSchedulingOnControlPlanesAndDisableDef
 		t.Fatalf("configloader.NewFromBytes() error = %v", err)
 	}
 }
+
+func TestGenerateMachineConfigurationStaticHostname(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	input := usecasebootstrap.MachineConfigurationContext{
+		ClusterName:          "cluster-a",
+		ControlPlaneEndpoint: "192.0.2.10:6443",
+		KubernetesVersion:    "v1.34.0",
+		MachineRole:          domainbootstrap.MachineRoleControlPlane,
+		SecretsBundle:        bundle,
+		Hostname:             "eclair",
+	}
+
+	configuration, err := GenerateMachineConfiguration(input)
+	if err != nil {
+		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
+	}
+	if !bytes.Contains(configuration, []byte("hostname: eclair")) {
+		t.Error("configuration should set the static hostname")
+	}
+	if bytes.Contains(configuration, []byte("auto: stable")) {
+		t.Error("configuration should not keep the default auto-generated hostname alongside a static one")
+	}
+	if _, err := configloader.NewFromBytes(configuration); err != nil {
+		t.Fatalf("configloader.NewFromBytes() error = %v", err)
+	}
+}

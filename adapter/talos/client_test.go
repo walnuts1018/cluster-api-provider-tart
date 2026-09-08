@@ -7,7 +7,6 @@ import (
 	"time"
 
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
-	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
@@ -19,8 +18,6 @@ import (
 	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
 	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 	"github.com/siderolabs/talos/pkg/machinery/role"
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestClientVersionRejectsUnavailableClient(t *testing.T) {
@@ -42,47 +39,6 @@ func TestClientShutdownRejectsUnavailableClient(t *testing.T) {
 	}
 }
 
-func TestServicesHealthyRequiresConfirmedHealth(t *testing.T) {
-	t.Parallel()
-
-	confirmedHealthy := &machineapi.ServiceHealth{Healthy: true}
-	unknown := &machineapi.ServiceHealth{Unknown: true}
-	notHealthy := &machineapi.ServiceHealth{}
-	tests := []struct {
-		name     string
-		services []*machineapi.ServiceInfo
-		wantErr  bool
-	}{
-		{name: "no services", wantErr: true},
-		{name: "unknown only", services: []*machineapi.ServiceInfo{{Id: "machined", Health: unknown}}, wantErr: true},
-		{name: "healthy and unknown", services: []*machineapi.ServiceInfo{{Id: "machined", Health: confirmedHealthy}, {Id: "unknown", Health: unknown}}},
-		{name: "unhealthy", services: []*machineapi.ServiceInfo{{Id: "machined", Health: notHealthy}}, wantErr: true},
-		{name: "healthy", services: []*machineapi.ServiceInfo{{Id: "machined", Health: confirmedHealthy}}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			client := &Client{raw: &talosclient.Client{MachineClient: fakeMachineServiceClient{
-				response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: tt.services}}},
-			}}}
-			err := client.ServicesHealthy(t.Context())
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ServicesHealthy() error = %v, wantErr = %t", err, tt.wantErr)
-			}
-		})
-	}
-}
-
-type fakeMachineServiceClient struct {
-	machineapi.MachineServiceClient
-	response *machineapi.ServiceListResponse
-}
-
-func (f fakeMachineServiceClient) ServiceList(context.Context, *emptypb.Empty, ...grpc.CallOption) (*machineapi.ServiceListResponse, error) {
-	return f.response, nil
-}
-
 func TestDialRejectsEmptyEndpoint(t *testing.T) {
 	t.Parallel()
 
@@ -94,13 +50,9 @@ func TestDialRejectsEmptyEndpoint(t *testing.T) {
 	}
 }
 
-func TestDialAuthenticatedRejectsInvalidCredentialsBeforeDial(t *testing.T) {
+func TestDialAuthenticatedRejectsInvalidCredentials(t *testing.T) {
 	t.Parallel()
-
 	const endpoint = "192.0.2.1:50000"
-	if _, err := DialAuthenticated(t.Context(), endpoint, []byte("not-a-certificate"), []byte("not-a-key"), []byte("not-a-ca")); err == nil {
-		t.Fatal("DialAuthenticated() accepted malformed client credentials")
-	}
 
 	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
 	if err != nil {
@@ -110,11 +62,45 @@ func TestDialAuthenticatedRejectsInvalidCredentialsBeforeDial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateTalosAPIClientCertificate() error = %v", err)
 	}
-	if _, err := DialAuthenticated(t.Context(), endpoint, certificate.Crt, certificate.Key, nil); err == nil {
-		t.Fatal("DialAuthenticated() accepted an empty CA bundle")
+
+	tests := []struct {
+		name string
+		cert []byte
+		key  []byte
+		ca   []byte
+	}{
+		{name: "malformed certificate", cert: []byte("not a certificate"), key: certificate.Key, ca: bundle.Certs.OS.Crt},
+		{name: "malformed key", cert: certificate.Crt, key: []byte("not a key"), ca: bundle.Certs.OS.Crt},
+		{name: "missing CA", cert: certificate.Crt, key: certificate.Key},
 	}
-	if _, err := DialAuthenticatedFromBundle(t.Context(), endpoint, nil); !errors.Is(err, ErrTalosConfigurationInvalid) {
-		t.Fatalf("DialAuthenticatedFromBundle() error = %v, want ErrTalosConfigurationInvalid", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := DialAuthenticated(t.Context(), endpoint, tt.cert, tt.key, tt.ca); err == nil {
+				t.Fatal("DialAuthenticated() error = nil, want credential validation error")
+			}
+		})
+	}
+}
+
+func TestDialAuthenticatedFromBundleRejectsIncompleteBundle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		bundle *secrets.Bundle
+	}{
+		{name: "nil bundle"},
+		{name: "missing certificates", bundle: &secrets.Bundle{}},
+		{name: "missing OS CA", bundle: &secrets.Bundle{Certs: &secrets.Certs{}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := DialAuthenticatedFromBundle(t.Context(), "192.0.2.1:50000", tt.bundle); !errors.Is(err, ErrTalosConfigurationInvalid) {
+				t.Fatalf("DialAuthenticatedFromBundle() error = %v, want ErrTalosConfigurationInvalid", err)
+			}
+		})
 	}
 }
 

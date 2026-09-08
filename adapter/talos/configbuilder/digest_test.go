@@ -21,10 +21,10 @@ func TestDigestEffectiveConfiguration(t *testing.T) {
 			second:     "# equivalent input\nmachine:\n  token: token-a\n  type: worker\nversion: v1alpha1\n",
 			sameDigest: true,
 		},
-		"redacts machine token": {
+		"distinguishes machine token changes": {
 			first:      "version: v1alpha1\nmachine:\n  type: worker\n  token: token-a\n",
 			second:     "version: v1alpha1\nmachine:\n  type: worker\n  token: token-b\n",
-			sameDigest: true,
+			sameDigest: false,
 		},
 		"retains non-secret changes": {
 			first:  "version: v1alpha1\nmachine:\n  type: worker\n  token: token-a\n",

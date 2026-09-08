@@ -1,8 +1,16 @@
 package talos
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 )
 
 func TestClientVersionRejectsUnavailableClient(t *testing.T) {
@@ -32,6 +40,49 @@ func TestDialRejectsEmptyEndpoint(t *testing.T) {
 	}
 	if _, err := DialAuthenticated(t.Context(), "", nil, nil, nil); !errors.Is(err, ErrEndpointEmpty) {
 		t.Fatalf("DialAuthenticated() error = %v, want ErrEndpointEmpty", err)
+	}
+}
+
+func TestDialAuthenticatedFromWorkerConfigurationDoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	input, err := generate.NewInput(
+		"cluster-a",
+		"https://192.0.2.10:6443",
+		"1.34.0",
+		generate.WithSecretsBundle(bundle),
+	)
+	if err != nil {
+		t.Fatalf("generate.NewInput() error = %v", err)
+	}
+	provider, err := input.Config(talosmachine.TypeWorker)
+	if err != nil {
+		t.Fatalf("Config(worker) error = %v", err)
+	}
+	configuration, err := provider.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
+	if err != nil {
+		t.Fatalf("EncodeBytes() error = %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("DialAuthenticatedFromConfiguration() panicked for worker configuration: %v", recovered)
+		}
+	}()
+	client, err := DialAuthenticatedFromConfiguration(ctx, "127.0.0.1:50000", configuration)
+	if client != nil {
+		if closeErr := client.Close(); closeErr != nil {
+			t.Fatalf("Client.Close() error = %v", closeErr)
+		}
+	}
+	if err == nil && client == nil {
+		t.Fatal("DialAuthenticatedFromConfiguration() returned neither a client nor an error")
 	}
 }
 

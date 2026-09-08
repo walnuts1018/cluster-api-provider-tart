@@ -84,6 +84,98 @@ func TestTartMachineReconcilerClaimsHostBeforeProvisioning(t *testing.T) {
 	}
 }
 
+func TestTartMachineReconcilerClaimsExplicitlyApprovedReusableHost(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	previousUID := types.UID("previous-machine")
+	host := &infrav1alpha1.TartHost{
+		Name: "host-reusable",
+		Spec: infrav1alpha1.TartHostSpec{
+			HostID:              mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd").String(),
+			MACAddress:          mustMACAddress(t, "00:00:5e:00:53:03"),
+			PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: previousUID},
+			ReusePolicy:         infrav1alpha1.ReusePolicyAllowReuse,
+			ReuseApproval:       &infrav1alpha1.ReuseApproval{PreviousConsumerUID: previousUID},
+			ReuseMode:           infrav1alpha1.ReuseModeReprovision,
+		},
+	}
+	machine := &infrav1alpha1.TartMachine{
+		Namespace: "cluster-a",
+		Name:      "machine-reuse",
+		UID:       types.UID("machine-reuse"),
+		Spec: infrav1alpha1.TartMachineSpec{
+			HostRef: &corev1.LocalObjectReference{Name: host.Name},
+			Image:   infrav1alpha1.TalosImageSpec{Version: "v1.14.0", SchematicID: "schematic"},
+		},
+	}
+	capiMachine := &clusterv1.Machine{
+		Namespace: machine.Namespace,
+		Name:      machine.Name,
+		UID:       machine.UID,
+		Spec: clusterv1.MachineSpec{InfrastructureRef: clusterv1.ContractVersionedObjectReference{
+			APIGroup: infrav1alpha1.GroupVersion.Group,
+			Kind:     controller.TartMachineKind,
+			Name:     machine.Name,
+		}},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithStatusSubresource(&infrav1alpha1.TartHost{}, &infrav1alpha1.TartMachine{}).WithObjects(host, machine, capiMachine).Build()
+	reconciler := &TartMachineReconciler{Client: fakeClient}
+
+	for range 2 {
+		if _, err := reconciler.Reconcile(t.Context(), ctrl.Request{Namespace: machine.Namespace, Name: machine.Name}); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+	}
+
+	claimed := &infrav1alpha1.TartHost{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: host.Name}, claimed); err != nil {
+		t.Fatalf("Get(TartHost) error = %v", err)
+	}
+	if claimed.Spec.ConsumerRef == nil || claimed.Spec.ConsumerRef.UID != machine.UID {
+		t.Fatalf("TartHost consumerRef = %#v, want reusable Host claimed by %q", claimed.Spec.ConsumerRef, machine.UID)
+	}
+}
+
+func TestFindClaimedHostAcceptsCompletedRetentionAfterControllerRestart(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	machine := &infrav1alpha1.TartMachine{
+		Namespace: "cluster-a",
+		Name:      "machine-a",
+		UID:       types.UID("machine-a"),
+		Status: infrav1alpha1.TartMachineStatus{
+			HostRef: &corev1.LocalObjectReference{Name: "host-a"},
+		},
+	}
+	host := &infrav1alpha1.TartHost{
+		Name: "host-a",
+		Spec: infrav1alpha1.TartHostSpec{
+			PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: machine.UID},
+		},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(host).Build()
+	reconciler := &TartMachineReconciler{Client: fakeClient}
+
+	claimed, err := reconciler.findClaimedHost(t.Context(), machine)
+	if err != nil {
+		t.Fatalf("findClaimedHost() error = %v", err)
+	}
+	if claimed != nil {
+		t.Fatalf("findClaimedHost() = %#v, want retention already completed", claimed)
+	}
+}
+
 func TestTartMachineReconcilerDoesNotClaimWrongFailureDomain(t *testing.T) {
 	t.Parallel()
 

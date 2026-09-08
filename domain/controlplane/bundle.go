@@ -23,6 +23,7 @@ const (
 	BundleStateLabel   = "tart.cluster.x-k8s.io/bundle-state"
 	BundleStatePending = "Pending"
 	BundleStateActive  = "Active"
+	BundleStateRetired = "Retired"
 	BundleDataKey      = "bundle"
 )
 
@@ -82,7 +83,7 @@ func ValidateBundleSecretContract(secret *corev1.Secret, namespace, clusterName 
 	if secret.Labels[ClusterNameLabel] != clusterName || secret.Labels[ClusterIDLabel] != clusterID.String() || secret.Labels[GenerationLabel] != strconv.FormatInt(int64(generation), 10) || secret.Labels[BundleStateLabel] != state {
 		return ErrBundleSecretInvalid
 	}
-	if state != BundleStatePending && state != BundleStateActive {
+	if state != BundleStatePending && state != BundleStateActive && state != BundleStateRetired {
 		return ErrBundleSecretInvalid
 	}
 	if _, err := cloneCompleteData(secret.Data); err != nil {

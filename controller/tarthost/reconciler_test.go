@@ -68,6 +68,65 @@ func TestRecordBootAttemptMaintainsBoundedObservedHistory(t *testing.T) {
 	}
 }
 
+func TestNeedsPowerOnForDiscovery(t *testing.T) {
+	t.Parallel()
+
+	ready := metav1.Condition{Type: infrav1alpha1.TartHostReadyCondition, Status: metav1.ConditionTrue}
+	notReady := metav1.Condition{Type: infrav1alpha1.TartHostReadyCondition, Status: metav1.ConditionFalse}
+	tests := []struct {
+		name string
+		host infrav1alpha1.TartHost
+		want bool
+	}{
+		{
+			name: "inventory is absent",
+			host: infrav1alpha1.TartHost{Spec: infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendWakeOnLAN}}},
+			want: true,
+		},
+		{
+			name: "retained generation is not observed",
+			host: infrav1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendRedfish}, PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("previous")}},
+				Status:     infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{}, Conditions: []metav1.Condition{ready}, ObservedGeneration: 1},
+			},
+			want: true,
+		},
+		{
+			name: "previous discovery is not ready",
+			host: infrav1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendWakeOnLAN}},
+				Status:     infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{}, Conditions: []metav1.Condition{notReady}, ObservedGeneration: 2},
+			},
+			want: true,
+		},
+		{
+			name: "retained host is ready and observed",
+			host: infrav1alpha1.TartHost{
+				ObjectMeta: metav1.ObjectMeta{Generation: 2},
+				Spec:       infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendWakeOnLAN}, PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: types.UID("previous")}},
+				Status:     infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{}, Conditions: []metav1.Condition{ready}, ObservedGeneration: 2},
+			},
+			want: false,
+		},
+		{
+			name: "manual backend does not power on",
+			host: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{}}},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := needsPowerOnForDiscovery(&tt.host); got != tt.want {
+				t.Errorf("needsPowerOnForDiscovery() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeletionApproved(t *testing.T) {
 	t.Parallel()
 

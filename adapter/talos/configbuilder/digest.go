@@ -25,6 +25,18 @@ func DigestEffectiveConfiguration(completeConfiguration []byte) (string, error) 
 		return "", domainbootstrap.ErrEffectiveConfigurationIncomplete
 	}
 
+	canonicalComplete, err := provider.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
+	if err != nil {
+		return "", fmt.Errorf("encode complete machine configuration: %w", err)
+	}
+	if len(bytes.TrimSpace(canonicalComplete)) == 0 {
+		return "", domainbootstrap.ErrEffectiveConfigurationIncomplete
+	}
+	secretFingerprint, err := domainbootstrap.ComputeDigest(canonicalComplete)
+	if err != nil {
+		return "", fmt.Errorf("compute complete machine configuration fingerprint: %w", err)
+	}
+
 	redacted := provider.RedactSecrets(domainbootstrap.RedactedConfigurationValue)
 	canonical, err := redacted.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
 	if err != nil {
@@ -34,9 +46,12 @@ func DigestEffectiveConfiguration(completeConfiguration []byte) (string, error) 
 		return "", domainbootstrap.ErrEffectiveConfigurationIncomplete
 	}
 
-	// 実際のSHA-256計算はdomain層の純粋関数へ委譲し、このpackageはsiderolabs machineryによる
-	// 正規化・redactionだけを担当する。
-	digest, err := domainbootstrap.ComputeDigest(canonical)
+	// 秘密値自体はdigest materialへ入れず、canonicalな完全configurationのfingerprintだけをredacted configurationへ加える。これにより秘密だけの変更もimmutable Secretの世代変更として検出でき、digestから秘密値を復元できない。
+	digestMaterial := make([]byte, 0, len(canonical)+len(secretFingerprint)+1)
+	digestMaterial = append(digestMaterial, canonical...)
+	digestMaterial = append(digestMaterial, '\n')
+	digestMaterial = append(digestMaterial, secretFingerprint...)
+	digest, err := domainbootstrap.ComputeDigest(digestMaterial)
 	if err != nil {
 		return "", fmt.Errorf("compute machine configuration digest: %w", err)
 	}

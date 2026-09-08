@@ -22,7 +22,11 @@ import (
 // +kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=tartclusters,verbs=get
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get
 
-const workloadClientTimeout = 10 * time.Second
+const (
+	workloadClientTimeout      = 10 * time.Second
+	workloadDrainTimeout       = 45 * time.Second
+	podTerminationPollInterval = 500 * time.Millisecond
+)
 
 // updateCordonAnnotationは、providerがupdateのためにcordonしたNodeへ付ける印である。
 // update完了後にuncordonしてよいのはこの印があるNodeだけであり、利用者が自分でcordonしたNodeを勝手に戻さない。
@@ -37,6 +41,11 @@ type drainOutcome struct {
 	// pdbBlockedOnlyは全ての失敗がPodDisruptionBudget/availability起因(HTTP 429)であったことを示す。
 	// allowDowntime policyの適用対象となるのはこのケースだけである。
 	pdbBlockedOnly bool
+}
+
+type evictedPod struct {
+	namespace string
+	name      string
 }
 
 // workloadClientForMachineは、TartControlPlaneのensureKubeconfigSecretが発行する`<cluster-name>-kubeconfig`
@@ -107,6 +116,7 @@ func drainNode(ctx context.Context, clientset kubernetes.Interface, nodeName str
 		return drainOutcome{}, fmt.Errorf("list Pods on Node: %w", err)
 	}
 	sawPDBFailure := false
+	evicted := make([]evictedPod, 0, len(pods.Items))
 	for i := range pods.Items {
 		pod := &pods.Items[i]
 		if !podRequiresEviction(pod) {
@@ -116,6 +126,7 @@ func drainNode(ctx context.Context, clientset kubernetes.Interface, nodeName str
 		evictErr := clientset.PolicyV1().Evictions(pod.Namespace).Evict(ctx, eviction)
 		switch {
 		case evictErr == nil:
+			evicted = append(evicted, evictedPod{namespace: pod.Namespace, name: pod.Name})
 			continue
 		case apierrors.IsTooManyRequests(evictErr):
 			sawPDBFailure = true
@@ -125,10 +136,48 @@ func drainNode(ctx context.Context, clientset kubernetes.Interface, nodeName str
 			return drainOutcome{}, fmt.Errorf("evict Pod %s/%s: %w", pod.Namespace, pod.Name, evictErr)
 		}
 	}
+	if err := waitForEvictedPods(ctx, clientset, evicted); err != nil {
+		return drainOutcome{}, fmt.Errorf("wait for evicted Pods to terminate: %w", err)
+	}
 	if sawPDBFailure {
 		return drainOutcome{pdbBlockedOnly: true}, nil
 	}
 	return drainOutcome{evictedAll: true}, nil
+}
+
+// waitForEvictedPodsはEviction APIの成功をPod終了の成功とみなさず、対象PodがAPI serverから消えるまで待つ。PodがTerminatingのまま再起動へ進むと、旧Podの終了処理とNode再起動が競合してdata lossやavailability低下を招くため、drain contextの期限まで安全側で停止する。
+func waitForEvictedPods(ctx context.Context, clientset kubernetes.Interface, evicted []evictedPod) error {
+	if len(evicted) == 0 {
+		return nil
+	}
+	pending := make(map[evictedPod]struct{}, len(evicted))
+	for _, pod := range evicted {
+		pending[pod] = struct{}{}
+	}
+	ticker := time.NewTicker(podTerminationPollInterval)
+	defer ticker.Stop()
+	for len(pending) > 0 {
+		for pod := range pending {
+			_, err := clientset.CoreV1().Pods(pod.namespace).Get(ctx, pod.name, metav1.GetOptions{})
+			switch {
+			case err == nil:
+				continue
+			case apierrors.IsNotFound(err):
+				delete(pending, pod)
+			default:
+				return fmt.Errorf("observe Pod %s/%s termination: %w", pod.namespace, pod.name, err)
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+	return nil
 }
 
 // podRequiresEvictionは、kubectl drain相当のフィルタリングに従い、Podがevictionの対象かどうかを判定する。
@@ -182,7 +231,7 @@ func enforceDrainPolicy(ctx context.Context, kubeClient client.Reader, machine *
 		}
 		return false, "The workload cluster Kubernetes client is not available while attempting to drain the Node before the Talos restart."
 	}
-	drainContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	drainContext, cancel := context.WithTimeout(ctx, workloadDrainTimeout)
 	defer cancel()
 	node, err := findNodeByProviderID(drainContext, clientset, providerID)
 	if err != nil {
@@ -243,6 +292,32 @@ func nodeReadyForMachine(ctx context.Context, kubeClient client.Reader, machine 
 		}
 	}
 	return false, "The workload cluster Node is not Ready yet after the machine configuration update."
+}
+
+// FinalizeImageUpgradeは、image Upgrade後にworkload NodeのReadyを確認し、providerが付けたcordon印が残っている場合だけuncordonする。Runtime SDKのUpdateMachine hookを経由しないcontroller更新でも、image update完了をReadyへ反映する前にこの観測を呼び出す必要がある。
+func FinalizeImageUpgrade(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine, providerID string) (bool, string) {
+	clientset, err := workloadClientForMachine(ctx, kubeClient, machine)
+	if err != nil {
+		return false, "The workload cluster Kubernetes client is not available while finalizing the Talos image update."
+	}
+	observationContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
+	defer cancel()
+	node, err := findNodeByProviderID(observationContext, clientset, providerID)
+	if err != nil {
+		return false, "The workload cluster Node could not be observed while finalizing the Talos image update."
+	}
+	for _, condition := range node.Status.Conditions {
+		if condition.Type != corev1.NodeReady || condition.Status != corev1.ConditionTrue {
+			continue
+		}
+		if node.Spec.Unschedulable && node.Annotations[updateCordonAnnotation] != "" {
+			if err := uncordonNode(observationContext, clientset, node); err != nil {
+				return false, "The workload cluster Node could not be uncordoned after the Talos image update."
+			}
+		}
+		return true, ""
+	}
+	return false, "The workload cluster Node is not Ready yet after the Talos image update."
 }
 
 // uncordonNodeは対象NodeのUnschedulableとproviderのcordon印を解除する。

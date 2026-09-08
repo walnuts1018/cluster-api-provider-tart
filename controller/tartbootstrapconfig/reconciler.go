@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -207,7 +208,42 @@ func (r *TartBootstrapConfigReconciler) configurationFromPatches(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	return bootstrap.RenderFromPatches(r.Renderer, configurationContext, patches)
+	configuration, err := bootstrap.RenderFromPatches(r.Renderer, configurationContext, patches)
+	if err != nil {
+		return nil, err
+	}
+	providerID, err := r.providerIDForBootstrapMachine(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	configuration, err = talos.SetProviderID(configuration, providerID)
+	if err != nil {
+		return nil, fmt.Errorf("set allocated ProviderID in bootstrap configuration: %w", err)
+	}
+	return configuration, nil
+}
+
+// providerIDForBootstrapMachineは、Host claim後にTartMachineへcontrollerが記録したProviderIDをbootstrap configurationへ適用するために観測する。ProviderIDが未確定な間は、空値を含むSecretを発行せず、Host allocationの観測が収束するまで待つ。
+func (r *TartBootstrapConfigReconciler) providerIDForBootstrapMachine(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (string, error) {
+	machine, err := controller.FindCAPIMachineForBootstrap(ctx, r.Client, config)
+	if err != nil {
+		return "", err
+	}
+	ref := machine.Spec.InfrastructureRef
+	if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != controller.TartMachineKind || ref.Name == "" {
+		return "", errBootstrapContextPending
+	}
+	providerMachine := &infrav1alpha1.TartMachine{}
+	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, providerMachine); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", errBootstrapContextPending
+		}
+		return "", err
+	}
+	if providerMachine.Spec.ProviderID.IsZero() {
+		return "", errBootstrapContextPending
+	}
+	return providerMachine.Spec.ProviderID.String(), nil
 }
 
 func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.Context, config *bootstrapv1alpha1.TartBootstrapConfig) (bootstrap.MachineConfigurationContext, error) {
@@ -370,6 +406,8 @@ func classifyConfigurationError(err error) (reason, message string) {
 		return infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped."
 	case errors.Is(err, domainbootstrap.ErrConfigurationConflict):
 		return "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant."
+	case errors.Is(err, talos.ErrProviderIDConflict):
+		return "ConfigurationConflict", "The rendered Talos machine configuration contains a ProviderID that conflicts with the allocated Host."
 	case errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous), errors.Is(err, domainbootstrap.ErrInstallConfigurationInvalid):
 		return "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk."
 	default:

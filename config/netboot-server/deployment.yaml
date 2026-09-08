@@ -26,6 +26,10 @@ spec:
       # DHCP(port 67)のbroadcast/replyとProxyDHCPの動作にはnode NICへの直接アクセスが必要なため、hostNetworkで動作させる。controller-managerとは異なりcluster network越しには動かせない。
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      # emptyDirはkubeletがroot所有で作成するため、loader取得とTFTP配信をnon-root UIDで行えるよう共有groupを設定する。
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
       serviceAccountName: netboot-server
       containers:
       - name: netboot-server
@@ -41,10 +45,12 @@ spec:
           value: ""
         volumeMounts:
         - name: tftp-root
-          mountPath: /var/lib/netboot-server
+          mountPath: /var/lib/netboot-server/tftp
         securityContext:
           # port 67(DHCP)/69(TFTP)はwell-known portであり、CAP_NET_BIND_SERVICEが必要である。
-          runAsNonRoot: false
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
           allowPrivilegeEscalation: false
           capabilities:
             add:
@@ -71,6 +77,28 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
+      initContainers:
+      - name: ipxe-loader
+        # E2E workflowと同じiPXE公式prebuilt binaryを、UEFI PXEが要求する標準名でTFTP rootへ配置する。
+        # renovate: datasource=docker depName=curlimages/curl
+        image: curlimages/curl:8.16.0
+        args:
+        - --fail
+        - --location
+        - --output
+        - /var/lib/netboot-server/tftp/ipxe-x86_64.efi
+        - https://boot.ipxe.org/x86_64-efi/ipxe.efi
+        securityContext:
+          runAsUser: 65532
+          runAsGroup: 65532
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tftp-root
+          mountPath: /var/lib/netboot-server/tftp
       volumes:
       - name: tftp-root
         emptyDir: {}

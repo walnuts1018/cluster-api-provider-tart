@@ -196,6 +196,13 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		}
 		return nil, errors.New("the immutable Bootstrap Secret does not satisfy the update contract")
 	}
+	if providerMachine.Spec.ProviderID.IsZero() {
+		return nil, &updateRetryError{message: "The TartMachine ProviderID is not available while the in-place update is being prepared."}
+	}
+	configuration, err = talos.SetProviderID(configuration, providerMachine.Spec.ProviderID.String())
+	if err != nil {
+		return nil, errors.New("the immutable Bootstrap Secret does not contain the allocated ProviderID")
+	}
 	return &MachineUpdatePreparation{
 		DesiredInfrastructure: desiredInfrastructure,
 		ProviderMachine:       providerMachine,

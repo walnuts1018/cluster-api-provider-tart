@@ -70,6 +70,8 @@ func DecodeBundleData(data map[string][]byte, clusterID clusterdomain.ClusterID)
 	if err := yaml.Unmarshal(encoded, &bundle); err != nil {
 		return nil, fmt.Errorf("unmarshal Talos secret bundle: %w", err)
 	}
+	// Clockはmachine configurationから再構築できずSecretのbundle dataにも含まれないため、decode後にclient certificateを生成する経路がnil clockを参照しないよう検証済みbundleへcontrollerの現在時刻を明示的に与える。
+	bundle.Clock = secrets.NewFixedClock(time.Now())
 	if bundle.Cluster == nil || bundle.Cluster.ID != clusterID.String() {
 		return nil, ErrBundleIdentityMismatch
 	}
@@ -95,6 +97,8 @@ func GenerateRotatedBundleData(clusterID clusterdomain.ClusterID, previous *secr
 	rotated.Secrets = previous.Secrets
 	rotated.TrustdInfo = previous.TrustdInfo
 	rotated.Certs.Etcd = previous.Certs.Etcd
+	// service-account signing keyはCA rotationの対象外であり、再生成すると既存のServiceAccount tokenを無効化するため前世代のkeyをそのまま引き継ぐ。
+	rotated.Certs.K8sServiceAccount = previous.Certs.K8sServiceAccount
 	if err := rotated.Validate(talosconfig.TalosVersionCurrent); err != nil {
 		return nil, fmt.Errorf("validate rotated Talos secret bundle: %w", err)
 	}
@@ -132,11 +136,21 @@ func ObserveCATrustStage(configuration []byte, active, pending domaincontrolplan
 		return domaincontrolplane.CATrustStageUnknown, fmt.Errorf("%w: machine security", ErrCATrustConfigurationIncomplete)
 	}
 	apiConfig := provider.K8sAPIServerCAConfig()
-	aggregatorConfig := provider.K8sAggregatorCAConfig()
-	if apiConfig == nil || aggregatorConfig == nil {
-		return domaincontrolplane.CATrustStageUnknown, fmt.Errorf("%w: Kubernetes API/aggregator CA", ErrCATrustConfigurationIncomplete)
+	if apiConfig == nil {
+		return domaincontrolplane.CATrustStageUnknown, fmt.Errorf("%w: Kubernetes API CA", ErrCATrustConfigurationIncomplete)
 	}
 	security := provider.Machine().Security()
+	if !provider.Machine().Type().IsControlPlane() {
+		return domaincontrolplane.ObserveStageWithoutAggregator(
+			security.IssuingCA(), security.AcceptedCAs(),
+			apiConfig.IssuingCA(), apiConfig.AcceptedCAs(),
+			active, pending,
+		), nil
+	}
+	aggregatorConfig := provider.K8sAggregatorCAConfig()
+	if aggregatorConfig == nil {
+		return domaincontrolplane.CATrustStageUnknown, fmt.Errorf("%w: Kubernetes aggregator CA", ErrCATrustConfigurationIncomplete)
+	}
 
 	return domaincontrolplane.ObserveStage(
 		security.IssuingCA(), security.AcceptedCAs(),

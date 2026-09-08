@@ -10,6 +10,60 @@ metadata:
   # "cluster-api-provider-tart-system" に変換されるプレースホルダーです。
   name: system
 ---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: control-plane-runtime-extension-selfsigned
+  namespace: system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: control-plane-runtime-extension-ca
+  namespace: system
+spec:
+  commonName: control-plane-runtime-extension-ca
+  isCA: true
+  issuerRef:
+    kind: Issuer
+    name: control-plane-runtime-extension-selfsigned
+  privateKey:
+    algorithm: RSA
+    rotationPolicy: Always
+    size: 2048
+  secretName: control-plane-runtime-extension-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: control-plane-runtime-extension-issuer
+  namespace: system
+spec:
+  ca:
+    secretName: control-plane-runtime-extension-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: control-plane-runtime-extension-cert
+  namespace: system
+spec:
+  dnsNames:
+  - control-plane-controller-manager.system.svc
+  - control-plane-controller-manager.system.svc.cluster.local
+  - cluster-api-provider-tart-control-plane-controller-manager.cluster-api-provider-tart-system.svc
+  - cluster-api-provider-tart-control-plane-controller-manager.cluster-api-provider-tart-system.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: control-plane-runtime-extension-issuer
+  privateKey:
+    algorithm: RSA
+    rotationPolicy: Always
+    size: 2048
+  secretName: control-plane-runtime-extension-cert
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,6 +107,8 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          - --enable-runtime-extension=true
+          - --runtime-extension-cert-path=/tmp/k8s-runtime-extension/serving-certs
         image: control-plane-controller:latest
         name: manager
         ports:
@@ -84,5 +140,46 @@ spec:
           requests:
             cpu: 10m
             memory: 64Mi
+        volumeMounts:
+        - mountPath: /tmp/k8s-runtime-extension/serving-certs
+          name: runtime-extension-cert
+          readOnly: true
+      volumes:
+      - name: runtime-extension-cert
+        secret:
+          secretName: control-plane-runtime-extension-cert
+          optional: false
       serviceAccountName: control-plane-controller-manager
       terminationGracePeriodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-plane-controller-manager
+  namespace: system
+  labels:
+    control-plane: control-plane-controller-manager
+    app.kubernetes.io/name: cluster-api-provider-tart
+    cluster.x-k8s.io/provider: control-plane-tart
+spec:
+  selector:
+    control-plane: control-plane-controller-manager
+    app.kubernetes.io/name: cluster-api-provider-tart
+  ports:
+  - name: runtime-ext
+    port: 9443
+    protocol: TCP
+    targetPort: runtime-ext
+---
+apiVersion: runtime.cluster.x-k8s.io/v1beta2
+kind: ExtensionConfig
+metadata:
+  name: control-plane-tart-runtime-extension
+  annotations:
+    runtime.cluster.x-k8s.io/inject-ca-from-secret: cluster-api-provider-tart-system/control-plane-runtime-extension-cert
+spec:
+  clientConfig:
+    service:
+      name: control-plane-controller-manager
+      namespace: cluster-api-provider-tart-system
+      port: 9443

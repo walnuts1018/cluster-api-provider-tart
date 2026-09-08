@@ -1,0 +1,16 @@
+nameReference:
+- kind: Issuer
+  group: cert-manager.io
+  version: v1
+  fieldSpecs:
+  - kind: Certificate
+    group: cert-manager.io
+    version: v1
+    path: spec/issuerRef/name
+- kind: Service
+  version: v1
+  fieldSpecs:
+  - kind: ExtensionConfig
+    group: runtime.cluster.x-k8s.io
+    version: v1beta2
+    path: spec/clientConfig/service/name

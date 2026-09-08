@@ -43,6 +43,35 @@ func ObserveStage(issuingMachine *x509.PEMEncodedCertificateAndKey, acceptedMach
 	return CATrustStageUnknown
 }
 
+// ObserveStageWithoutAggregatorはworkerのmachine configurationでAggregator CA documentが存在しない場合に、machineとKubernetes API CAだけからrotation段階を判定する。
+func ObserveStageWithoutAggregator(issuingMachine *x509.PEMEncodedCertificateAndKey, acceptedMachine []*x509.PEMEncodedCertificate, _ *x509.PEMEncodedCertificateAndKey, acceptedAPI []*x509.PEMEncodedCertificate, active, pending CertBundle) CATrustStage {
+	machineStage := caStage(issuingMachine, acceptedMachine, active.Machine, pending.Machine)
+	apiStage := workerCAStage(acceptedAPI, active.KubernetesAPI, pending.KubernetesAPI)
+	if machineStage == CATrustStageCutover && apiStage == CATrustStageDualTrust {
+		// workerのKubernetes API CAにはissuing private keyがなく、accepted CAの集合だけではcutoverをdual trustと区別できない。Talos machine CAのissuing切替をcutoverの観測根拠にする。
+		apiStage = CATrustStageCutover
+	}
+	if machineStage == apiStage {
+		return machineStage
+	}
+	return CATrustStageUnknown
+}
+
+func workerCAStage(accepted []*x509.PEMEncodedCertificate, active, pending *x509.PEMEncodedCertificateAndKey) CATrustStage {
+	activeAccepted := containsAcceptedCertificate(accepted, active)
+	pendingAccepted := containsAcceptedCertificate(accepted, pending)
+	switch {
+	case activeAccepted && !pendingAccepted:
+		return CATrustStageStable
+	case activeAccepted && pendingAccepted:
+		return CATrustStageDualTrust
+	case pendingAccepted && !activeAccepted:
+		return CATrustStageRotated
+	default:
+		return CATrustStageUnknown
+	}
+}
+
 // caStageは単一CAのissuing/accepted観測値から、そのCAだけの進行段階を判定する。
 func caStage(issuing *x509.PEMEncodedCertificateAndKey, accepted []*x509.PEMEncodedCertificate, active, pending *x509.PEMEncodedCertificateAndKey) CATrustStage {
 	issuingActive := sameCertificate(issuing, active)

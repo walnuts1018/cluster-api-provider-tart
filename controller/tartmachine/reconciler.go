@@ -178,7 +178,7 @@ func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, m
 		ExpectedHostID: selected.Spec.HostID,
 		Selector:       machine.Spec.HostSelector,
 		FailureDomain:  failureDomainForClaim,
-		Mode:           hostusecase.ClaimFreshAutomatic,
+		Mode:           claimModeForSelectedHost(machine, selected),
 	}
 	if err := kubernetesadapter.NewTartHostRepository(r.Client).ClaimHostWithRequest(ctx, selected, claimReq); err != nil {
 		if errors.Is(err, hostusecase.ErrClaimConflict) || errors.Is(err, hostusecase.ErrHostNoLongerEligible) || errors.Is(err, hostusecase.ErrReuseApprovalRequired) || errors.Is(err, hostusecase.ErrHostIdentityChanged) || errors.Is(err, hostusecase.ErrHostSelectionMismatch) {
@@ -225,6 +225,13 @@ func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, m
 	}
 
 	return selected, ctrl.Result{}, false, nil
+}
+
+func claimModeForSelectedHost(machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost) hostusecase.ClaimMode {
+	if machine.Spec.HostRef != nil && machine.Spec.HostRef.Name == selected.Name && hostusecase.Classify(selected.Spec) == hostdomain.Reusable {
+		return hostusecase.ClaimExplicitReusable
+	}
+	return hostusecase.ClaimFreshAutomatic
 }
 
 func (r *TartMachineReconciler) reconcileProvisioningHostSelectionError(ctx context.Context, machine *infrav1alpha1.TartMachine, err error) (*infrav1alpha1.TartHost, ctrl.Result, bool, error) {
@@ -339,7 +346,14 @@ func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, mach
 	if !ok || len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, ErrBootstrapDataUnavailable
 	}
-	return bytes.Clone(configuration), nil
+	effectiveConfiguration := bytes.Clone(configuration)
+	if !machine.Spec.ProviderID.IsZero() {
+		effectiveConfiguration, err = talos.SetProviderID(effectiveConfiguration, machine.Spec.ProviderID.String())
+		if err != nil {
+			return nil, fmt.Errorf("set allocated ProviderID on bootstrap configuration: %w", err)
+		}
+	}
+	return effectiveConfiguration, nil
 }
 
 func (r *TartMachineReconciler) reconcileTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, selected *infrav1alpha1.TartHost, configuration []byte) (ctrl.Result, error) {
@@ -433,7 +447,12 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 		return result, true, err
 	}
 
+	previousUpToDate := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition)
+	imageUpgradePending := wasImageUpgradePending(previousUpToDate)
 	if machine.Spec.Image.Version != "" && version.Tag == machine.Spec.Image.Version && observedSchematicID == machine.Spec.Image.SchematicID {
+		if result, handled, err := r.finalizeObservedImageUpgrade(ctx, machine, authenticated, version.Tag, observedSchematicID, imageUpgradePending); handled {
+			return result, true, err
+		}
 		if closeErr := authenticated.Close(); closeErr != nil {
 			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
 		}
@@ -454,7 +473,18 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 		mismatchMessage = "The observed Talos schematic does not match the desired schematic."
 		readyMessage = "The Host is running the desired Talos version, but not the desired schematic."
 	}
-	previousUpToDate := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition)
+	if previousUpToDate != nil && previousUpToDate.Status == metav1.ConditionFalse && previousUpToDate.Reason == infrav1alpha1.ReasonRolledBack && previousUpToDate.ObservedGeneration == machine.Generation {
+		if closeErr := authenticated.Close(); closeErr != nil {
+			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+		}
+		result, err := r.reportTalosStatusWithVersion(ctx, machine, version.Tag, observedSchematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionFalse, infrav1alpha1.ReasonRolledBack, "The previously observed desired Talos image rolled back; a new Machine generation is required before another upgrade is attempted.",
+			metav1.ConditionFalse, infrav1alpha1.ReasonRolledBack, "Automatic image upgrades remain stopped after an observed Talos image rollback.",
+			0)
+		return result, true, err
+	}
 	wasUpToDate := previousUpToDate != nil && previousUpToDate.Status == metav1.ConditionTrue
 	if wasUpToDate && machine.Status.TalosVersion == machine.Spec.Image.Version && machine.Status.TalosSchematicID == machine.Spec.Image.SchematicID {
 		// 一度desired imageへ到達した後にrollbackした場合は、自動復旧を試みずfail-closedで停止する。
@@ -502,6 +532,44 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 		metav1.ConditionFalse, mismatchReason, readyMessage,
 		talosRequeue)
 	return result, true, err
+}
+
+func wasImageUpgradePending(condition *metav1.Condition) bool {
+	return condition != nil && condition.Status == metav1.ConditionFalse && (condition.Reason == "VersionMismatch" || condition.Reason == "SchematicMismatch")
+}
+
+func (r *TartMachineReconciler) finalizeObservedImageUpgrade(ctx context.Context, machine *infrav1alpha1.TartMachine, authenticated *talos.Client, version, schematicID string, pending bool) (ctrl.Result, bool, error) {
+	if !pending {
+		return ctrl.Result{}, false, nil
+	}
+	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+	if err != nil {
+		closeTalosClient(ctx, authenticated)
+		result, reportErr := r.reportTalosStatusWithVersion(ctx, machine, version, schematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
+			metav1.ConditionFalse, "NodeRecoveryUnavailable", "The owning CAPI Machine could not be observed while finalizing the Talos image update.",
+			talosRequeue)
+		return result, true, reportErr
+	}
+	if ready, message := runtimeextension.FinalizeImageUpgrade(ctx, r.Client, clusterMachine, machine.Spec.ProviderID.String()); !ready {
+		closeTalosClient(ctx, authenticated)
+		result, reportErr := r.reportTalosStatusWithVersion(ctx, machine, version, schematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
+			metav1.ConditionFalse, "NodeRecoveryPending", message,
+			talosRequeue)
+		return result, true, reportErr
+	}
+	return ctrl.Result{}, false, nil
+}
+
+func closeTalosClient(ctx context.Context, talosClient *talos.Client) {
+	if err := talosClient.Close(); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "close authenticated Talos client")
+	}
 }
 
 // applyTalosUpgradeは、観測したTalos version/schematicのmismatchを実際のOS image upgrade(Talosの
@@ -756,18 +824,18 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	stopped, observationErr := r.observeHostStopped(ctx, selected, machine, configuration)
 	if observationErr != nil {
 		if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && !shutdownConfirmed(selected, machine) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+			return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required after the shutdown request.", shutdownConfirmationRequeue)
 		}
 		if errors.Is(observationErr, ErrShutdownStateUnverifiable) && isShutdownConfirmationRequired(selected.Spec.Power.Backend) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+			return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required after the shutdown request.", shutdownConfirmationRequeue)
 		}
-		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host stop state could not be verified; the Machine finalizer remains.", shutdownConfirmationRequeue)
+		return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The allocated Host stop state could not be verified after the shutdown request; the Machine finalizer remains.", shutdownConfirmationRequeue)
 	}
 	if !stopped {
 		if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && !shutdownConfirmed(selected, machine) {
-			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownVerificationUnavailable, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required.", shutdownConfirmationRequeue)
+			return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The WakeOnLAN/Manual power backend cannot independently observe power-off state; explicit shutdown confirmation is required after the shutdown request.", shutdownConfirmationRequeue)
 		}
-		return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host still responds to a Talos API; the Host claim remains.", shutdownConfirmationRequeue)
+		return r.reportAndRequeue(ctx, machine, machinedomain.ShutdownRequestedReason, "The allocated Host still responds to a Talos API after the shutdown request; the Host claim remains.", shutdownConfirmationRequeue)
 	}
 	consumer := corev1.ObjectReference{
 		APIVersion: infrav1alpha1.GroupVersion.String(),
@@ -820,6 +888,9 @@ func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *in
 			return nil, apierrors.NewNotFound(schema.GroupResource{Group: infrav1alpha1.GroupVersion.Group, Resource: "tarthosts"}, machine.Status.HostRef.Name)
 		}
 		if statusHost.Spec.ConsumerRef == nil || statusHost.Spec.ConsumerRef.UID != machine.UID {
+			if statusHost.Spec.PreviousConsumerRef != nil && statusHost.Spec.PreviousConsumerRef.UID == machine.UID {
+				return nil, nil
+			}
 			return nil, errMachineHostBindingLost
 		}
 	}
@@ -946,14 +1017,16 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 			if versionErr == nil {
 				return false, nil
 			}
-			// TLS接続自体は成功しており、hostはまだ応答している。confirmationで上書きしない。
-			return false, nil
+			authenticatedErr = versionErr
 		}
-		authenticatedErr = err
+		if err != nil {
+			authenticatedErr = err
+		}
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, maintenanceDialTimeout)
 	maintenance, err := talos.DialMaintenance(dialCtx, endpoint)
 	cancel()
+	maintenanceErr := err
 	if err == nil {
 		inventoryCtx, cancel := context.WithTimeout(ctx, maintenanceObserveTimeout)
 		identity, identityErr := maintenance.Inventory(inventoryCtx)
@@ -968,17 +1041,19 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 			// maintenanceが正しいidentityで応答している間は、confirmationより優先して起動中として扱う。
 			return false, nil
 		}
-		// Dialは成功したがInventory取得に失敗した場合も、TCP/TLSレベルでhostは応答しているため、停止証拠とはしない。
-		return false, nil
+		if authenticatedErr == nil {
+			authenticatedErr = identityErr
+		}
+		maintenanceErr = identityErr
 	}
 	// ここまでで、どのTalos APIも正の証拠として応答していない。独立observerがないため、operatorの明示的なconfirmationが必要。
 	if isShutdownConfirmationRequired(selected.Spec.Power.Backend) && shutdownConfirmed(selected, machine) {
 		return true, nil
 	}
 	if authenticatedErr != nil {
-		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off (authenticated error: %v): %w", ErrShutdownStateUnverifiable, authenticatedErr, err)
+		return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off (authenticated error: %v): %w", ErrShutdownStateUnverifiable, authenticatedErr, maintenanceErr)
 	}
-	return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, err)
+	return false, fmt.Errorf("%w: maintenance API unreachable is not proof of power off: %w", ErrShutdownStateUnverifiable, maintenanceErr)
 }
 
 func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine *infrav1alpha1.TartMachine, consumer corev1.ObjectReference) (infrav1alpha1.PreviousConsumerRef, error) {

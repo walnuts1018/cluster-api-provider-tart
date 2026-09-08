@@ -9,6 +9,8 @@ import (
 	"crypto/tls"
 	"flag"
 	"log/slog"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"time"
 
@@ -119,6 +121,11 @@ func NewManager(scheme *runtime.Scheme, leaderElectionID string, f *Flags) (ctrl
 		SecureServing: f.SecureMetrics,
 		TLSOpts:       tlsOpts,
 	}
+	if f.DiagnosticsAddr != "" {
+		// controller-runtimeのmetrics serverとpprof serverはそれぞれlistenerを作るため、同じDiagnosticsAddrへPprofBindAddressを設定すると起動時にaddress already in useになる。
+		// pprofはmetrics serverのExtraHandlersへ追加し、認証・TLSをmetrics endpointと共有する。
+		metricsServerOptions.ExtraHandlers = pprofHandlers()
+	}
 
 	if f.SecureMetrics {
 		// FilterProviderはmetrics endpointをauthn/authzで保護するために使用する。
@@ -134,16 +141,10 @@ func NewManager(scheme *runtime.Scheme, leaderElectionID string, f *Flags) (ctrl
 		metricsServerOptions.KeyName = f.MetricsCertKey
 	}
 
-	var pprofAddr string
-	if f.DiagnosticsAddr != "" {
-		pprofAddr = f.DiagnosticsAddr
-	}
-
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: f.ProbeAddr,
-		PprofBindAddress:       pprofAddr,
 		LeaderElection:         f.EnableLeaderElection,
 		LeaderElectionID:       leaderElectionID,
 		Client: client.Options{
@@ -156,6 +157,20 @@ func NewManager(scheme *runtime.Scheme, leaderElectionID string, f *Flags) (ctrl
 	}
 
 	return mgr, nil
+}
+
+func pprofHandlers() map[string]http.Handler {
+	handlers := map[string]http.Handler{
+		"/debug/pprof/":        http.HandlerFunc(pprof.Index),
+		"/debug/pprof/cmdline": http.HandlerFunc(pprof.Cmdline),
+		"/debug/pprof/profile": http.HandlerFunc(pprof.Profile),
+		"/debug/pprof/symbol":  http.HandlerFunc(pprof.Symbol),
+		"/debug/pprof/trace":   http.HandlerFunc(pprof.Trace),
+	}
+	for _, name := range []string{"allocs", "block", "goroutine", "heap", "mutex", "threadcreate"} {
+		handlers["/debug/pprof/"+name] = pprof.Handler(name)
+	}
+	return handlers
 }
 
 // AddHealthChecksはhealthz/readyz probeをmanagerへ登録する。

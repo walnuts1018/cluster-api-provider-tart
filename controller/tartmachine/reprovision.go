@@ -117,13 +117,8 @@ func (r *TartMachineReconciler) reconcileReprovision(ctx context.Context, machin
 
 	observed, observeErr := observeResetTarget(ctx, node, endpoint)
 	if observeErr != nil {
-		result, reportErr := r.reportTalosStatus(ctx, machine,
-			metav1.ConditionFalse, infrav1alpha1.ReasonReprovisioning, "The previous Talos installation could not be observed for identity verification.",
-			metav1.ConditionFalse, infrav1alpha1.ReasonReprovisioning, "Reprovision is waiting for a verifiable previous Talos installation.",
-			infrav1alpha1.ReasonReprovisioning, "Talos version cannot be verified before the previous installation is reset.",
-			infrav1alpha1.ReasonReprovisioning, "The previous Talos installation identity is not observable yet.",
-			reprovisionRequeue)
-		return result, true, reportErr
+		// gRPC clientの構築はlazyなため、旧CAによる認証失敗は最初のRPCで判明する。maintenance APIで同じHostを観測できた場合だけreset完了として扱う。
+		return r.confirmReprovisionCompleted(ctx, machine, selected, endpoint)
 	}
 
 	expected := recoveryusecase.ExpectedIdentityForHost(selected, identity.ClusterID, endpoint)

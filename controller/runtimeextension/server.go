@@ -11,7 +11,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const handlerTimeoutSeconds = 10
+// handlerTimeoutSecondsは、Talos installer imageのpullとUpgrade RPCの完了に必要な8分へ、Runtime Extension discoveryとAPI経路の余裕を加えた上限である。短い既定値のままでは、正常なimage更新がCAPI client側のdeadlineで中断される。
+const handlerTimeoutSeconds int32 = 9 * 60
 
 // ManagerはCAPIのExtensionConfigへ登録するRuntime Extension HTTPS serverを実行する。
 type Manager struct {
@@ -31,7 +32,7 @@ func NewManager(catalog *runtimecatalog.Catalog, certDir string, readers ...clie
 		return nil, fmt.Errorf("create runtime extension server: %w", err)
 	}
 
-	timeout := int32(handlerTimeoutSeconds)
+	timeout := handlerTimeoutSeconds
 	var reader client.Reader
 	if len(readers) > 1 {
 		return nil, fmt.Errorf("create runtime extension server: at most one Kubernetes reader is supported")

@@ -103,13 +103,20 @@ func ValidateClaimCandidate(host *infrav1alpha1.TartHost, req ClaimRequest) erro
 	if req.ExpectedHostID != "" && host.Spec.HostID != req.ExpectedHostID {
 		return fmt.Errorf("%w: expected %s got %s", ErrHostIdentityChanged, req.ExpectedHostID, host.Spec.HostID)
 	}
-	if req.Mode == ClaimFreshAutomatic {
+	switch req.Mode {
+	case ClaimFreshAutomatic:
 		if Classify(host.Spec) != hostdomain.Available {
 			return fmt.Errorf("%w: eligibility is %s", ErrHostNoLongerEligible, Classify(host.Spec))
 		}
 		if host.Spec.PreviousConsumerRef != nil {
 			return ErrReuseApprovalRequired
 		}
+	case ClaimExplicitReusable:
+		if Classify(host.Spec) != hostdomain.Reusable {
+			return ErrReuseApprovalRequired
+		}
+	default:
+		return ErrInvalidClaim
 	}
 	if !MatchesForFailureDomain(host.Labels, host.Spec, req.Selector, req.FailureDomain) {
 		return ErrHostSelectionMismatch

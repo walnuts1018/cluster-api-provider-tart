@@ -11,6 +11,7 @@ import (
 
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	"github.com/siderolabs/talos/pkg/machinery/constants"
 	"github.com/siderolabs/talos/pkg/machinery/role"
 )
 
@@ -63,11 +64,20 @@ func DialAuthenticatedFromConfiguration(ctx context.Context, endpoint string, co
 	if err != nil {
 		return nil, fmt.Errorf("%w: load talos machine configuration: %w", ErrTalosConfigurationInvalid, err)
 	}
-	bundle, err := secrets.NewBundleFromConfig(secrets.NewFixedClock(time.Now()), config)
-	if err != nil {
-		return nil, fmt.Errorf("%w: derive talos credentials from machine configuration: %w", ErrTalosConfigurationInvalid, err)
+	machine := config.Machine()
+	if machine == nil || machine.Security() == nil || machine.Security().IssuingCA() == nil {
+		return nil, fmt.Errorf("%w: machine configuration has no Talos API certificate authority", ErrTalosConfigurationInvalid)
 	}
-	return DialAuthenticatedFromBundle(ctx, endpoint, bundle)
+	certificate, err := secrets.NewAdminCertificateAndKey(
+		time.Now(),
+		machine.Security().IssuingCA(),
+		role.MakeSet(role.Admin),
+		constants.TalosAPIDefaultCertificateValidityDuration,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: derive Talos API credentials from machine configuration: %w", ErrTalosConfigurationInvalid, err)
+	}
+	return DialAuthenticated(ctx, endpoint, certificate.Crt, certificate.Key, machine.Security().IssuingCA().Crt)
 }
 
 // DialAuthenticatedFromBundleはTalos secrets bundleのOS certificate authorityから短命なadmin client certificateを導出してauthenticated Talos APIへ接続する。CA rotation中は、nodeが現在どのgenerationのCAを提示しているか分からないため、呼び出し側はactiveとpending双方のbundleで順に接続を試みて、実際に検証できたgenerationを判定する。

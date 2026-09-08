@@ -4,11 +4,16 @@ import (
 	"context"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
+	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 )
 
 // newCARotationTestClusterは、テストに必要な最小限のClusterID/ActiveSecretGenerationだけを
@@ -26,6 +31,9 @@ func newCARotationTestReconciler(t *testing.T) *TartControlPlaneReconciler {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -102,5 +110,87 @@ func TestReconcileCARotationInvalidActiveGeneration(t *testing.T) {
 	}
 	if state.reason != "RotationGenerationInvalid" {
 		t.Fatalf("reconcileCARotation() reason = %q, want %q", state.reason, "RotationGenerationInvalid")
+	}
+}
+
+func TestPromoteCARotationRestoresStatusAndSecretLabel(t *testing.T) {
+	t.Parallel()
+
+	clusterID, err := clusterdomain.ParseClusterID("11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("ParseClusterID() error = %v", err)
+	}
+	cluster := newCARotationTestCluster(clusterID.String(), 1, new(int32))
+	*cluster.Spec.CARotationRequestedGeneration = 2
+	cluster.Namespace = "default"
+	cluster.UID = "cluster-uid"
+	controller := true
+	secret, err := domaincontrolplane.BuildPendingSecret(
+		cluster.Namespace,
+		cluster.Name,
+		clusterID,
+		2,
+		metav1.OwnerReference{
+			APIVersion: infrav1alpha1.GroupVersion.String(),
+			Kind:       "TartCluster",
+			Name:       cluster.Name,
+			UID:        cluster.UID,
+			Controller: &controller,
+		},
+		map[string][]byte{domaincontrolplane.BundleDataKey: []byte("bundle")},
+	)
+	if err != nil {
+		t.Fatalf("BuildPendingSecret() error = %v", err)
+	}
+	oldSecret, err := domaincontrolplane.BuildActiveSecret(
+		cluster.Namespace,
+		cluster.Name,
+		clusterID,
+		1,
+		metav1.OwnerReference{
+			APIVersion: infrav1alpha1.GroupVersion.String(),
+			Kind:       "TartCluster",
+			Name:       cluster.Name,
+			UID:        cluster.UID,
+			Controller: &controller,
+		},
+		map[string][]byte{domaincontrolplane.BundleDataKey: []byte("old-bundle")},
+	)
+	if err != nil {
+		t.Fatalf("BuildActiveSecret() error = %v", err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	r := &TartControlPlaneReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, secret, oldSecret).WithStatusSubresource(cluster).Build()}
+	if err := r.promoteCARotation(t.Context(), cluster, clusterID, 2); err != nil {
+		t.Fatalf("promoteCARotation() error = %v", err)
+	}
+
+	var observedCluster infrav1alpha1.TartCluster
+	if err := r.Get(t.Context(), client.ObjectKeyFromObject(cluster), &observedCluster); err != nil {
+		t.Fatalf("get promoted cluster: %v", err)
+	}
+	if observedCluster.Status.ActiveSecretGeneration != 2 {
+		t.Fatalf("active secret generation = %d, want 2", observedCluster.Status.ActiveSecretGeneration)
+	}
+	var observedSecret corev1.Secret
+	if err := r.Get(t.Context(), client.ObjectKeyFromObject(secret), &observedSecret); err != nil {
+		t.Fatalf("get promoted Secret: %v", err)
+	}
+	if observedSecret.Labels[domaincontrolplane.BundleStateLabel] != domaincontrolplane.BundleStateActive {
+		t.Fatalf("bundle state = %q, want %q", observedSecret.Labels[domaincontrolplane.BundleStateLabel], domaincontrolplane.BundleStateActive)
+	}
+	var observedOldSecret corev1.Secret
+	if err := r.Get(t.Context(), client.ObjectKeyFromObject(oldSecret), &observedOldSecret); err != nil {
+		t.Fatalf("get demoted Secret: %v", err)
+	}
+	if observedOldSecret.Labels[domaincontrolplane.BundleStateLabel] != domaincontrolplane.BundleStateRetired {
+		t.Fatalf("old bundle state = %q, want %q", observedOldSecret.Labels[domaincontrolplane.BundleStateLabel], domaincontrolplane.BundleStateRetired)
 	}
 }

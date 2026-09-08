@@ -89,6 +89,9 @@ func (d *fakeTalosDialer) DialMaintenance(context.Context, string) (TalosNode, e
 	if d.maintenanceErr != nil {
 		return nil, d.maintenanceErr
 	}
+	if d.maintenance == nil {
+		return nil, errors.New("maintenance endpoint is unavailable")
+	}
 	return d.maintenance, nil
 }
 
@@ -285,8 +288,8 @@ func TestReconcileReprovisionResetsVerifiedHost(t *testing.T) {
 		t.Fatal("the recovery identity binding must remain until maintenance mode is confirmed")
 	}
 
-	// Reset後はrecovery CAで認証できなくなり、maintenance modeで期待したHost identityを確認できる。
-	fixture.dialer.recoveryErr = errors.New("connection refused")
+	// Reset後はrecovery clientの構築に成功しても最初のRPCで旧CAが無効と判明しうる。maintenance modeで期待したHost identityを確認できた場合だけreset完了とする。
+	fixture.node.configurationErr = errors.New("recovery credentials are no longer accepted")
 	fixture.dialer.maintenance = &fakeTalosNode{inventory: testInventory(t, testHostMAC, testSystemUUID)}
 
 	_, handled, err = fixture.reconciler.reconcileReprovision(ctx, fixture.machine, fixture.host, testHostEndpoint)

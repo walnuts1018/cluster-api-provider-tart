@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -66,13 +67,16 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	generation := cluster.Status.ActiveSecretGeneration
-	if generation == 0 {
-		generation = 1
-	}
 	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
 	if err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
+	}
+	generation := cluster.Status.ActiveSecretGeneration
+	if generation == 0 {
+		generation, err = r.reconstructActiveSecretGeneration(ctx, &cluster, clusterID)
+		if err != nil {
+			return r.reportBundleError(ctx, &cluster, err)
+		}
 	}
 	if err := r.ensureBundle(ctx, &cluster, clusterID, generation); err != nil {
 		return r.reportBundleError(ctx, &cluster, err)
@@ -109,6 +113,37 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	return ctrl.Result{}, nil
+}
+
+// reconstructActiveSecretGenerationはStatusが失われた復元後に、Secretのidentity contractを検証して一意なActive generationを再発見する。既存Active Secretが複数ある場合はCAを推測せず安全側で停止する。
+func (r *TartClusterReconciler) reconstructActiveSecretGeneration(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID) (int32, error) {
+	var secrets corev1.SecretList
+	if err := r.List(ctx, &secrets, client.InNamespace(cluster.Namespace), client.MatchingLabels{
+		domaincontrolplane.ClusterNameLabel: cluster.Name,
+		domaincontrolplane.ClusterIDLabel:   clusterID.String(),
+		domaincontrolplane.BundleStateLabel: domaincontrolplane.BundleStateActive,
+	}); err != nil {
+		return 0, err
+	}
+	if len(secrets.Items) == 0 {
+		return 1, nil
+	}
+	if len(secrets.Items) != 1 {
+		return 0, fmt.Errorf("reconstruct active secret generation: found %d Active bundle Secrets", len(secrets.Items))
+	}
+	secret := &secrets.Items[0]
+	generationValue, err := strconv.ParseInt(secret.Labels[domaincontrolplane.GenerationLabel], 10, 32)
+	if err != nil || generationValue < 1 {
+		return 0, fmt.Errorf("reconstruct active secret generation: invalid generation label")
+	}
+	generation := int32(generationValue)
+	if err := domaincontrolplane.ValidateBundleSecretContract(secret, cluster.Namespace, cluster.Name, clusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
+		return 0, fmt.Errorf("reconstruct active secret generation: %w", err)
+	}
+	if err := certbuilder.ValidateBundleData(secret.Data, clusterID); err != nil {
+		return 0, fmt.Errorf("reconstruct active secret generation: %w", err)
+	}
+	return generation, nil
 }
 
 // aggregateReadinessは、secret bundleに加えてこのClusterに紐づくTartControlPlaneのAvailable

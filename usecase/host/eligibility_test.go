@@ -1,6 +1,7 @@
 package host
 
 import (
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -102,5 +103,30 @@ func TestClassify(t *testing.T) {
 				t.Errorf("Classify() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestValidateClaimCandidateRequiresExplicitCurrentReuseApproval(t *testing.T) {
+	t.Parallel()
+
+	previousUID := types.UID("previous-machine")
+	host := &infrav1alpha1.TartHost{
+		Spec: infrav1alpha1.TartHostSpec{
+			PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: previousUID},
+			ReusePolicy:         infrav1alpha1.ReusePolicyAllowReuse,
+			ReuseApproval:       &infrav1alpha1.ReuseApproval{PreviousConsumerUID: previousUID},
+			ReuseMode:           infrav1alpha1.ReuseModeReprovision,
+		},
+	}
+	if err := ValidateClaimCandidate(host, ClaimRequest{Mode: ClaimExplicitReusable}); err != nil {
+		t.Fatalf("ValidateClaimCandidate() error = %v, want approved explicit reuse", err)
+	}
+	if err := ValidateClaimCandidate(host, ClaimRequest{Mode: ClaimFreshAutomatic}); !errors.Is(err, ErrHostNoLongerEligible) {
+		t.Fatalf("ValidateClaimCandidate() error = %v, want ErrHostNoLongerEligible", err)
+	}
+
+	host.Spec.ReuseApproval.PreviousConsumerUID = types.UID("stale-machine")
+	if err := ValidateClaimCandidate(host, ClaimRequest{Mode: ClaimExplicitReusable}); !errors.Is(err, ErrReuseApprovalRequired) {
+		t.Fatalf("ValidateClaimCandidate() error = %v, want ErrReuseApprovalRequired", err)
 	}
 }

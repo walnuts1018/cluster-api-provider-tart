@@ -42,9 +42,9 @@ func main() {
 
 	var enableRuntimeExtension bool
 	var runtimeExtensionCertPath string
-	flag.BoolVar(&enableRuntimeExtension, "enable-runtime-extension", false,
+	flag.BoolVar(&enableRuntimeExtension, "enable-runtime-extension", true,
 		"Enable the CAPI Runtime Extension HTTPS server for Talos in-place update hooks.")
-	flag.StringVar(&runtimeExtensionCertPath, "runtime-extension-cert-path", "",
+	flag.StringVar(&runtimeExtensionCertPath, "runtime-extension-cert-path", "/tmp/k8s-runtime-extension/serving-certs",
 		"The directory that contains the Runtime Extension server certificate.")
 
 	flag.Parse()

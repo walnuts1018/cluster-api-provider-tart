@@ -19,9 +19,11 @@ import (
 	common "github.com/siderolabs/talos/pkg/machinery/api/common"
 	"github.com/siderolabs/talos/pkg/machinery/api/machine"
 	"github.com/siderolabs/talos/pkg/machinery/compatibility"
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
 	"github.com/siderolabs/talos/pkg/machinery/config/container"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/rotatepatcher"
 	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
 	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 	runtimeconfig "github.com/siderolabs/talos/pkg/machinery/config/types/runtime"
@@ -164,6 +166,10 @@ func SetMachineCertificateAuthority(configuration []byte, issuing *x509.PEMEncod
 	if err != nil {
 		return nil, fmt.Errorf("load talos machine configuration: %w", err)
 	}
+	machineCA := &x509.PEMEncodedCertificateAndKey{Crt: bytes.Clone(issuing.Crt)}
+	if provider.Machine().Type().IsControlPlane() {
+		machineCA.Key = bytes.Clone(issuing.Key)
+	}
 	acceptedCAs := make([]*x509.PEMEncodedCertificate, 0, len(accepted))
 	for _, ca := range accepted {
 		if ca == nil {
@@ -175,7 +181,7 @@ func SetMachineCertificateAuthority(configuration []byte, issuing *x509.PEMEncod
 		if config.MachineConfig == nil {
 			config.MachineConfig = &v1alpha1config.MachineConfig{}
 		}
-		config.MachineConfig.MachineCA = &x509.PEMEncodedCertificateAndKey{Crt: bytes.Clone(issuing.Crt), Key: bytes.Clone(issuing.Key)}
+		config.MachineConfig.MachineCA = machineCA
 		config.MachineConfig.MachineAcceptedCAs = acceptedCAs
 		return nil
 	})
@@ -190,14 +196,19 @@ func SetMachineCertificateAuthority(configuration []byte, issuing *x509.PEMEncod
 }
 
 // SetKubernetesAPICertificateAuthorityはKubeAPIServerCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API serverのCA rotationに使う。
-//
-//nolint:dupl // SetKubernetesAggregatorCertificateAuthorityと構造は同じだが、操作対象のTalos config document型が異なるため共通化しない。
 func SetKubernetesAPICertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
 	}
 	if issuing == nil {
 		return nil, errors.New("talos Kubernetes API server issuing certificate authority is empty")
+	}
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	if !provider.Machine().Type().IsControlPlane() {
+		return setWorkerKubernetesAPICertificateAuthority(provider, issuing, accepted...)
 	}
 	patch := k8sconfig.NewKubeAPIServerCAConfigV1Alpha1()
 	patch.APIIssuingCA = &configmeta.CertificateAndKey{Cert: string(issuing.Crt), Key: string(issuing.Key)}
@@ -224,15 +235,67 @@ func SetKubernetesAPICertificateAuthority(configuration []byte, issuing *x509.PE
 	return result, nil
 }
 
+func setWorkerKubernetesAPICertificateAuthority(provider talosconfig.Provider, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
+	apiConfig := provider.K8sAPIServerCAConfig()
+	if apiConfig == nil {
+		return nil, errors.New("worker Talos machine configuration has no Kubernetes API server CA")
+	}
+	desired := make([][]byte, 0, 1+len(accepted))
+	desired = append(desired, bytes.Clone(issuing.Crt))
+	for _, ca := range accepted {
+		if ca != nil && !containsCertificate(desired, ca.Crt) {
+			desired = append(desired, bytes.Clone(ca.Crt))
+		}
+	}
+	var err error
+	for _, ca := range apiConfig.AcceptedCAs() {
+		if ca != nil && !containsCertificate(desired, ca.Crt) {
+			provider, err = rotatepatcher.K8sDeleteAcceptedCA(ca.Crt)(provider)
+			if err != nil {
+				return nil, fmt.Errorf("remove worker Kubernetes API server accepted CA: %w", err)
+			}
+		}
+	}
+	provider, err = rotatepatcher.K8sSetCA(issuing)(provider)
+	if err != nil {
+		return nil, fmt.Errorf("set worker Kubernetes API server accepted CA: %w", err)
+	}
+	for _, ca := range desired {
+		provider, err = rotatepatcher.K8sAddAcceptedCA(ca)(provider)
+		if err != nil {
+			return nil, fmt.Errorf("add worker Kubernetes API server accepted CA: %w", err)
+		}
+	}
+	result, err := provider.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode worker Kubernetes API server CA configuration: %w", err)
+	}
+	return result, nil
+}
+
+func containsCertificate(certificates [][]byte, expected []byte) bool {
+	for _, certificate := range certificates {
+		if bytes.Equal(certificate, expected) {
+			return true
+		}
+	}
+	return false
+}
+
 // SetKubernetesAggregatorCertificateAuthorityはKubeAggregatorCAConfig documentのissuing CAとaccepted CA setを更新する。Kubernetes API aggregator flowのCA rotationに使う。
-//
-//nolint:dupl // SetKubernetesAPICertificateAuthorityと構造は同じだが、操作対象のTalos config document型が異なるため共通化しない。
 func SetKubernetesAggregatorCertificateAuthority(configuration []byte, issuing *x509.PEMEncodedCertificateAndKey, accepted ...*x509.PEMEncodedCertificateAndKey) ([]byte, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
 		return nil, errors.New("talos machine configuration is empty")
 	}
 	if issuing == nil {
 		return nil, errors.New("talos Kubernetes aggregator issuing certificate authority is empty")
+	}
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		return nil, fmt.Errorf("load talos machine configuration: %w", err)
+	}
+	if !provider.Machine().Type().IsControlPlane() {
+		return bytes.Clone(configuration), nil
 	}
 	patch := k8sconfig.NewKubeAggregatorCAConfigV1Alpha1()
 	patch.AggregatorIssuingCA = &configmeta.CertificateAndKey{Cert: string(issuing.Crt), Key: string(issuing.Key)}

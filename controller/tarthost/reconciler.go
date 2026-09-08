@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -89,7 +90,7 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	original := current.DeepCopy()
 	endpoint := controller.HostTalosEndpoint(&current)
 	var observationErr error
-	if current.Status.Inventory == nil && (current.Spec.Power.Backend == infrav1alpha1.PowerBackendWakeOnLAN || current.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish) {
+	if needsPowerOnForDiscovery(&current) {
 		if err := power.PowerOnHost(ctx, r.Client, r.ManagementNamespace, &current); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "power on Host for maintenance discovery")
 			observationErr = errHostPowerUnavailable
@@ -149,6 +150,21 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+}
+
+func needsPowerOnForDiscovery(host *infrav1alpha1.TartHost) bool {
+	if host == nil || (host.Spec.Power.Backend != infrav1alpha1.PowerBackendWakeOnLAN && host.Spec.Power.Backend != infrav1alpha1.PowerBackendRedfish) {
+		return false
+	}
+	if host.Status.Inventory == nil {
+		return true
+	}
+	ready := meta.FindStatusCondition(host.Status.Conditions, infrav1alpha1.TartHostReadyCondition)
+	if ready == nil || ready.Status != metav1.ConditionTrue {
+		return true
+	}
+	// retentionではInventoryを保持したままgenerationが変わるため、直前Machine停止後に再検出し、古いInventoryを稼働証拠として扱わない。
+	return host.Spec.PreviousConsumerRef != nil && host.Status.ObservedGeneration < host.Generation
 }
 
 func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {

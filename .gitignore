@@ -49,8 +49,5 @@ artifact/mkosi/mkosi.output/
 artifact/mkosi/mkosi.packages/
 
 .agents/*
-!.agents/skills/
-!.agents/skills/*/
-!.agents/skills/*/SKILL.md
 
 .DS_Store

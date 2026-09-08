@@ -18,7 +18,7 @@ const (
 	magicPacketRepeatCount           = 16
 )
 
-// BackendはWake-on-LANマジックパケットを送信してHostの電源投入を要求する。電源投入や停止を確認できないため、停止確認はShutdown RPC受理後にauthenticated Talos APIが到達不能になることへ依存するが、物理的な電源断の証明にはならない。詳細は.agents/skills/host-lifecycle/SKILL.mdを参照する。
+// BackendはWake-on-LANマジックパケットを送信してHostの電源投入を要求する。電源投入や停止を確認できないため、停止確認はShutdown RPC受理後にauthenticated Talos APIが到達不能になることへ依存するが、物理的な電源断の証明にはならない。
 type Backend struct {
 	macAddress       network.MACAddress
 	broadcastAddress network.UDPAddress

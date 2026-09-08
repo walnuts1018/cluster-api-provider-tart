@@ -4,14 +4,22 @@
 package httpboot
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	domainnetboot "github.com/walnuts1018/cluster-api-provider-tart/domain/netboot"
 )
+
+// factoryFetchTimeoutは、Talos Image FactoryのPXEスクリプトをサーバーサイドで取得する際の
+// タイムアウトである。iPXEクライアント自身のTFTP/HTTP requestタイムアウトより短く保ち、
+// Factoryへの到達性問題をこちら側のtimeoutとして早めに切り上げる。
+const factoryFetchTimeout = 15 * time.Second
 
 // ImageFactoryPXEBaseURLDefaultは、Talos Image FactoryがiPXEスクリプトを直接返すPXE配信endpointの既定baseURLである。
 // "<base>/pxe/<schematicID>/v<version>/metal-<arch>"の形式でiPXEスクリプトが取得できる。
@@ -22,6 +30,7 @@ type Handler struct {
 	imageFactoryPXEBaseURL string
 	discoveryImage         domainnetboot.DiscoveryImage
 	resolver               domainnetboot.HostImageResolver
+	httpClient             *http.Client
 	logger                 *slog.Logger
 }
 
@@ -48,6 +57,7 @@ func NewHandler(imageFactoryPXEBaseURL string, discoveryImage domainnetboot.Disc
 		imageFactoryPXEBaseURL: strings.TrimRight(imageFactoryPXEBaseURL, "/"),
 		discoveryImage:         discoveryImage,
 		resolver:               resolver,
+		httpClient:             &http.Client{Timeout: factoryFetchTimeout},
 		logger:                 logger.With("component", "httpboot"),
 	}, nil
 }
@@ -59,9 +69,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 // handleIPXEScriptは、iPXEブートローダへ返すiPXEスクリプトを生成する。
-// Image FactoryのPXE配信endpointへchainするだけで、kernel/initramfsのURLはTart側で組み立てない。
-// macに対応するTartHost/TartMachineが解決できた場合はそのdesired imageを、解決できない場合は
-// discovery用のimageを配信する。
+// kernel/initramfsのURLはTart側で組み立てず、Talos Image FactoryのPXE配信endpointが返す
+// scriptをそのまま使うが、埋め込まれたhttps:// URLはhttp://へ書き換えて配信する
+// (fetchAndDowngradeScriptのコメント参照)。macに対応するTartHost/TartMachineが解決できた
+// 場合はそのdesired imageを、解決できない場合はdiscovery用のimageを配信する。
 func (h *Handler) handleIPXEScript(w http.ResponseWriter, r *http.Request) {
 	mac := r.URL.Query().Get("mac")
 	arch := domainnetboot.PXEArchFromQuery(r.URL.Query().Get("arch"))
@@ -88,13 +99,32 @@ func (h *Handler) handleIPXEScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chainURL := fmt.Sprintf("%s/pxe/%s/%s/metal-%s",
+	factoryURL := fmt.Sprintf("%s/pxe/%s/%s/metal-%s",
 		h.imageFactoryPXEBaseURL, image.SchematicID, image.Version, arch)
 
-	script := fmt.Sprintf("#!ipxe\necho Booting Talos (%s, %s, source=%s)\nchain %s\n",
-		image.Version, image.SchematicID, source, chainURL)
+	factoryScript, err := h.fetchAndDowngradeScript(r.Context(), factoryURL)
+	if err == nil {
+		factoryScript, err = insertEchoAfterShebang(factoryScript,
+			fmt.Sprintf("echo Booting Talos (%s, %s, source=%s)", image.Version, image.SchematicID, source))
+	}
+	script := factoryScript
+	if err != nil {
+		// legacy BIOS PXE(undionly.kpxe)はHTTPSに対応していないため、Talos Image FactoryのPXE
+		// script自体はこちらでサーバーサイド取得しhttps://をhttp://へ書き換えて配信する
+		// (chainで直接https URLへ飛ばすと、undionly.kpxeが"Operation not supported"で失敗する)。
+		// FactoryへのHTTPS到達性問題そのものはこちらのfetch自体も失敗させるため、その場合は
+		// クライアントへエラーを説明するscriptへfallbackする。
+		h.logger.Error("failed to fetch Talos Image Factory PXE script", "mac", mac, "arch", arch, "factoryURL", factoryURL, "error", err)
+		script = fmt.Sprintf("#!ipxe\necho Failed to fetch the Talos boot script from the Image Factory: %s\nreboot\n", err)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusBadGateway)
+		if _, err := w.Write([]byte(script)); err != nil {
+			h.logger.Error("failed to write ipxe script response", "error", err)
+		}
+		return
+	}
 
-	h.logger.Info("serving ipxe script", "mac", mac, "arch", arch, "chainURL", chainURL, "source", source)
+	h.logger.Info("serving ipxe script", "mac", mac, "arch", arch, "factoryURL", factoryURL, "source", source)
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -105,4 +135,44 @@ func (h *Handler) handleIPXEScript(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+// fetchAndDowngradeScriptは、Talos Image FactoryのPXE配信endpointからiPXE scriptを取得し、
+// script内に埋め込まれたhttps:// URLをhttp://へ書き換えて返す。legacy BIOS PXE(undionly.kpxe)
+// はTLSに対応しておらず、埋め込まれたkernel/initrdのhttps URLを直接chainするとTLS handshake
+// できずに失敗する。Factoryは同じcontentをplain HTTPでも配信しているため、この書き換えで
+// legacy BIOS/UEFIどちらのクライアントでも同じscriptで起動できる。
+func (h *Handler) fetchAndDowngradeScript(ctx context.Context, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	resp, err := h.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			h.logger.Error("failed to close Image Factory response body", "error", err)
+		}
+	}()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response body from %s: %w", url, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+	return strings.ReplaceAll(string(body), "https://", "http://"), nil
+}
+
+// insertEchoAfterShebangは、iPXE scriptの先頭行(#!ipxe)の直後へecho行を挿入する。
+// scriptが#!ipxeで始まっていない場合はFactoryの応答形式が想定と異なるとみなしエラーを返す。
+func insertEchoAfterShebang(script, echoLine string) (string, error) {
+	const shebang = "#!ipxe"
+	rest, ok := strings.CutPrefix(script, shebang+"\n")
+	if !ok {
+		return "", fmt.Errorf("unexpected Image Factory script format (missing %q header)", shebang)
+	}
+	return shebang + "\n" + echoLine + "\n" + rest, nil
 }

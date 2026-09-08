@@ -10,7 +10,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
-// TartHostのCondition typeを定義する。詳細はdocs/development/api-contract.mdを参照する。
+// TartHostのCondition typeを定義する。
 const (
 	TartHostReadyCondition          = "Ready"
 	TartHostAvailableCondition      = "Available"

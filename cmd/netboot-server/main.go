@@ -1,9 +1,6 @@
 // Command netboot-serverは、controller-managerとは別processで動くProxyDHCP/TFTP/iPXEスクリプト配信サーバーである。
-// 素のhostがWoL/Redfishで起動しPXE bootした際に、Talos maintenance modeへ到達させるための
-// bootstrap adapterであり、docs/development/decisions.mdの方針に従いTartのResource modelの中心には置かない。
-// netboot-serverはKubernetes APIをread-onlyで参照してTartHost/TartMachineからdesired imageを解決するため、
-// clusterctlやcluster-api-operatorでInfrastructure Providerをインストールしただけでも(サイト固有の
-// discovery image設定なしで)起動し、既にTartHost/TartMachineへclaimされたHostのPXE bootを処理できる。
+// 素のhostがWoL/Redfishで起動しPXE bootした際に、Talos maintenance modeへ到達させるためのbootstrap adapterであり、TartのResource modelの中心には置かない。
+// netboot-serverはKubernetes APIをread-onlyで参照してTartHost/TartMachineからdesired imageを解決するため、clusterctlやcluster-api-operatorでInfrastructure Providerをインストールしただけでも(サイト固有のdiscovery image設定なしで)起動し、既にTartHost/TartMachineへclaimされたHostのPXE bootを処理できる。
 package main
 
 import (

@@ -5,7 +5,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 )
 
-// TartControlPlaneのCondition typeをdocs/development/api-contract.mdに従って定義する。CAPI v1beta2 ControlPlane contractに従い、AvailableをCluster.statusへbubble-upする主Conditionとする。
+// CAPI v1beta2 ControlPlane contractに従い、AvailableをCluster.statusへbubble-upする主Conditionとする。
 const (
 	TartControlPlaneAvailableCondition            = "Available"
 	TartControlPlaneUpToDateCondition             = "UpToDate"

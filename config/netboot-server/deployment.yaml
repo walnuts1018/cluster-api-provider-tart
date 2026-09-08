@@ -81,7 +81,9 @@ spec:
       - name: ipxe-loader
         # E2E workflowと同じiPXE公式prebuilt binaryを、UEFI PXEが要求する標準名でTFTP rootへ配置する。
         # renovate: datasource=docker depName=curlimages/curl
-        image: curlimages/curl:8.16.0
+        # cluster-api-operatorのimage overrideはreference.ParseNamed(strictにdomainを要求する)で全containerのimageをparseするため、
+        # domain省略形だと"repository name must be canonical"でproviderのapplyが失敗する。domainを明示して回避する。
+        image: docker.io/curlimages/curl:8.16.0
         args:
         - --fail
         - --location

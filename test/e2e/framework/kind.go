@@ -65,8 +65,15 @@ func (k *KindCluster) Delete(ctx context.Context) error {
 // clusterctlがこれをsubstituteすることを前提としている。生のkubectl applyでは展開されず、
 // managerが起動時flag parseに失敗してCrashLoopBackOffになるため、clusterctlを使う必要がある。
 // clusterctl init自体がcert-managerのinstall/待機も行う。
+//
+// Tart control planeのExtensionConfigはRuntimeSDK feature gate配下のAPIであり、CAPI coreの
+// admission webhookはこのfeature gateが有効なclusterでなければExtensionConfigの作成を拒否する
+// (spec: Forbidden: can be set only if the RuntimeSDK feature flag is enabled)。clusterctlは
+// EXP_RUNTIME_SDK環境変数をcapi-controller-managerのfeature gate flagへ変換するため、init前に
+// 有効化しておく。
 func InstallCAPICore(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, "clusterctl", "init", "--core", "cluster-api:"+capiVersion, "--wait-providers")
+	cmd.Env = append(os.Environ(), "EXP_RUNTIME_SDK=true")
 	if _, err := testutils.Run(cmd); err != nil {
 		return fmt.Errorf("clusterctl init: %w", err)
 	}

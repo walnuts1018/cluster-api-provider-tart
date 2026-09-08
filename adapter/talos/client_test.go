@@ -16,6 +16,7 @@ import (
 	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
 	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
 	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
+	"github.com/siderolabs/talos/pkg/machinery/role"
 )
 
 func TestClientVersionRejectsUnavailableClient(t *testing.T) {
@@ -45,6 +46,30 @@ func TestDialRejectsEmptyEndpoint(t *testing.T) {
 	}
 	if _, err := DialAuthenticated(t.Context(), "", nil, nil, nil); !errors.Is(err, ErrEndpointEmpty) {
 		t.Fatalf("DialAuthenticated() error = %v, want ErrEndpointEmpty", err)
+	}
+}
+
+func TestDialAuthenticatedRejectsInvalidCredentialsBeforeDial(t *testing.T) {
+	t.Parallel()
+
+	const endpoint = "192.0.2.1:50000"
+	if _, err := DialAuthenticated(t.Context(), endpoint, []byte("not-a-certificate"), []byte("not-a-key"), []byte("not-a-ca")); err == nil {
+		t.Fatal("DialAuthenticated() accepted malformed client credentials")
+	}
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	certificate, err := bundle.GenerateTalosAPIClientCertificate(role.MakeSet(role.Admin))
+	if err != nil {
+		t.Fatalf("GenerateTalosAPIClientCertificate() error = %v", err)
+	}
+	if _, err := DialAuthenticated(t.Context(), endpoint, certificate.Crt, certificate.Key, nil); err == nil {
+		t.Fatal("DialAuthenticated() accepted an empty CA bundle")
+	}
+	if _, err := DialAuthenticatedFromBundle(t.Context(), endpoint, nil); !errors.Is(err, ErrTalosConfigurationInvalid) {
+		t.Fatalf("DialAuthenticatedFromBundle() error = %v, want ErrTalosConfigurationInvalid", err)
 	}
 }
 

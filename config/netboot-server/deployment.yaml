@@ -33,7 +33,6 @@ spec:
       serviceAccountName: netboot-server
       initContainers:
       - name: ipxe-loader
-        # renovate: datasource=docker depName=curlimages/curl
         image: docker.io/curlimages/curl:8.16.0
         args:
         - --fail

@@ -59,6 +59,8 @@ const (
 
 const reasonMachineUnavailable = "MachineUnavailable"
 
+var errInvalidCARotationPromotionState = errors.New("CA rotation target bundle is not pending or active")
+
 // TartControlPlaneReconcilerはTartControlPlane objectをreconcileする。
 type TartControlPlaneReconciler struct {
 	client.Client
@@ -1821,6 +1823,9 @@ func (r *TartControlPlaneReconciler) promoteCARotation(ctx context.Context, clus
 	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, target, state, cluster.UID); err != nil {
 		return err
 	}
+	if err := validateCARotationPromotionState(state); err != nil {
+		return err
+	}
 	// Statusを先に進めることでStatus patch成功後にlabel patchが失敗しても次回reconcileでtarget Secretを復旧できる。Secret dataはimmutableのまま扱う。
 	if cluster.Status.ActiveSecretGeneration == target {
 		return r.recoverCARotationPromotion(ctx, cluster, clusterID, target)
@@ -1858,6 +1863,9 @@ func (r *TartControlPlaneReconciler) recoverCARotationPromotion(ctx context.Cont
 	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, state, cluster.UID); err != nil {
 		return err
 	}
+	if err := validateCARotationPromotionState(state); err != nil {
+		return err
+	}
 	if state == domaincontrolplane.BundleStateActive {
 		return r.demoteCARotationSecret(ctx, cluster, clusterID, generation-1)
 	}
@@ -1868,6 +1876,13 @@ func (r *TartControlPlaneReconciler) recoverCARotationPromotion(ctx context.Cont
 		return err
 	}
 	return r.demoteCARotationSecret(ctx, cluster, clusterID, generation-1)
+}
+
+func validateCARotationPromotionState(state string) error {
+	if state != domaincontrolplane.BundleStatePending && state != domaincontrolplane.BundleStateActive {
+		return errInvalidCARotationPromotionState
+	}
+	return nil
 }
 
 func (r *TartControlPlaneReconciler) demoteCARotationSecret(ctx context.Context, cluster *infrav1alpha1.TartCluster, clusterID clusterdomain.ClusterID, generation int32) error {

@@ -2,6 +2,7 @@ package tartcontrolplane
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -192,5 +193,64 @@ func TestPromoteCARotationRestoresStatusAndSecretLabel(t *testing.T) {
 	}
 	if observedOldSecret.Labels[domaincontrolplane.BundleStateLabel] != domaincontrolplane.BundleStateRetired {
 		t.Fatalf("old bundle state = %q, want %q", observedOldSecret.Labels[domaincontrolplane.BundleStateLabel], domaincontrolplane.BundleStateRetired)
+	}
+}
+
+func TestPromoteCARotationRejectsRetiredTarget(t *testing.T) {
+	t.Parallel()
+
+	clusterID, err := clusterdomain.ParseClusterID("11111111-1111-1111-1111-111111111111")
+	if err != nil {
+		t.Fatalf("ParseClusterID() error = %v", err)
+	}
+	cluster := newCARotationTestCluster(clusterID.String(), 1, new(int32))
+	*cluster.Spec.CARotationRequestedGeneration = 2
+	cluster.Namespace = "default"
+	cluster.UID = "cluster-uid"
+	controller := true
+	secret, err := domaincontrolplane.BuildPendingSecret(
+		cluster.Namespace,
+		cluster.Name,
+		clusterID,
+		2,
+		metav1.OwnerReference{
+			APIVersion: infrav1alpha1.GroupVersion.String(),
+			Kind:       "TartCluster",
+			Name:       cluster.Name,
+			UID:        cluster.UID,
+			Controller: &controller,
+		},
+		map[string][]byte{domaincontrolplane.BundleDataKey: []byte("bundle")},
+	)
+	if err != nil {
+		t.Fatalf("BuildPendingSecret() error = %v", err)
+	}
+	secret.Labels[domaincontrolplane.BundleStateLabel] = domaincontrolplane.BundleStateRetired
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	r := &TartControlPlaneReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster, secret).WithStatusSubresource(cluster).Build()}
+	if err := r.promoteCARotation(t.Context(), cluster, clusterID, 2); !errors.Is(err, errInvalidCARotationPromotionState) {
+		t.Fatalf("promoteCARotation() error = %v, want errInvalidCARotationPromotionState", err)
+	}
+
+	var observedCluster infrav1alpha1.TartCluster
+	if err := r.Get(t.Context(), client.ObjectKeyFromObject(cluster), &observedCluster); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	if observedCluster.Status.ActiveSecretGeneration != 1 {
+		t.Fatalf("active secret generation = %d, want 1 after rejected promotion", observedCluster.Status.ActiveSecretGeneration)
+	}
+	var observedSecret corev1.Secret
+	if err := r.Get(t.Context(), client.ObjectKeyFromObject(secret), &observedSecret); err != nil {
+		t.Fatalf("get target Secret: %v", err)
+	}
+	if observedSecret.Labels[domaincontrolplane.BundleStateLabel] != domaincontrolplane.BundleStateRetired {
+		t.Fatalf("target bundle state = %q, want %q after rejected promotion", observedSecret.Labels[domaincontrolplane.BundleStateLabel], domaincontrolplane.BundleStateRetired)
 	}
 }

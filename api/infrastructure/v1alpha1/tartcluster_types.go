@@ -40,6 +40,17 @@ type TartClusterSpec struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	CARotationRequestedGeneration *int32 `json:"caRotationRequestedGeneration,omitempty"`
+
+	// allowSchedulingOnControlPlanesは、control plane nodeへの通常Podのschedulingを許可するかを制御する。
+	// falseの場合、Talosはcontrol plane nodeへNoSchedule taintを付与する(既定の動作)。
+	// +optional
+	AllowSchedulingOnControlPlanes bool `json:"allowSchedulingOnControlPlanes,omitempty"`
+
+	// disableDefaultCNIは、Talosが既定でinstallするFlannel CNIを無効化するかを制御する。
+	// CiliumなどをTart外(ArgoCD等)で管理する場合にtrueを指定する。trueの場合、CNIが導入されるまで
+	// nodeはNotReadyのままになるため、別途CNIをdeployする運用とセットで使う。
+	// +optional
+	DisableDefaultCNI bool `json:"disableDefaultCNI,omitempty"`
 }
 
 // TartUpdatePolicyはnode-disruptive updateのavailability policyを定義する。

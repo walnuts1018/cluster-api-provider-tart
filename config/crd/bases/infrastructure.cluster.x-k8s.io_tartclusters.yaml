@@ -51,6 +51,11 @@ spec:
               endpointについて、Tartはcontrol plane endpoint(VIPやload balancer)をprovisionしないため、ユーザー、ClusterClass、または周辺TopologyがCluster.spec.controlPlaneEndpointを通じて供給する。Tart
               reconcilerはendpointが利用可能になるまで待機する。
             properties:
+              allowSchedulingOnControlPlanes:
+                description: |-
+                  allowSchedulingOnControlPlanesは、control plane nodeへの通常Podのschedulingを許可するかを制御する。
+                  falseの場合、Talosはcontrol plane nodeへNoSchedule taintを付与する(既定の動作)。
+                type: boolean
               caRotationRequestedGeneration:
                 description: |-
                   caRotationRequestedGenerationは利用者が要求するCA rotation後のactive secret bundle generationである。
@@ -69,6 +74,12 @@ spec:
                 - message: clusterID may only be initialized once and is immutable
                     afterwards
                   rule: self == oldSelf || (oldSelf == '' && self != '')
+              disableDefaultCNI:
+                description: |-
+                  disableDefaultCNIは、Talosが既定でinstallするFlannel CNIを無効化するかを制御する。
+                  CiliumなどをTart外(ArgoCD等)で管理する場合にtrueを指定する。trueの場合、CNIが導入されるまで
+                  nodeはNotReadyのままになるため、別途CNIをdeployする運用とセットで使う。
+                type: boolean
               updatePolicy:
                 description: updatePolicyはnode-disruptive updateでavailabilityだけを理由とするdrain
                   failureを緩和できるか制御する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。

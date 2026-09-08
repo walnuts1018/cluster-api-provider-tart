@@ -3,6 +3,7 @@ package configbuilder
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/generate"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
+	"go.yaml.in/yaml/v4"
 
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
@@ -64,7 +66,10 @@ func GenerateMachineConfiguration(input usecasebootstrap.MachineConfigurationCon
 		return nil, fmt.Errorf("%w: kubernetes version", domainbootstrap.ErrMachineConfigurationContextIncomplete)
 	}
 
-	generated, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion, generate.WithSecretsBundle(bundle))
+	generated, err := generate.NewInput(input.ClusterName, endpoint, kubernetesVersion,
+		generate.WithSecretsBundle(bundle),
+		generate.WithAllowSchedulingOnControlPlanes(input.AllowSchedulingOnControlPlanes),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create Talos configuration generator: %w", err)
 	}
@@ -75,6 +80,12 @@ func GenerateMachineConfiguration(input usecasebootstrap.MachineConfigurationCon
 	base, err := provider.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
 	if err != nil {
 		return nil, fmt.Errorf("encode generated Talos machine configuration: %w", err)
+	}
+	if input.DisableDefaultCNI {
+		base, err = removeDocumentsByKind(base, "KubeFlannelCNIConfig")
+		if err != nil {
+			return nil, fmt.Errorf("remove default CNI from generated Talos machine configuration: %w", err)
+		}
 	}
 
 	configuration, err := RenderEffectiveConfiguration(base, patches...)
@@ -168,6 +179,43 @@ func componentImages(provider talosconfig.Provider) [5]string {
 	}
 
 	return images
+}
+
+// removeDocumentsByKindは、multi-document Talos machine configurationからkindが一致するdocumentを
+// 取り除く。generate.NewInputはCNI/kube-proxy等をmultidocで生成し、生成後にそれらを個別に無効化する
+// optionを持たないため、この関数でdocument単位に除外する。
+func removeDocumentsByKind(configuration []byte, kind string) ([]byte, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(configuration))
+	var kept []map[string]any
+	for {
+		var doc map[string]any
+		err := decoder.Decode(&doc)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, fmt.Errorf("decode machine configuration document: %w", err)
+		}
+		if doc == nil {
+			continue
+		}
+		if docKind, _ := doc["kind"].(string); docKind == kind {
+			continue
+		}
+		kept = append(kept, doc)
+	}
+
+	var out bytes.Buffer
+	yamlEncoder := yaml.NewEncoder(&out)
+	for _, doc := range kept {
+		if err := yamlEncoder.Encode(doc); err != nil {
+			return nil, fmt.Errorf("encode machine configuration document: %w", err)
+		}
+	}
+	if err := yamlEncoder.Close(); err != nil {
+		return nil, fmt.Errorf("close machine configuration encoder: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 func canonicalEndpoint(endpoint string) (string, error) {

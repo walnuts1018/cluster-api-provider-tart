@@ -19,6 +19,16 @@ type MachineConfigurationContext struct {
 	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はraw patchが
 	// install targetを含まなければならない。
 	InstallDisk *domainbootstrap.DiskIdentity
+	// AllowSchedulingOnControlPlanesは、control plane nodeへの通常Podのschedulingを許可するかを
+	// 制御する。Talos 1.14以降はKubernetes関連設定がmultidoc化されており、control planeのNoSchedule
+	// taintはgenerate時のoptionでしか外せない(生成後のconfig patchでは信頼できるmergeができない)ため、
+	// raw patchではなくこのfield経由でTalos machineryのgenerate optionへ渡す。
+	AllowSchedulingOnControlPlanes bool
+	// DisableDefaultCNIは、Talosが既定で生成するFlannel CNI(KubeFlannelCNIConfig document)を
+	// 生成結果から除外するかを制御する。Talos machineryのCNICustomURLオプションはCNIの無効化と
+	// 同時に外部manifestの自動fetch/applyという副作用を持つため使わず、生成後のdocument一覧から
+	// KubeFlannelCNIConfigだけを取り除く形で実現する(Cilium等を別途管理する運用を想定する)。
+	DisableDefaultCNI bool
 }
 
 // ConfigRendererは、domain/bootstrapが表現する合成順序の意思決定を実際のTalos machine configuration

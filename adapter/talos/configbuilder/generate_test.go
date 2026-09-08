@@ -1,6 +1,7 @@
 package configbuilder
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
@@ -116,5 +117,49 @@ func TestGenerateMachineConfigurationNormalizesEndpointAndVersion(t *testing.T) 
 	}
 	if got := provider.Machine().Type().String(); got != "controlplane" {
 		t.Errorf("machine type = %q, want controlplane", got)
+	}
+}
+
+func TestGenerateMachineConfigurationAllowSchedulingOnControlPlanesAndDisableDefaultCNI(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	base := usecasebootstrap.MachineConfigurationContext{
+		ClusterName:          "cluster-a",
+		ControlPlaneEndpoint: "192.0.2.10:6443",
+		KubernetesVersion:    "v1.34.0",
+		MachineRole:          domainbootstrap.MachineRoleControlPlane,
+		SecretsBundle:        bundle,
+	}
+
+	defaultConfiguration, err := GenerateMachineConfiguration(base)
+	if err != nil {
+		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
+	}
+	if !bytes.Contains(defaultConfiguration, []byte("KubeFlannelCNIConfig")) {
+		t.Error("default configuration should include KubeFlannelCNIConfig")
+	}
+	if !bytes.Contains(defaultConfiguration, []byte("NoSchedule")) {
+		t.Error("default configuration should taint control-plane nodes with NoSchedule")
+	}
+
+	customized := base
+	customized.AllowSchedulingOnControlPlanes = true
+	customized.DisableDefaultCNI = true
+	configuration, err := GenerateMachineConfiguration(customized)
+	if err != nil {
+		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
+	}
+	if bytes.Contains(configuration, []byte("KubeFlannelCNIConfig")) {
+		t.Error("DisableDefaultCNI should remove KubeFlannelCNIConfig from the generated configuration")
+	}
+	if bytes.Contains(configuration, []byte("NoSchedule")) {
+		t.Error("AllowSchedulingOnControlPlanes should omit the control-plane NoSchedule taint")
+	}
+	if _, err := configloader.NewFromBytes(configuration); err != nil {
+		t.Fatalf("configloader.NewFromBytes() error = %v", err)
 	}
 }

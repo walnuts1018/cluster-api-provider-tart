@@ -52,6 +52,7 @@ type TartMachineSpec struct {
 	// +kubebuilder:validation:MaxLength=512
 	// +optional
 	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="providerID may only be initialized once and is immutable afterwards"
 	ProviderID hostdomain.ProviderID `json:"providerID,omitempty,omitzero"`
 }
 

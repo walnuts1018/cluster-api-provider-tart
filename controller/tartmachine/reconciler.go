@@ -168,11 +168,20 @@ func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, m
 		UID:        machine.UID,
 	}
 	// Host claimはselection predicateを含めて同じresourceVersion上で検証する。Retained Hostの自動claimやFailureDomain変更の競合をfail-closedで拒否する。
+	// この再取得が失敗した場合にFailureDomainを「制約なし」として扱うとfail-closedの意図が崩れるため、
+	// 検証できないままclaimへ進まずrequeueまたはerrorで停止する。
 	capiMachineForClaim, capiClaimErr := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
-	failureDomainForClaim := ""
-	if capiClaimErr == nil && capiMachineForClaim != nil {
-		failureDomainForClaim = capiMachineForClaim.Spec.FailureDomain
+	if capiClaimErr != nil {
+		if errors.Is(capiClaimErr, controller.ErrCAPIMachineUnavailable) {
+			result, reportErr := r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The corresponding CAPI Machine is not available to re-validate Host claim placement.", 5*time.Second)
+			return nil, result, true, reportErr
+		}
+		return nil, ctrl.Result{}, false, capiClaimErr
 	}
+	if capiMachineForClaim == nil {
+		return nil, ctrl.Result{}, false, errors.New("the corresponding CAPI Machine could not be resolved for Host claim validation")
+	}
+	failureDomainForClaim := capiMachineForClaim.Spec.FailureDomain
 	claimReq := hostusecase.ClaimRequest{
 		Consumer:       consumer,
 		ExpectedHostID: selected.Spec.HostID,

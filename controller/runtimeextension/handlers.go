@@ -194,7 +194,13 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 		if errors.Is(configurationErr, errUpdateBootstrapUnavailable) {
 			return nil, &updateRetryError{message: "The immutable Bootstrap Secret is not available while the in-place update is being prepared."}
 		}
-		return nil, errors.New("the immutable Bootstrap Secret does not satisfy the update contract")
+		if errors.Is(configurationErr, errUpdateBootstrapContractInvalid) {
+			return nil, errors.New("the immutable Bootstrap Secret does not satisfy the update contract")
+		}
+		// TartBootstrapConfigまたはBootstrap SecretのGetがNotFound以外の理由で失敗した場合は
+		// APIサーバーの一時的な障害の可能性があるため、恒久的なcontract違反として扱わずretryする。
+		// TartMachine/TartHostの同様なGet失敗(上記)と同じ方針。
+		return nil, &updateRetryError{message: "The immutable Bootstrap Secret could not be observed while the in-place update is being prepared."}
 	}
 	if providerMachine.Spec.ProviderID.IsZero() {
 		return nil, &updateRetryError{message: "The TartMachine ProviderID is not available while the in-place update is being prepared."}
@@ -510,6 +516,11 @@ func returnUpdateCloseError(resp *runtimehooksv1.UpdateMachineResponse, _ error)
 
 var errUpdateBootstrapUnavailable = errors.New("bootstrap data is unavailable for update")
 
+// errUpdateBootstrapContractInvalidは、取得自体は成功したがBootstrap Secretの内容がCAPI contractを
+// 満たさない恒久的な不整合を表す。APIサーバーの一時的な障害による取得失敗とは区別し、前者だけを
+// リトライ対象として扱う。
+var errUpdateBootstrapContractInvalid = errors.New("bootstrap Secret contract is invalid")
+
 func bootstrapConfiguration(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine) ([]byte, error) {
 	_, configuration, err := bootstrapConfigurationWithPolicy(ctx, kubeClient, machine)
 	return configuration, err
@@ -539,7 +550,7 @@ func bootstrapConfigurationWithPolicy(ctx context.Context, kubeClient client.Rea
 		return nil, nil, err
 	}
 	if !bootstrap.IsContractSecret(secret, config.Labels[bootstrap.ClusterNameLabel], config.UID) {
-		return nil, nil, errors.New("bootstrap Secret contract is invalid")
+		return nil, nil, errUpdateBootstrapContractInvalid
 	}
 	return config, bytes.Clone(secret.Data[bootstrap.BootstrapSecretKey]), nil
 }

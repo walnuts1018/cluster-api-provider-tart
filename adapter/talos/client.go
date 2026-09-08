@@ -1,4 +1,3 @@
-// Package talosはTartが必要とする観測と操作だけをTalos machineryのgRPCクライアントへ適合させ、生成されたTalos API型をcontrollerやpolicy packageへ漏らさない。詳細は.agents/skills/talos/SKILL.mdを参照する。
 package talos
 
 import (
@@ -483,6 +482,7 @@ func (c *Client) ServicesHealthy(ctx context.Context) error {
 		return fmt.Errorf("list talos services: %w", err)
 	}
 	observed := false
+	confirmedHealthy := false
 	for _, message := range response.GetMessages() {
 		for _, service := range message.GetServices() {
 			observed = true
@@ -493,10 +493,16 @@ func (c *Client) ServicesHealthy(ctx context.Context) error {
 			if !health.GetHealthy() {
 				return fmt.Errorf("talos service %s is not healthy", service.GetId())
 			}
+			confirmedHealthy = true
 		}
 	}
 	if !observed {
 		return errors.New("talos does not report any service state")
+	}
+	// health checkが全てUnknownの場合(reboot直後の一時的な状態など)、healthyなserviceを一つも
+	// 確認できていないので、observedのみを根拠にrecoveredと判定してはならない。
+	if !confirmedHealthy {
+		return errors.New("talos does not report any confirmed healthy service yet")
 	}
 	return nil
 }

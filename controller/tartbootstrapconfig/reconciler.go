@@ -141,7 +141,15 @@ func (r *TartBootstrapConfigReconciler) reportConfigurationError(ctx context.Con
 	if errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous) || errors.Is(err, domainbootstrap.ErrInstallDiskAmbiguous) {
 		return r.report(ctx, config, "InstallDiskAmbiguous", "Multiple writable disks are available but no explicit install disk policy is configured; installation is stopped.")
 	}
-	reason, message := classifyConfigurationError(err)
+	reason, message, recognized := classifyConfigurationError(err)
+	if !recognized {
+		// classifyConfigurationErrorのdefaultへ落ちるerrorは、既知の恒久的なmisconfiguration
+		// sentinelのいずれとも一致しない。TartCluster/bundle Secret/TartHost/TartMachineの
+		// GetがNotFound以外の理由で失敗した場合の生のerrorもここへ到達しうるため、恒久的な
+		// ConfigurationInvalid conditionを書かず、controller-runtimeの標準的なbackoffで
+		// 再試行させる(configurationInputの同種の分岐と同じ方針)。
+		return ctrl.Result{}, err
+	}
 	return r.report(ctx, config, reason, message)
 }
 
@@ -400,18 +408,21 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 }
 
 // classifyConfigurationErrorは、r.configurationが返した非retryableなerrorをReady Conditionのreason/messageへ分類する。
-func classifyConfigurationError(err error) (reason, message string) {
+// recognizedがfalseの場合、errはこの関数が認識する恒久的なsentinelのいずれとも一致しない
+// (APIサーバーの一時的な障害による生のerrorを含みうる)ため、呼び出し側は恒久的なconditionを
+// 書かずに再試行を優先すべきである。
+func classifyConfigurationError(err error) (reason, message string, recognized bool) {
 	switch {
 	case errors.Is(err, errBootstrapIdentityConflict):
-		return infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped."
+		return infrav1alpha1.ReasonIdentityConflict, "The Host inventory contains duplicated stable identity; configuration generation is stopped.", true
 	case errors.Is(err, domainbootstrap.ErrConfigurationConflict):
-		return "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant."
+		return "ConfigurationConflict", "The rendered Talos machine configuration conflicts with a provider-owned invariant.", true
 	case errors.Is(err, talos.ErrProviderIDConflict):
-		return "ConfigurationConflict", "The rendered Talos machine configuration contains a ProviderID that conflicts with the allocated Host."
+		return "ConfigurationConflict", "The rendered Talos machine configuration contains a ProviderID that conflicts with the allocated Host.", true
 	case errors.Is(err, domainbootstrap.ErrDiskSelectionAmbiguous), errors.Is(err, domainbootstrap.ErrInstallConfigurationInvalid):
-		return "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk."
+		return "InstallDiskUnavailable", "The immutable configuration does not identify one safe Talos install disk.", true
 	default:
-		return "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration."
+		return "ConfigurationInvalid", "The referenced configuration Secret does not contain a complete valid Talos machine configuration.", false
 	}
 }
 

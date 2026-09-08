@@ -632,7 +632,11 @@ func (r *TartControlPlaneReconciler) reconcileEtcdMemberRemoval(ctx context.Cont
 		return true, nil
 	}
 	annotatedID, annotated, handled, err := r.reconcileAnnotatedEtcdMember(ctx, target, machines)
-	if handled || err != nil {
+	// annotationが既に存在する場合はreconcileAnnotatedEtcdMemberがこのreconcileの結論を確定させる。
+	// handledではなくannotatedで分岐しないと、削除hookの解除に成功した直後(handled=false)に
+	// 以降のannotation未設定パスへ誤って進み、既にetcdから除去済みのmemberへ対して不要な
+	// Talos APIの再観測が発生する。
+	if annotated || err != nil {
 		return handled, err
 	}
 

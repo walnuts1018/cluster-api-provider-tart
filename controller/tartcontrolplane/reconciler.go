@@ -1562,10 +1562,11 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 	if err != nil {
 		return controlPlaneCARotationState{active: true, reason: reasonMachineUnavailable, message: "The cluster Machines could not be listed for CA rotation; rotation is paused.", requeueAfter: 30 * time.Second}, err
 	}
-	if len(clusterMachines) > 0 {
-		// TartControlPlaneのensureMachinesはcontrol-plane Machineだけを返すため、CA trustは同じClusterのworker Machineも含めて観測・更新する。SpecのclusterNameを正本とし、復元後にlabelが欠けたMachineも対象から外さない。
-		machines = clusterMachines
+	if len(clusterMachines) == 0 {
+		return controlPlaneCARotationState{active: true, reason: reasonMachineUnavailable, message: "No CAPI Machine is available for CA rotation yet; rotation is paused until the cluster Machine inventory can be observed.", requeueAfter: 30 * time.Second}, nil
 	}
+	// TartControlPlaneのensureMachinesはcontrol-plane Machineだけを返すため、CA trustは同じClusterのworker Machineも含めて観測・更新する。SpecのclusterNameを正本とし、復元後にlabelが欠けたMachineも対象から外さない。
+	machines = clusterMachines
 
 	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive)
 	if err != nil {

@@ -37,6 +37,9 @@ func newCARotationTestReconciler(t *testing.T) *TartControlPlaneReconciler {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
+	if err := clusterv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 	return &TartControlPlaneReconciler{Client: fakeClient}
 }
@@ -111,6 +114,23 @@ func TestReconcileCARotationInvalidActiveGeneration(t *testing.T) {
 	}
 	if state.reason != "RotationGenerationInvalid" {
 		t.Fatalf("reconcileCARotation() reason = %q, want %q", state.reason, "RotationGenerationInvalid")
+	}
+}
+
+func TestReconcileCARotationStopsWhenMachineInventoryIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	r := newCARotationTestReconciler(t)
+	requested := int32(2)
+	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, &requested)
+	cluster.Namespace = "default"
+
+	state, err := r.reconcileCARotation(t.Context(), cluster, []clusterv1.Machine{{ObjectMeta: metav1.ObjectMeta{Name: "control-plane-fallback"}}}, false)
+	if err != nil {
+		t.Fatalf("reconcileCARotation() error = %v", err)
+	}
+	if !state.active || state.reason != reasonMachineUnavailable {
+		t.Fatalf("reconcileCARotation() state = %+v, want active MachineUnavailable", state)
 	}
 }
 

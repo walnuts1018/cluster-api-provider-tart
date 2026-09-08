@@ -7,6 +7,7 @@ import (
 	"time"
 
 	machineapi "github.com/siderolabs/talos/pkg/machinery/api/machine"
+	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
 	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
 	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
@@ -18,6 +19,8 @@ import (
 	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
 	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 	"github.com/siderolabs/talos/pkg/machinery/role"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestClientVersionRejectsUnavailableClient(t *testing.T) {
@@ -37,6 +40,47 @@ func TestClientShutdownRejectsUnavailableClient(t *testing.T) {
 	if err := client.Shutdown(t.Context()); !errors.Is(err, ErrClientUnavailable) {
 		t.Fatalf("Shutdown() error = %v, want ErrClientUnavailable", err)
 	}
+}
+
+func TestServicesHealthyRequiresConfirmedHealth(t *testing.T) {
+	t.Parallel()
+
+	confirmedHealthy := &machineapi.ServiceHealth{Healthy: true}
+	unknown := &machineapi.ServiceHealth{Unknown: true}
+	notHealthy := &machineapi.ServiceHealth{}
+	tests := []struct {
+		name     string
+		services []*machineapi.ServiceInfo
+		wantErr  bool
+	}{
+		{name: "no services", wantErr: true},
+		{name: "unknown only", services: []*machineapi.ServiceInfo{{Id: "machined", Health: unknown}}, wantErr: true},
+		{name: "healthy and unknown", services: []*machineapi.ServiceInfo{{Id: "machined", Health: confirmedHealthy}, {Id: "unknown", Health: unknown}}},
+		{name: "unhealthy", services: []*machineapi.ServiceInfo{{Id: "machined", Health: notHealthy}}, wantErr: true},
+		{name: "healthy", services: []*machineapi.ServiceInfo{{Id: "machined", Health: confirmedHealthy}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			client := &Client{raw: &talosclient.Client{MachineClient: fakeMachineServiceClient{
+				response: &machineapi.ServiceListResponse{Messages: []*machineapi.ServiceList{{Services: tt.services}}},
+			}}}
+			err := client.ServicesHealthy(t.Context())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ServicesHealthy() error = %v, wantErr = %t", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+type fakeMachineServiceClient struct {
+	machineapi.MachineServiceClient
+	response *machineapi.ServiceListResponse
+}
+
+func (f fakeMachineServiceClient) ServiceList(context.Context, *emptypb.Empty, ...grpc.CallOption) (*machineapi.ServiceListResponse, error) {
+	return f.response, nil
 }
 
 func TestDialRejectsEmptyEndpoint(t *testing.T) {

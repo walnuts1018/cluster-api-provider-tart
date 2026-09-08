@@ -12,6 +12,7 @@ import (
 	"github.com/siderolabs/talos/pkg/machinery/config/generate"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
+	"github.com/siderolabs/talos/pkg/machinery/role"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
@@ -35,6 +36,9 @@ func TestDecodeBundleDataRestoresClock(t *testing.T) {
 	}
 	if bundle.Clock == nil {
 		t.Fatal("DecodeBundleData() returned a bundle with nil Clock")
+	}
+	if _, err := bundle.GenerateTalosAPIClientCertificate(role.MakeSet(role.Admin)); err != nil {
+		t.Fatalf("decoded bundle could not generate an admin Talos API certificate: %v", err)
 	}
 }
 

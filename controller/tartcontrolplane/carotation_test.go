@@ -52,7 +52,7 @@ func TestReconcileCARotationNotRequested(t *testing.T) {
 	r := newCARotationTestReconciler(t)
 	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, nil)
 
-	state, err := r.reconcileCARotation(context.Background(), cluster, []clusterv1.Machine{}, false)
+	state, err := r.reconcileCARotation(context.Background(), cluster, false)
 	if err != nil {
 		t.Fatalf("reconcileCARotation() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestReconcileCARotationInvalidRequestGeneration(t *testing.T) {
 			requested := tt.requested
 			cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, &requested)
 
-			state, err := r.reconcileCARotation(context.Background(), cluster, []clusterv1.Machine{}, false)
+			state, err := r.reconcileCARotation(context.Background(), cluster, false)
 			if err != nil {
 				t.Fatalf("reconcileCARotation() error = %v", err)
 			}
@@ -108,7 +108,7 @@ func TestReconcileCARotationInvalidActiveGeneration(t *testing.T) {
 	requested := int32(1)
 	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", -1, &requested)
 
-	state, err := r.reconcileCARotation(context.Background(), cluster, []clusterv1.Machine{}, false)
+	state, err := r.reconcileCARotation(context.Background(), cluster, false)
 	if err == nil {
 		t.Fatal("reconcileCARotation() error = nil, want an error for an invalid active secret generation")
 	}
@@ -125,7 +125,7 @@ func TestReconcileCARotationStopsWhenMachineInventoryIsEmpty(t *testing.T) {
 	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, &requested)
 	cluster.Namespace = "default"
 
-	state, err := r.reconcileCARotation(t.Context(), cluster, []clusterv1.Machine{{ObjectMeta: metav1.ObjectMeta{Name: "control-plane-fallback"}}}, false)
+	state, err := r.reconcileCARotation(t.Context(), cluster, false)
 	if err != nil {
 		t.Fatalf("reconcileCARotation() error = %v", err)
 	}

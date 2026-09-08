@@ -203,7 +203,7 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	caRotationState, err := r.reconcileCARotation(ctx, tartCluster, machines, scaleDownPending)
+	caRotationState, err := r.reconcileCARotation(ctx, tartCluster, scaleDownPending)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1530,7 +1530,7 @@ func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.C
 	return observations, nil
 }
 
-func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, machines []clusterv1.Machine, scaleDownPending bool) (controlPlaneCARotationState, error) {
+func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, scaleDownPending bool) (controlPlaneCARotationState, error) {
 	notRequested := controlPlaneCARotationState{reason: "NotRequested", message: "No CA rotation has been requested."}
 	if cluster == nil || cluster.Spec.CARotationRequestedGeneration == nil {
 		return notRequested, nil
@@ -1566,7 +1566,7 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 		return controlPlaneCARotationState{active: true, reason: reasonMachineUnavailable, message: "No CAPI Machine is available for CA rotation yet; rotation is paused until the cluster Machine inventory can be observed.", requeueAfter: 30 * time.Second}, nil
 	}
 	// TartControlPlaneのensureMachinesはcontrol-plane Machineだけを返すため、CA trustは同じClusterのworker Machineも含めて観測・更新する。SpecのclusterNameを正本とし、復元後にlabelが欠けたMachineも対象から外さない。
-	machines = clusterMachines
+	machines := clusterMachines
 
 	activeBundle, activeCAs, err := r.observeRotationBundle(ctx, cluster, clusterID, cluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive)
 	if err != nil {

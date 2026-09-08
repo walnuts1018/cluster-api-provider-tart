@@ -130,6 +130,12 @@ func TestValidateBundleSecretContract(t *testing.T) {
 		"wrong cluster ID label": func(secret *corev1.Secret) {
 			secret.Labels[ClusterIDLabel] = "018f3c5e-5f8a-7c1b-9a2d-123456789abd"
 		},
+		"wrong generation label": func(secret *corev1.Secret) {
+			secret.Labels[GenerationLabel] = "3"
+		},
+		"wrong bundle state label": func(secret *corev1.Secret) {
+			secret.Labels[BundleStateLabel] = BundleStateActive
+		},
 		"mutable Secret": func(secret *corev1.Secret) {
 			secret.Immutable = new(false)
 		},
@@ -138,6 +144,15 @@ func TestValidateBundleSecretContract(t *testing.T) {
 		},
 		"missing bundle data": func(secret *corev1.Secret) {
 			secret.Data = nil
+		},
+		"owner is not controller": func(secret *corev1.Secret) {
+			secret.OwnerReferences[0].Controller = new(false)
+		},
+		"multiple owners": func(secret *corev1.Secret) {
+			secret.OwnerReferences = append(secret.OwnerReferences, secret.OwnerReferences[0])
+		},
+		"wrong namespace": func(secret *corev1.Secret) {
+			secret.Namespace = "other"
 		},
 	}
 	for name, mutate := range tests {

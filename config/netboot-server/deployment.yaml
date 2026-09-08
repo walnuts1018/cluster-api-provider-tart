@@ -81,7 +81,8 @@ spec:
             memory: 32Mi
       initContainers:
       - name: ipxe-loader
-        # E2E workflowと同じiPXE公式prebuilt binaryを、UEFI PXEが要求する標準名でTFTP rootへ配置する。
+        # E2E workflowと同じiPXE公式prebuilt binaryを、UEFI PXE(ipxe-x86_64.efi)とlegacy BIOS
+        # PXE(undionly.kpxe)それぞれが要求する標準名でTFTP rootへ配置する。
         # renovate: datasource=docker depName=curlimages/curl
         # cluster-api-operatorのimage overrideはreference.ParseNamed(strictにdomainを要求する)で全containerのimageをparseするため、
         # domain省略形だと"repository name must be canonical"でproviderのapplyが失敗する。domainを明示して回避する。
@@ -92,6 +93,9 @@ spec:
         - --output
         - /var/lib/netboot-server/tftp/ipxe-x86_64.efi
         - https://boot.ipxe.org/x86_64-efi/ipxe.efi
+        - --output
+        - /var/lib/netboot-server/tftp/undionly.kpxe
+        - https://boot.ipxe.org/undionly.kpxe
         securityContext:
           runAsUser: 65532
           runAsGroup: 65532

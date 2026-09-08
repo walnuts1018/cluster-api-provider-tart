@@ -63,26 +63,43 @@ const (
 )
 
 const (
-	// IPXEBootFileNameAMD64はamd64用のiPXEローダのファイル名である。
+	// IPXEBootFileNameAMD64はUEFI amd64用のiPXEローダのファイル名である。
 	IPXEBootFileNameAMD64 = "ipxe-x86_64.efi"
-	// IPXEBootFileNameARM64はarm64用のiPXEローダのファイル名である。
+	// IPXEBootFileNameARM64はUEFI arm64用のiPXEローダのファイル名である。
 	IPXEBootFileNameARM64 = "ipxe-arm64.efi"
+	// IPXEBootFileNameLegacyBIOSは、legacy BIOS PXE(Option 93がArchIntelx86PC)クライアント用の
+	// iPXEローダのファイル名である。UEFI版と異なりfirmwareのexecutable image loaderではなく
+	// legacy PXE ROM経由でロードされるため、拡張子は.efiではなく.kpxeになる。
+	IPXEBootFileNameLegacyBIOS = "undionly.kpxe"
 )
 
 // DecideAgentBootFileは、DHCP requestから読み取ったクライアントのarchitectureとiPXE状態を基に、
 // ProxyDHCPが応答すべきboot file名(またはchain URL)を決定する。
-// Option 93(Client System Architecture)がない、またはamd64 EFI以外のarchitectureはsupported=falseとなり、
-// 呼び出し側はそのクライアントへの応答を送らない(対象外のhostへブートローダを配信してしまうことを防ぐため)。
-// isIPXEがfalseの場合はまずiPXEローダのファイル名を返し、iPXEローダ自身からの2回目のrequest(isIPXE=true)では
-// macアドレスをクエリパラメータへ含めたHTTP boot script URLへchainさせる。
+// Option 93(Client System Architecture)がない、またはamd64 EFI/legacy BIOS以外のarchitectureは
+// supported=falseとなり、呼び出し側はそのクライアントへの応答を送らない
+// (対象外のhostへブートローダを配信してしまうことを防ぐため)。
+// isIPXEがfalseの場合はまずarchに応じたiPXEローダのファイル名を返す。iPXEローダ自身は
+// firmwareのUEFI/BIOSどちらであっても自前のHTTPクライアントでchain先へ到達できるため、
+// 2回目のrequest(isIPXE=true)ではarchを問わずmacアドレスをクエリパラメータへ含めたHTTP boot
+// script URLへchainさせる。
 func DecideAgentBootFile(arch Arch, archOptionPresent, isIPXE bool, httpBootBaseURL, macAddress string) (bootFile string, supported bool) {
-	if !archOptionPresent || arch != ArchEFIx8664 {
+	if !archOptionPresent {
 		return "", false
 	}
-	if !isIPXE {
-		return IPXEBootFileNameAMD64, true
+	if isIPXE {
+		if arch != ArchEFIx8664 && arch != ArchIntelx86PC {
+			return "", false
+		}
+		return httpBootBaseURL + "/ipxe?mac=" + macAddress, true
 	}
-	return httpBootBaseURL + "/ipxe?mac=" + macAddress, true
+	switch arch {
+	case ArchEFIx8664:
+		return IPXEBootFileNameAMD64, true
+	case ArchIntelx86PC:
+		return IPXEBootFileNameLegacyBIOS, true
+	default:
+		return "", false
+	}
 }
 
 // PXEArchFromQueryは、iPXEスクリプト配信endpointへのクエリパラメータから、

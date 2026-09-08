@@ -41,15 +41,23 @@ func TestDecideAgentBootFile(t *testing.T) {
 		"architecture optionなし": {
 			arch: ArchEFIx8664, baseURL: "http://test.walnuts.dev:8080", macAddress: "00%3A00%3A5e%3A00%3A53%3A02",
 		},
-		"legacy BIOS": {arch: ArchIntelx86PC, archOptionPresent: true},
-		"EFI ARM64":   {arch: ArchEFIARM64, archOptionPresent: true},
-		"EFI BC":      {arch: ArchEFIBC, archOptionPresent: true},
+		"EFI ARM64": {arch: ArchEFIARM64, archOptionPresent: true},
+		"EFI BC":    {arch: ArchEFIBC, archOptionPresent: true},
 		"amd64の初回request": {
 			arch: ArchEFIx8664, archOptionPresent: true,
 			wantBootFile: IPXEBootFileNameAMD64, wantSupported: true,
 		},
+		"legacy BIOSの初回request": {
+			arch: ArchIntelx86PC, archOptionPresent: true,
+			wantBootFile: IPXEBootFileNameLegacyBIOS, wantSupported: true,
+		},
 		"iPXEのchain": {
 			arch: ArchEFIx8664, archOptionPresent: true, isIPXE: true,
+			baseURL: "http://test.walnuts.dev:8080", macAddress: "00%3A00%3A5e%3A00%3A53%3A02",
+			wantBootFile: "http://test.walnuts.dev:8080/ipxe?mac=00%3A00%3A5e%3A00%3A53%3A02", wantSupported: true,
+		},
+		"legacy BIOSのiPXE chain": {
+			arch: ArchIntelx86PC, archOptionPresent: true, isIPXE: true,
 			baseURL: "http://test.walnuts.dev:8080", macAddress: "00%3A00%3A5e%3A00%3A53%3A02",
 			wantBootFile: "http://test.walnuts.dev:8080/ipxe?mac=00%3A00%3A5e%3A00%3A53%3A02", wantSupported: true,
 		},
@@ -57,6 +65,7 @@ func TestDecideAgentBootFile(t *testing.T) {
 			arch: ArchEFIx8664, archOptionPresent: true, isIPXE: true,
 			wantBootFile: "/ipxe?mac=", wantSupported: true,
 		},
+		"EFI ARM64のiPXE chainは未対応": {arch: ArchEFIARM64, archOptionPresent: true, isIPXE: true},
 	}
 
 	for name, tt := range tests {

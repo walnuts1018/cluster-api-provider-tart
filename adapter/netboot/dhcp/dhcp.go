@@ -96,7 +96,7 @@ func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL, iface string, logger 
 func (s *Server) Start(ctx context.Context) error {
 	lg := s.logger
 
-	for _, f := range []string{domainnetboot.IPXEBootFileNameAMD64, domainnetboot.IPXEBootFileNameARM64} {
+	for _, f := range []string{domainnetboot.IPXEBootFileNameAMD64, domainnetboot.IPXEBootFileNameARM64, domainnetboot.IPXEBootFileNameLegacyBIOS} {
 		path := filepath.Join(s.tftpRoot, f)
 		if _, err := os.Stat(path); err != nil && errors.Is(err, os.ErrNotExist) {
 			lg.Warn("ipxe bootloader is not found yet", "path", path)

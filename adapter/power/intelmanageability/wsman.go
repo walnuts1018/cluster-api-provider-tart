@@ -52,19 +52,6 @@ func (n *xmlNode) find(localName string) *xmlNode {
 	return nil
 }
 
-// findAllはnode配下をDFSでlocalNameに一致する全nodeを返す。Enumerate ResponseのItems配下の複数instanceを取り出すために使う。
-func (n *xmlNode) findAll(localName string) []*xmlNode {
-	var results []*xmlNode
-	for i := range n.Children {
-		child := &n.Children[i]
-		if child.XMLName.Local == localName {
-			results = append(results, child)
-		}
-		results = append(results, child.findAll(localName)...)
-	}
-	return results
-}
-
 // clientConfigはClientの接続設定である。credentialの値そのものを保持するため、ログや文字列化に含めてはならない。
 type clientConfig struct {
 	endpoint           string
@@ -142,12 +129,12 @@ func wsmanRootCAs(data []byte) (*x509.CertPool, error) {
 
 // getはWS-Transfer Getでresourceを取得し、Body配下を返す。
 func (c *client) get(ctx context.Context, resourceURI string) (*xmlNode, error) {
-	return c.call(ctx, actionTransferGet, resourceURI, nil, nil)
+	return c.call(ctx, actionTransferGet, resourceURI, nil)
 }
 
 // enumerateAllはWS-Enumerationでresourceの全instanceを列挙する。OptimizeEnumerationで返らなかった場合はPullで続きを取得する。
 func (c *client) enumerateAll(ctx context.Context, resourceURI string) ([]*xmlNode, error) {
-	body, err := c.call(ctx, actionEnumerate, resourceURI, nil, enumerateBody)
+	body, err := c.call(ctx, actionEnumerate, resourceURI, enumerateBody)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +145,7 @@ func (c *client) enumerateAll(ctx context.Context, resourceURI string) ([]*xmlNo
 	if enumerationContext == nil || strings.TrimSpace(enumerationContext.Content) == "" {
 		return nil, nil
 	}
-	pullResponse, err := c.call(ctx, actionPull, resourceURI, nil, pullBody(enumerationContext.Content))
+	pullResponse, err := c.call(ctx, actionPull, resourceURI, pullBody(enumerationContext.Content))
 	if err != nil {
 		return nil, err
 	}
@@ -180,15 +167,15 @@ func nodePointers(nodes []xmlNode) []*xmlNode {
 // invokeはWS-Man method invocationを実行し、応答Body配下を返す。
 func (c *client) invoke(ctx context.Context, resourceURI, method string, params []invokeParam) (*xmlNode, error) {
 	action := resourceURI + "/" + method
-	return c.call(ctx, action, resourceURI, nil, invokeBody(resourceURI, method, params))
+	return c.call(ctx, action, resourceURI, invokeBody(resourceURI, method, params))
 }
 
-func (c *client) call(ctx context.Context, action, resourceURI string, selectors []invokeParam, bodyWriter func(*xml.Encoder) error) (*xmlNode, error) {
+func (c *client) call(ctx context.Context, action, resourceURI string, bodyWriter func(*xml.Encoder) error) (*xmlNode, error) {
 	messageID, err := newMessageID()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrProtocol, err)
 	}
-	payload, err := buildEnvelope(c.endpoint.String(), resourceURI, action, messageID, selectors, bodyWriter)
+	payload, err := buildEnvelope(c.endpoint.String(), resourceURI, action, messageID, bodyWriter)
 	if err != nil {
 		return nil, fmt.Errorf("%w: build WS-Man request: %w", ErrProtocol, err)
 	}

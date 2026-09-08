@@ -1012,6 +1012,8 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 			return false, err
 		}
 		return state == power.PowerStateOff, nil
+	case infrav1alpha1.PowerBackendWakeOnLAN, infrav1alpha1.PowerBackendManual:
+		// WoL/Manualは独立したpower-state observerを持たないため、以下のTalos到達性による代替判定へ進む。
 	}
 	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {

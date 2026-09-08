@@ -176,6 +176,8 @@ func needsPowerOnForDiscovery(host *infrav1alpha1.TartHost) bool {
 	}
 	switch host.Spec.Power.Backend {
 	case infrav1alpha1.PowerBackendWakeOnLAN, infrav1alpha1.PowerBackendRedfish, infrav1alpha1.PowerBackendIntelManageability:
+	case infrav1alpha1.PowerBackendManual:
+		return false
 	default:
 		return false
 	}

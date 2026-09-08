@@ -121,9 +121,9 @@ func (b *Backend) PowerOn(ctx context.Context) error {
 		return nil
 	case PowerStateOff:
 		return b.requestPowerStateChange(ctx, cimPowerStateOn)
-	default:
-		return fmt.Errorf("%w: cannot power on from state %q", ErrUnexpectedPowerState, state)
+	case PowerStateUnknown:
 	}
+	return fmt.Errorf("%w: cannot power on from state %q", ErrUnexpectedPowerState, state)
 }
 
 // PowerOffは現在の電源状態を確認し、稼働中の場合だけACPI経由のsoft power off遷移を要求する。強制停止は自動選択しない。
@@ -137,9 +137,9 @@ func (b *Backend) PowerOff(ctx context.Context) error {
 		return nil
 	case PowerStateOn:
 		return b.requestPowerStateChange(ctx, cimPowerStateOffSoft)
-	default:
-		return fmt.Errorf("%w: cannot power off from state %q", ErrUnexpectedPowerState, state)
+	case PowerStateUnknown:
 	}
+	return fmt.Errorf("%w: cannot power off from state %q", ErrUnexpectedPowerState, state)
 }
 
 // PowerCycleは稼働中の場合だけhardware resetを要求する。停止中や不明な状態からのcycleは安全でないため拒否する。

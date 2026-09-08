@@ -45,7 +45,7 @@ func newMessageID() (string, error) {
 }
 
 // buildEnvelopeはWS-Man SOAP requestを組み立てる。bodyWriterがnilの場合、Bodyは空要素(WS-Transfer Get相当)になる。
-func buildEnvelope(to, resourceURI, action, messageID string, selectors []invokeParam, bodyWriter func(*xml.Encoder) error) ([]byte, error) {
+func buildEnvelope(to, resourceURI, action, messageID string, bodyWriter func(*xml.Encoder) error) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := xml.NewEncoder(&buf)
 
@@ -54,7 +54,7 @@ func buildEnvelope(to, resourceURI, action, messageID string, selectors []invoke
 		return nil, err
 	}
 
-	if err := writeHeader(enc, to, resourceURI, action, messageID, selectors); err != nil {
+	if err := writeHeader(enc, to, resourceURI, action, messageID); err != nil {
 		return nil, err
 	}
 
@@ -80,7 +80,7 @@ func buildEnvelope(to, resourceURI, action, messageID string, selectors []invoke
 	return buf.Bytes(), nil
 }
 
-func writeHeader(enc *xml.Encoder, to, resourceURI, action, messageID string, selectors []invokeParam) error {
+func writeHeader(enc *xml.Encoder, to, resourceURI, action, messageID string) error {
 	headerStart := xml.StartElement{Name: xml.Name{Space: nsSOAPEnvelope, Local: "Header"}}
 	if err := enc.EncodeToken(headerStart); err != nil {
 		return err
@@ -108,12 +108,6 @@ func writeHeader(enc *xml.Encoder, to, resourceURI, action, messageID string, se
 	}
 	if err := writeTextElement(enc, nsAddressing, "MessageID", messageID); err != nil {
 		return err
-	}
-
-	if len(selectors) > 0 {
-		if err := writeSelectorSet(enc, selectors); err != nil {
-			return err
-		}
 	}
 
 	return enc.EncodeToken(headerStart.End())

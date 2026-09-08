@@ -109,7 +109,9 @@ func inPlaceUpgradeSpecs() {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName}, &updated)).To(Succeed())
 				GinkgoWriter.Printf("[%s elapsed] TartControlPlane %s/%s: KubernetesUpgrade.ObservedVersion=%q (want %q)\n",
 					time.Since(upgradeWaitStart).Round(time.Second), e2eNamespace, e2eClusterName, updated.Status.KubernetesUpgrade.ObservedVersion, upgradeTargetKubernetesVersion)
-				g.Expect(updated.Status.KubernetesUpgrade.ObservedVersion).To(Equal(upgradeTargetKubernetesVersion))
+				// ObservedVersionは検出したcluster Kubernetes versionをそのまま格納しており、
+				// spec側のような先頭"v"を持たない場合があるため、比較前に両辺から取り除く。
+				g.Expect(strings.TrimPrefix(updated.Status.KubernetesUpgrade.ObservedVersion, "v")).To(Equal(strings.TrimPrefix(upgradeTargetKubernetesVersion, "v")))
 			}).WithContext(ctx).WithTimeout(20 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 
 			framework.WaitForConditionUntilTerminal(ctx, tartControlPlaneConditions(e2eNamespace, e2eClusterName), controlplanev1alpha1.TartControlPlaneAvailableCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)

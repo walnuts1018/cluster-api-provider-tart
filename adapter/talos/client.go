@@ -127,8 +127,10 @@ func SetProviderID(configuration []byte, providerID string) ([]byte, error) {
 	if kubelet == nil {
 		return nil, errors.New("talos machine configuration has no kubelet configuration")
 	}
-	if values := kubelet.ExtraArgs()["provider-id"]; len(values) > 0 && values[0] != providerID {
-		return nil, fmt.Errorf("%w: %q", ErrProviderIDConflict, values[0])
+	if values := kubelet.ExtraArgs()["provider-id"]; len(values) > 0 {
+		if len(values) != 1 || values[0] != providerID {
+			return nil, fmt.Errorf("%w: %q", ErrProviderIDConflict, values[0])
+		}
 	}
 
 	patch := k8sconfig.NewKubeletConfigV1Alpha1()

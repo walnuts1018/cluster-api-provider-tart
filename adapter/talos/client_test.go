@@ -7,10 +7,15 @@ import (
 	"time"
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
+	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
+	"github.com/siderolabs/talos/pkg/machinery/config/container"
 	"github.com/siderolabs/talos/pkg/machinery/config/encoder"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
 	talosmachine "github.com/siderolabs/talos/pkg/machinery/config/machine"
+	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
+	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 )
 
 func TestClientVersionRejectsUnavailableClient(t *testing.T) {
@@ -84,6 +89,75 @@ func TestDialAuthenticatedFromWorkerConfigurationDoesNotPanic(t *testing.T) {
 	if err == nil && client == nil {
 		t.Fatal("DialAuthenticatedFromConfiguration() returned neither a client nor an error")
 	}
+}
+
+func TestSetProviderIDWritesAndRejectsConflict(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	input, err := generate.NewInput("cluster-a", "https://192.0.2.10:6443", "1.34.0", generate.WithSecretsBundle(bundle))
+	if err != nil {
+		t.Fatalf("generate.NewInput() error = %v", err)
+	}
+	provider, err := input.Config(talosmachine.TypeWorker)
+	if err != nil {
+		t.Fatalf("Config(worker) error = %v", err)
+	}
+	configuration, err := provider.EncodeBytes(encoder.WithComments(encoder.CommentsDisabled))
+	if err != nil {
+		t.Fatalf("EncodeBytes() error = %v", err)
+	}
+
+	const providerID = "tart://host/test"
+	patched, err := SetProviderID(configuration, providerID)
+	if err != nil {
+		t.Fatalf("SetProviderID() error = %v", err)
+	}
+	patchedProvider, err := configloader.NewFromBytes(patched)
+	if err != nil {
+		t.Fatalf("configloader.NewFromBytes() error = %v", err)
+	}
+	values := patchedProvider.K8sKubeletConfig().ExtraArgs()["provider-id"]
+	if len(values) != 1 || values[0] != providerID {
+		t.Fatalf("provider-id values = %#v, want [%q]", values, providerID)
+	}
+
+	if _, err := SetProviderID(patched, "tart://host/other"); !errors.Is(err, ErrProviderIDConflict) {
+		t.Fatalf("SetProviderID() conflict error = %v, want ErrProviderIDConflict", err)
+	}
+
+	multiple, err := configurationWithProviderIDValues(configuration, []string{providerID, "tart://host/other"})
+	if err != nil {
+		t.Fatalf("configurationWithProviderIDValues() error = %v", err)
+	}
+	multipleProvider, err := configloader.NewFromBytes(multiple)
+	if err != nil {
+		t.Fatalf("configloader.NewFromBytes(multiple) error = %v", err)
+	}
+	if values := multipleProvider.K8sKubeletConfig().ExtraArgs()["provider-id"]; len(values) != 2 || values[0] != providerID || values[1] != "tart://host/other" {
+		t.Fatalf("multiple provider IDs = %#v, want [%q %q]", values, providerID, "tart://host/other")
+	}
+	_, multipleErr := SetProviderID(multiple, providerID)
+	if !errors.Is(multipleErr, ErrProviderIDConflict) {
+		t.Fatalf("SetProviderID() multiple-value error = %v, want ErrProviderIDConflict", multipleErr)
+	}
+}
+
+func configurationWithProviderIDValues(configuration []byte, values []string) ([]byte, error) {
+	patch := k8sconfig.NewKubeletConfigV1Alpha1()
+	patch.KubeletArgs = configmeta.Args{"provider-id": configmeta.NewArgValue("", values)}
+	patchProvider, err := container.New(patch)
+	if err != nil {
+		return nil, err
+	}
+	output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{configpatcher.NewStrategicMergePatch(patchProvider)})
+	if err != nil {
+		return nil, err
+	}
+	return output.Bytes()
 }
 
 func TestValidateUpgradeUsesTalosCompatibilityRules(t *testing.T) {

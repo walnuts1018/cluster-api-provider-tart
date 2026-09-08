@@ -6,7 +6,11 @@ import (
 	"time"
 
 	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/configpatcher"
+	"github.com/siderolabs/talos/pkg/machinery/config/container"
 	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+	k8sconfig "github.com/siderolabs/talos/pkg/machinery/config/types/k8s"
+	configmeta "github.com/siderolabs/talos/pkg/machinery/config/types/meta"
 
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
 	domainupdate "github.com/walnuts1018/cluster-api-provider-tart/domain/update"
@@ -157,4 +161,40 @@ func TestClassifyConfigurationChangeLVMVolumeGroupSelectorChangeIsDestructive(t 
 	if class != domainupdate.ChangeReprovisionRequired {
 		t.Fatalf("ClassifyConfigurationChange() class = %v, want ChangeReprovisionRequired (reason=%q)", class, reason)
 	}
+}
+
+func TestClassifyConfigurationChangeRejectsMultipleProviderIDs(t *testing.T) {
+	t.Parallel()
+
+	base := classifyStorageActiveConfiguration(t)
+	active, err := configurationWithProviderIDValues(base, []string{"tart://host/test", "tart://host/other"})
+	if err != nil {
+		t.Fatalf("configurationWithProviderIDValues(active) error = %v", err)
+	}
+	desired, err := configurationWithProviderIDValues(base, []string{"tart://host/test"})
+	if err != nil {
+		t.Fatalf("configurationWithProviderIDValues(desired) error = %v", err)
+	}
+
+	class, reason, err := ClassifyConfigurationChange(active, desired)
+	if err != nil {
+		t.Fatalf("ClassifyConfigurationChange() error = %v", err)
+	}
+	if class != domainupdate.ChangeInvariantConflict {
+		t.Fatalf("ClassifyConfigurationChange() class = %v, want ChangeInvariantConflict (reason=%q)", class, reason)
+	}
+}
+
+func configurationWithProviderIDValues(configuration []byte, values []string) ([]byte, error) {
+	patch := k8sconfig.NewKubeletConfigV1Alpha1()
+	patch.KubeletArgs = configmeta.Args{"provider-id": configmeta.NewArgValue("", values)}
+	patchProvider, err := container.New(patch)
+	if err != nil {
+		return nil, err
+	}
+	output, err := configpatcher.Apply(configpatcher.WithBytes(configuration), []configpatcher.Patch{configpatcher.NewStrategicMergePatch(patchProvider)})
+	if err != nil {
+		return nil, err
+	}
+	return output.Bytes()
 }

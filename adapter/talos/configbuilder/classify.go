@@ -102,7 +102,9 @@ func invariantConflict(active, desired talosconfig.Provider) string {
 	if componentImages(active) != componentImages(desired) {
 		return "A Kubernetes component image changed; the update is stopped."
 	}
-	if providerID(active) != providerID(desired) {
+	activeProviderID, activeProviderIDValid := providerID(active)
+	desiredProviderID, desiredProviderIDValid := providerID(desired)
+	if !activeProviderIDValid || !desiredProviderIDValid || activeProviderID != desiredProviderID {
 		return "The kubelet ProviderID changed; the update is stopped."
 	}
 	return ""
@@ -270,16 +272,20 @@ func sameEndpoint(left, right *url.URL) bool {
 	return left.String() == right.String()
 }
 
-func providerID(provider talosconfig.Provider) string {
+func providerID(provider talosconfig.Provider) (string, bool) {
 	kubelet := provider.K8sKubeletConfig()
 	if kubelet == nil {
-		return ""
+		return "", true
 	}
 	values := kubelet.ExtraArgs()["provider-id"]
-	if len(values) == 0 {
-		return ""
+	switch len(values) {
+	case 0:
+		return "", true
+	case 1:
+		return values[0], true
+	default:
+		return "", false
 	}
-	return values[0]
 }
 
 func sameKubernetesPKI(active, desired talosconfig.Provider) bool {

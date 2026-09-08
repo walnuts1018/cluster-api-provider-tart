@@ -12,6 +12,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/pin/tftp/v3"
@@ -47,8 +49,14 @@ func resolveFilePath(root, filename string) (string, error) {
 		return "", fmt.Errorf("resolve tftp root: %w", err)
 	}
 
-	cleanedFilename := filepath.Clean(string(filepath.Separator) + filename)
-	cleanedFilename = cleanedFilename[1:]
+	// filepath.Clean("/"+filename)では、先に付加したrootによって"../"がroot直下の通常パスへ変換されるため、正規化前に親ディレクトリ要素を拒否する。
+	components := strings.FieldsFunc(filename, func(r rune) bool {
+		return r == '/' || r == '\\'
+	})
+	if slices.Contains(components, "..") {
+		return "", errors.New("access denied: path traversal detected")
+	}
+	cleanedFilename := strings.TrimLeft(filepath.Clean(filename), string(filepath.Separator))
 	filePath := filepath.Join(resolvedRoot, cleanedFilename)
 	resolved, err := filepath.EvalSymlinks(filePath)
 	if err != nil {

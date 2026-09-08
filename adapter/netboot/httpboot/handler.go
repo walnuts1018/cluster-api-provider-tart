@@ -45,7 +45,7 @@ func NewHandler(imageFactoryPXEBaseURL string, discoveryImage domainnetboot.Disc
 	}
 
 	return &Handler{
-		imageFactoryPXEBaseURL: strings.TrimSuffix(imageFactoryPXEBaseURL, "/"),
+		imageFactoryPXEBaseURL: strings.TrimRight(imageFactoryPXEBaseURL, "/"),
 		discoveryImage:         discoveryImage,
 		resolver:               resolver,
 		logger:                 logger.With("component", "httpboot"),

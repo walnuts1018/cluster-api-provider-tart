@@ -14,9 +14,9 @@ func TestShutdownConfirmed(t *testing.T) {
 	machine := &infrav1alpha1.TartMachine{}
 	machine.UID = machineUID
 
-	host := &infrav1alpha1.TartHost{}
-	host.Spec.HostID = hostID
-	host.Status.Inventory = &infrav1alpha1.HostInventory{BootID: "boot-123"}
+	hostTemplate := &infrav1alpha1.TartHost{}
+	hostTemplate.Spec.HostID = hostID
+	hostTemplate.Status.Inventory = &infrav1alpha1.HostInventory{BootID: "boot-123"}
 
 	tests := map[string]struct {
 		confirmation    *infrav1alpha1.ShutdownConfirmation
@@ -56,6 +56,7 @@ func TestShutdownConfirmed(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
+			host := hostTemplate.DeepCopy()
 			if tt.inventoryBootID != "" {
 				host.Status.Inventory.BootID = tt.inventoryBootID
 			} else if name == "empty BootID allowed when inventory BootID empty" {

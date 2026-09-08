@@ -9,8 +9,14 @@ import (
 // ResolveAdvertiseIPはクライアントへ広告するサーバーIPを解決する。
 // advertiseAddrが明示的に設定されていればそれを使い、そうでなければbindAddr/httpAddrやnetwork interfaceから推測する。
 func ResolveAdvertiseIP(bindAddr, httpAddr, advertiseAddr string) (net.IP, error) {
-	if ip := net.ParseIP(advertiseAddr); ip != nil && !ip.IsUnspecified() {
-		return ip, nil
+	if advertiseAddr != "" {
+		ip := net.ParseIP(advertiseAddr)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid advertise address: %s", advertiseAddr)
+		}
+		if !ip.IsUnspecified() {
+			return ip, nil
+		}
 	}
 
 	for _, addr := range []string{bindAddr, httpAddr} {
@@ -60,7 +66,7 @@ func DefaultAdvertiseHTTPBaseURL(dhcpBindAddress, httpBindAddress, advertiseAddr
 	if err != nil {
 		return "", fmt.Errorf("invalid HTTP bind address %s: %w", httpBindAddress, err)
 	}
-	return fmt.Sprintf("http://%s:%s", advertiseIP.String(), port), nil
+	return "http://" + net.JoinHostPort(advertiseIP.String(), port), nil
 }
 
 // ParseHostIPはhost[:port]形式またはhost単体の文字列からIPを取り出す。

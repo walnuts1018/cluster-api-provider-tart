@@ -148,3 +148,61 @@ func TestClaimHostRetriesAfterUnrelatedResourceVersionConflict(t *testing.T) {
 		t.Errorf("ClaimHost() discarded the refreshed Host state: labels = %#v", stale.Labels)
 	}
 }
+
+func TestRetainHostMovesClaimToPreviousConsumerRef(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	consumer := corev1.ObjectReference{APIVersion: infrav1alpha1.GroupVersion.String(), Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
+	host := &infrav1alpha1.TartHost{
+		Name: "host-a",
+		Spec: infrav1alpha1.TartHostSpec{ConsumerRef: &consumer},
+	}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(host).Build()
+	repo := NewTartHostRepository(fakeClient)
+	previous := infrav1alpha1.PreviousConsumerRef{UID: consumer.UID}
+
+	if err := repo.RetainHost(t.Context(), host, consumer, previous); err != nil {
+		t.Fatalf("RetainHost() error = %v", err)
+	}
+	if host.Spec.ConsumerRef != nil {
+		t.Fatalf("RetainHost() left consumerRef = %#v", host.Spec.ConsumerRef)
+	}
+	if host.Spec.PreviousConsumerRef == nil || host.Spec.PreviousConsumerRef.UID != previous.UID {
+		t.Fatalf("RetainHost() previousConsumerRef = %#v, want UID %q", host.Spec.PreviousConsumerRef, previous.UID)
+	}
+
+	stored := &infrav1alpha1.TartHost{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: host.Name}, stored); err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.Spec.ConsumerRef != nil || stored.Spec.PreviousConsumerRef == nil || stored.Spec.PreviousConsumerRef.UID != previous.UID {
+		t.Fatalf("stored Host after RetainHost() = %#v", stored.Spec)
+	}
+}
+
+func TestRetainHostDoesNotOverwriteDifferentConsumer(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := infrav1alpha1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	current := corev1.ObjectReference{APIVersion: infrav1alpha1.GroupVersion.String(), Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
+	other := current
+	other.UID = types.UID("machine-b")
+	host := &infrav1alpha1.TartHost{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{ConsumerRef: &current}}
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(host).Build()
+	repo := NewTartHostRepository(fakeClient)
+
+	err := repo.RetainHost(t.Context(), host, other, infrav1alpha1.PreviousConsumerRef{UID: other.UID})
+	if !errors.Is(err, hostusecase.ErrClaimConflict) {
+		t.Fatalf("RetainHost() error = %v, want ErrClaimConflict", err)
+	}
+	if host.Spec.ConsumerRef == nil || host.Spec.ConsumerRef.UID != current.UID {
+		t.Fatalf("RetainHost() changed caller Host after conflict: %#v", host.Spec.ConsumerRef)
+	}
+}

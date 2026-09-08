@@ -21,6 +21,7 @@ import (
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/framework"
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/lab"
@@ -276,6 +277,26 @@ filesystem:
 				return findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)
 			}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, e2eTalosVersion, e2eSchematicID)
+		})
+
+		It("rejects changing an initialized TartMachine ProviderID", func() {
+			var capiMachine clusterv1.Machine
+			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &capiMachine)).To(Succeed())
+
+			var machine infrav1alpha1.TartMachine
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: capiMachine.Spec.InfrastructureRef.Name}, &machine)).To(Succeed())
+			Expect(machine.Spec.ProviderID.IsZero()).To(BeFalse(), "ProviderID must be initialized before immutability is checked")
+			originalProviderID := machine.Spec.ProviderID
+			replacement, err := hostdomain.ParseProviderID("tart://host/018f3c5e-5f8a-7c1b-9a2d-123456789abd")
+			Expect(err).NotTo(HaveOccurred())
+			machine.Spec.ProviderID = replacement
+
+			err = k8sClient.Update(ctx, &machine)
+			Expect(apierrors.IsInvalid(err)).To(BeTrue(), "changing ProviderID must be rejected by the CRD validation, got %v", err)
+
+			var unchanged infrav1alpha1.TartMachine
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Name}, &unchanged)).To(Succeed())
+			Expect(unchanged.Spec.ProviderID).To(Equal(originalProviderID))
 		})
 	})
 }

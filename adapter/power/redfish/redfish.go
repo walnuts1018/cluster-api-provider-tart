@@ -99,7 +99,12 @@ func New(config Config) (*Backend, error) {
 }
 
 func newBackend(config Config, httpClient *http.Client) (*Backend, error) {
-	parsedEndpoint, err := endpoint.ParseHTTPSURL(config.Address)
+	address := strings.TrimSpace(config.Address)
+	rawAddress, parseErr := url.Parse(address)
+	if parseErr == nil && (rawAddress.RawQuery != "" || rawAddress.Fragment != "") {
+		return nil, errors.New("redfish address must not contain a query or fragment")
+	}
+	parsedEndpoint, err := endpoint.ParseHTTPSURL(address)
 	if err != nil {
 		return nil, fmt.Errorf("validate Redfish address: %w", err)
 	}
@@ -301,6 +306,13 @@ func (r *Backend) resolveLinkFrom(base *url.URL, value string) (*url.URL, error)
 	}
 	resolved := base.ResolveReference(link)
 	if resolved.Scheme != r.baseURL.Scheme || !strings.EqualFold(resolved.Host, r.baseURL.Host) || resolved.User != nil {
+		return nil, errors.New("redfish link points outside the configured endpoint")
+	}
+	basePath := r.baseURL.Path
+	if !strings.HasSuffix(basePath, "/") {
+		basePath += "/"
+	}
+	if !strings.HasPrefix(resolved.Path, basePath) {
 		return nil, errors.New("redfish link points outside the configured endpoint")
 	}
 	return resolved, nil

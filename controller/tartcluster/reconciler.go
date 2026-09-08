@@ -162,10 +162,11 @@ func (r *TartClusterReconciler) aggregateReadiness(ctx context.Context, cluster 
 		return metav1.ConditionTrue, "SecretBundleReady", "The immutable cluster secret bundle is available.", nil
 	}
 
-	controlPlane := &controlPlanes.Items[0]
-	available := meta.FindStatusCondition(controlPlane.Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition)
-	if available == nil || available.Status != metav1.ConditionTrue {
-		return metav1.ConditionFalse, "ControlPlaneNotAvailable", "The TartControlPlane for this Cluster is not yet Available.", nil
+	for index := range controlPlanes.Items {
+		available := meta.FindStatusCondition(controlPlanes.Items[index].Status.Conditions, controlplanev1alpha1.TartControlPlaneAvailableCondition)
+		if available == nil || available.Status != metav1.ConditionTrue {
+			return metav1.ConditionFalse, "ControlPlaneNotAvailable", "The TartControlPlane for this Cluster is not yet Available.", nil
+		}
 	}
 	return metav1.ConditionTrue, "ControlPlaneAvailable", "The immutable cluster secret bundle is available and the TartControlPlane is Available.", nil
 }

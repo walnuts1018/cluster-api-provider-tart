@@ -50,6 +50,7 @@ runs:
     - name: Setup tools
       uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       with:
+        minimum_release_age: 7d
         install_args: ${{ inputs.install-args }}
 
     - name: Disable mise auto-install for subsequent steps

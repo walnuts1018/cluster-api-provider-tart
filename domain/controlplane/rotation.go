@@ -58,6 +58,9 @@ func ObserveStageWithoutAggregator(issuingMachine *x509.PEMEncodedCertificateAnd
 }
 
 func workerCAStage(accepted []*x509.PEMEncodedCertificate, active, pending *x509.PEMEncodedCertificateAndKey) CATrustStage {
+	if !acceptedCertificatesKnown(accepted, active, pending) {
+		return CATrustStageUnknown
+	}
 	activeAccepted := containsAcceptedCertificate(accepted, active)
 	pendingAccepted := containsAcceptedCertificate(accepted, pending)
 	switch {
@@ -74,6 +77,9 @@ func workerCAStage(accepted []*x509.PEMEncodedCertificate, active, pending *x509
 
 // caStageは単一CAのissuing/accepted観測値から、そのCAだけの進行段階を判定する。
 func caStage(issuing *x509.PEMEncodedCertificateAndKey, accepted []*x509.PEMEncodedCertificate, active, pending *x509.PEMEncodedCertificateAndKey) CATrustStage {
+	if !acceptedCertificatesKnown(accepted, active, pending) {
+		return CATrustStageUnknown
+	}
 	issuingActive := sameCertificate(issuing, active)
 	issuingPending := sameCertificate(issuing, pending)
 	pendingAccepted := containsAcceptedCertificate(accepted, pending)
@@ -91,6 +97,15 @@ func caStage(issuing *x509.PEMEncodedCertificateAndKey, accepted []*x509.PEMEnco
 	default:
 		return CATrustStageUnknown
 	}
+}
+
+func acceptedCertificatesKnown(accepted []*x509.PEMEncodedCertificate, active, pending *x509.PEMEncodedCertificateAndKey) bool {
+	for _, certificate := range accepted {
+		if certificate == nil || (active == nil || !bytes.Equal(certificate.Crt, active.Crt)) && (pending == nil || !bytes.Equal(certificate.Crt, pending.Crt)) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameCertificate(observed, expected *x509.PEMEncodedCertificateAndKey) bool {

@@ -67,6 +67,43 @@ jobs:
           git check-ref-format --allow-onelevel "refs/tags/$RELEASE_TAG"
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Require release series metadata for minor releases
+        env:
+          RELEASE_TAG: ${{ steps.release-target.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v([0-9]+)\.([0-9]+)\.[0-9]+([+-].*)?$ ]]; then
+            exit 0
+          fi
+
+          target_major="${BASH_REMATCH[1]}"
+          target_minor="${BASH_REMATCH[2]}"
+          latest_tag="$(git tag --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          if [ -z "$latest_tag" ]; then
+            exit 0
+          fi
+
+          latest_version="${latest_tag#v}"
+          IFS=. read -r latest_major latest_minor _ <<< "$latest_version"
+          if [[ "$target_major" == "$latest_major" && "$target_minor" == "$latest_minor" ]]; then
+            exit 0
+          fi
+
+          if ! awk -v expected_major="$target_major" -v expected_minor="$target_minor" '
+            /^- major:/ {
+              in_expected_series = ($3 == expected_major)
+              next
+            }
+            in_expected_series && /^  minor:/ && $2 == expected_minor {
+              found = 1
+            }
+            END { exit(found ? 0 : 1) }
+          ' metadata.yaml; then
+            echo "::error::metadata.yaml must contain releaseSeries ${target_major}.${target_minor} before releasing ${RELEASE_TAG}"
+            exit 1
+          fi
+
   prepare-release:
     name: Create draft release
     needs: [validate]

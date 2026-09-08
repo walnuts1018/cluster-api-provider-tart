@@ -286,6 +286,17 @@ type TalosIdentityReference struct {
 	BoundAt metav1.Time `json:"boundAt,omitempty,omitzero"`
 }
 
+// PowerOnAttemptStatusは、Hostがmaintenance discovery目的でpower backend(WakeOnLANマジック
+// パケット送信やRedfish PowerOn等)への電源投入要求を試みた履歴である。TalosReachableが観測
+// される(=電源投入が奏功したとみなせる)たびにリセットされ、Talos APIへ到達できない間の
+// 無制限リトライを避けるための予算として使う。
+type PowerOnAttemptStatus struct {
+	// countは直近のリセット以降に電源投入要求を送信した回数である。
+	Count int32 `json:"count"`
+	// lastAttemptAtは直近に電源投入要求を送信した時刻である。
+	LastAttemptAt metav1.Time `json:"lastAttemptAt"`
+}
+
 // TartHostStatusはTartHostのobserved stateを定義する。
 type TartHostStatus struct {
 	// currentTalosIdentityRefはこのHostが現在保持しているTalos installationのidentityである。
@@ -305,6 +316,12 @@ type TartHostStatus struct {
 
 	// +optional
 	Addresses clusterv1.MachineAddresses `json:"addresses,omitempty"`
+
+	// powerOnAttemptsはmaintenance discovery目的の電源投入要求(WakeOnLANマジックパケット送信等)の
+	// 送信履歴である。上限に達すると新たな要求は送信されず、Ready conditionがfalseのまま
+	// PowerOnRetriesExhaustedとして報告される。
+	// +optional
+	PowerOnAttempts *PowerOnAttemptStatus `json:"powerOnAttempts,omitempty"`
 
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`

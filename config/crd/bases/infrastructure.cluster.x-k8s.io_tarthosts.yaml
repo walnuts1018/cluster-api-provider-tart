@@ -510,6 +510,24 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              powerOnAttempts:
+                description: |-
+                  powerOnAttemptsはmaintenance discovery目的の電源投入要求(WakeOnLANマジックパケット送信等)の
+                  送信履歴である。上限に達すると新たな要求は送信されず、Ready conditionがfalseのまま
+                  PowerOnRetriesExhaustedとして報告される。
+                properties:
+                  count:
+                    description: countは直近のリセット以降に電源投入要求を送信した回数である。
+                    format: int32
+                    type: integer
+                  lastAttemptAt:
+                    description: lastAttemptAtは直近に電源投入要求を送信した時刻である。
+                    format: date-time
+                    type: string
+                required:
+                - count
+                - lastAttemptAt
+                type: object
             type: object
         type: object
     served: true

@@ -127,6 +127,56 @@ func TestNeedsPowerOnForDiscovery(t *testing.T) {
 	}
 }
 
+func TestRecordPowerOnAttempt(t *testing.T) {
+	t.Parallel()
+
+	first := metav1.NewTime(time.Unix(10, 0))
+	attempts := recordPowerOnAttempt(nil, first)
+	if attempts.Count != 1 || attempts.LastAttemptAt != first {
+		t.Fatalf("recordPowerOnAttempt(nil) = %#v, want count=1 lastAttemptAt=%s", attempts, first.Time)
+	}
+
+	second := metav1.NewTime(time.Unix(20, 0))
+	attempts = recordPowerOnAttempt(attempts, second)
+	if attempts.Count != 2 || attempts.LastAttemptAt != second {
+		t.Fatalf("recordPowerOnAttempt() = %#v, want count=2 lastAttemptAt=%s", attempts, second.Time)
+	}
+}
+
+func TestPowerOnRetriesExhausted(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host infrav1alpha1.TartHost
+		want bool
+	}{
+		{name: "no attempts yet"},
+		{
+			name: "below the limit",
+			host: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{
+				PowerOnAttempts: &infrav1alpha1.PowerOnAttemptStatus{Count: maxPowerOnAttempts - 1},
+			}},
+		},
+		{
+			name: "at the limit",
+			host: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{
+				PowerOnAttempts: &infrav1alpha1.PowerOnAttemptStatus{Count: maxPowerOnAttempts},
+			}},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := powerOnRetriesExhausted(&tt.host); got != tt.want {
+				t.Errorf("powerOnRetriesExhausted() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestDeletionApproved(t *testing.T) {
 	t.Parallel()
 

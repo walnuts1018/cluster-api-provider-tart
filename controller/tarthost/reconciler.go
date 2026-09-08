@@ -27,6 +27,12 @@ import (
 
 const tartHostFinalizer = "tart.cluster.x-k8s.io/host-lifecycle"
 
+// maxPowerOnAttemptsは、maintenance discoveryのためにHostへ電源投入要求(WakeOnLANマジック
+// パケット送信等)を送る回数の上限である。1回のreconcileにつき最大1回試みるため、30秒間隔の
+// reconcile(下記RequeueAfter)でおよそ15分間リトライし続けたら諦める計算になる。永久に
+// broadcast packetを送り続けるのを避けつつ、電源投入からTalos起動までの一時的な遅延は許容する。
+const maxPowerOnAttempts = 30
+
 // TartHostReconcilerはHost identity、maintenance Talos discovery、削除時のretention gateを管理する。configuration applyはTartMachineへ委譲し、Discoveryのためのpower操作だけを担当する。
 type TartHostReconciler struct {
 	client.Client
@@ -91,9 +97,14 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	endpoint := controller.HostTalosEndpoint(&current)
 	var observationErr error
 	if needsPowerOnForDiscovery(&current) {
-		if err := power.PowerOnHost(ctx, r.Client, r.ManagementNamespace, &current); err != nil {
-			ctrl.LoggerFrom(ctx).Error(err, "power on Host for maintenance discovery")
-			observationErr = errHostPowerUnavailable
+		if powerOnRetriesExhausted(&current) {
+			observationErr = errPowerOnRetriesExhausted
+		} else {
+			current.Status.PowerOnAttempts = recordPowerOnAttempt(current.Status.PowerOnAttempts, metav1.Now())
+			if err := power.PowerOnHost(ctx, r.Client, r.ManagementNamespace, &current); err != nil {
+				ctrl.LoggerFrom(ctx).Error(err, "power on Host for maintenance discovery")
+				observationErr = errHostPowerUnavailable
+			}
 		}
 	}
 	var inventory talos.Inventory
@@ -101,6 +112,9 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		inventory, observationErr = observeHost(ctx, &current)
 	}
 	if observationErr == nil {
+		// Talosへ到達できた=電源投入が奏功したとみなせるため、次に電源が失われたときのために
+		// リトライ予算をリセットする。
+		current.Status.PowerOnAttempts = nil
 		current.Status.Inventory = hostInventory(inventory)
 		current.Status.BootAttempts = recordBootAttempt(current.Status.BootAttempts, inventory, endpoint, metav1.Now())
 		if endpoint != "" {
@@ -134,6 +148,10 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			reason = "PowerUnavailable"
 			message = "The Host could not be powered on for maintenance discovery."
 		}
+		if errors.Is(observationErr, errPowerOnRetriesExhausted) {
+			reason = "PowerOnRetriesExhausted"
+			message = "The Host power-on retry budget for maintenance discovery is exhausted; manual intervention is required."
+		}
 		if errors.Is(observationErr, controller.ErrHostEndpointUnavailable) {
 			reason = "EndpointUnavailable"
 			message = "A Talos endpoint is not configured or observed for this Host."
@@ -165,6 +183,23 @@ func needsPowerOnForDiscovery(host *infrav1alpha1.TartHost) bool {
 	}
 	// retentionではInventoryを保持したままgenerationが変わるため、直前Machine停止後に再検出し、古いInventoryを稼働証拠として扱わない。
 	return host.Spec.PreviousConsumerRef != nil && host.Status.ObservedGeneration < host.Generation
+}
+
+// powerOnRetriesExhaustedは、直前のTalosReachable観測(=電源投入の成功とみなせる)以降に
+// 送信した電源投入要求の回数がmaxPowerOnAttemptsへ達しているかを返す。
+func powerOnRetriesExhausted(host *infrav1alpha1.TartHost) bool {
+	return host.Status.PowerOnAttempts != nil && host.Status.PowerOnAttempts.Count >= maxPowerOnAttempts
+}
+
+// recordPowerOnAttemptは、電源投入要求(WakeOnLANマジックパケット送信等)を送信した事実を
+// 観測履歴として積み増す。送信自体の成否に関わらず、実際に要求を送ったことを記録する
+// (fire-and-forgetなWakeOnLANでは送信成功を電源投入成功の証明として扱えないため)。
+func recordPowerOnAttempt(existing *infrav1alpha1.PowerOnAttemptStatus, now metav1.Time) *infrav1alpha1.PowerOnAttemptStatus {
+	count := int32(1)
+	if existing != nil {
+		count = existing.Count + 1
+	}
+	return &infrav1alpha1.PowerOnAttemptStatus{Count: count, LastAttemptAt: now}
 }
 
 func hostInventory(inventory talos.Inventory) *infrav1alpha1.HostInventory {
@@ -248,6 +283,8 @@ func recordBootAttempt(attempts []infrav1alpha1.BootAttempt, inventory talos.Inv
 }
 
 var errHostPowerUnavailable = errors.New("host power-on is unavailable")
+
+var errPowerOnRetriesExhausted = errors.New("host power-on retry budget is exhausted")
 
 func observeHost(ctx context.Context, current *infrav1alpha1.TartHost) (talos.Inventory, error) {
 	endpoint := controller.HostTalosEndpoint(current)

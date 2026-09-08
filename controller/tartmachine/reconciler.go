@@ -816,7 +816,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		return ctrl.Result{}, configurationErr
 	}
 	if !machineusecase.HasShutdownRequest(machine) {
-		requested, requestErr := requestHostShutdown(ctx, selected, configuration)
+		requested, requestErr := r.requestHostShutdown(ctx, selected, configuration)
 		if requestErr != nil {
 			return r.reportAndRequeue(ctx, machine, infrav1alpha1.ReasonShutdownUnconfirmed, "The allocated Host could not be shut down safely; the Machine finalizer remains.", shutdownConfirmationRequeue)
 		}
@@ -919,7 +919,14 @@ func (r *TartMachineReconciler) findClaimedHost(ctx context.Context, machine *in
 
 var errMachineHostBindingLost = errors.New("machine host binding was lost before deletion completed")
 
-func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
+// hasIndependentPowerControlは、Talos APIのgraceful shutdownに頼らず、out-of-band
+// management channel(Redfish/IntelManageability)経由でHostの電源を直接操作し、
+// かつ結果を独立して観測できるbackendかを返す。
+func hasIndependentPowerControl(backend infrav1alpha1.PowerBackend) bool {
+	return backend == infrav1alpha1.PowerBackendRedfish || backend == infrav1alpha1.PowerBackendIntelManageability
+}
+
+func (r *TartMachineReconciler) requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, configuration []byte) (bool, error) {
 	endpoint := controller.HostTalosEndpoint(selected)
 	if endpoint == "" {
 		return false, nil
@@ -969,6 +976,15 @@ func requestHostShutdown(ctx context.Context, selected *infrav1alpha1.TartHost, 
 		ctrl.LoggerFrom(ctx).Error(closeErr, "close maintenance Talos client")
 	}
 	if shutdownErr != nil {
+		// Talosのmaintenance mode APIはbootstrap前の最小限のRPCしか提供せず、Shutdownは
+		// 実装されていない(常にUnimplementedを返す)。graceful shutdownをTalos側へ要求できない
+		// ため、独立してpower stateを観測・確認できるbackendに限りout-of-band power offへfallbackする。
+		// WakeOnLAN/Manualは独立した観測手段がなくfallbackが安全側に倒れないため対象外とする。
+		if hasIndependentPowerControl(selected.Spec.Power.Backend) {
+			if powerOffErr := power.PowerOffHost(ctx, r.Client, r.ManagementNamespace, selected); powerOffErr == nil {
+				return true, nil
+			}
+		}
 		return false, shutdownErr
 	}
 	return true, nil

@@ -405,6 +405,25 @@ func TestTartMachineReconcilerRetainsFinalizerWhenStatusHostRefIsMissing(t *test
 	}
 }
 
+func TestHasIndependentPowerControl(t *testing.T) {
+	t.Parallel()
+
+	tests := map[infrav1alpha1.PowerBackend]bool{
+		infrav1alpha1.PowerBackendRedfish:            true,
+		infrav1alpha1.PowerBackendIntelManageability: true,
+		infrav1alpha1.PowerBackendWakeOnLAN:          false,
+		infrav1alpha1.PowerBackendManual:             false,
+	}
+	for backend, want := range tests {
+		t.Run(string(backend), func(t *testing.T) {
+			t.Parallel()
+			if got := hasIndependentPowerControl(backend); got != want {
+				t.Errorf("hasIndependentPowerControl(%s) = %t, want %t", backend, got, want)
+			}
+		})
+	}
+}
+
 func mustHostID(t *testing.T, value string) hostdomain.HostID {
 	t.Helper()
 	id, err := hostdomain.ParseHostID(value)

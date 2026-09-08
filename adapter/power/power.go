@@ -94,6 +94,22 @@ func PowerOnHost(ctx context.Context, reader client.Reader, managementNamespace 
 	return powerOn.PowerOn(ctx)
 }
 
+// PowerOffHostはHostの電源停止をFactory経由で実行する。controllerの薄いラッパである。
+// Redfish/IntelManageabilityのように独立したpower-state observerを持つbackendに対して、
+// Talos API経由のgraceful shutdownが利用できない場合(maintenance modeはShutdown RPCを
+// 提供しない等)のout-of-band fallbackとして使う。
+func PowerOffHost(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) error {
+	backend, err := Factory(ctx, reader, managementNamespace, host)
+	if err != nil {
+		return err
+	}
+	powerOff, ok := backend.(PowerOff)
+	if !ok {
+		return fmt.Errorf("power backend %q does not support PowerOff", host.Spec.Power.Backend)
+	}
+	return powerOff.PowerOff(ctx)
+}
+
 // RedfishPowerStateはRedfish backendの電源状態を取得する。
 func RedfishPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (PowerState, error) {
 	backend, err := NewRedfishBackend(ctx, reader, managementNamespace, host)

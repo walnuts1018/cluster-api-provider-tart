@@ -75,11 +75,17 @@ func findCondition(conditions []metav1.Condition, conditionType string) *metav1.
 
 // IsProvisionedは、TartMachineが過去にTalos installationの完了を観測済みかを返す。
 func IsProvisioned(machine *infrav1alpha1.TartMachine) bool {
+	if machine == nil {
+		return false
+	}
 	return machine.Status.Initialization.Provisioned != nil && *machine.Status.Initialization.Provisioned
 }
 
 // HasShutdownRequestは、TartMachineのReady ConditionがTalos shutdown要求済み状態かを返す。
 func HasShutdownRequest(machine *infrav1alpha1.TartMachine) bool {
+	if machine == nil {
+		return false
+	}
 	condition := findCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if condition == nil {
 		return false
@@ -89,6 +95,9 @@ func HasShutdownRequest(machine *infrav1alpha1.TartMachine) bool {
 
 // ShutdownRequestSettledは、shutdown要求後の確認待ち時間(delay)が経過しているかを返す。
 func ShutdownRequestSettled(machine *infrav1alpha1.TartMachine, delay time.Duration) bool {
+	if machine == nil {
+		return false
+	}
 	condition := findCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if condition == nil {
 		return false

@@ -25,6 +25,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/framework"
 	"github.com/walnuts1018/cluster-api-provider-tart/test/e2e/lab"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 )
 
 // e2eNamespaceとe2eClusterNameは、本suiteが作成する全リソースの一貫した命名に使う。
@@ -277,6 +278,33 @@ filesystem:
 				return findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)
 			}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 			waitForTartMachineTalosReady(ctx, machine.Spec.InfrastructureRef.Name, e2eTalosVersion, e2eSchematicID)
+		})
+
+		It("publishes the immutable Bootstrap contract and keeps the patch input separate", func() {
+			var capiMachine clusterv1.Machine
+			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &capiMachine)).To(Succeed())
+			bootstrapRef := capiMachine.Spec.Bootstrap.ConfigRef
+			Expect(bootstrapRef.Name).NotTo(BeEmpty())
+
+			var bootstrapConfig bootstrapv1alpha1.TartBootstrapConfig
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: bootstrapRef.Name}, &bootstrapConfig)).To(Succeed())
+			Expect(bootstrapConfig.Status.DataSecretName).NotTo(BeEmpty())
+			Expect(capiMachine.Spec.Bootstrap.DataSecretName).NotTo(BeNil())
+			Expect(*capiMachine.Spec.Bootstrap.DataSecretName).To(Equal(bootstrapConfig.Status.DataSecretName))
+
+			var generatedSecret corev1.Secret
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: bootstrapConfig.Status.DataSecretName}, &generatedSecret)).To(Succeed())
+			Expect(usecasebootstrap.IsContractSecret(&generatedSecret, e2eClusterName, bootstrapConfig.UID)).To(BeTrue())
+			Expect(generatedSecret.Immutable).NotTo(BeNil())
+			Expect(*generatedSecret.Immutable).To(BeTrue())
+			Expect(generatedSecret.Data).To(HaveLen(1))
+			Expect(generatedSecret.Data[usecasebootstrap.BootstrapSecretKey]).NotTo(BeEmpty())
+
+			var patchSecret corev1.Secret
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: e2eClusterName + "-cp-patches"}, &patchSecret)).To(Succeed())
+			Expect(patchSecret.Immutable).NotTo(BeNil())
+			Expect(*patchSecret.Immutable).To(BeTrue())
+			Expect(patchSecret.Data[usecasebootstrap.ConfigurationPatchesKey]).NotTo(BeEmpty())
 		})
 
 		It("rejects changing an initialized TartMachine ProviderID", func() {

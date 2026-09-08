@@ -42,3 +42,17 @@ func TestDeletionDrainCompleteRequiresInfrastructureDeletionStage(t *testing.T) 
 		})
 	}
 }
+
+func TestMachineStateHelpersRejectNil(t *testing.T) {
+	t.Parallel()
+
+	if IsProvisioned(nil) {
+		t.Fatal("IsProvisioned(nil) = true, want false")
+	}
+	if HasShutdownRequest(nil) {
+		t.Fatal("HasShutdownRequest(nil) = true, want false")
+	}
+	if ShutdownRequestSettled(nil, 0) {
+		t.Fatal("ShutdownRequestSettled(nil) = true, want false")
+	}
+}

@@ -105,6 +105,9 @@ func RedfishPowerState(ctx context.Context, reader client.Reader, managementName
 
 // NewRedfishBackendはRedfish credential Secretを解決してbackendを構築する。旧controller/power.goのbuildRedfishBackendと同等の責務を持つ。
 func NewRedfishBackend(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (*redfish.Backend, error) {
+	if host == nil {
+		return nil, errors.New("tart host is unavailable")
+	}
 	if reader == nil {
 		return nil, errors.New("kubernetes client is unavailable for Redfish credentials")
 	}

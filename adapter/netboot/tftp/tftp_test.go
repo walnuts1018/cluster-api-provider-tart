@@ -1,12 +1,16 @@
 package tftp
 
 import (
+	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestOpenFileRestrictsTFTPRoot(t *testing.T) {
@@ -114,5 +118,42 @@ func TestNewServerResolvesRootAndReportsConfiguredAddressBeforeStart(t *testing.
 	}
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		t.Errorf("NewServer() did not create TFTP root directory: info=%v, error=%v", info, err)
+	}
+}
+
+func TestStartStopsWhenContextIsCanceled(t *testing.T) {
+	t.Parallel()
+
+	server, err := NewServer(t.TempDir(), "127.0.0.1:0", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Start(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for server.Addr() == "127.0.0.1:0" && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if server.Addr() == "127.0.0.1:0" {
+		cancel()
+		t.Fatal("TFTP server did not publish an ephemeral address")
+	}
+	if _, _, err := net.SplitHostPort(server.Addr()); err != nil {
+		t.Fatalf("TFTP server address = %q, error = %v", server.Addr(), err)
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Start() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("TFTP server did not stop after context cancellation")
 	}
 }

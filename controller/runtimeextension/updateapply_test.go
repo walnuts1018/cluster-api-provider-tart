@@ -3,6 +3,7 @@ package runtimeextension
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,54 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want completion", outcome)
 		}
 	})
+}
+
+func TestApplyConfigurationUpdateStopsWhenInputsAreUnavailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		call func() ConfigurationUpdateOutcome
+		want string
+	}{
+		{
+			name: "node",
+			call: func() ConfigurationUpdateOutcome {
+				return ApplyConfigurationUpdate(t.Context(), configurationUpdate{desired: []byte("desired")})
+			},
+			want: "The desired machine configuration is unavailable",
+		},
+		{
+			name: "desired configuration",
+			call: func() ConfigurationUpdateOutcome {
+				return ApplyConfigurationUpdate(t.Context(), configurationUpdate{node: &fakeUpdateNode{}})
+			},
+			want: "The desired machine configuration is unavailable",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			outcome := tt.call()
+			if outcome.FailureMessage == "" || !strings.Contains(outcome.FailureMessage, tt.want) {
+				t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want failure containing %q", outcome, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyConfigurationUpdateRetriesWhenActiveConfigurationCannotBeObserved(t *testing.T) {
+	t.Parallel()
+
+	updater := configurationUpdate{
+		node:     &fakeUpdateNode{activeErr: errors.New("Talos API unavailable")},
+		desired:  []byte("desired"),
+		strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
+	}
+	outcome := ApplyConfigurationUpdate(t.Context(), updater)
+	if outcome.RetryMessage == "" || outcome.FailureMessage != "" {
+		t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, want a retry", outcome)
+	}
 }
 
 func TestPlanBootstrapConfigPatch(t *testing.T) {

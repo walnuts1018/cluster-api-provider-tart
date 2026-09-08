@@ -83,4 +83,7 @@ func TestIsShutdownConfirmationRequired(t *testing.T) {
 	if isShutdownConfirmationRequired(infrav1alpha1.PowerBackendRedfish) {
 		t.Fatal("Redfish should not require confirmation")
 	}
+	if isShutdownConfirmationRequired(infrav1alpha1.PowerBackendIntelManageability) {
+		t.Fatal("IntelManageability should not require confirmation")
+	}
 }

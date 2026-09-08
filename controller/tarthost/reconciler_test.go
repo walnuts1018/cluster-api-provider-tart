@@ -115,6 +115,11 @@ func TestNeedsPowerOnForDiscovery(t *testing.T) {
 			host: infrav1alpha1.TartHost{Status: infrav1alpha1.TartHostStatus{Inventory: &infrav1alpha1.HostInventory{}}},
 			want: false,
 		},
+		{
+			name: "intel manageability backend powers on for discovery",
+			host: infrav1alpha1.TartHost{Spec: infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendIntelManageability}}},
+			want: true,
+		},
 	}
 
 	for _, tt := range tests {

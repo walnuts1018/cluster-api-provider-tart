@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/intelmanageability"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/redfish"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/wol"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -41,6 +42,10 @@ func TestFactorySelectsConfiguredPowerBackend(t *testing.T) {
 	address, err := endpoint.ParseHTTPSURL("https://bmc.test.walnuts.dev/redfish/v1")
 	if err != nil {
 		t.Fatalf("ParseHTTPSURL() error = %v", err)
+	}
+	intelManageabilityAddress, err := endpoint.ParseHTTPURL("http://amt.test.walnuts.dev:16992/wsman")
+	if err != nil {
+		t.Fatalf("ParseHTTPURL() error = %v", err)
 	}
 
 	tests := []struct {
@@ -75,6 +80,21 @@ func TestFactorySelectsConfiguredPowerBackend(t *testing.T) {
 			}},
 			wantType: "redfish.Backend",
 		},
+		{
+			name: "IntelManageability",
+			host: &infrav1alpha1.TartHost{Spec: infrav1alpha1.TartHostSpec{
+				Power: infrav1alpha1.PowerSpec{
+					Backend: infrav1alpha1.PowerBackendIntelManageability,
+					IntelManageability: &infrav1alpha1.IntelManageabilityPowerConfig{
+						Address: intelManageabilityAddress,
+						CredentialSecretRef: infrav1alpha1.ManagementNamespaceSecretReference{
+							Name: "bmc-credential",
+						},
+					},
+				},
+			}},
+			wantType: "intelmanageability.Backend",
+		},
 		{name: "Manual", host: &infrav1alpha1.TartHost{Spec: infrav1alpha1.TartHostSpec{Power: infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendManual}}}, wantError: "manual power backend"},
 		{name: "nil host", wantError: "tart host is unavailable"},
 	}
@@ -101,6 +121,10 @@ func TestFactorySelectsConfiguredPowerBackend(t *testing.T) {
 				if _, ok := backend.(*redfish.Backend); !ok {
 					t.Fatalf("Factory() type = %T, want *redfish.Backend", backend)
 				}
+			case "intelmanageability.Backend":
+				if _, ok := backend.(*intelmanageability.Backend); !ok {
+					t.Fatalf("Factory() type = %T, want *intelmanageability.Backend", backend)
+				}
 			}
 		})
 	}
@@ -116,6 +140,19 @@ func TestNewRedfishBackendRejectsNilHost(t *testing.T) {
 	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
 	if _, err := NewRedfishBackend(t.Context(), reader, "tart-system", nil); err == nil {
 		t.Fatal("NewRedfishBackend(nil) error = nil, want validation error")
+	}
+}
+
+func TestNewIntelManageabilityBackendRejectsNilHost(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	if _, err := NewIntelManageabilityBackend(t.Context(), reader, "tart-system", nil); err == nil {
+		t.Fatal("NewIntelManageabilityBackend(nil) error = nil, want validation error")
 	}
 }
 

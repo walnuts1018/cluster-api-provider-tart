@@ -68,13 +68,15 @@ const (
 )
 
 // PowerBackendはTartHostが提供する電源機能を識別する。
-// +kubebuilder:validation:Enum=Redfish;WakeOnLAN;Manual
+// +kubebuilder:validation:Enum=Redfish;WakeOnLAN;IntelManageability;Manual
 type PowerBackend string
 
 const (
 	PowerBackendRedfish   PowerBackend = "Redfish"
 	PowerBackendWakeOnLAN PowerBackend = "WakeOnLAN"
-	PowerBackendManual    PowerBackend = "Manual"
+	// PowerBackendIntelManageabilityはIntel Standard ManageabilityおよびIntel AMTのWS-Management(WS-Man)/CIM経由の電源制御と電源状態観測を使う。フルAMT固有機能(KVM、SOL、IDE-R等)には依存しない。
+	PowerBackendIntelManageability PowerBackend = "IntelManageability"
+	PowerBackendManual             PowerBackend = "Manual"
 )
 
 // ManagementNamespaceSecretReferenceはSecretを名前だけで参照する。TartHostはcluster-scoped resourceであるため、この参照はユーザー指定namespaceではなく固定されたprovider管理namespaceで解決する。
@@ -109,8 +111,24 @@ type WakeOnLANPowerConfig struct {
 	BroadcastAddress network.UDPAddress `json:"broadcastAddress,omitempty,omitzero"`
 }
 
+// IntelManageabilityPowerConfigはIntel Standard Manageability/AMTのWS-Management経由の電源制御と停止確認を設定する。フルAMT固有機能(KVM、SOL、IDE-R等)には依存しない。
+// +kubebuilder:validation:XValidation:rule="!(has(self.caSecretRef) && self.insecureSkipVerify)",message="caSecretRef and insecureSkipVerify are mutually exclusive"
+type IntelManageabilityPowerConfig struct {
+	// addressはWS-Management endpointのbase URLである。Intel ME世代によりhttpとhttpsの双方があり得るため、いずれのschemeも許容する。
+	// +kubebuilder:validation:Type=string
+	Address endpoint.HTTPURL `json:"address"`
+	// credentialSecretRefはusernameとpassword keyを持つSecretをprovider管理namespaceから参照する。
+	CredentialSecretRef ManagementNamespaceSecretReference `json:"credentialSecretRef"`
+	// caSecretRefはWS-Management endpointのTLS certificateを検証するcustom CA certificate bundleをca.crt keyに持つSecretを任意に参照する。provider管理namespaceから解決し、省略時はinsecureSkipVerifyがtrueでない限りsystem trust bundleを使う。httpsを使わない場合は無視される。
+	// +optional
+	CASecretRef *ManagementNamespaceSecretReference `json:"caSecretRef,omitempty"`
+	// insecureSkipVerifyはWS-Management endpointのTLS certificate検証を無効化する。custom CA検証が実行できない場合だけ使用する。httpsを使わない場合は無視される。
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+}
+
 // PowerSpecはHostの電源機能を定義する。
-// +kubebuilder:validation:XValidation:rule="(self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN)) || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) && !has(self.redfish)) || (self.backend == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN))",message="backend must select exactly its matching power configuration"
+// +kubebuilder:validation:XValidation:rule="(self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN) && !has(self.intelManageability)) || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) && !has(self.redfish) && !has(self.intelManageability)) || (self.backend == 'IntelManageability' && has(self.intelManageability) && !has(self.redfish) && !has(self.wakeOnLAN)) || (self.backend == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN) && !has(self.intelManageability))",message="backend must select exactly its matching power configuration"
 type PowerSpec struct {
 	// backendは使用する電源機能の実装を選択する。
 	Backend PowerBackend `json:"backend"`
@@ -118,6 +136,8 @@ type PowerSpec struct {
 	Redfish *RedfishPowerConfig `json:"redfish,omitempty"`
 	// +optional
 	WakeOnLAN *WakeOnLANPowerConfig `json:"wakeOnLAN,omitempty"`
+	// +optional
+	IntelManageability *IntelManageabilityPowerConfig `json:"intelManageability,omitempty"`
 }
 
 // PreviousConsumerRefはMachine削除後のHostの直前consumerを記録する。controllerが管理し、ユーザーが直接設定しない。

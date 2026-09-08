@@ -171,7 +171,12 @@ func (r *TartHostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 func needsPowerOnForDiscovery(host *infrav1alpha1.TartHost) bool {
-	if host == nil || (host.Spec.Power.Backend != infrav1alpha1.PowerBackendWakeOnLAN && host.Spec.Power.Backend != infrav1alpha1.PowerBackendRedfish) {
+	if host == nil {
+		return false
+	}
+	switch host.Spec.Power.Backend {
+	case infrav1alpha1.PowerBackendWakeOnLAN, infrav1alpha1.PowerBackendRedfish, infrav1alpha1.PowerBackendIntelManageability:
+	default:
 		return false
 	}
 	if host.Status.Inventory == nil {

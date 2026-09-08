@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/intelmanageability"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/redfish"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/wol"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -46,10 +47,11 @@ type PowerStateObserver interface {
 type Backend string
 
 const (
-	BackendWakeOnLAN Backend = "WakeOnLAN"
-	BackendRedfish   Backend = "Redfish"
-	BackendManual    Backend = "Manual"
-	BackendFake      Backend = "Fake"
+	BackendWakeOnLAN          Backend = "WakeOnLAN"
+	BackendRedfish            Backend = "Redfish"
+	BackendIntelManageability Backend = "IntelManageability"
+	BackendManual             Backend = "Manual"
+	BackendFake               Backend = "Fake"
 )
 
 // FactoryはTartHostSpecから適切な電源backendを生成する。RedfishのようにSecretを要するbackendはclientとmanagementNamespaceを使って解決する。
@@ -70,6 +72,8 @@ func Factory(ctx context.Context, reader client.Reader, managementNamespace stri
 		return wol.New(mac, host.Spec.Power.WakeOnLAN.BroadcastAddress)
 	case infrav1alpha1.PowerBackendRedfish:
 		return NewRedfishBackend(ctx, reader, managementNamespace, host)
+	case infrav1alpha1.PowerBackendIntelManageability:
+		return NewIntelManageabilityBackend(ctx, reader, managementNamespace, host)
 	case infrav1alpha1.PowerBackendManual:
 		return nil, errors.New("manual power backend cannot power on through the normal path")
 	default:
@@ -101,6 +105,72 @@ func RedfishPowerState(ctx context.Context, reader client.Reader, managementName
 		return PowerStateUnknown, err
 	}
 	return PowerState(state), nil
+}
+
+// IntelManageabilityPowerStateはIntel Manageability backendの電源状態を取得する。
+func IntelManageabilityPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (PowerState, error) {
+	backend, err := NewIntelManageabilityBackend(ctx, reader, managementNamespace, host)
+	if err != nil {
+		return PowerStateUnknown, err
+	}
+	state, err := backend.PowerState(ctx)
+	if err != nil {
+		return PowerStateUnknown, err
+	}
+	return PowerState(state), nil
+}
+
+// NewIntelManageabilityBackendはIntel Manageability credential Secretを解決してbackendを構築する。
+func NewIntelManageabilityBackend(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (*intelmanageability.Backend, error) {
+	if host == nil {
+		return nil, errors.New("tart host is unavailable")
+	}
+	if reader == nil {
+		return nil, errors.New("kubernetes client is unavailable for Intel Manageability credentials")
+	}
+	if strings.TrimSpace(managementNamespace) == "" {
+		return nil, errors.New("provider management namespace is not configured for Intel Manageability credentials")
+	}
+	config := host.Spec.Power.IntelManageability
+	if config == nil {
+		return nil, errors.New("intel manageability power configuration is missing")
+	}
+	if strings.TrimSpace(config.CredentialSecretRef.Name) == "" {
+		return nil, errors.New("intel manageability credential Secret name is empty")
+	}
+	credentialSecret := &corev1.Secret{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CredentialSecretRef.Name}, credentialSecret); err != nil {
+		return nil, fmt.Errorf("get Intel Manageability credential Secret: %w", err)
+	}
+	username, usernameOK := credentialSecret.Data["username"]
+	password, passwordOK := credentialSecret.Data["password"]
+	if !usernameOK || strings.TrimSpace(string(username)) == "" || !passwordOK || strings.TrimSpace(string(password)) == "" {
+		return nil, errors.New("intel manageability credential Secret must contain non-empty username and password keys")
+	}
+
+	var caData []byte
+	if config.CASecretRef != nil {
+		if strings.TrimSpace(config.CASecretRef.Name) == "" {
+			return nil, errors.New("intel manageability CA Secret name is empty")
+		}
+		caSecret := &corev1.Secret{}
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CASecretRef.Name}, caSecret); err != nil {
+			return nil, fmt.Errorf("get Intel Manageability CA Secret: %w", err)
+		}
+		var ok bool
+		caData, ok = caSecret.Data["ca.crt"]
+		if !ok || len(caData) == 0 {
+			return nil, errors.New("intel manageability CA Secret must contain a non-empty ca.crt key")
+		}
+	}
+
+	return intelmanageability.New(intelmanageability.Config{
+		Address:            config.Address.String(),
+		Username:           string(username),
+		Password:           string(password),
+		CAData:             caData,
+		InsecureSkipVerify: config.InsecureSkipVerify,
+	})
 }
 
 // NewRedfishBackendはRedfish credential Secretを解決してbackendを構築する。旧controller/power.goのbuildRedfishBackendと同等の責務を持つ。

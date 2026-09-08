@@ -141,8 +141,45 @@ spec:
                     enum:
                     - Redfish
                     - WakeOnLAN
+                    - IntelManageability
                     - Manual
                     type: string
+                  intelManageability:
+                    description: IntelManageabilityPowerConfigはIntel Standard Manageability/AMTのWS-Management経由の電源制御と停止確認を設定する。フルAMT固有機能(KVM、SOL、IDE-R等)には依存しない。
+                    properties:
+                      address:
+                        description: addressはWS-Management endpointのbase URLである。Intel
+                          ME世代によりhttpとhttpsの双方があり得るため、いずれのschemeも許容する。
+                        type: string
+                      caSecretRef:
+                        description: caSecretRefはWS-Management endpointのTLS certificateを検証するcustom
+                          CA certificate bundleをca.crt keyに持つSecretを任意に参照する。provider管理namespaceから解決し、省略時はinsecureSkipVerifyがtrueでない限りsystem
+                          trust bundleを使う。httpsを使わない場合は無視される。
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      credentialSecretRef:
+                        description: credentialSecretRefはusernameとpassword keyを持つSecretをprovider管理namespaceから参照する。
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      insecureSkipVerify:
+                        description: insecureSkipVerifyはWS-Management endpointのTLS
+                          certificate検証を無効化する。custom CA検証が実行できない場合だけ使用する。httpsを使わない場合は無視される。
+                        type: boolean
+                    required:
+                    - address
+                    - credentialSecretRef
+                    type: object
+                    x-kubernetes-validations:
+                    - message: caSecretRef and insecureSkipVerify are mutually exclusive
+                      rule: '!(has(self.caSecretRef) && self.insecureSkipVerify)'
                   redfish:
                     description: RedfishPowerConfigはRedfish経由のout-of-band電源制御と停止確認を設定する。
                     properties:
@@ -196,9 +233,12 @@ spec:
                 type: object
                 x-kubernetes-validations:
                 - message: backend must select exactly its matching power configuration
-                  rule: (self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN))
-                    || (self.backend == 'WakeOnLAN' && has(self.wakeOnLAN) && !has(self.redfish))
-                    || (self.backend == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN))
+                  rule: (self.backend == 'Redfish' && has(self.redfish) && !has(self.wakeOnLAN)
+                    && !has(self.intelManageability)) || (self.backend == 'WakeOnLAN'
+                    && has(self.wakeOnLAN) && !has(self.redfish) && !has(self.intelManageability))
+                    || (self.backend == 'IntelManageability' && has(self.intelManageability)
+                    && !has(self.redfish) && !has(self.wakeOnLAN)) || (self.backend
+                    == 'Manual' && !has(self.redfish) && !has(self.wakeOnLAN) && !has(self.intelManageability))
               previousConsumerRef:
                 description: previousConsumerRefはcontrollerが管理する直前consumerのrecordである。Machine削除後も保持し、明示的なreuse
                   approvalがあるまでこのHostを再度自動allocationしない。

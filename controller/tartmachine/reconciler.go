@@ -999,8 +999,15 @@ func shutdownConfirmed(host *infrav1alpha1.TartHost, machine *infrav1alpha1.Tart
 }
 
 func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected *infrav1alpha1.TartHost, machine *infrav1alpha1.TartMachine, configuration []byte) (bool, error) {
-	if selected.Spec.Power.Backend == infrav1alpha1.PowerBackendRedfish {
+	switch selected.Spec.Power.Backend {
+	case infrav1alpha1.PowerBackendRedfish:
 		state, err := power.RedfishPowerState(ctx, r.Client, r.ManagementNamespace, selected)
+		if err != nil {
+			return false, err
+		}
+		return state == power.PowerStateOff, nil
+	case infrav1alpha1.PowerBackendIntelManageability:
+		state, err := power.IntelManageabilityPowerState(ctx, r.Client, r.ManagementNamespace, selected)
 		if err != nil {
 			return false, err
 		}

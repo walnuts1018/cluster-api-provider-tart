@@ -12,9 +12,11 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
@@ -51,6 +53,50 @@ func reconcileRecoverySpecs() {
 			By("confirming the cluster still converges to Ready without manual intervention")
 			controllerHealthy := framework.NewControllerPodsHealthyCheck(k8sClient, tartSystemNamespace)
 			framework.WaitForConditionUntilTerminal(ctx, tartClusterConditions(e2eNamespace, e2eClusterName), infrav1alpha1.TartClusterReadyCondition, metav1.ConditionTrue, clusterProvisioningTerminalReasons, 20*time.Minute, controllerHealthy)
+		})
+
+		It("retains a Host after Machine deletion and does not automatically reclaim it", func() {
+			var machine clusterv1.Machine
+			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
+
+			var host infrav1alpha1.TartHost
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
+			Expect(host.Spec.ConsumerRef).NotTo(BeNil())
+			Expect(host.Spec.ConsumerRef.UID).To(Equal(machine.UID))
+
+			// WoLではcontrollerが停止を観測できないため、Machine削除後のHost claim解除には
+			// 現在のMachine、HostID、BootIDを結び付けた明示的confirmationが必要になる。
+			confirmation := &infrav1alpha1.ShutdownConfirmation{
+				ConsumerUID: machine.UID,
+				HostID:      host.Spec.HostID,
+			}
+			if host.Status.Inventory != nil {
+				confirmation.BootID = host.Status.Inventory.BootID
+			}
+
+			By("deleting the CAPI Machine and confirming the current Host shutdown target")
+			Expect(k8sClient.Delete(ctx, &machine)).To(Succeed())
+			Expect(updateOnConflict(ctx, func() error {
+				var current infrav1alpha1.TartHost
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &current); err != nil {
+					return err
+				}
+				current.Spec.ShutdownConfirmation = confirmation
+				return k8sClient.Update(ctx, &current)
+			})).To(Succeed())
+
+			By("waiting for the Host to become retained without an active consumer")
+			Eventually(func(g Gomega) {
+				var current infrav1alpha1.TartHost
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &current)).To(Succeed())
+				g.Expect(current.Spec.ConsumerRef).To(BeNil())
+				g.Expect(current.Spec.PreviousConsumerRef).NotTo(BeNil())
+				g.Expect(current.Spec.PreviousConsumerRef.UID).To(Equal(machine.UID))
+				available := meta.FindStatusCondition(current.Status.Conditions, infrav1alpha1.TartHostAvailableCondition)
+				g.Expect(available).NotTo(BeNil())
+				g.Expect(available.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(available.Reason).To(Equal(infrav1alpha1.ReasonRetained))
+			}).WithContext(ctx).WithTimeout(15 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 		})
 	})
 }

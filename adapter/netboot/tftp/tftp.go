@@ -151,6 +151,7 @@ func NewServer(root, addr string, logger *slog.Logger) (*Server, error) {
 // Startはctxがキャンセルされるまでprocessをブロックし、TFTPサーバーを起動する。
 func (s *Server) Start(ctx context.Context) error {
 	lg := s.logger
+	defer close(s.done)
 
 	readHandler := func(filename string, rf io.ReaderFrom) error {
 		lg.Info("TFTP read request", "filename", filename)
@@ -204,7 +205,6 @@ func (s *Server) Start(ctx context.Context) error {
 	if closeErr := conn.Close(); closeErr != nil {
 		lg.Error("failed to close TFTP UDP connection", "address", s.addr, "error", closeErr)
 	}
-	close(s.done)
 
 	if serveErr != nil && !errors.Is(serveErr, context.Canceled) && !errors.Is(serveErr, net.ErrClosed) {
 		return fmt.Errorf("TFTP server exited: %w", serveErr)

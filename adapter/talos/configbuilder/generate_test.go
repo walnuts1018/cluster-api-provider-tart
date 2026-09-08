@@ -1,0 +1,120 @@
+package configbuilder
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	talosconfig "github.com/siderolabs/talos/pkg/machinery/config"
+	"github.com/siderolabs/talos/pkg/machinery/config/configloader"
+	"github.com/siderolabs/talos/pkg/machinery/config/generate/secrets"
+
+	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
+	usecasebootstrap "github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
+)
+
+func TestCanonicalEndpoint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{name: "adds HTTPS scheme", input: "192.0.2.10:6443", want: "https://192.0.2.10:6443"},
+		{name: "removes root path", input: "https://[2001:db8::10]:6443/", want: "https://[2001:db8::10]:6443"},
+		{name: "rejects path", input: "https://192.0.2.10:6443/api", wantErr: true},
+		{name: "rejects query", input: "https://192.0.2.10:6443?next=admin", wantErr: true},
+		{name: "rejects fragment", input: "https://192.0.2.10:6443#api", wantErr: true},
+		{name: "rejects userinfo", input: "https://operator@192.0.2.10:6443", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := canonicalEndpoint(tt.input)
+			if tt.wantErr {
+				if !errors.Is(err, domainbootstrap.ErrMachineConfigurationContextIncomplete) {
+					t.Fatalf("canonicalEndpoint() error = %v, want incomplete context error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("canonicalEndpoint() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("canonicalEndpoint() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerateMachineConfigurationRejectsIncompleteContext(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	base := usecasebootstrap.MachineConfigurationContext{
+		ClusterName:          "cluster-a",
+		ControlPlaneEndpoint: "192.0.2.10:6443",
+		KubernetesVersion:    "v1.34.0",
+		MachineRole:          domainbootstrap.MachineRoleWorker,
+		SecretsBundle:        bundle,
+	}
+
+	tests := []struct {
+		name string
+		edit func(*usecasebootstrap.MachineConfigurationContext)
+	}{
+		{name: "cluster name", edit: func(input *usecasebootstrap.MachineConfigurationContext) { input.ClusterName = "" }},
+		{name: "control-plane endpoint", edit: func(input *usecasebootstrap.MachineConfigurationContext) {
+			input.ControlPlaneEndpoint = "not an endpoint"
+		}},
+		{name: "Kubernetes version", edit: func(input *usecasebootstrap.MachineConfigurationContext) { input.KubernetesVersion = "" }},
+		{name: "machine role", edit: func(input *usecasebootstrap.MachineConfigurationContext) {
+			input.MachineRole = domainbootstrap.MachineRole(99)
+		}},
+		{name: "secrets bundle", edit: func(input *usecasebootstrap.MachineConfigurationContext) { input.SecretsBundle = nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			input := base
+			tt.edit(&input)
+			if _, err := GenerateMachineConfiguration(input); !errors.Is(err, domainbootstrap.ErrMachineConfigurationContextIncomplete) {
+				t.Fatalf("GenerateMachineConfiguration() error = %v, want incomplete context error", err)
+			}
+		})
+	}
+}
+
+func TestGenerateMachineConfigurationNormalizesEndpointAndVersion(t *testing.T) {
+	t.Parallel()
+
+	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
+	if err != nil {
+		t.Fatalf("secrets.NewBundle() error = %v", err)
+	}
+	configuration, err := GenerateMachineConfiguration(usecasebootstrap.MachineConfigurationContext{
+		ClusterName:          "cluster-a",
+		ControlPlaneEndpoint: " 192.0.2.10:6443 ",
+		KubernetesVersion:    "v1.34.0",
+		MachineRole:          domainbootstrap.MachineRoleControlPlane,
+		SecretsBundle:        bundle,
+	})
+	if err != nil {
+		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
+	}
+	provider, err := configloader.NewFromBytes(configuration)
+	if err != nil {
+		t.Fatalf("configloader.NewFromBytes() error = %v", err)
+	}
+	if got := provider.K8sClusterConfig().ClusterEndpoint().String(); got != "https://192.0.2.10:6443" {
+		t.Errorf("cluster endpoint = %q, want canonical HTTPS endpoint", got)
+	}
+	if got := provider.Machine().Type().String(); got != "controlplane" {
+		t.Errorf("machine type = %q, want controlplane", got)
+	}
+}

@@ -157,3 +157,30 @@ func TestStartStopsWhenContextIsCanceled(t *testing.T) {
 		t.Fatal("TFTP server did not stop after context cancellation")
 	}
 }
+
+func TestStartClosesDoneWhenListenFails(t *testing.T) {
+	t.Parallel()
+
+	server, err := NewServer(t.TempDir(), "not-an-address", slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewServer() error = %v", err)
+	}
+
+	err = server.Start(t.Context())
+	if err == nil {
+		t.Fatal("Start() error = nil, want address resolution error")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		if stopErr := server.Stop(); stopErr != nil {
+			t.Errorf("Stop() error = %v", stopErr)
+		}
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop() did not return after Start() failed")
+	}
+}

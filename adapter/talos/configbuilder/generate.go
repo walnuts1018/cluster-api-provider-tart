@@ -179,7 +179,7 @@ func canonicalEndpoint(endpoint string) (string, error) {
 		endpoint = "https://" + endpoint
 	}
 	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Path != "" && parsed.Path != "/") {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return "", fmt.Errorf("%w: invalid control-plane endpoint", domainbootstrap.ErrMachineConfigurationContextIncomplete)
 	}
 	parsed.Path = ""

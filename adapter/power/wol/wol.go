@@ -32,18 +32,12 @@ func New(macAddress network.MACAddress, broadcastAddress network.UDPAddress) (Ba
 	if macAddress.IsZero() {
 		return Backend{}, fmt.Errorf("validate wake-on-LAN MAC address: %w", network.ErrInvalidMACAddress)
 	}
-	var err error
 	if broadcastAddress.IsZero() {
-		broadcastAddress, err = network.ParseUDPAddress(defaultWakeOnLANBroadcastAddress)
+		defaultAddress, err := network.ParseUDPAddress(defaultWakeOnLANBroadcastAddress)
 		if err != nil {
 			return Backend{}, fmt.Errorf("parse default wake-on-LAN address: %w", err)
 		}
-	} else {
-		parsedBroadcast, parseErr := network.ParseUDPAddress(broadcastAddress.String())
-		if parseErr != nil {
-			return Backend{}, fmt.Errorf("validate wake-on-LAN broadcast address: %w", parseErr)
-		}
-		broadcastAddress = parsedBroadcast
+		broadcastAddress = defaultAddress
 	}
 	return Backend{macAddress: macAddress, broadcastAddress: broadcastAddress}, nil
 }

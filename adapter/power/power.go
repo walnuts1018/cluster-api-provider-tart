@@ -16,7 +16,6 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/redfish"
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/wol"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
-	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
@@ -42,11 +41,10 @@ func Factory(ctx context.Context, reader client.Reader, managementNamespace stri
 		if host.Spec.Power.WakeOnLAN == nil {
 			return nil, errors.New("wake-on-LAN power configuration is missing")
 		}
-		mac, err := network.ParseMACAddress(host.Spec.MACAddress.String())
-		if err != nil {
-			return nil, fmt.Errorf("validate wake-on-LAN MAC address: %w", err)
+		if host.Spec.MACAddress.IsZero() {
+			return nil, errors.New("wake-on-LAN requires a host MAC address")
 		}
-		return wol.New(mac, host.Spec.Power.WakeOnLAN.BroadcastAddress)
+		return wol.New(host.Spec.MACAddress, host.Spec.Power.WakeOnLAN.BroadcastAddress)
 	case infrav1alpha1.PowerBackendRedfish:
 		return NewRedfishBackend(ctx, reader, managementNamespace, host)
 	case infrav1alpha1.PowerBackendIntelManageability:

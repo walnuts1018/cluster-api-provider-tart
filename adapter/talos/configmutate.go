@@ -303,5 +303,3 @@ func SetKubernetesAggregatorCertificateAuthority(configuration []byte, issuing *
 	}
 	return result, nil
 }
-
-// Clientはtalos machineryのgRPC clientを薄くwrapする。Tartのreconcileとpolicy packageが必要とする観測と操作だけを公開する。

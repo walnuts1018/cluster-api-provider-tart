@@ -27,6 +27,7 @@ import (
 	talosclient "github.com/siderolabs/talos/pkg/machinery/client"
 )
 
+// Clientはtalos machineryのgRPC clientを薄くwrapする。Tartのreconcileとpolicy packageが必要とする観測と操作だけを公開する。
 type Client struct {
 	raw *talosclient.Client
 }

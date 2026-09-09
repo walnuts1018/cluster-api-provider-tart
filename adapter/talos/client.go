@@ -40,12 +40,10 @@ func (c *Client) Close() error {
 	return c.raw.Close()
 }
 
-// Versionはmachineのauthenticatedまたはmaintenance APIが返したTalos OS versionとplatformの観測値である。
+// Versionはmachineのauthenticatedまたはmaintenance APIが返したTalos OS versionの観測値である。
 type Version struct {
-	Tag      string
-	SHA      string
-	Platform string
-	Arch     string
+	Tag  string
+	Arch string
 }
 
 // Versionは接続中のnodeからTalos OS versionの観測値を取得する。reconcileの呼び出し側は結果をdesired imageと比較し、不一致ならMachineをunreadyのままにする。
@@ -64,10 +62,8 @@ func (c *Client) Version(ctx context.Context) (Version, error) {
 	}
 	v := messages[0].GetVersion()
 	return Version{
-		Tag:      v.GetTag(),
-		SHA:      v.GetSha(),
-		Platform: messages[0].GetPlatform().GetName(),
-		Arch:     v.GetArch(),
+		Tag:  v.GetTag(),
+		Arch: v.GetArch(),
 	}, nil
 }
 
@@ -322,10 +318,8 @@ type EtcdStatus struct {
 
 // EtcdMemberはTalosから観測したetcd memberの非機密identityである。
 type EtcdMember struct {
-	ID       uint64
-	Hostname string
-	PeerURLs []string
-	Learner  bool
+	ID      uint64
+	Learner bool
 }
 
 // EtcdStatusはauthenticated Talos APIを通じてローカルetcd memberを観測する。
@@ -376,10 +370,8 @@ func (c *Client) EtcdMembers(ctx context.Context) ([]EtcdMember, error) {
 		}
 		seen[member.GetId()] = struct{}{}
 		members = append(members, EtcdMember{
-			ID:       member.GetId(),
-			Hostname: member.GetHostname(),
-			PeerURLs: append([]string(nil), member.GetPeerUrls()...),
-			Learner:  member.GetIsLearner(),
+			ID:      member.GetId(),
+			Learner: member.GetIsLearner(),
 		})
 	}
 	return members, nil

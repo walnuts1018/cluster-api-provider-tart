@@ -1,5 +1,5 @@
 // Package powerはHostの電源操作に関するportとbackend選択のFactoryを提供する。
-// 実装はboot配下の旧電源backendをadapter層へ統合し、新しいbackend(fakeを含む)はサブパッケージとして追加し、Factoryのswitchへcaseを追加するだけで拡張できる。
+// 実装はboot配下の旧電源backendをadapter層へ統合し、新しいbackendはサブパッケージとして追加し、Factoryのswitchへcaseを追加するだけで拡張できる。
 // 汎用的なregistryやplugin frameworkは導入せず、明示的なFactoryに留める。
 package power
 
@@ -19,19 +19,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
-// BackendはHostに設定されたpower backend種別を表す。
-type Backend string
-
-const (
-	BackendWakeOnLAN          Backend = "WakeOnLAN"
-	BackendRedfish            Backend = "Redfish"
-	BackendIntelManageability Backend = "IntelManageability"
-	BackendManual             Backend = "Manual"
-	BackendFake               Backend = "Fake"
-)
-
 // FactoryはTartHostSpecから適切な電源backendを生成する。RedfishのようにSecretを要するbackendはclientとmanagementNamespaceを使って解決する。
-// Fake backendはテストでのみ使用する。
 func Factory(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (any, error) {
 	if host == nil {
 		return nil, errors.New("tart host is unavailable")

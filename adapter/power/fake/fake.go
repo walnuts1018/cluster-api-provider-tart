@@ -4,12 +4,14 @@ package fake
 import (
 	"context"
 	"sync"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
 // Backendは呼び出しを記録し、設定されたerror列を順番に返すテスト用backendである。
 type Backend struct {
 	mu              sync.Mutex
-	powerState      string
+	powerState      power.PowerState
 	powerStateErr   error
 	powerOnErrors   []error
 	powerOffErrors  []error
@@ -18,11 +20,17 @@ type Backend struct {
 	powerStateCalls int
 }
 
+var (
+	_ power.PowerOn            = (*Backend)(nil)
+	_ power.PowerOff           = (*Backend)(nil)
+	_ power.PowerStateObserver = (*Backend)(nil)
+)
+
 // OptionはBackendの初期状態を設定する。
 type Option func(*Backend)
 
 // WithPowerStateは観測される電源状態を設定する。
-func WithPowerState(state string) Option {
+func WithPowerState(state power.PowerState) Option {
 	return func(b *Backend) {
 		b.powerState = state
 	}
@@ -51,7 +59,7 @@ func WithPowerOffErrors(errors ...error) Option {
 
 // NewはOptionを適用したBackendを生成する。
 func New(options ...Option) *Backend {
-	backend := &Backend{powerState: "Unknown"}
+	backend := &Backend{powerState: power.PowerStateUnknown}
 	for _, option := range options {
 		option(backend)
 	}
@@ -89,7 +97,7 @@ func (b *Backend) PowerOff(ctx context.Context) error {
 }
 
 // PowerStateは設定された電源状態を返す。
-func (b *Backend) PowerState(ctx context.Context) (string, error) {
+func (b *Backend) PowerState(ctx context.Context) (power.PowerState, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}

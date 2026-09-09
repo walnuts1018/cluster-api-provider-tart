@@ -31,6 +31,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/controller/runtimeextension"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	machinedomain "github.com/walnuts1018/cluster-api-provider-tart/domain/machine"
+	domainpower "github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
 	machineusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/machine"
@@ -1021,13 +1022,13 @@ func (r *TartMachineReconciler) observeHostStopped(ctx context.Context, selected
 		if err != nil {
 			return false, err
 		}
-		return state == power.PowerStateOff, nil
+		return state == domainpower.PowerStateOff, nil
 	case infrav1alpha1.PowerBackendIntelManageability:
 		state, err := power.IntelManageabilityPowerState(ctx, r.Client, r.ManagementNamespace, selected)
 		if err != nil {
 			return false, err
 		}
-		return state == power.PowerStateOff, nil
+		return state == domainpower.PowerStateOff, nil
 	case infrav1alpha1.PowerBackendWakeOnLAN, infrav1alpha1.PowerBackendManual:
 		// WoL/Manualは独立したpower-state observerを持たないため、以下のTalos到達性による代替判定へ進む。
 	}

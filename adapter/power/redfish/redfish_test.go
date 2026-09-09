@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
 const (
@@ -235,8 +237,8 @@ func TestRedfish認証(t *testing.T) {
 	backend := newRedfishTestBackend(t, handler, "")
 
 	state, err := backend.PowerState(t.Context())
-	if err != nil || state != PowerStateOn {
-		t.Fatalf("PowerState() = %q, %v, want %q, nil", state, err, PowerStateOn)
+	if err != nil || state != power.PowerStateOn {
+		t.Fatalf("PowerState() = %q, %v, want %q, nil", state, err, power.PowerStateOn)
 	}
 	if !authenticated {
 		t.Fatal("リクエストに正しいBasic認証情報が設定されていない")

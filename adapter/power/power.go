@@ -17,31 +17,8 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/power/wol"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
-
-// PowerStateは電源backendが観測したHostの電源状態である。
-type PowerState string
-
-const (
-	PowerStateOn      PowerState = "On"
-	PowerStateOff     PowerState = "Off"
-	PowerStateUnknown PowerState = "Unknown"
-)
-
-// PowerOnはHostの電源投入を要求する。
-type PowerOn interface {
-	PowerOn(ctx context.Context) error
-}
-
-// PowerOffはHostの安全な電源停止を要求する。
-type PowerOff interface {
-	PowerOff(ctx context.Context) error
-}
-
-// PowerStateObserverはHostの電源状態を観測する。
-type PowerStateObserver interface {
-	PowerState(ctx context.Context) (PowerState, error)
-}
 
 // BackendはHostに設定されたpower backend種別を表す。
 type Backend string
@@ -87,7 +64,7 @@ func PowerOnHost(ctx context.Context, reader client.Reader, managementNamespace 
 	if err != nil {
 		return err
 	}
-	powerOn, ok := backend.(PowerOn)
+	powerOn, ok := backend.(power.PowerOn)
 	if !ok {
 		return fmt.Errorf("power backend %q does not support PowerOn", host.Spec.Power.Backend)
 	}
@@ -103,7 +80,7 @@ func PowerOffHost(ctx context.Context, reader client.Reader, managementNamespace
 	if err != nil {
 		return err
 	}
-	powerOff, ok := backend.(PowerOff)
+	powerOff, ok := backend.(power.PowerOff)
 	if !ok {
 		return fmt.Errorf("power backend %q does not support PowerOff", host.Spec.Power.Backend)
 	}
@@ -111,29 +88,21 @@ func PowerOffHost(ctx context.Context, reader client.Reader, managementNamespace
 }
 
 // RedfishPowerStateはRedfish backendの電源状態を取得する。
-func RedfishPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (PowerState, error) {
+func RedfishPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (power.PowerState, error) {
 	backend, err := NewRedfishBackend(ctx, reader, managementNamespace, host)
 	if err != nil {
-		return PowerStateUnknown, err
+		return power.PowerStateUnknown, err
 	}
-	state, err := backend.PowerState(ctx)
-	if err != nil {
-		return PowerStateUnknown, err
-	}
-	return PowerState(state), nil
+	return backend.PowerState(ctx)
 }
 
 // IntelManageabilityPowerStateはIntel Manageability backendの電源状態を取得する。
-func IntelManageabilityPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (PowerState, error) {
+func IntelManageabilityPowerState(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (power.PowerState, error) {
 	backend, err := NewIntelManageabilityBackend(ctx, reader, managementNamespace, host)
 	if err != nil {
-		return PowerStateUnknown, err
+		return power.PowerStateUnknown, err
 	}
-	state, err := backend.PowerState(ctx)
-	if err != nil {
-		return PowerStateUnknown, err
-	}
-	return PowerState(state), nil
+	return backend.PowerState(ctx)
 }
 
 // NewIntelManageabilityBackendはIntel Manageability credential Secretを解決してbackendを構築する。

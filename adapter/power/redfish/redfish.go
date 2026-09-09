@@ -16,36 +16,13 @@ import (
 	"time"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
 const (
 	redfishRequestTimeout = 15 * time.Second
 	redfishResponseLimit  = 2 << 20
 )
-
-// PowerStateは電源backendが観測したHostの電源状態である。adapter/powerの同名型と文字列互換である。
-type PowerState string
-
-const (
-	PowerStateOn      PowerState = "On"
-	PowerStateOff     PowerState = "Off"
-	PowerStateUnknown PowerState = "Unknown"
-)
-
-// PowerOnはHostの電源投入を要求する。
-type PowerOn interface {
-	PowerOn(ctx context.Context) error
-}
-
-// PowerOffはHostの安全な電源停止を要求する。
-type PowerOff interface {
-	PowerOff(ctx context.Context) error
-}
-
-// PowerStateObserverはHostの電源状態を観測する。
-type PowerStateObserver interface {
-	PowerState(ctx context.Context) (PowerState, error)
-}
 
 // ConfigはRedfish backendへ渡す解決済みの接続設定である。Secretの参照名ではなくcredentialの値を受け取り、呼び出し側でSecret値をログやStatusへ出力してはならない。
 type Config struct {
@@ -67,9 +44,9 @@ type Backend struct {
 }
 
 var (
-	_ PowerOn            = (*Backend)(nil)
-	_ PowerOff           = (*Backend)(nil)
-	_ PowerStateObserver = (*Backend)(nil)
+	_ power.PowerOn            = new(Backend)
+	_ power.PowerOff           = new(Backend)
+	_ power.PowerStateObserver = new(Backend)
 )
 
 type redfishLink struct {
@@ -173,9 +150,9 @@ func (r *Backend) PowerOn(ctx context.Context) error {
 		return err
 	}
 	switch strings.TrimSpace(system.PowerState) {
-	case string(PowerStateOn), "PoweringOn":
+	case string(power.PowerStateOn), "PoweringOn":
 		return nil
-	case string(PowerStateOff):
+	case string(power.PowerStateOff):
 		return r.reset(ctx, systemURL, system, "On")
 	default:
 		return fmt.Errorf("redfish ComputerSystem is not safely power-onable from state %q", system.PowerState)
@@ -189,9 +166,9 @@ func (r *Backend) PowerOff(ctx context.Context) error {
 		return err
 	}
 	switch strings.TrimSpace(system.PowerState) {
-	case string(PowerStateOff), "PoweringOff":
+	case string(power.PowerStateOff), "PoweringOff":
 		return nil
-	case string(PowerStateOn):
+	case string(power.PowerStateOn):
 		return r.reset(ctx, systemURL, system, "GracefulShutdown")
 	default:
 		return fmt.Errorf("redfish ComputerSystem is not safely power-offable from state %q", system.PowerState)
@@ -199,15 +176,15 @@ func (r *Backend) PowerOff(ctx context.Context) error {
 }
 
 // PowerStateはRedfish ComputerSystemの電源状態を返す。未知のvendor拡張値もそのまま返すため、呼び出し側はOffとの完全一致だけを停止完了の根拠にする。
-func (r *Backend) PowerState(ctx context.Context) (PowerState, error) {
+func (r *Backend) PowerState(ctx context.Context) (power.PowerState, error) {
 	_, system, err := r.system(ctx)
 	if err != nil {
-		return PowerStateUnknown, err
+		return power.PowerStateUnknown, err
 	}
 	if strings.TrimSpace(system.PowerState) == "" {
-		return PowerStateUnknown, errors.New("redfish ComputerSystem has no PowerState")
+		return power.PowerStateUnknown, errors.New("redfish ComputerSystem has no PowerState")
 	}
-	return PowerState(system.PowerState), nil
+	return power.PowerState(system.PowerState), nil
 }
 
 func (r *Backend) system(ctx context.Context) (*url.URL, redfishSystem, error) {

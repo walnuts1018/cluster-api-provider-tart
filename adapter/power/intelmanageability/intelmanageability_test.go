@@ -2,47 +2,36 @@ package intelmanageability
 
 import (
 	"context"
-	"encoding/xml"
 	"errors"
 	"testing"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
-// fakeWSManClientはBackendのpower遷移ロジックだけをHTTP/XMLなしで検証するためのtest doubleである。
-type fakeWSManClient struct {
-	powerState        string
-	powerStateErr     error
-	invokedPowerState string
-	invokeErr         error
-	invokeCalls       int
+// fakeManageabilityClientはBackendのpolicyだけを検証するための最小限のfakeである。WS-Man protocolや
+// go-wsman-messagesを一切介さない。
+type fakeManageabilityClient struct {
+	state        cimPowerState
+	stateErr     error
+	invoked      bool
+	invokedState cimPowerState
+	requestErr   error
 }
 
-func (f *fakeWSManClient) get(context.Context, string) (*xmlNode, error) {
-	return nil, errors.New("get is not used by Backend")
+func (f *fakeManageabilityClient) currentPowerState(ctx context.Context) (cimPowerState, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return f.state, f.stateErr
 }
 
-func (f *fakeWSManClient) enumerateAll(context.Context, string) ([]*xmlNode, error) {
-	if f.powerStateErr != nil {
-		return nil, f.powerStateErr
+func (f *fakeManageabilityClient) requestPowerStateChange(ctx context.Context, state cimPowerState) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	if f.powerState == "" {
-		return nil, nil
-	}
-	return []*xmlNode{
-		{Children: []xmlNode{{XMLName: xml.Name{Local: "PowerState"}, Content: f.powerState}}},
-	}, nil
-}
-
-func (f *fakeWSManClient) invoke(_ context.Context, _, _ string, params []invokeParam) (*xmlNode, error) {
-	f.invokeCalls++
-	for _, param := range params {
-		if param.name == "PowerState" {
-			f.invokedPowerState = param.value
-		}
-	}
-	if f.invokeErr != nil {
-		return nil, f.invokeErr
-	}
-	return &xmlNode{}, nil
+	f.invoked = true
+	f.invokedState = state
+	return f.requestErr
 }
 
 func TestBackendPowerOn(t *testing.T) {
@@ -50,21 +39,21 @@ func TestBackendPowerOn(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		state         string
+		state         cimPowerState
 		wantErr       bool
 		wantInvoked   bool
-		wantPowerCode string
+		wantPowerCode cimPowerState
 	}{
-		{name: "Onなら遷移要求しない", state: cimPowerStateOn, wantInvoked: false},
-		{name: "Offから電源投入を要求する", state: cimPowerStateOffSoft, wantInvoked: true, wantPowerCode: cimPowerStateOn},
-		{name: "未知の状態からは拒否する", state: "999", wantErr: true},
+		{name: "Onなら遷移要求しない", state: dmtfPowerOn, wantInvoked: false},
+		{name: "Offから電源投入を要求する", state: dmtfPowerOffSoft, wantInvoked: true, wantPowerCode: dmtfPowerOn},
+		{name: "Unknownからは拒否する", state: cimPowerState(0), wantErr: true},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			fake := &fakeWSManClient{powerState: test.state}
+			fake := &fakeManageabilityClient{state: test.state}
 			backend := &Backend{client: fake}
-
 			err := backend.PowerOn(t.Context())
 			if (err != nil) != test.wantErr {
 				t.Fatalf("PowerOn() error = %v, wantErr = %t", err, test.wantErr)
@@ -75,11 +64,11 @@ func TestBackendPowerOn(t *testing.T) {
 				}
 				return
 			}
-			if (fake.invokeCalls > 0) != test.wantInvoked {
-				t.Fatalf("invokeCalls = %d, wantInvoked = %t", fake.invokeCalls, test.wantInvoked)
+			if fake.invoked != test.wantInvoked {
+				t.Fatalf("invoked = %t, want %t", fake.invoked, test.wantInvoked)
 			}
-			if test.wantInvoked && fake.invokedPowerState != test.wantPowerCode {
-				t.Fatalf("invokedPowerState = %q, want %q", fake.invokedPowerState, test.wantPowerCode)
+			if test.wantInvoked && fake.invokedState != test.wantPowerCode {
+				t.Fatalf("invokedState = %d, want %d", fake.invokedState, test.wantPowerCode)
 			}
 		})
 	}
@@ -90,71 +79,71 @@ func TestBackendPowerOff(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		state         string
+		state         cimPowerState
 		wantErr       bool
 		wantInvoked   bool
-		wantPowerCode string
+		wantPowerCode cimPowerState
 	}{
-		{name: "Offなら遷移要求しない", state: cimPowerStateOffSoft, wantInvoked: false},
-		{name: "Onからsoft power offを要求する", state: cimPowerStateOn, wantInvoked: true, wantPowerCode: cimPowerStateOffSoft},
-		{name: "未知の状態からは拒否する", state: "999", wantErr: true},
+		{name: "Offなら遷移要求しない", state: dmtfPowerOffSoft, wantInvoked: false},
+		{name: "Onからsoft power offを要求する", state: dmtfPowerOn, wantInvoked: true, wantPowerCode: dmtfPowerOffSoft},
+		{name: "Unknownからは拒否する", state: cimPowerState(0), wantErr: true},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			fake := &fakeWSManClient{powerState: test.state}
+			fake := &fakeManageabilityClient{state: test.state}
 			backend := &Backend{client: fake}
-
 			err := backend.PowerOff(t.Context())
 			if (err != nil) != test.wantErr {
 				t.Fatalf("PowerOff() error = %v, wantErr = %t", err, test.wantErr)
 			}
 			if test.wantErr {
+				if !errors.Is(err, ErrUnexpectedPowerState) {
+					t.Fatalf("PowerOff() error = %v, want ErrUnexpectedPowerState", err)
+				}
 				return
 			}
-			if (fake.invokeCalls > 0) != test.wantInvoked {
-				t.Fatalf("invokeCalls = %d, wantInvoked = %t", fake.invokeCalls, test.wantInvoked)
+			if fake.invoked != test.wantInvoked {
+				t.Fatalf("invoked = %t, want %t", fake.invoked, test.wantInvoked)
 			}
-			if test.wantInvoked && fake.invokedPowerState != test.wantPowerCode {
-				t.Fatalf("invokedPowerState = %q, want %q", fake.invokedPowerState, test.wantPowerCode)
+			if test.wantInvoked && fake.invokedState != test.wantPowerCode {
+				t.Fatalf("invokedState = %d, want %d", fake.invokedState, test.wantPowerCode)
 			}
 		})
 	}
 }
 
-func TestBackendPowerCycleはOnからのみ許可する(t *testing.T) {
+func TestBackendPowerCycle(t *testing.T) {
 	t.Parallel()
 
-	onFake := &fakeWSManClient{powerState: cimPowerStateOn}
+	onFake := &fakeManageabilityClient{state: dmtfPowerOn}
 	onBackend := &Backend{client: onFake}
 	if err := onBackend.PowerCycle(t.Context()); err != nil {
 		t.Fatalf("PowerCycle() error = %v", err)
 	}
-	if onFake.invokedPowerState != cimPowerStateMasterBusReset {
-		t.Fatalf("invokedPowerState = %q, want %q", onFake.invokedPowerState, cimPowerStateMasterBusReset)
+	if !onFake.invoked || onFake.invokedState != dmtfPowerMasterBusReset {
+		t.Fatalf("invoked = %t, invokedState = %d, want true, %d", onFake.invoked, onFake.invokedState, dmtfPowerMasterBusReset)
 	}
 
-	offFake := &fakeWSManClient{powerState: cimPowerStateOffSoft}
+	offFake := &fakeManageabilityClient{state: dmtfPowerOffSoft}
 	offBackend := &Backend{client: offFake}
 	if err := offBackend.PowerCycle(t.Context()); !errors.Is(err, ErrUnexpectedPowerState) {
 		t.Fatalf("PowerCycle() error = %v, want ErrUnexpectedPowerState", err)
-	}
-	if offFake.invokeCalls != 0 {
-		t.Fatalf("invokeCalls = %d, want 0", offFake.invokeCalls)
 	}
 }
 
 func TestBackendPowerState取得不能はUnknown(t *testing.T) {
 	t.Parallel()
 
-	fake := &fakeWSManClient{powerStateErr: ErrConnectionFailed}
+	wantErr := errors.New("boom")
+	fake := &fakeManageabilityClient{stateErr: wantErr}
 	backend := &Backend{client: fake}
-
 	state, err := backend.PowerState(t.Context())
-	if !errors.Is(err, ErrConnectionFailed) {
-		t.Fatalf("PowerState() error = %v, want ErrConnectionFailed", err)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("PowerState() error = %v, want %v", err, wantErr)
 	}
-	if state != PowerStateUnknown {
+	if state != power.PowerStateUnknown {
 		t.Fatalf("PowerState() = %q, want Unknown", state)
 	}
 }
@@ -162,18 +151,18 @@ func TestBackendPowerState取得不能はUnknown(t *testing.T) {
 func TestMapCIMPowerState(t *testing.T) {
 	t.Parallel()
 
-	tests := map[string]PowerState{
-		cimPowerStateOn:              PowerStateOn,
-		cimPowerStateOffHard:         PowerStateOff,
-		cimPowerStateOffSoft:         PowerStateOff,
-		cimPowerStateOffSoftGraceful: PowerStateOff,
-		cimPowerStateOffHardGraceful: PowerStateOff,
-		"3":                          PowerStateUnknown,
-		"":                           PowerStateUnknown,
+	tests := map[cimPowerState]power.PowerState{
+		dmtfPowerOn:              power.PowerStateOn,
+		dmtfPowerOffHard:         power.PowerStateOff,
+		dmtfPowerOffSoft:         power.PowerStateOff,
+		dmtfPowerOffSoftGraceful: power.PowerStateOff,
+		dmtfPowerOffHardGraceful: power.PowerStateOff,
+		cimPowerState(0):         power.PowerStateUnknown,
+		cimPowerState(3):         power.PowerStateUnknown,
 	}
-	for value, want := range tests {
-		if got := mapCIMPowerState(value); got != want {
-			t.Errorf("mapCIMPowerState(%q) = %q, want %q", value, got, want)
+	for input, want := range tests {
+		if got := mapCIMPowerState(input); got != want {
+			t.Fatalf("mapCIMPowerState(%d) = %q, want %q", input, got, want)
 		}
 	}
 }

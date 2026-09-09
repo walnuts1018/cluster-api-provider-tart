@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
 const (
@@ -23,6 +24,8 @@ type Backend struct {
 	macAddress       network.MACAddress
 	broadcastAddress network.UDPAddress
 }
+
+var _ power.PowerOn = Backend{}
 
 // Newは検証済みのMACアドレスとUDP送信先からWake-on-LAN backendを構築する。
 func New(macAddress network.MACAddress, broadcastAddress network.UDPAddress) (Backend, error) {

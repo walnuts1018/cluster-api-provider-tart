@@ -19,6 +19,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos"
 	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -106,7 +107,7 @@ func prepareMachineUpdate(ctx context.Context, req *runtimehooksv1.UpdateMachine
 	if providerHost.Spec.ConsumerRef == nil || providerHost.Spec.ConsumerRef.UID != providerMachine.UID {
 		return nil, errors.New("the allocated TartHost binding does not match the TartMachine identity")
 	}
-	endpoint := hostEndpoint(providerHost)
+	endpoint := controller.HostTalosEndpoint(providerHost)
 	if endpoint == "" {
 		return nil, &updateRetryError{message: "The allocated TartHost has no reachable Talos endpoint yet."}
 	}
@@ -386,7 +387,7 @@ func observeControlPlaneEtcdStatus(ctx context.Context, kubeClient client.Reader
 	if providerHost.Spec.ConsumerRef == nil || providerHost.Spec.ConsumerRef.UID != providerMachine.UID {
 		return talos.EtcdStatus{}, errors.New("surviving TartHost binding does not match TartMachine")
 	}
-	endpoint := hostEndpoint(providerHost)
+	endpoint := controller.HostTalosEndpoint(providerHost)
 	if endpoint == "" {
 		return talos.EtcdStatus{}, errors.New("surviving TartHost endpoint is unavailable")
 	}
@@ -490,18 +491,4 @@ func decodeTartMachine(raw runtime.RawExtension) (*infrav1alpha1.TartMachine, er
 		return nil, errors.New("update object is not a TartMachine")
 	}
 	return &machine, nil
-}
-
-func hostEndpoint(host *infrav1alpha1.TartHost) string {
-	if endpoint := host.Spec.TalosAPIAddress.String(); endpoint != "" {
-		return endpoint
-	}
-	for _, addressType := range []clusterv1.MachineAddressType{clusterv1.MachineInternalIP, clusterv1.MachineExternalIP, clusterv1.MachineHostName} {
-		for _, address := range host.Status.Addresses {
-			if address.Type == addressType && strings.TrimSpace(address.Address) != "" {
-				return strings.TrimSpace(address.Address)
-			}
-		}
-	}
-	return ""
 }

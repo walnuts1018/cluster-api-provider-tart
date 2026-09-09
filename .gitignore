@@ -29,6 +29,7 @@ go.work.sum
 /bootstrap-manager
 /control-plane-manager
 /infrastructure-manager
+/netboot-server
 
 # env file
 .env

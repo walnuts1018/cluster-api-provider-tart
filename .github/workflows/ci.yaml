@@ -53,6 +53,9 @@ jobs:
       - name: Build
         run: mise run build
 
+      - name: Build netboot-server
+        run: mise run build-netboot-server
+
       - name: Vet
         run: mise run vet
 

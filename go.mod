@@ -12,7 +12,7 @@ require (
 	github.com/google/cel-go v0.31.0
 	github.com/insomniacslk/dhcp v0.0.0-20260901064844-234b97448fae
 	github.com/mazrean/kessoku v1.1.1
-	github.com/onsi/ginkgo/v2 v2.32.1
+	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
 	github.com/pin/tftp/v3 v3.2.0
 	github.com/siderolabs/crypto v0.6.5
@@ -35,7 +35,7 @@ require (
 	k8s.io/klog/v2 v2.140.0
 	libvirt.org/go/libvirt v1.12007.0
 	sigs.k8s.io/cluster-api v1.14.1
-	sigs.k8s.io/cluster-api/api v1.14.1
+	sigs.k8s.io/cluster-api/api v1.14.2
 	sigs.k8s.io/controller-runtime v0.25.0
 )
 

@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -32,7 +33,7 @@ func WaitForCondition(ctx context.Context, get ConditionGetter, conditionType st
 	Eventually(func(g Gomega) {
 		conditions, err := get(ctx)
 		g.Expect(err).NotTo(HaveOccurred(), "failed to fetch conditions while waiting for %s=%s", conditionType, expectedStatus)
-		condition := findCondition(conditions, conditionType)
+		condition := meta.FindStatusCondition(conditions, conditionType)
 		g.Expect(condition).NotTo(BeNil(), "condition %s not yet reported", conditionType)
 		logConditionHeartbeat(start, conditionType, condition)
 		g.Expect(condition.Status).To(Equal(expectedStatus), "condition %s: reason=%s message=%s", conditionType, condition.Reason, condition.Message)
@@ -47,7 +48,7 @@ func WaitForConditionReason(ctx context.Context, get ConditionGetter, conditionT
 	Eventually(func(g Gomega) {
 		conditions, err := get(ctx)
 		g.Expect(err).NotTo(HaveOccurred())
-		condition := findCondition(conditions, conditionType)
+		condition := meta.FindStatusCondition(conditions, conditionType)
 		g.Expect(condition).NotTo(BeNil(), "condition %s not yet reported", conditionType)
 		logConditionHeartbeat(start, conditionType, condition)
 		g.Expect(condition.Status).To(Equal(expectedStatus))
@@ -92,7 +93,7 @@ func WaitForConditionUntilTerminal(ctx context.Context, get ConditionGetter, con
 			g.Expect(err).NotTo(HaveOccurred(), "failed to fetch conditions while waiting for %s=%s", conditionType, expectedStatus)
 			return
 		}
-		condition := findCondition(conditions, conditionType)
+		condition := meta.FindStatusCondition(conditions, conditionType)
 		if condition == nil {
 			terminalStreak = 0
 			g.Expect(condition).NotTo(BeNil(), "condition %s not yet reported", conditionType)
@@ -118,15 +119,6 @@ func WaitForConditionUntilTerminal(ctx context.Context, get ConditionGetter, con
 func logConditionHeartbeat(start time.Time, conditionType string, condition *metav1.Condition) {
 	GinkgoWriter.Printf("[%s elapsed] condition %s: status=%s reason=%s message=%q\n",
 		time.Since(start).Round(time.Second), conditionType, condition.Status, condition.Reason, condition.Message)
-}
-
-func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
-	for i := range conditions {
-		if conditions[i].Type == conditionType {
-			return &conditions[i]
-		}
-	}
-	return nil
 }
 
 // WaitForObjectはgetがerrorなしで完了するまで(=objectが存在するようになるまで)待つ。

@@ -40,7 +40,6 @@ type Server struct {
 
 	mu      sync.Mutex
 	servers []*server4.Server
-	done    chan struct{}
 }
 
 // NewServerは新しいServerを作成する。
@@ -86,7 +85,6 @@ func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL, iface string, logger 
 		baseURL:     baseURL,
 		advertiseIP: advertiseIP,
 		logger:      logger.With("component", "dhcp"),
-		done:        make(chan struct{}),
 	}, nil
 }
 
@@ -149,7 +147,6 @@ func (s *Server) Start(ctx context.Context) error {
 
 	wg.Wait()
 	close(errCh)
-	close(s.done)
 
 	for err := range errCh {
 		if err != nil {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
@@ -92,7 +91,6 @@ type ClaimRequest struct {
 	Selector       *infrav1alpha1.HostSelector
 	FailureDomain  string
 	Mode           ClaimMode
-	ConsumerUID    types.UID
 }
 
 // ValidateClaimCandidateは、現在のHost stateがClaimRequestのpreconditionを満たすかを検証する。

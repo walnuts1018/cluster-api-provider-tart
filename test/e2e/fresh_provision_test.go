@@ -146,7 +146,7 @@ func freshProvisionSpecs() {
 			// このlabは3disk(system/ssd/hdd)を持ち、writableなdisk候補が複数存在するため、
 			// domainbootstrap.SelectDiskは自動選択をfail-closedで拒否する
 			// (reason=InstallDiskAmbiguous)。この場合はusecase/bootstrap.
-			// MachineConfigurationContext.InstallDiskがnilのまま render され、
+			// MachineConfigurationContext.InstallDiskがnilのままrenderされ、
 			// raw patchがinstall targetを明示しなければならない設計になっているため、
 			// 観測したStableSelector(CEL式)をUnattendedInstallConfig documentとして
 			// 明示的に渡す。CEL式は`!`始まりの値がYAML tag directiveと誤解釈される
@@ -431,7 +431,7 @@ func waitForTartMachineTalosReady(ctx context.Context, name, expectedVersion, ex
 
 // labBroadcastAddressは、lab network CIDR上のbroadcast address(host部が全1)にWoL標準port 9を
 // 付与したUDP宛先を返す。wol-libvirt-gatewayはlibvirt domainのMACアドレスからVMを解決するため、
-// broadcast先はgatewayが listenするlab network上のaddressである必要がある。
+// broadcast先はgatewayがlistenするlab network上のaddressである必要がある。
 func labBroadcastAddress() string {
 	// labNetworkCIDRは198.51.100.0/24であるため、broadcastは198.51.100.255固定でよい。
 	return "198.51.100.255:9"

@@ -314,7 +314,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 	// SelectDiskはwritable diskが複数存在する場合、暗黙のfallbackを避けるため意図的に
 	// fail-closedでErrDiskSelectionAmbiguousを返す。MachineConfigurationContext.InstallDisk
 	// はこの場合nilのままにする契約であり(usecase/bootstrap/dependencies.goのdoc参照)、
-	// raw patchがinstall targetを明示することを期待して render 自体は続行する。raw patchも
+	// raw patchがinstall targetを明示することを期待してrender自体は続行する。raw patchも
 	// install targetを含まなければ、EnsureInstallDisk/HasInstallDiskConfigurationが
 	// 検証時にErrInstallConfigurationInvalid等で改めてfail-closedにする。
 	var installDiskPtr *domainbootstrap.DiskIdentity

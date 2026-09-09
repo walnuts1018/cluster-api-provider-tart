@@ -48,7 +48,7 @@ type Server struct {
 // advertiseAddrはクライアントに広告する到達可能なサーバーIP、baseURLはiPXEスクリプト配信用HTTPサーバーのベースURLである。
 // ifaceは応答send先interfaceを明示的に固定する(空文字列なら固定しない)。DHCPの応答はDHCPv4仕様上
 // general broadcast(255.255.255.255)宛に送るため、複数NIC(multi-homed)を持つhostではifaceを
-// 指定しないと、宛先アドレスからは egress interfaceを一意に決められずdefault routeのNIC等
+// 指定しないと、宛先アドレスからはegress interfaceを一意に決められずdefault routeのNIC等
 // 意図しないinterfaceへ送出されてしまい、対象のnetworkへ実際には到達しないことがある
 // (SO_BINDTODEVICEでinterfaceを固定することで解決する)。
 func NewServer(tftpRoot, bindAddr, advertiseAddr, baseURL, iface string, logger *slog.Logger) (*Server, error) {

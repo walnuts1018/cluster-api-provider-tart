@@ -21,7 +21,7 @@ import (
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 )
 
-// controlPlaneCARotationStateはCA rotationの現在の観測結果を保持する。program counterではなく、reconcileのたびにTalosと bundle Secretの観測から再計算した値を運ぶだけの一時変数である。
+// controlPlaneCARotationStateはCA rotationの現在の観測結果を保持する。program counterではなく、reconcileのたびにTalosとbundle Secretの観測から再計算した値を運ぶだけの一時変数である。
 type controlPlaneCARotationState struct {
 	active       bool
 	reason       string

@@ -14,7 +14,7 @@ type Layer int
 const (
 	// LayerBaseはTalos machineryが生成したprovider-owned base configurationである。
 	LayerBase Layer = iota
-	// LayerUserRawPatchはユーザーが immutable Secretとして提供したraw patchである。
+	// LayerUserRawPatchはユーザーがimmutable Secretとして提供したraw patchである。
 	LayerUserRawPatch
 	// LayerProviderInvariantはinstall diskやProviderIDなど、providerが最後に強制するinvariantである。
 	// ユーザーpatchで上書きできないよう、常に最後に適用する。

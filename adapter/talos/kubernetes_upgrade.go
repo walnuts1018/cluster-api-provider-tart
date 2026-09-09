@@ -19,7 +19,7 @@ import (
 // Talosのcluster-wide Kubernetes upgradeは単一のgRPC RPCとして公開されておらず、
 // talosctlと同じclient-side orchestration(github.com/siderolabs/talos/pkg/cluster/kubernetes)が正本の実装である。
 // Tartはこのalgorithmを再実装せず、upstream実装をそのまま呼び出す。
-// upstreamへの依存はこのadapterだけに閉じ込め、go.modで machinery module と同じTalos versionへpinして管理する。
+// upstreamへの依存はこのadapterだけに閉じ込め、go.modでmachinery moduleと同じTalos versionへpinして管理する。
 
 // ErrKubernetesUpgradeClientUnavailableは、upgradeへ渡すTalos clientが未接続であることを示す。
 var ErrKubernetesUpgradeClientUnavailable = errors.New("talos client for the kubernetes upgrade is unavailable")

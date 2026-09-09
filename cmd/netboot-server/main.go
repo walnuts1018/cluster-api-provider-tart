@@ -131,7 +131,7 @@ func envOrDefault(key, fallback string) string {
 
 // newResolverは、in-cluster/kubeconfigのいずれかからKubernetes APIへ接続し、
 // TartHost/TartMachineをread-onlyで参照するnetboot.HostImageResolverを作成する。
-// クラスタ外(ローカル検証など)で kubeconfig が見つからない場合はerrorを返し、呼び出し側で
+// クラスタ外(ローカル検証など)でkubeconfigが見つからない場合はerrorを返し、呼び出し側で
 // discovery imageのみのfallback動作へ切り替える。
 func newResolver(logger *slog.Logger) (domainnetboot.HostImageResolver, error) {
 	restConfig, err := ctrl.GetConfig()

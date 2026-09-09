@@ -256,7 +256,7 @@ func TestCanUpdateMachineAllowsKubernetesVersionPropagation(t *testing.T) {
 
 // TestUpdateMachineRejectsHostRefDriftは、live TartMachineのhostRefと更新要求のhostRefが
 // 食い違う場合、UpdateMachineがTalosへ一切接続せず、safe-stop(retry)として扱われることを検証する。
-// hostRefはinitial-onlyかつclaim後immutableなfieldであり、この drift は「desired objectが
+// hostRefはinitial-onlyかつclaim後immutableなfieldであり、このdriftは「desired objectが
 // まだ収束していない」状態としてin-place applyへ進めてはならない。
 func TestUpdateMachineRejectsHostRefDrift(t *testing.T) {
 	t.Parallel()
@@ -296,7 +296,7 @@ func TestUpdateMachineRejectsHostRefDrift(t *testing.T) {
 	}
 }
 
-// TestUpdateMachineRejectsHostSelectorDriftは、claimed後に変更できないhostSelectorの drift も
+// TestUpdateMachineRejectsHostSelectorDriftは、claimed後に変更できないhostSelectorのdriftも
 // 同様にsafe-stopされることを検証する。CanUpdateMachineポリシー層(TestCanUpdateMachineAllowsOnlyTalosImageChange)
 // はhostSelector変更を拒否するが、実際のUpdateMachine/prepareMachineUpdate層でも同じ不変条件が
 // 独立して守られていることを確認する。

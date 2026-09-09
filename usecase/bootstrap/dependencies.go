@@ -19,7 +19,7 @@ type MachineConfigurationContext struct {
 	// InstallDiskはmaintenance inventoryから選択したinstall対象である。nilの場合はraw patchが
 	// install targetを含まなければならない。
 	InstallDisk *domainbootstrap.DiskIdentity
-	// Hostnameは、この machineのTalos hostnameを静的に固定する値である。Talosの既定生成は
+	// Hostnameは、このmachineのTalos hostnameを静的に固定する値である。Talosの既定生成は
 	// `HostnameConfig{auto: stable}`(machine identityから決定論的に導出したhostname)を
 	// 生成するが、DHCP等の外部sourceがこの自動hostnameより優先されてしまう(Talosの仕様)。
 	// またmulti-doc構成では`auto`と`hostname`を同一documentへ両立できないため、生成後の

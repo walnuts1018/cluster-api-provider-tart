@@ -81,7 +81,7 @@ func InstallCAPICore(ctx context.Context) error {
 	return waitDeploymentAvailable(ctx, "capi-system", "capi-controller-manager", 5*time.Minute)
 }
 
-// TartProviderManifests は infrastructure/bootstrap/control-plane 3 managerの kustomize entry point
+// TartProviderManifestsはinfrastructure/bootstrap/control-plane 3 managerのkustomize entry point
 // (config/default配下)を列挙する。3providerは別々のDeployment(bootstrap-manager,
 // control-plane-manager, infrastructure-manager)としてapplyする。
 var TartProviderManifests = []string{
@@ -90,7 +90,7 @@ var TartProviderManifests = []string{
 	"config/default/control-plane",
 }
 
-// TartProviderDeployments は各providerのDeployment名である。config/default/*/kustomization.yaml
+// TartProviderDeploymentsは各providerのDeployment名である。config/default/*/kustomization.yaml
 // のnamePrefix(cluster-api-provider-tart-)と、config/manager/*/manager.yamlのDeployment名
 // (<role>-controller-manager)を結合した実際の名前と一致させる必要がある。
 var TartProviderDeployments = map[string]string{

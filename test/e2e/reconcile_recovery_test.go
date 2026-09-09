@@ -59,15 +59,22 @@ func reconcileRecoverySpecs() {
 			var machine clusterv1.Machine
 			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
 
+			// TartHost.Spec.ConsumerRefはCAPIのcore Machineではなく、controller/tartmachineが
+			// bindingの単位として扱うinfrastructure Machine(TartMachine)のUIDを保持する
+			// (controller/tartmachine/reconciler.goのconsumer構築を参照)。そのためHost claim/
+			// shutdown confirmationの照合には、core MachineではなくTartMachineのUIDを使う。
+			var tartMachine infrav1alpha1.TartMachine
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &tartMachine)).To(Succeed())
+
 			var host infrav1alpha1.TartHost
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &host)).To(Succeed())
 			Expect(host.Spec.ConsumerRef).NotTo(BeNil())
-			Expect(host.Spec.ConsumerRef.UID).To(Equal(machine.UID))
+			Expect(host.Spec.ConsumerRef.UID).To(Equal(tartMachine.UID))
 
 			// WoLではcontrollerが停止を観測できないため、Machine削除後のHost claim解除には
-			// 現在のMachine、HostID、BootIDを結び付けた明示的confirmationが必要になる。
+			// 現在のTartMachine、HostID、BootIDを結び付けた明示的confirmationが必要になる。
 			confirmation := &infrav1alpha1.ShutdownConfirmation{
-				ConsumerUID: machine.UID,
+				ConsumerUID: tartMachine.UID,
 				HostID:      host.Spec.HostID,
 			}
 			if host.Status.Inventory != nil {
@@ -91,7 +98,7 @@ func reconcileRecoverySpecs() {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: e2eHostName}, &current)).To(Succeed())
 				g.Expect(current.Spec.ConsumerRef).To(BeNil())
 				g.Expect(current.Spec.PreviousConsumerRef).NotTo(BeNil())
-				g.Expect(current.Spec.PreviousConsumerRef.UID).To(Equal(machine.UID))
+				g.Expect(current.Spec.PreviousConsumerRef.UID).To(Equal(tartMachine.UID))
 				available := meta.FindStatusCondition(current.Status.Conditions, infrav1alpha1.TartHostAvailableCondition)
 				g.Expect(available).NotTo(BeNil())
 				g.Expect(available.Status).To(Equal(metav1.ConditionFalse))

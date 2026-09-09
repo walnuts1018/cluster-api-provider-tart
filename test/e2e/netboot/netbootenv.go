@@ -53,9 +53,8 @@ type Config struct {
 	DiscoverySchematicID   string
 }
 
-// Serverは起動済みのnetboot-serverと、それをstopするための機構を保持する。
+// Serverは起動済みのnetboot-serverをstopするための機構を保持する。
 type Server struct {
-	inner  *netboot.Server
 	cancel context.CancelFunc
 	done   chan error
 }
@@ -127,7 +126,7 @@ func Start(ctx context.Context, cfg Config) (*Server, error) {
 	case <-time.After(500 * time.Millisecond):
 	}
 
-	return &Server{inner: server, cancel: cancel, done: done}, nil
+	return &Server{cancel: cancel, done: done}, nil
 }
 
 // Stopはnetboot-serverを停止し、終了を待つ。

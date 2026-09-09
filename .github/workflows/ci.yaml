@@ -74,3 +74,17 @@ jobs:
             run: mise run lint-actions
           - name: Test
             run: mise run test
+
+  # branch protectionのrequired status checkに"CI status"だけを登録すれば済むようにする
+  # 集約job。generate/staticにjobを追加・削除してもrequired checksの設定を変更せずに済む。
+  status:
+    name: CI status
+    runs-on: ubuntu-24.04
+    needs: [generate, static]
+    if: always()
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Fail if a required job did not succeed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

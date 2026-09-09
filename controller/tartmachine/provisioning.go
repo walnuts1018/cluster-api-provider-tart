@@ -61,14 +61,10 @@ func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, m
 		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostMismatch, "The observed Host binding is unavailable.")
 	}
 
-	if selected.Spec.HostID == "" {
+	if selected.Spec.HostID.IsZero() {
 		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost has no persistent identity yet.")
 	}
-	hostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
-	if err != nil {
-		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
-	}
-	providerID, err := hostdomain.NewProviderID(hostID)
+	providerID, err := hostdomain.NewProviderID(selected.Spec.HostID)
 	if err != nil {
 		return nil, ctrl.Result{}, true, r.report(ctx, machine, infrav1alpha1.ReasonHostIDUnavailable, "The selected TartHost identity is invalid.")
 	}
@@ -122,14 +118,10 @@ func (r *TartMachineReconciler) reconcileProvisioningHost(ctx context.Context, m
 		return nil, ctrl.Result{}, false, err
 	}
 	// ProviderIDはclaim成功後のfresh Hostからのみ導出する。stale snapshot由来の値を再利用しない。
-	if strings.TrimSpace(selected.Spec.HostID) == "" {
+	if selected.Spec.HostID.IsZero() {
 		return nil, ctrl.Result{}, true, r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
 	}
-	freshHostID, err := hostdomain.ParseHostID(selected.Spec.HostID)
-	if err != nil {
-		return nil, ctrl.Result{}, true, r.report(ctx, machine, "HostIdentityInvalid", "The claimed Host has an invalid HostID; ProviderID publication is stopped.")
-	}
-	freshProviderID, err := hostdomain.NewProviderID(freshHostID)
+	freshProviderID, err := hostdomain.NewProviderID(selected.Spec.HostID)
 	if err != nil {
 		return nil, ctrl.Result{}, true, r.report(ctx, machine, "ProviderIDInvalid", "A ProviderID could not be derived from the claimed Host identity.")
 	}

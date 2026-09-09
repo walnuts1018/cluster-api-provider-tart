@@ -9,7 +9,7 @@ import (
 
 func TestShutdownConfirmed(t *testing.T) {
 	t.Parallel()
-	hostID := "123e4567-e89b-12d3-a456-426614174000"
+	hostID := mustHostID(t, "123e4567-e89b-12d3-a456-426614174000")
 	machineUID := types.UID("machine-uid")
 	machine := &infrav1alpha1.TartMachine{}
 	machine.UID = machineUID
@@ -40,7 +40,7 @@ func TestShutdownConfirmed(t *testing.T) {
 			want:         false,
 		},
 		"hostID mismatch": {
-			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: "other-host-id", BootID: "boot-123"},
+			confirmation: &infrav1alpha1.ShutdownConfirmation{ConsumerUID: machineUID, HostID: mustHostID(t, "223e4567-e89b-12d3-a456-426614174000"), BootID: "boot-123"},
 			want:         false,
 		},
 		"nil confirmation": {

@@ -182,7 +182,7 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 	hostObject := &infrav1alpha1.TartHost{
 		Name: "host-1",
 		Spec: infrav1alpha1.TartHostSpec{
-			HostID:          "9f1f6f4c-1b0a-4a26-91e0-3b2c1a5f9e77",
+			HostID:          mustHostID(t, "9f1f6f4c-1b0a-4a26-91e0-3b2c1a5f9e77"),
 			MACAddress:      macAddress,
 			TalosAPIAddress: network.Endpoint(testHostEndpoint),
 			Power:           infrav1alpha1.PowerSpec{Backend: infrav1alpha1.PowerBackendManual},

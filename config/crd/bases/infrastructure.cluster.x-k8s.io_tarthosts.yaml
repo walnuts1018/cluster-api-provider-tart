@@ -302,7 +302,6 @@ spec:
                   hostID:
                     description: hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale
                       confirmationを別Hostへ流用できないようにする。
-                    minLength: 1
                     pattern: ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$
                     type: string
                 required:

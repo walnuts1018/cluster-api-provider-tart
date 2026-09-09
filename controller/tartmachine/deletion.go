@@ -241,7 +241,7 @@ func shutdownConfirmed(host *infrav1alpha1.TartHost, machine *infrav1alpha1.Tart
 	if strings.TrimSpace(string(confirmation.ConsumerUID)) == "" || confirmation.ConsumerUID != machine.UID {
 		return false
 	}
-	if strings.TrimSpace(confirmation.HostID) == "" || confirmation.HostID != host.Spec.HostID {
+	if confirmation.HostID.IsZero() || confirmation.HostID != host.Spec.HostID {
 		return false
 	}
 	// inventoryにBootIDが存在する場合は、confirmationでも必須とする。stale confirmationで再起動後のHostを誤って停止済み扱いしないため。

@@ -12,9 +12,9 @@ func TestSelectFresh(t *testing.T) {
 	t.Parallel()
 
 	hosts := []infrav1alpha1.TartHost{
-		{Name: "host-z", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String(), Architecture: "amd64"}},
-		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd").String(), Architecture: "amd64"}},
-		{Name: "host-retained", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abe").String(), Architecture: "amd64", PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: "old"}}},
+		{Name: "host-z", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"), Architecture: "amd64"}},
+		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd"), Architecture: "amd64"}},
+		{Name: "host-retained", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abe"), Architecture: "amd64", PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: "old"}}},
 	}
 
 	selected, err := SelectFresh(hosts, &infrav1alpha1.HostSelector{Architecture: "amd64"})
@@ -35,8 +35,8 @@ func TestSelectFreshForFailureDomain(t *testing.T) {
 	t.Parallel()
 
 	hosts := []infrav1alpha1.TartHost{
-		{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String(), FailureDomain: "zone-b"}},
-		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd").String(), FailureDomain: "zone-a"}},
+		{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc"), FailureDomain: "zone-b"}},
+		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd"), FailureDomain: "zone-a"}},
 	}
 
 	selected, err := SelectFreshForFailureDomain(hosts, nil, "zone-a")

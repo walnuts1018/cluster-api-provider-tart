@@ -7,6 +7,7 @@ import (
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
+	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
@@ -161,9 +162,9 @@ type ShutdownConfirmation struct {
 	// +kubebuilder:validation:MinLength=1
 	ConsumerUID types.UID `json:"consumerUID"`
 	// hostIDは確認対象のTartHost.spec.hostIDへbindする。HostIDが変わった場合にstale confirmationを別Hostへ流用できないようにする。
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-	HostID string `json:"hostID"`
+	HostID hostdomain.HostID `json:"hostID"`
 	// bootIDは前回bootに対するconfirmationであることを保証する。inventoryにBootIDが存在する場合は必須とし、空の場合はhostIDとconsumerUIDだけで検証する。
 	// +optional
 	BootID string `json:"bootID,omitempty"`
@@ -182,7 +183,7 @@ type TartHostSpec struct {
 	// +kubebuilder:validation:Pattern="^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="hostID may only be initialized once and is immutable afterwards"
 	// +optional
-	HostID string `json:"hostID,omitempty"`
+	HostID hostdomain.HostID `json:"hostID,omitempty,omitzero"`
 
 	// macAddressは他のinventoryが未知の段階でobserved boot attemptをこのHostへbindするための主enrollment identityである。
 	MACAddress network.MACAddress `json:"macAddress"`

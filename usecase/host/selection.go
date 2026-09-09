@@ -29,10 +29,7 @@ func SelectFreshForFailureDomain(hosts []infrav1alpha1.TartHost, selector *infra
 func SelectFreshForFailureDomainWithRendezvous(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector, failureDomain string, machineUID types.UID) (*infrav1alpha1.TartHost, error) {
 	candidates := make([]infrav1alpha1.TartHost, 0, len(hosts))
 	for _, candidate := range hosts {
-		if Classify(candidate.Spec) != hostdomain.Available || candidate.Spec.HostID == "" {
-			continue
-		}
-		if _, err := hostdomain.ParseHostID(candidate.Spec.HostID); err != nil {
+		if Classify(candidate.Spec) != hostdomain.Available || candidate.Spec.HostID.IsZero() {
 			continue
 		}
 		if !MatchesForFailureDomain(candidate.Labels, candidate.Spec, selector, failureDomain) {
@@ -60,7 +57,7 @@ func SelectFreshForFailureDomainWithRendezvous(hosts []infrav1alpha1.TartHost, s
 	return &candidates[0], nil
 }
 
-func hostScore(machineUID types.UID, hostID string) [32]byte {
-	h := sha256.Sum256([]byte(string(machineUID) + "\x00" + hostID))
+func hostScore(machineUID types.UID, hostID hostdomain.HostID) [32]byte {
+	h := sha256.Sum256([]byte(string(machineUID) + "\x00" + hostID.String()))
 	return h
 }

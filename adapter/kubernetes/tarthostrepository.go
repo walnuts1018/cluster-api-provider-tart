@@ -32,7 +32,7 @@ func (r TartHostRepository) ClaimHostWithRequest(ctx context.Context, host *infr
 	if r.Client == nil || host == nil || host.Name == "" {
 		return hostusecase.ErrInvalidClaim
 	}
-	if req.ExpectedHostID == "" {
+	if req.ExpectedHostID.IsZero() {
 		req.ExpectedHostID = host.Spec.HostID
 	}
 	for attempt := range claimAttempts {

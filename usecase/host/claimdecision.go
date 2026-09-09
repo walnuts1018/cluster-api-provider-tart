@@ -88,7 +88,7 @@ const (
 // ClaimRequestはHost claim時に成立しなければならないpreconditionをまとめた要求である。
 type ClaimRequest struct {
 	Consumer       corev1.ObjectReference
-	ExpectedHostID string
+	ExpectedHostID hostdomain.HostID
 	Selector       *infrav1alpha1.HostSelector
 	FailureDomain  string
 	Mode           ClaimMode
@@ -100,7 +100,7 @@ func ValidateClaimCandidate(host *infrav1alpha1.TartHost, req ClaimRequest) erro
 	if host == nil {
 		return ErrInvalidClaim
 	}
-	if req.ExpectedHostID != "" && host.Spec.HostID != req.ExpectedHostID {
+	if !req.ExpectedHostID.IsZero() && host.Spec.HostID != req.ExpectedHostID {
 		return fmt.Errorf("%w: expected %s got %s", ErrHostIdentityChanged, req.ExpectedHostID, host.Spec.HostID)
 	}
 	switch req.Mode {

@@ -180,7 +180,7 @@ func TestDecideRetention(t *testing.T) {
 func TestValidateClaimCandidate(t *testing.T) {
 	t.Parallel()
 
-	hostID := mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc").String()
+	hostID := mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc")
 
 	tests := []struct {
 		name    string
@@ -199,7 +199,7 @@ func TestValidateClaimCandidate(t *testing.T) {
 			host: &infrav1alpha1.TartHost{Spec: infrav1alpha1.TartHostSpec{HostID: hostID}},
 			req: ClaimRequest{
 				Mode:           ClaimFreshAutomatic,
-				ExpectedHostID: "018f3c5e-5f8a-7c1b-9a2d-123456789abd",
+				ExpectedHostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd"),
 			},
 			wantErr: ErrHostIdentityChanged,
 		},

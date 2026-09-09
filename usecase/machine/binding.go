@@ -6,6 +6,7 @@ package machine
 import (
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
@@ -55,22 +56,13 @@ func DeletionDrainComplete(capiMachine *clusterv1.Machine) bool {
 	if capiMachine == nil {
 		return false
 	}
-	condition := findCondition(capiMachine.Status.Conditions, clusterv1.MachineDeletingCondition)
+	condition := meta.FindStatusCondition(capiMachine.Status.Conditions, clusterv1.MachineDeletingCondition)
 	conditionTrue := condition != nil && condition.Status == metav1.ConditionTrue
 	reason := ""
 	if condition != nil {
 		reason = condition.Reason
 	}
 	return machinedomain.DrainComplete(!capiMachine.DeletionTimestamp.IsZero(), conditionTrue, reason, deletionDrainCompletionReasons)
-}
-
-func findCondition(conditions []metav1.Condition, conditionType string) *metav1.Condition {
-	for index := range conditions {
-		if conditions[index].Type == conditionType {
-			return &conditions[index]
-		}
-	}
-	return nil
 }
 
 // IsProvisionedは、TartMachineが過去にTalos installationの完了を観測済みかを返す。
@@ -86,7 +78,7 @@ func HasShutdownRequest(machine *infrav1alpha1.TartMachine) bool {
 	if machine == nil {
 		return false
 	}
-	condition := findCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
+	condition := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if condition == nil {
 		return false
 	}
@@ -98,7 +90,7 @@ func ShutdownRequestSettled(machine *infrav1alpha1.TartMachine, delay time.Durat
 	if machine == nil {
 		return false
 	}
-	condition := findCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
+	condition := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineReadyCondition)
 	if condition == nil {
 		return false
 	}

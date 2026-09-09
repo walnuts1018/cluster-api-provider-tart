@@ -193,7 +193,7 @@ func (r *TartMachineReconciler) reconcileProvisioningStatus(ctx context.Context,
 	if err := r.Status().Patch(ctx, machine, client.MergeFrom(statusOriginal)); err != nil {
 		return nil, ctrl.Result{}, false, err
 	}
-	configuration, err := r.BootstrapConfiguration(ctx, machine)
+	configuration, err := BootstrapConfiguration(ctx, r.Client, machine)
 	if err != nil {
 		if errors.Is(err, ErrBootstrapDataUnavailable) {
 			result, reportErr := r.reportTalosStatus(ctx, machine,
@@ -232,8 +232,11 @@ func (r *TartMachineReconciler) syncCAPIProviderID(ctx context.Context, machine 
 	return r.Patch(ctx, clusterMachine, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
 }
 
-func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, machine *infrav1alpha1.TartMachine) ([]byte, error) {
-	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
+// BootstrapConfigurationはCAPI Machineの参照からBootstrap Secretを解決し、割当済みProviderIDを
+// 適用したeffective machine configurationを返す。Client以外のreconciler stateに依存しないため、
+// tartcontrolplaneなど他のcontrollerからも呼び出せるpackage-level関数として提供する。
+func BootstrapConfiguration(ctx context.Context, c client.Client, machine *infrav1alpha1.TartMachine) ([]byte, error) {
+	clusterMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, c, machine)
 	if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
 		return nil, ErrBootstrapDataUnavailable
 	}
@@ -246,7 +249,7 @@ func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, mach
 	}
 
 	config := &bootstrapv1alpha1.TartBootstrapConfig{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, config); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, ErrBootstrapDataUnavailable
 		}
@@ -257,7 +260,7 @@ func (r *TartMachineReconciler) BootstrapConfiguration(ctx context.Context, mach
 	}
 
 	secret := &corev1.Secret{}
-	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
+	if err := c.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: config.Status.DataSecretName}, secret); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, ErrBootstrapDataUnavailable
 		}

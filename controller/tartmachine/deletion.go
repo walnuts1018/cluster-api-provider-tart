@@ -50,7 +50,7 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 		return ctrl.Result{}, nil
 	}
 
-	configuration, configurationErr := r.BootstrapConfiguration(ctx, machine)
+	configuration, configurationErr := BootstrapConfiguration(ctx, r.Client, machine)
 	if configurationErr != nil && !errors.Is(configurationErr, ErrBootstrapDataUnavailable) {
 		return ctrl.Result{}, configurationErr
 	}
@@ -335,19 +335,16 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 		Name:      consumer.Name,
 		UID:       consumer.UID,
 	}
+	// CAPI Machineがまだ存在するならClusterIDは解決できるはずであり、ErrCAPIMachineUnavailableを
+	// 含むあらゆる失敗を一時的な観測失敗として扱い、releaseをブロックする。
 	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
-		if errors.Is(err, controller.ErrCAPIMachineUnavailable) {
-			// CAPI Machineがまだ存在するならClusterIDは解決できるはず。Unavailableは一時的な観測失敗として扱い、releaseをブロックする。
-			return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
-		}
 		return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 	}
 	var cluster clusterv1.Cluster
 	if err := r.Get(ctx, client.ObjectKey{Namespace: capiMachine.Namespace, Name: capiMachine.Spec.ClusterName}, &cluster); err != nil {
 		return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 	}
-	previous.ClusterID = ""
 	if ref := cluster.Spec.InfrastructureRef; ref.APIGroup == infrav1alpha1.GroupVersion.Group && ref.Kind == controller.TartClusterKind && ref.Name != "" {
 		var tartCluster infrav1alpha1.TartCluster
 		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err != nil {

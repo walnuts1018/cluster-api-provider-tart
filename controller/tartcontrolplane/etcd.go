@@ -271,7 +271,7 @@ func (r *TartControlPlaneReconciler) observeMachineIdentity(ctx context.Context,
 	if endpoint == "" {
 		return nil, nil, errors.New("control-plane Host Talos endpoint is unavailable")
 	}
-	configuration, err := (&tartmachine.TartMachineReconciler{Client: r.Client}).BootstrapConfiguration(ctx, provider)
+	configuration, err := tartmachine.BootstrapConfiguration(ctx, r.Client, provider)
 	if err != nil {
 		return nil, nil, err
 	}

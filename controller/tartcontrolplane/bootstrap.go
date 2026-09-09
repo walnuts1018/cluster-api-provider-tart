@@ -107,7 +107,7 @@ func (r *TartControlPlaneReconciler) observeFirstControlPlane(ctx context.Contex
 		state.message = "The first control-plane Machine has no reachable Talos endpoint yet."
 		return firstControlPlaneObservation{}, state, false, nil
 	}
-	configuration, err := (&tartmachine.TartMachineReconciler{Client: r.Client}).BootstrapConfiguration(ctx, &providerMachine)
+	configuration, err := tartmachine.BootstrapConfiguration(ctx, r.Client, &providerMachine)
 	if err != nil {
 		if errors.Is(err, tartmachine.ErrBootstrapDataUnavailable) {
 			state.reason = "BootstrapDataUnavailable"

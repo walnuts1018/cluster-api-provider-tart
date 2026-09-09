@@ -31,7 +31,6 @@ var (
 	ErrInvalidClusterIdentity  = errors.New("invalid cluster identity")
 	ErrInvalidBundleGeneration = errors.New("invalid bundle generation")
 	ErrBundleDataIncomplete    = errors.New("bundle data is incomplete")
-	ErrRotationTargetMismatch  = errors.New("rotation target mismatch")
 	ErrBundleOwnerIncomplete   = errors.New("bundle owner reference is incomplete")
 	ErrBundleOwnerInvalid      = errors.New("bundle owner reference is invalid")
 	ErrBundleSecretInvalid     = errors.New("bundle Secret does not satisfy its contract")
@@ -153,29 +152,6 @@ func buildBundleSecret(namespace, clusterName string, clusterID clusterdomain.Cl
 		Immutable: new(true),
 		Data:      cloned,
 	}, nil
-}
-
-// RotateDataは指定したrotation対象keyだけを差し替えた完全な次世代bundleを返す。
-// 対象外keyの値はbyte単位で維持し、partial bundleや余分なreplacementを拒否する。
-func RotateData(previous, replacements map[string][]byte, rotationKeys []string) (map[string][]byte, error) {
-	cloned, err := cloneCompleteData(previous)
-	if err != nil {
-		return nil, err
-	}
-	if len(rotationKeys) == 0 || len(replacements) != len(rotationKeys) {
-		return nil, ErrRotationTargetMismatch
-	}
-	for _, key := range rotationKeys {
-		value, ok := replacements[key]
-		if !ok || len(value) == 0 {
-			return nil, ErrRotationTargetMismatch
-		}
-		if _, ok := previous[key]; !ok {
-			return nil, ErrRotationTargetMismatch
-		}
-		cloned[key] = bytes.Clone(value)
-	}
-	return cloned, nil
 }
 
 func cloneCompleteData(data map[string][]byte) (map[string][]byte, error) {

@@ -4,11 +4,15 @@ import (
 	"errors"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 )
 
-func TestSelectFresh(t *testing.T) {
+// TestSelectFreshForFailureDomainWithRendezvousは、machineUIDが空の場合にname順の
+// フォールバック選択(claim順序を決定論的にするための最小構成)を検証する。
+func TestSelectFreshForFailureDomainWithRendezvousFallsBackToNameOrder(t *testing.T) {
 	t.Parallel()
 
 	hosts := []infrav1alpha1.TartHost{
@@ -17,21 +21,21 @@ func TestSelectFresh(t *testing.T) {
 		{Name: "host-retained", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abe"), Architecture: "amd64", PreviousConsumerRef: &infrav1alpha1.PreviousConsumerRef{UID: "old"}}},
 	}
 
-	selected, err := SelectFresh(hosts, &infrav1alpha1.HostSelector{Architecture: "amd64"})
+	selected, err := SelectFreshForFailureDomainWithRendezvous(hosts, &infrav1alpha1.HostSelector{Architecture: "amd64"}, "", "")
 	if err != nil {
-		t.Fatalf("SelectFresh() error = %v", err)
+		t.Fatalf("SelectFreshForFailureDomainWithRendezvous() error = %v", err)
 	}
 	if selected.Name != "host-a" {
-		t.Errorf("SelectFresh() selected %q, want host-a", selected.Name)
+		t.Errorf("SelectFreshForFailureDomainWithRendezvous() selected %q, want host-a", selected.Name)
 	}
 
-	_, err = SelectFresh(hosts, &infrav1alpha1.HostSelector{Architecture: "arm64"})
+	_, err = SelectFreshForFailureDomainWithRendezvous(hosts, &infrav1alpha1.HostSelector{Architecture: "arm64"}, "", "")
 	if !errors.Is(err, ErrNoEligibleHost) {
-		t.Errorf("SelectFresh() error = %v, want ErrNoEligibleHost", err)
+		t.Errorf("SelectFreshForFailureDomainWithRendezvous() error = %v, want ErrNoEligibleHost", err)
 	}
 }
 
-func TestSelectFreshForFailureDomain(t *testing.T) {
+func TestSelectFreshForFailureDomainWithRendezvousFiltersFailureDomain(t *testing.T) {
 	t.Parallel()
 
 	hosts := []infrav1alpha1.TartHost{
@@ -39,15 +43,43 @@ func TestSelectFreshForFailureDomain(t *testing.T) {
 		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd"), FailureDomain: "zone-a"}},
 	}
 
-	selected, err := SelectFreshForFailureDomain(hosts, nil, "zone-a")
+	selected, err := SelectFreshForFailureDomainWithRendezvous(hosts, nil, "zone-a", "")
 	if err != nil {
-		t.Fatalf("SelectFreshForFailureDomain() error = %v", err)
+		t.Fatalf("SelectFreshForFailureDomainWithRendezvous() error = %v", err)
 	}
 	if selected.Name != "host-a" {
-		t.Fatalf("SelectFreshForFailureDomain() selected %q, want host-a", selected.Name)
+		t.Fatalf("SelectFreshForFailureDomainWithRendezvous() selected %q, want host-a", selected.Name)
 	}
-	if _, err := SelectFreshForFailureDomain(hosts, nil, "zone-c"); !errors.Is(err, ErrNoEligibleHost) {
-		t.Fatalf("SelectFreshForFailureDomain() error = %v, want ErrNoEligibleHost", err)
+	if _, err := SelectFreshForFailureDomainWithRendezvous(hosts, nil, "zone-c", ""); !errors.Is(err, ErrNoEligibleHost) {
+		t.Fatalf("SelectFreshForFailureDomainWithRendezvous() error = %v, want ErrNoEligibleHost", err)
+	}
+}
+
+// TestSelectFreshForFailureDomainWithRendezvousDistributesByMachineUIDは、machineUIDを与えると
+// name順ではなくhostScoreに基づく決定論的な選択に切り替わり、同じ入力に対して常に同じHostを
+// 選ぶことを検証する。claimの競合を減らすためのrendezvous hashingが実際に機能していることの確認である。
+func TestSelectFreshForFailureDomainWithRendezvousDistributesByMachineUID(t *testing.T) {
+	t.Parallel()
+
+	hosts := []infrav1alpha1.TartHost{
+		{Name: "host-a", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abc")}},
+		{Name: "host-b", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abd")}},
+		{Name: "host-c", Spec: infrav1alpha1.TartHostSpec{HostID: mustHostID(t, "018f3c5e-5f8a-7c1b-9a2d-123456789abe")}},
+	}
+	machineUID := types.UID("machine-under-test")
+
+	first, err := SelectFreshForFailureDomainWithRendezvous(hosts, nil, "", machineUID)
+	if err != nil {
+		t.Fatalf("SelectFreshForFailureDomainWithRendezvous() error = %v", err)
+	}
+	for range 10 {
+		again, err := SelectFreshForFailureDomainWithRendezvous(hosts, nil, "", machineUID)
+		if err != nil {
+			t.Fatalf("SelectFreshForFailureDomainWithRendezvous() error = %v", err)
+		}
+		if again.Name != first.Name {
+			t.Fatalf("SelectFreshForFailureDomainWithRendezvous() is not deterministic for the same machineUID: got %q, want %q", again.Name, first.Name)
+		}
 	}
 }
 

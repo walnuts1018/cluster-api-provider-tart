@@ -70,43 +70,6 @@ func TestNextGeneration(t *testing.T) {
 	}
 }
 
-func TestRotateDataPreservesUntargetedMaterial(t *testing.T) {
-	t.Parallel()
-
-	previous := map[string][]byte{
-		"talos.ca":        []byte("old-tal os ca"),
-		"kubernetes.ca":   []byte("old-kubernetes ca"),
-		"etcd.ca":         []byte("etcd ca"),
-		"service-account": []byte("service account key"),
-	}
-	rotated, err := RotateData(previous, map[string][]byte{
-		"talos.ca":      []byte("new-talos-ca"),
-		"kubernetes.ca": []byte("new-kubernetes-ca"),
-	}, []string{"talos.ca", "kubernetes.ca"})
-	if err != nil {
-		t.Fatalf("RotateData() error = %v", err)
-	}
-	if string(rotated["talos.ca"]) != "new-talos-ca" || string(rotated["kubernetes.ca"]) != "new-kubernetes-ca" {
-		t.Fatalf("rotation targets were not replaced: %#v", rotated)
-	}
-	if string(rotated["etcd.ca"]) != string(previous["etcd.ca"]) || string(rotated["service-account"]) != string(previous["service-account"]) {
-		t.Fatal("rotation changed material outside the requested target set")
-	}
-	rotated["etcd.ca"][0] = 'X'
-	if bytes.Equal(rotated["etcd.ca"], previous["etcd.ca"]) {
-		t.Fatal("RotateData() retained previous bundle byte slices")
-	}
-}
-
-func TestRotateDataRejectsPartialReplacement(t *testing.T) {
-	t.Parallel()
-
-	_, err := RotateData(map[string][]byte{"talos.ca": []byte("old")}, map[string][]byte{}, []string{"talos.ca"})
-	if !errors.Is(err, ErrRotationTargetMismatch) {
-		t.Errorf("RotateData() error = %v, want ErrRotationTargetMismatch", err)
-	}
-}
-
 func TestValidateBundleSecretContract(t *testing.T) {
 	t.Parallel()
 

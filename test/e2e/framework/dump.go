@@ -178,8 +178,8 @@ func splitFields(line string) []string {
 func dumpSerialConsoleLogs(artifactDir string) error {
 	sourceDir := os.Getenv("TART_E2E_LAB_WORKDIR")
 	if sourceDir == "" {
-		// TODO: BeforeSuiteでlab.Config.WorkDirを決定した後、この環境変数へ設定する配線を追加する。
-		// lab未初期化のspec(unit的なframeworkテスト等)ではskipして問題ない。
+		// BeforeSuiteはlabを構築する前にこの環境変数を必ず設定するため、通常は空にならない。
+		// 空の場合はlabが未初期化のspec(unit的なframeworkテスト等)であり、skipして問題ない。
 		return nil
 	}
 	entries, err := os.ReadDir(sourceDir)

@@ -15,16 +15,6 @@ import (
 
 var ErrNoEligibleHost = errors.New("no eligible host")
 
-// SelectFreshは新規allocation用の候補をname順で一つ選ぶ。RetainedやReusableを通常のMachine allocationへ混ぜないことで、data保持中のHostを暗黙に再利用しない。
-func SelectFresh(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector) (*infrav1alpha1.TartHost, error) {
-	return SelectFreshForFailureDomain(hosts, selector, "")
-}
-
-// SelectFreshForFailureDomainは指定されたFailure Domainに属するfresh Hostをname順で一つ選ぶ。空のFailure Domainは制約なしとして扱う。
-func SelectFreshForFailureDomain(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector, failureDomain string) (*infrav1alpha1.TartHost, error) {
-	return SelectFreshForFailureDomainWithRendezvous(hosts, selector, failureDomain, "")
-}
-
 // SelectFreshForFailureDomainWithRendezvousは、machineUIDを用いたrendezvous hashingで候補を分散させつつfresh Hostを一つ選ぶ。machineUIDが空の場合は従来のname順にフォールバックする。
 func SelectFreshForFailureDomainWithRendezvous(hosts []infrav1alpha1.TartHost, selector *infrav1alpha1.HostSelector, failureDomain string, machineUID types.UID) (*infrav1alpha1.TartHost, error) {
 	candidates := make([]infrav1alpha1.TartHost, 0, len(hosts))

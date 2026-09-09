@@ -19,10 +19,15 @@ import (
 
 // newCARotationTestClusterは、テストに必要な最小限のClusterID/ActiveSecretGenerationだけを
 // 設定したTartClusterを構築する。
-func newCARotationTestCluster(clusterID string, activeGeneration int32, requestedGeneration *int32) *infrav1alpha1.TartCluster {
+func newCARotationTestCluster(t *testing.T, clusterID string, activeGeneration int32, requestedGeneration *int32) *infrav1alpha1.TartCluster {
+	t.Helper()
+	parsed, err := clusterdomain.ParseClusterID(clusterID)
+	if err != nil {
+		t.Fatalf("ParseClusterID(%q) error = %v", clusterID, err)
+	}
 	cluster := &infrav1alpha1.TartCluster{}
 	cluster.Name = "cluster-a"
-	cluster.Spec.ClusterID = clusterID
+	cluster.Spec.ClusterID = parsed
 	cluster.Status.ActiveSecretGeneration = activeGeneration
 	cluster.Spec.CARotationRequestedGeneration = requestedGeneration
 	return cluster
@@ -50,7 +55,7 @@ func TestReconcileCARotationNotRequested(t *testing.T) {
 	t.Parallel()
 
 	r := newCARotationTestReconciler(t)
-	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, nil)
+	cluster := newCARotationTestCluster(t, "11111111-1111-1111-1111-111111111111", 1, nil)
 
 	state, err := r.reconcileCARotation(context.Background(), cluster, false)
 	if err != nil {
@@ -83,7 +88,7 @@ func TestReconcileCARotationInvalidRequestGeneration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			requested := tt.requested
-			cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, &requested)
+			cluster := newCARotationTestCluster(t, "11111111-1111-1111-1111-111111111111", 1, &requested)
 
 			state, err := r.reconcileCARotation(context.Background(), cluster, false)
 			if err != nil {
@@ -106,7 +111,7 @@ func TestReconcileCARotationInvalidActiveGeneration(t *testing.T) {
 
 	r := newCARotationTestReconciler(t)
 	requested := int32(1)
-	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", -1, &requested)
+	cluster := newCARotationTestCluster(t, "11111111-1111-1111-1111-111111111111", -1, &requested)
 
 	state, err := r.reconcileCARotation(context.Background(), cluster, false)
 	if err == nil {
@@ -122,7 +127,7 @@ func TestReconcileCARotationStopsWhenMachineInventoryIsEmpty(t *testing.T) {
 
 	r := newCARotationTestReconciler(t)
 	requested := int32(2)
-	cluster := newCARotationTestCluster("11111111-1111-1111-1111-111111111111", 1, &requested)
+	cluster := newCARotationTestCluster(t, "11111111-1111-1111-1111-111111111111", 1, &requested)
 	cluster.Namespace = "default"
 
 	state, err := r.reconcileCARotation(t.Context(), cluster, false)
@@ -141,7 +146,7 @@ func TestPromoteCARotationRestoresStatusAndSecretLabel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseClusterID() error = %v", err)
 	}
-	cluster := newCARotationTestCluster(clusterID.String(), 1, new(int32))
+	cluster := newCARotationTestCluster(t, clusterID.String(), 1, new(int32))
 	*cluster.Spec.CARotationRequestedGeneration = 2
 	cluster.Namespace = "default"
 	cluster.UID = "cluster-uid"
@@ -223,7 +228,7 @@ func TestPromoteCARotationRejectsRetiredTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseClusterID() error = %v", err)
 	}
-	cluster := newCARotationTestCluster(clusterID.String(), 1, new(int32))
+	cluster := newCARotationTestCluster(t, clusterID.String(), 1, new(int32))
 	*cluster.Spec.CARotationRequestedGeneration = 2
 	cluster.Namespace = "default"
 	cluster.UID = "cluster-uid"

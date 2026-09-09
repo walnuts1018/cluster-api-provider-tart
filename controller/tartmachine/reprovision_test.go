@@ -162,7 +162,8 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 		t.Fatalf("AddToScheme() error = %v", err)
 	}
 
-	clusterID := clusterdomain.NewClusterID().String()
+	clusterUUID := clusterdomain.NewClusterID()
+	clusterID := clusterUUID.String()
 	bundle := testBundle(t, clusterID)
 	configuration := testConfiguration(t, bundle)
 	material, err := recovery.MaterialFromBundle(bundle)
@@ -218,7 +219,7 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 		Namespace: "default",
 		Name:      "previous",
 		UID:       previousMachineUID,
-		ClusterID: clusterID,
+		ClusterID: clusterUUID,
 	}); err != nil {
 		t.Fatalf("RetainHost() error = %v", err)
 	}

@@ -130,7 +130,7 @@ func TestReconstructActiveSecretGeneration(t *testing.T) {
 	}
 	cluster := new(infrav1alpha1.TartCluster)
 	cluster.ObjectMeta = metav1.ObjectMeta{Namespace: "cluster-a", Name: "cluster-a", UID: types.UID("cluster-a-uid")}
-	cluster.Spec = infrav1alpha1.TartClusterSpec{ClusterID: clusterID.String()}
+	cluster.Spec = infrav1alpha1.TartClusterSpec{ClusterID: clusterID}
 	buildSecret := func(generation int32) *corev1.Secret {
 		t.Helper()
 		data, err := certbuilder.GenerateBundleData(clusterID)

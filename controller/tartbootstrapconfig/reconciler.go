@@ -21,7 +21,6 @@ import (
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 	domainbootstrap "github.com/walnuts1018/cluster-api-provider-tart/domain/bootstrap"
-	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	"github.com/walnuts1018/cluster-api-provider-tart/usecase/bootstrap"
 	hostpolicy "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -278,13 +277,10 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		}
 		return bootstrap.MachineConfigurationContext{}, err
 	}
-	if providerCluster.Spec.ClusterID == "" || providerCluster.Status.ActiveSecretGeneration < 1 {
+	if providerCluster.Spec.ClusterID.IsZero() || providerCluster.Status.ActiveSecretGeneration < 1 {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}
-	clusterID, err := clusterdomain.ParseClusterID(providerCluster.Spec.ClusterID)
-	if err != nil {
-		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
-	}
+	clusterID := providerCluster.Spec.ClusterID
 	if !cluster.Spec.ControlPlaneEndpoint.IsValid() || clusterMachine.Spec.Version == "" {
 		return bootstrap.MachineConfigurationContext{}, errBootstrapContextUnavailable
 	}

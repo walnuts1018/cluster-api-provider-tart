@@ -6,6 +6,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
@@ -147,7 +148,8 @@ type PreviousConsumerRef struct {
 	Name      string    `json:"name"`
 	UID       types.UID `json:"uid"`
 	// clusterIDは直前consumerが所属していたTartCluster.spec.clusterIDである。
-	ClusterID string `json:"clusterID"`
+	// +kubebuilder:validation:Type=string
+	ClusterID clusterdomain.ClusterID `json:"clusterID"`
 }
 
 // ReuseApprovalはRetained Hostの再利用を明示的に承認するユーザー入力である。現在のPreviousConsumerRef.UIDと照合し、claim成功時には消費しない。次のMachine削除でPreviousConsumerRefが変わると自動的に無効になる。

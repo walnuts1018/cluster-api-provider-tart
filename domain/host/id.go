@@ -54,16 +54,20 @@ func (id HostID) MarshalText() ([]byte, error) {
 	return []byte(id.String()), nil
 }
 
+// UnmarshalTextは、MarshalTextが書き出した表現を必ず読み戻せなければならない。ParseHostIDは
+// 新規入力の意味的な妥当性(Nil UUIDの拒否)まで検証するのに対し、UnmarshalTextはround-trip契約を
+// 満たすため構文的に有効なUUID表現だけを検証する。ゼロ値のHostIDをMarshal/Unmarshalしたときに
+// ErrInvalidIDへ化けさせないためにこの区別が必要である。
 func (id *HostID) UnmarshalText(value []byte) error {
 	if len(value) == 0 {
 		*id = HostID{}
 		return nil
 	}
-	parsed, err := ParseHostID(string(value))
+	parsed, err := uuid.Parse(strings.TrimSpace(string(value)))
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %q", ErrInvalidID, value)
 	}
-	*id = parsed
+	*id = HostID(parsed)
 	return nil
 }
 

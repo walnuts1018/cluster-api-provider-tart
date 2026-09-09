@@ -21,7 +21,6 @@ import (
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
-	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 )
 
@@ -298,16 +297,10 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 		}
 		return nil, err
 	}
-	if tartCluster.Spec.ClusterID == "" || tartCluster.Status.ActiveSecretGeneration < 1 {
+	if tartCluster.Spec.ClusterID.IsZero() || tartCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, &controlPlaneFailure{
 			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The TartCluster identity and active secret bundle are not ready yet.",
-		}
-	}
-	if _, err := clusterdomain.ParseClusterID(tartCluster.Spec.ClusterID); err != nil {
-		return nil, &controlPlaneFailure{
-			reason:  controller.ReasonSecretBundleUnavailable,
-			message: "The TartCluster identity is invalid.",
 		}
 	}
 	return &tartCluster, nil
@@ -315,14 +308,7 @@ func (r *TartControlPlaneReconciler) getTartCluster(ctx context.Context, cluster
 
 func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, cluster *infrav1alpha1.TartCluster) error {
 	generation := cluster.Status.ActiveSecretGeneration
-	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
-	if err != nil {
-		return &controlPlaneFailure{
-			reason:  controller.ReasonSecretBundleUnavailable,
-			message: "The TartCluster identity is invalid.",
-		}
-	}
-	name, err := domaincontrolplane.BundleName(cluster.Name, clusterID, generation)
+	name, err := domaincontrolplane.BundleName(cluster.Name, cluster.Spec.ClusterID, generation)
 	if err != nil {
 		return &controlPlaneFailure{
 			reason:  controller.ReasonSecretBundleUnavailable,
@@ -339,13 +325,13 @@ func (r *TartControlPlaneReconciler) validateActiveBundle(ctx context.Context, c
 		}
 		return err
 	}
-	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, clusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(&secret, cluster.Namespace, cluster.Name, cluster.Spec.ClusterID, generation, domaincontrolplane.BundleStateActive, cluster.UID); err != nil {
 		return &controlPlaneFailure{
 			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle does not satisfy its identity contract.",
 		}
 	}
-	if err := certbuilder.ValidateBundleData(secret.Data, clusterID); err != nil {
+	if err := certbuilder.ValidateBundleData(secret.Data, cluster.Spec.ClusterID); err != nil {
 		return &controlPlaneFailure{
 			reason:  controller.ReasonSecretBundleUnavailable,
 			message: "The active cluster secret bundle data is invalid.",

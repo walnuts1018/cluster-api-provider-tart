@@ -81,10 +81,11 @@ func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cl
 	if scaleDownPending {
 		return controlPlaneCARotationState{active: true, reason: "ScaleDownInProgress", message: "CA rotation is paused while a control-plane scale-down is in progress.", requeueAfter: controlPlaneScaleDownRequeue}, nil
 	}
-	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
-	if err != nil {
-		return notRequested, nil //nolint:nilerr // cluster identityが未確定な段階はgetTartClusterで既に停止しているため、ここでは静かに何もしない。
+	if cluster.Spec.ClusterID.IsZero() {
+		// cluster identityが未確定な段階はgetTartClusterで既に停止しているため、ここでは静かに何もしない。
+		return notRequested, nil
 	}
+	clusterID := cluster.Spec.ClusterID
 	target, err := domaincontrolplane.NextGeneration(cluster.Status.ActiveSecretGeneration)
 	if err != nil {
 		return controlPlaneCARotationState{active: true, reason: "RotationGenerationInvalid", message: "The next CA rotation secret bundle generation is invalid."}, err

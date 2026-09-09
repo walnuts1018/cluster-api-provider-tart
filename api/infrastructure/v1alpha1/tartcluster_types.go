@@ -3,6 +3,8 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
+
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 )
 
 // TartClusterのCondition typeを定義する。
@@ -28,7 +30,7 @@ type TartClusterSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (oldSelf == '' && self != '')",message="clusterID may only be initialized once and is immutable afterwards"
 	// +optional
 	// +kubebuilder:validation:Type=string
-	ClusterID string `json:"clusterID,omitempty"`
+	ClusterID clusterdomain.ClusterID `json:"clusterID,omitempty,omitzero"`
 
 	// updatePolicyはnode-disruptive updateでavailabilityだけを理由とするdrain failureを緩和できるか制御する。data、identity、Host、etcd、quorumの安全性検査は緩和しない。
 	// +optional

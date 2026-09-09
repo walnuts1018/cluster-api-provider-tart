@@ -350,12 +350,12 @@ func (r *TartMachineReconciler) previousConsumerRef(ctx context.Context, machine
 		if err := r.Get(ctx, client.ObjectKey{Namespace: cluster.Namespace, Name: ref.Name}, &tartCluster); err != nil {
 			return previous, fmt.Errorf("resolve previous consumer ClusterID: %w", err)
 		}
-		if tartCluster.Spec.ClusterID == "" {
+		if tartCluster.Spec.ClusterID.IsZero() {
 			return previous, fmt.Errorf("resolve previous consumer ClusterID: TartCluster ClusterID is empty")
 		}
 		previous.ClusterID = tartCluster.Spec.ClusterID
 	}
-	if previous.ClusterID == "" {
+	if previous.ClusterID.IsZero() {
 		return previous, fmt.Errorf("resolve previous consumer ClusterID: ClusterID is empty")
 	}
 	return previous, nil

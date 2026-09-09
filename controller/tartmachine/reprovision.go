@@ -17,7 +17,6 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
-	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -229,11 +228,7 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 	if providerCluster.Status.ActiveSecretGeneration < 1 {
 		return nil, ErrBootstrapDataUnavailable
 	}
-	clusterID, err := clusterdomain.ParseClusterID(providerCluster.Spec.ClusterID)
-	if err != nil {
-		return nil, err
-	}
-	name, err := domaincontrolplane.BundleName(providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration)
+	name, err := domaincontrolplane.BundleName(providerCluster.Name, providerCluster.Spec.ClusterID, providerCluster.Status.ActiveSecretGeneration)
 	if err != nil {
 		return nil, err
 	}
@@ -241,10 +236,10 @@ func (r *TartMachineReconciler) activeSecretsBundle(ctx context.Context, machine
 	if err := r.Get(ctx, client.ObjectKey{Namespace: providerCluster.Namespace, Name: name}, secret); err != nil {
 		return nil, err
 	}
-	if err := domaincontrolplane.ValidateBundleSecretContract(secret, providerCluster.Namespace, providerCluster.Name, clusterID, providerCluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive, providerCluster.UID); err != nil {
+	if err := domaincontrolplane.ValidateBundleSecretContract(secret, providerCluster.Namespace, providerCluster.Name, providerCluster.Spec.ClusterID, providerCluster.Status.ActiveSecretGeneration, domaincontrolplane.BundleStateActive, providerCluster.UID); err != nil {
 		return nil, err
 	}
-	return certbuilder.DecodeBundleData(secret.Data, clusterID)
+	return certbuilder.DecodeBundleData(secret.Data, providerCluster.Spec.ClusterID)
 }
 
 func observeResetTarget(ctx context.Context, node TalosNode, endpoint string) (domainrecovery.ObservedIdentity, error) {

@@ -58,21 +58,19 @@ func (r *TartClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	// TartCluster.spec.idは具体的な(non-dry-run)Resource作成後に一度だけ生成し、再生成しない。設定前にsecret bundle生成、Host claim、provisioningを開始しない。
-	if cluster.Spec.ClusterID == "" {
+	if cluster.Spec.ClusterID.IsZero() {
 		original := cluster.DeepCopy()
-		cluster.Spec.ClusterID = clusterdomain.NewClusterID().String()
+		cluster.Spec.ClusterID = clusterdomain.NewClusterID()
 		if err := r.Patch(ctx, &cluster, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{})); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil
 	}
 
-	clusterID, err := clusterdomain.ParseClusterID(cluster.Spec.ClusterID)
-	if err != nil {
-		return r.reportBundleError(ctx, &cluster, err)
-	}
+	clusterID := cluster.Spec.ClusterID
 	generation := cluster.Status.ActiveSecretGeneration
 	if generation == 0 {
+		var err error
 		generation, err = r.reconstructActiveSecretGeneration(ctx, &cluster, clusterID)
 		if err != nil {
 			return r.reportBundleError(ctx, &cluster, err)

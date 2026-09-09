@@ -26,7 +26,7 @@ const (
 
 // ConfigはRedfish backendへ渡す解決済みの接続設定である。Secretの参照名ではなくcredentialの値を受け取り、呼び出し側でSecret値をログやStatusへ出力してはならない。
 type Config struct {
-	Address            string
+	Address            endpoint.HTTPSURL
 	SystemID           string
 	Username           string
 	Password           string
@@ -76,21 +76,12 @@ func New(config Config) (*Backend, error) {
 }
 
 func newBackend(config Config, httpClient *http.Client) (*Backend, error) {
-	address := strings.TrimSpace(config.Address)
-	rawAddress, parseErr := url.Parse(address)
-	if parseErr == nil && (rawAddress.RawQuery != "" || rawAddress.Fragment != "") {
-		return nil, errors.New("redfish address must not contain a query or fragment")
+	if strings.TrimSpace(config.Address.String()) == "" {
+		return nil, errors.New("redfish address is required")
 	}
-	parsedEndpoint, err := endpoint.ParseHTTPSURL(address)
-	if err != nil {
-		return nil, fmt.Errorf("validate Redfish address: %w", err)
-	}
-	baseURL, err := url.Parse(parsedEndpoint.String())
+	baseURL, err := config.Address.URL()
 	if err != nil {
 		return nil, fmt.Errorf("parse Redfish address: %w", err)
-	}
-	if baseURL.RawQuery != "" || baseURL.Fragment != "" {
-		return nil, errors.New("redfish address must not contain a query or fragment")
 	}
 	if !strings.HasSuffix(baseURL.Path, "/") {
 		baseURL.Path += "/"

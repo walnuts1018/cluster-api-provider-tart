@@ -2,6 +2,7 @@ package redfish
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
@@ -19,24 +21,38 @@ const (
 
 func TestRedfishURL検証(t *testing.T) {
 	tests := []struct {
-		name        string
-		address     string
-		username    string
-		password    string
-		wantPath    string
-		wantErrorIn string
+		name               string
+		address            string
+		username           string
+		password           string
+		wantPath           string
+		wantErrorIn        string
+		wantInvalidAddress bool
 	}{
 		{name: "末尾スラッシュを補う", address: "https://bmc.test.walnuts.dev/redfish/v1", username: testRedfishUsername, password: testRedfishPassword, wantPath: "/redfish/v1/"},
-		{name: "queryを拒否", address: "https://bmc.test.walnuts.dev/redfish/v1?next=admin", username: testRedfishUsername, password: testRedfishPassword, wantErrorIn: "query or fragment"},
-		{name: "fragmentを拒否", address: "https://bmc.test.walnuts.dev/redfish/v1#systems", username: testRedfishUsername, password: testRedfishPassword, wantErrorIn: "query or fragment"},
-		{name: "HTTPS以外を拒否", address: "http://bmc.test.walnuts.dev/redfish/v1", username: testRedfishUsername, password: testRedfishPassword, wantErrorIn: "validate Redfish address"},
+		{name: "queryを拒否", address: "https://bmc.test.walnuts.dev/redfish/v1?next=admin", username: testRedfishUsername, password: testRedfishPassword, wantInvalidAddress: true},
+		{name: "fragmentを拒否", address: "https://bmc.test.walnuts.dev/redfish/v1#systems", username: testRedfishUsername, password: testRedfishPassword, wantInvalidAddress: true},
+		{name: "HTTPS以外を拒否", address: "http://bmc.test.walnuts.dev/redfish/v1", username: testRedfishUsername, password: testRedfishPassword, wantInvalidAddress: true},
 		{name: "空の認証情報を拒否", address: "https://bmc.test.walnuts.dev/redfish/v1", username: " ", password: testRedfishPassword, wantErrorIn: "username and password"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			// アドレスの構文検証(scheme、query、fragment)はConfig構築前のendpoint.ParseHTTPSURLが担う。
+			// newBackendはHTTPSURL型の値だけを受け取るため、不正なアドレスはこの時点で拒否される。
+			address, parseErr := endpoint.ParseHTTPSURL(test.address)
+			if test.wantInvalidAddress {
+				if !errors.Is(parseErr, endpoint.ErrInvalidHTTPSURL) {
+					t.Fatalf("ParseHTTPSURL() error = %v, want ErrInvalidHTTPSURL", parseErr)
+				}
+				return
+			}
+			if parseErr != nil {
+				t.Fatalf("ParseHTTPSURL() error = %v", parseErr)
+			}
+
 			backend, err := newBackend(Config{
-				Address:  test.address,
+				Address:  address,
 				Username: test.username,
 				Password: test.password,
 			}, &http.Client{})
@@ -274,8 +290,12 @@ func newRedfishTestBackend(t *testing.T, handler http.HandlerFunc, systemID stri
 	t.Helper()
 	server := httptest.NewTLSServer(handler)
 	t.Cleanup(server.Close)
+	address, err := endpoint.ParseHTTPSURL("https://" + server.Listener.Addr().String() + "/redfish/v1")
+	if err != nil {
+		t.Fatalf("ParseHTTPSURL() error = %v", err)
+	}
 	backend, err := newBackend(Config{
-		Address:  "https://" + server.Listener.Addr().String() + "/redfish/v1",
+		Address:  address,
 		SystemID: systemID,
 		Username: testRedfishUsername,
 		Password: testRedfishPassword,

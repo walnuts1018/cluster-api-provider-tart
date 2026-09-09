@@ -18,8 +18,11 @@ type HTTPURL string
 // ParseHTTPURLはIntel Manageability endpointなどのhttp/https URLを検証する。
 func ParseHTTPURL(value string) (HTTPURL, error) {
 	value = strings.TrimSpace(value)
-	parsed, err := url.ParseRequestURI(value)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+	// url.ParseRequestURIはHTTP request-URI(fragmentを含まない)を前提とするため、"#"以降を
+	// パス等の一部として取り込んでしまいFragmentを検出できない。外部から渡された完全なURLを
+	// 検証する用途にはRFC 3986準拠のurl.Parseを使う。
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.Opaque != "" {
 		return "", fmt.Errorf("%w: %q", ErrInvalidHTTPURL, value)
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -30,6 +33,12 @@ func ParseHTTPURL(value string) (HTTPURL, error) {
 
 func (endpoint HTTPURL) String() string {
 	return string(endpoint)
+}
+
+// URLは検証済みのURLをnet/url.URLとして返す。ParseHTTPURLを通過した値のみがHTTPURLとして
+// 存在するため、呼び出し側で検証を繰り返す必要はない。
+func (endpoint HTTPURL) URL() (*url.URL, error) {
+	return url.Parse(endpoint.String())
 }
 
 func (endpoint HTTPURL) MarshalJSON() ([]byte, error) {

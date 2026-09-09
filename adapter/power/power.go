@@ -150,7 +150,7 @@ func NewIntelManageabilityBackend(ctx context.Context, reader client.Reader, man
 	}
 
 	return intelmanageability.New(intelmanageability.Config{
-		Address:            config.Address.String(),
+		Address:            config.Address,
 		Username:           string(username),
 		Password:           string(password),
 		CAData:             caData,
@@ -203,7 +203,7 @@ func NewRedfishBackend(ctx context.Context, reader client.Reader, managementName
 	}
 
 	return redfish.New(redfish.Config{
-		Address:            config.Address.String(),
+		Address:            config.Address,
 		SystemID:           config.SystemID,
 		Username:           string(username),
 		Password:           string(password),

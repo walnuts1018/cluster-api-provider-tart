@@ -118,19 +118,14 @@ func newClient(config Config) (*goWSManClient, error) {
 // 明示されたpathがそれ以外であれば拒否する(go-wsman-messagesも内部でrequest pathを常に"/wsman"固定で
 // 送信するため、実機と整合しないpathを受理しても意味がない)。一方portは、NAT/port forwarding越しの
 // 非既定port経由でも実機へ到達できるよう、scheme既定値(http:16992、https:16993)以外も許容する。
-func parseEndpoint(address string) (dialAddress, hostname string, useTLS bool, err error) {
-	trimmed := strings.TrimSpace(address)
-	parsedEndpoint, err := endpoint.ParseHTTPURL(trimmed)
-	if err != nil {
-		return "", "", false, fmt.Errorf("validate intel manageability address: %w", err)
-	}
-	parsed, err := url.Parse(parsedEndpoint.String())
+func parseEndpoint(address endpoint.HTTPURL) (dialAddress, hostname string, useTLS bool, err error) {
+	parsed, err := address.URL()
 	if err != nil {
 		return "", "", false, fmt.Errorf("parse intel manageability address: %w", err)
 	}
 
 	if path := strings.TrimSuffix(parsed.Path, "/"); path != "" && path != wsmanclient.WSManPath {
-		return "", "", false, fmt.Errorf("intel manageability address %q must use the default WS-Man path %s", trimmed, wsmanclient.WSManPath)
+		return "", "", false, fmt.Errorf("intel manageability address %q must use the default WS-Man path %s", address, wsmanclient.WSManPath)
 	}
 
 	useTLS = parsed.Scheme == "https"

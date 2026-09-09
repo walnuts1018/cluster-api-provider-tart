@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/power"
 )
 
@@ -18,7 +19,7 @@ var ErrUnexpectedPowerState = errors.New("intel manageability reported an unexpe
 
 // Configはbackendへ渡す解決済みの接続設定である。Secretの参照名ではなくcredentialの値を受け取り、呼び出し側でSecret値をログやStatusへ出力してはならない。
 type Config struct {
-	Address            string
+	Address            endpoint.HTTPURL
 	Username           string
 	Password           string
 	CAData             []byte

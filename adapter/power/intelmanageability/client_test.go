@@ -9,18 +9,21 @@ import (
 
 	"github.com/device-management-toolkit/go-wsman-messages/v2/pkg/amterror"
 	wsmanpower "github.com/device-management-toolkit/go-wsman-messages/v2/pkg/wsman/cim/power"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/endpoint"
 )
 
 func TestParseEndpoint(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		address         string
-		wantDialAddress string
-		wantHostname    string
-		wantTLS         bool
-		wantErr         bool
+		name               string
+		address            string
+		wantDialAddress    string
+		wantHostname       string
+		wantTLS            bool
+		wantErr            bool
+		wantInvalidAddress bool
 	}{
 		{name: "http既定port/path省略", address: "http://amt.test.walnuts.dev", wantDialAddress: "amt.test.walnuts.dev:16992", wantHostname: "amt.test.walnuts.dev", wantTLS: false},
 		{name: "http既定port明示", address: "http://amt.test.walnuts.dev:16992", wantDialAddress: "amt.test.walnuts.dev:16992", wantHostname: "amt.test.walnuts.dev", wantTLS: false},
@@ -32,15 +35,26 @@ func TestParseEndpoint(t *testing.T) {
 		{name: "httpsの非標準portは許容する", address: "https://amt.test.walnuts.dev:8443", wantDialAddress: "amt.test.walnuts.dev:8443", wantHostname: "amt.test.walnuts.dev", wantTLS: true},
 		// Intel ME 7.1実機はWS-Man endpointを常に"/wsman"直下にのみ公開するため、それ以外のpathは拒否する。
 		{name: "非標準pathは拒否", address: "http://amt.test.walnuts.dev/amt", wantErr: true},
-		{name: "queryは拒否", address: "http://amt.test.walnuts.dev/wsman?next=admin", wantErr: true},
-		{name: "fragmentは拒否", address: "http://amt.test.walnuts.dev/wsman#top", wantErr: true},
-		{name: "schemeなしは拒否", address: "amt.test.walnuts.dev", wantErr: true},
+		{name: "queryは拒否", address: "http://amt.test.walnuts.dev/wsman?next=admin", wantErr: true, wantInvalidAddress: true},
+		{name: "fragmentは拒否", address: "http://amt.test.walnuts.dev/wsman#top", wantErr: true, wantInvalidAddress: true},
+		{name: "schemeなしは拒否", address: "amt.test.walnuts.dev", wantErr: true, wantInvalidAddress: true},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			dialAddress, hostname, useTLS, err := parseEndpoint(test.address)
+			// scheme/query/fragmentの構文検証はparseEndpoint呼び出し前のendpoint.ParseHTTPURLが担う。
+			address, parseErr := endpoint.ParseHTTPURL(test.address)
+			if test.wantInvalidAddress {
+				if !errors.Is(parseErr, endpoint.ErrInvalidHTTPURL) {
+					t.Fatalf("ParseHTTPURL(%q) error = %v, want ErrInvalidHTTPURL", test.address, parseErr)
+				}
+				return
+			}
+			if parseErr != nil {
+				t.Fatalf("ParseHTTPURL(%q) error = %v", test.address, parseErr)
+			}
+			dialAddress, hostname, useTLS, err := parseEndpoint(address)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("parseEndpoint(%q) error = %v, wantErr = %t", test.address, err, test.wantErr)
 			}
@@ -54,13 +68,24 @@ func TestParseEndpoint(t *testing.T) {
 	}
 }
 
+// mustHTTPURLはtestで既知の有効なaddress文字列をendpoint.HTTPURLへ変換する。
+func mustHTTPURL(t *testing.T, value string) endpoint.HTTPURL {
+	t.Helper()
+	parsed, err := endpoint.ParseHTTPURL(value)
+	if err != nil {
+		t.Fatalf("ParseHTTPURL(%q) error = %v", value, err)
+	}
+	return parsed
+}
+
 func TestNewClientRejectsMissingCredential(t *testing.T) {
 	t.Parallel()
 
-	if _, err := newClient(Config{Address: "http://amt.test.walnuts.dev", Username: "", Password: "secret"}); err == nil {
+	address := mustHTTPURL(t, "http://amt.test.walnuts.dev")
+	if _, err := newClient(Config{Address: address, Username: "", Password: "secret"}); err == nil {
 		t.Fatal("newClient() error = nil, want validation error for missing username")
 	}
-	if _, err := newClient(Config{Address: "http://amt.test.walnuts.dev", Username: "operator", Password: ""}); err == nil {
+	if _, err := newClient(Config{Address: address, Username: "operator", Password: ""}); err == nil {
 		t.Fatal("newClient() error = nil, want validation error for missing password")
 	}
 }
@@ -69,7 +94,7 @@ func TestNewClientRejectsInvalidCAData(t *testing.T) {
 	t.Parallel()
 
 	_, err := newClient(Config{
-		Address:  "https://amt.test.walnuts.dev",
+		Address:  mustHTTPURL(t, "https://amt.test.walnuts.dev"),
 		Username: "operator",
 		Password: "secret",
 		CAData:   []byte("not a certificate"),
@@ -82,7 +107,8 @@ func TestNewClientRejectsInvalidCAData(t *testing.T) {
 func TestNewClientAcceptsValidConfig(t *testing.T) {
 	t.Parallel()
 
-	if _, err := newClient(Config{Address: "http://amt.test.walnuts.dev:16992/wsman", Username: "operator", Password: "secret"}); err != nil {
+	address := mustHTTPURL(t, "http://amt.test.walnuts.dev:16992/wsman")
+	if _, err := newClient(Config{Address: address, Username: "operator", Password: "secret"}); err != nil {
 		t.Fatalf("newClient() error = %v", err)
 	}
 }

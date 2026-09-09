@@ -120,7 +120,10 @@ func TestGenerateMachineConfigurationNormalizesEndpointAndVersion(t *testing.T) 
 	}
 }
 
-func TestGenerateMachineConfigurationAllowSchedulingOnControlPlanesAndDisableDefaultCNI(t *testing.T) {
+// TestGenerateMachineConfigurationRawPatchCanDisableSchedulingTaintAndDefaultCNIは、control planeの
+// NoSchedule taint撤廃とdefault CNI(Flannel)無効化を、専用のCRD field/generate optionなしに、
+// user raw patchのTalos `$patch: delete`構文だけで実現できることを検証する回帰テストである。
+func TestGenerateMachineConfigurationRawPatchCanDisableSchedulingTaintAndDefaultCNI(t *testing.T) {
 	t.Parallel()
 
 	bundle, err := secrets.NewBundle(secrets.NewFixedClock(time.Now()), talosconfig.TalosVersionCurrent)
@@ -146,18 +149,24 @@ func TestGenerateMachineConfigurationAllowSchedulingOnControlPlanesAndDisableDef
 		t.Error("default configuration should taint control-plane nodes with NoSchedule")
 	}
 
-	customized := base
-	customized.AllowSchedulingOnControlPlanes = true
-	customized.DisableDefaultCNI = true
-	configuration, err := GenerateMachineConfiguration(customized)
+	patch := []byte(`apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  $patch: delete
+---
+apiVersion: v1alpha1
+kind: KubeFlannelCNIConfig
+$patch: delete
+`)
+	configuration, err := GenerateMachineConfiguration(base, patch)
 	if err != nil {
 		t.Fatalf("GenerateMachineConfiguration() error = %v", err)
 	}
 	if bytes.Contains(configuration, []byte("KubeFlannelCNIConfig")) {
-		t.Error("DisableDefaultCNI should remove KubeFlannelCNIConfig from the generated configuration")
+		t.Error("a raw patch deleting the KubeFlannelCNIConfig document should remove it from the generated configuration")
 	}
 	if bytes.Contains(configuration, []byte("NoSchedule")) {
-		t.Error("AllowSchedulingOnControlPlanes should omit the control-plane NoSchedule taint")
+		t.Error("a raw patch deleting KubeNodeConfig.taints should omit the control-plane NoSchedule taint")
 	}
 	if _, err := configloader.NewFromBytes(configuration); err != nil {
 		t.Fatalf("configloader.NewFromBytes() error = %v", err)

@@ -332,15 +332,13 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		return bootstrap.MachineConfigurationContext{}, err
 	}
 	return bootstrap.MachineConfigurationContext{
-		ClusterName:                    cluster.Name,
-		ControlPlaneEndpoint:           cluster.Spec.ControlPlaneEndpoint.String(),
-		KubernetesVersion:              clusterMachine.Spec.Version,
-		MachineRole:                    machineRole,
-		SecretsBundle:                  bundle,
-		InstallDisk:                    installDiskPtr,
-		AllowSchedulingOnControlPlanes: providerCluster.Spec.AllowSchedulingOnControlPlanes,
-		DisableDefaultCNI:              providerCluster.Spec.DisableDefaultCNI,
-		Hostname:                       clusterMachine.Name,
+		ClusterName:          cluster.Name,
+		ControlPlaneEndpoint: cluster.Spec.ControlPlaneEndpoint.String(),
+		KubernetesVersion:    clusterMachine.Spec.Version,
+		MachineRole:          machineRole,
+		SecretsBundle:        bundle,
+		InstallDisk:          installDiskPtr,
+		Hostname:             clusterMachine.Name,
 	}, nil
 }
 

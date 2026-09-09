@@ -17,6 +17,7 @@ gh = "2.100.0"
 devcontainer-cli = "0.89.0"
 # E2E labのwol-libvirt-gateway (https://github.com/brunoproduit/wol-libvirt-gateway) をbuildするために使う。
 rust = "1.98.1"
+ghalint = "1.5.6"
 
 [env]
 GOCACHE = "{{config_root}}/.cache/go-build"
@@ -103,6 +104,13 @@ run = "./bin/custom-gcl run ./..."
 description = "Run linter and perform fixes"
 depends = ["build-golangci-lint"]
 run = "./bin/custom-gcl run --fix ./..."
+
+[tasks."lint-actions"]
+description = "ghalintでGitHub Actions workflowとcomposite actionを検査する"
+run = """
+ghalint run
+ghalint run-action
+"""
 
 [tasks."release-manifests"]
 description = "clusterctl/cluster-api-operator向けのbootstrap/control-plane/infrastructure-components.yaml等を生成する(BOOTSTRAP_MANAGER_IMAGE, CONTROL_PLANE_MANAGER_IMAGE, INFRASTRUCTURE_MANAGER_IMAGE, NETBOOT_SERVER_IMAGEが必須)"

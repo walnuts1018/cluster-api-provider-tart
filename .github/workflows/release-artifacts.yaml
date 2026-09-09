@@ -26,6 +26,9 @@ jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - name: Validate revision
         shell: bash
@@ -48,6 +51,7 @@ jobs:
       packages: write
 
     runs-on: ${{ matrix.arch.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -132,6 +136,7 @@ jobs:
     name: Publish Docker Images
     runs-on: ubuntu-24.04
     needs: docker
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
@@ -256,6 +261,7 @@ jobs:
     name: Render clusterctl manifests
     runs-on: ubuntu-24.04
     needs: merge
+    timeout-minutes: 10
 
     permissions:
       contents: read

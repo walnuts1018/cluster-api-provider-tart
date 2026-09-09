@@ -32,6 +32,9 @@ jobs:
   validate:
     name: Validate release target
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       release_tag: ${{ steps.release-target.outputs.release_tag }}
     steps:
@@ -39,6 +42,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Require default branch
         run: |
@@ -109,6 +113,7 @@ jobs:
     needs: [validate]
     if: inputs.release_type != 'none'
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
@@ -129,16 +134,21 @@ jobs:
     needs: [validate, prepare-release]
     if: always() && needs.validate.result == 'success' && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped')
     uses: ./.github/workflows/release-artifacts.yaml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     with:
       revision: ${{ github.sha }}
       release_tag: ${{ needs.validate.outputs.release_tag }}
-    secrets: inherit
 
   publish:
     name: Create GitHub Release
     needs: [validate, artifacts]
     if: inputs.release_type != 'none'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

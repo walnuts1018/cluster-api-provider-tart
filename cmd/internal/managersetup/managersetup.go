@@ -206,8 +206,9 @@ func NewTelemetryProvider(ctx context.Context) (*telemetry.Provider, error) {
 	return telemetry.NewProvider(ctx)
 }
 
-// Exitはsetup処理中のエラーをlogへ出力してプロセスを終了する。
-func Exit(err error, msg string) {
-	Log.Error(err, msg)
+// Exitはsetup処理中のエラーをlogへ出力してプロセスを終了する。keysAndValuesはlogrの
+// key-valueペアとしてそのまま渡され、失敗したcontroller名などの追加contextを付与できる。
+func Exit(err error, msg string, keysAndValues ...any) {
+	Log.Error(err, msg, keysAndValues...)
 	os.Exit(1)
 }

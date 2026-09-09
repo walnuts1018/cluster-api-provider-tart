@@ -62,20 +62,16 @@ func main() {
 	reconcilers.TalosRecovery.ManagementNamespace = managementNamespace
 
 	if err := reconcilers.TartHost.SetupWithManager(mgr); err != nil {
-		managersetup.Log.Error(err, "Failed to create controller", "controller", "TartHost")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to create controller", "controller", "TartHost")
 	}
 	if err := reconcilers.TartCluster.SetupWithManager(mgr); err != nil {
-		managersetup.Log.Error(err, "Failed to create controller", "controller", "TartCluster")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to create controller", "controller", "TartCluster")
 	}
 	if err := reconcilers.TartMachine.SetupWithManager(mgr); err != nil {
-		managersetup.Log.Error(err, "Failed to create controller", "controller", "TartMachine")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to create controller", "controller", "TartMachine")
 	}
 	if err := reconcilers.TalosRecovery.SetupWithManager(mgr); err != nil {
-		managersetup.Log.Error(err, "Failed to create controller", "controller", "TalosRecovery")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to create controller", "controller", "TalosRecovery")
 	}
 	// +kubebuilder:scaffold:builder
 
@@ -84,7 +80,6 @@ func main() {
 	}
 
 	if err := managersetup.Run(mgr, otelProvider); err != nil {
-		managersetup.Log.Error(err, "Failed to run manager")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to run manager")
 	}
 }

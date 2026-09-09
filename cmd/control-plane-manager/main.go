@@ -7,7 +7,6 @@ package main
 import (
 	"context"
 	"flag"
-	"os"
 
 	// Kubernetes clientの全auth pluginをimportし、exec-entrypointとrunから利用できるようにする。
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -67,8 +66,7 @@ func main() {
 	reconcilers := kessoku.InitializeControlPlaneReconcilers(mgr.GetClient())
 
 	if err := reconcilers.TartControlPlane.SetupWithManager(mgr); err != nil {
-		managersetup.Log.Error(err, "Failed to create controller", "controller", "TartControlPlane")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to create controller", "controller", "TartControlPlane")
 	}
 
 	if enableRuntimeExtension {
@@ -91,7 +89,6 @@ func main() {
 	}
 
 	if err := managersetup.Run(mgr, otelProvider); err != nil {
-		managersetup.Log.Error(err, "Failed to run manager")
-		os.Exit(1)
+		managersetup.Exit(err, "Failed to run manager")
 	}
 }

@@ -198,7 +198,7 @@ func newReprovisionFixture(t *testing.T) *reprovisionFixture {
 		Status: infrav1alpha1.TartHostStatus{
 			Inventory: &infrav1alpha1.HostInventory{SystemUUID: testSystemUUID},
 			CurrentTalosIdentityRef: &infrav1alpha1.TalosIdentityReference{
-				ClusterID:         clusterID,
+				ClusterID:         clusterUUID,
 				RecoverySecretRef: infrav1alpha1.ManagementNamespaceSecretReference{Name: recoverySecret.Name},
 				BoundAt:           metav1.Now(),
 			},
@@ -421,15 +421,15 @@ func TestShouldRebindTalosIdentity(t *testing.T) {
 	t.Parallel()
 
 	const (
-		clusterID = "6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31"
-		otherID   = "0a5e2f4a-2c67-4d13-8f0e-7a1cbb5f7d92"
-		current   = "tart-talos-recovery-6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31-0123456789abcdef"
-		rotated   = "tart-talos-recovery-6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31-fedcba9876543210"
+		current = "tart-talos-recovery-6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31-0123456789abcdef"
+		rotated = "tart-talos-recovery-6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31-fedcba9876543210"
 	)
+	clusterID := mustClusterID(t, "6b1b8e56-0a2c-4a5b-9c1f-1f2b7f0a9c31")
+	otherID := mustClusterID(t, "0a5e2f4a-2c67-4d13-8f0e-7a1cbb5f7d92")
 	tests := []struct {
 		name      string
 		reference *infrav1alpha1.TalosIdentityReference
-		clusterID string
+		clusterID clusterdomain.ClusterID
 		secret    string
 		want      bool
 	}{

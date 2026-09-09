@@ -301,7 +301,8 @@ type BootAttempt struct {
 // recovery Secretはprovider管理namespace上のimmutable Secretであり、Talos API CAのsigning materialだけを保持する。Machine、TartBootstrapConfig、Bootstrap SecretのGCとは独立した寿命を持ち、少なくとも1台のTartHostがこのidentityを参照する間は削除されない。
 type TalosIdentityReference struct {
 	// clusterIDはこのHostへinstallされているTalos clusterのIDである。
-	ClusterID string `json:"clusterID"`
+	// +kubebuilder:validation:Type=string
+	ClusterID clusterdomain.ClusterID `json:"clusterID"`
 	// recoverySecretRefは短命なTalos API client certificateを再発行できるrecovery Secretをprovider管理namespaceから参照する。
 	RecoverySecretRef ManagementNamespaceSecretReference `json:"recoverySecretRef"`
 	// boundAtはこのHostがこのTalos identityへbindされたことを最初に観測した時刻である。

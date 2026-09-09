@@ -1,5 +1,5 @@
 // Package recoveryはTalos recovery identity照合の純粋なpolicyを提供する。
-// 外部依存はdomain/networkのみであり、Kubernetes API型やTalos machinery型は一切扱わない。
+// 外部依存はdomain/cluster、domain/networkのみであり、Kubernetes API型やTalos machinery型は一切扱わない。
 package recovery
 
 import (
@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
 
@@ -24,7 +25,7 @@ var (
 // ExpectedIdentityはReset対象として承認されたHostとTalos clusterのidentityである。
 type ExpectedIdentity struct {
 	// ClusterIDはrecovery Secretが表す旧Talos cluster IDである。
-	ClusterID string
+	ClusterID clusterdomain.ClusterID
 	// MACAddressはTartHostのenrollment identityである。
 	MACAddress network.MACAddress
 	// SystemUUIDは直近に観測したHost inventoryのsystem UUIDである。観測できていない場合は空になる。
@@ -36,7 +37,7 @@ type ExpectedIdentity struct {
 // ObservedIdentityは認証済みTalos APIから観測したidentityである。
 type ObservedIdentity struct {
 	// ClusterIDは対象nodeのactive machine configurationから導出したTalos cluster IDである。
-	ClusterID string
+	ClusterID clusterdomain.ClusterID
 	// MACAddressesは対象nodeが報告した物理linkのMAC addressである。
 	MACAddresses []network.MACAddress
 	// SystemUUIDは対象nodeが報告したsystem UUIDである。
@@ -49,10 +50,10 @@ type ObservedIdentity struct {
 // TLS認証(recovery CAによるserver certificate検証とclient certificate提示)が成功していることは呼び出し側の前提であり、この関数はその上で観測したidentityの一致だけを判定する。
 // MAC addressやIP addressの一致だけを根拠にせず、cluster identityとmachine identityの双方が一致しない限りfail-closedでerrorを返す。
 func VerifyResetTarget(expected ExpectedIdentity, observed ObservedIdentity) error {
-	if strings.TrimSpace(expected.ClusterID) == "" {
+	if expected.ClusterID.IsZero() {
 		return ErrClusterIdentityMismatch
 	}
-	if strings.TrimSpace(observed.ClusterID) == "" || observed.ClusterID != expected.ClusterID {
+	if observed.ClusterID.IsZero() || observed.ClusterID != expected.ClusterID {
 		return ErrClusterIdentityMismatch
 	}
 	if strings.TrimSpace(expected.Endpoint) == "" || expected.Endpoint != strings.TrimSpace(observed.Endpoint) {

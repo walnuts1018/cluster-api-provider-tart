@@ -53,16 +53,15 @@ var (
 // SecretNameはTalos cluster IDと、その世代のTalos API CA certificateのfingerprintからrecovery Secretの決定論的な名前を返す。
 // 同じ旧Talos clusterかつ同じCA generationに属するHostは1つのrecovery Secretを共有し、HostごとにCA private keyを複製しない。
 // CA rotationで新しいCAが有効になった場合は別のSecretとなり、旧CAのSecretは旧installationを保持するHostが参照する間だけ残る。
-func SecretName(clusterID string, certificateAuthority *x509.PEMEncodedCertificateAndKey) (string, error) {
-	parsed, err := clusterdomain.ParseClusterID(clusterID)
-	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
+func SecretName(clusterID clusterdomain.ClusterID, certificateAuthority *x509.PEMEncodedCertificateAndKey) (string, error) {
+	if clusterID.IsZero() {
+		return "", fmt.Errorf("%w: cluster id is empty", ErrInvalidClusterIdentity)
 	}
 	fingerprint, err := CertificateAuthorityFingerprint(certificateAuthority)
 	if err != nil {
 		return "", err
 	}
-	name := SecretNamePrefix + parsed.String() + "-" + fingerprint
+	name := SecretNamePrefix + clusterID.String() + "-" + fingerprint
 	if len(validation.IsDNS1123Subdomain(name)) != 0 {
 		return "", fmt.Errorf("%w: generated Secret name", ErrInvalidClusterIdentity)
 	}
@@ -81,7 +80,7 @@ func CertificateAuthorityFingerprint(certificateAuthority *x509.PEMEncodedCertif
 // MaterialはRetained Hostへ再接続するために必要な最小限のTalos PKI materialである。
 // Kubernetes PKI、service account key、bootstrap token、Bootstrap Data全体は保持しない。
 type Material struct {
-	ClusterID string
+	ClusterID clusterdomain.ClusterID
 	// CertificateAuthorityはTalos API(machine/OS) CAのcertificateとprivate keyである。短命client certificateの再発行にだけ使う。
 	CertificateAuthority *x509.PEMEncodedCertificateAndKey
 }
@@ -100,7 +99,7 @@ func MaterialFromBundle(bundle *secrets.Bundle) (Material, error) {
 		return Material{}, fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
 	}
 	return Material{
-		ClusterID: clusterID.String(),
+		ClusterID: clusterID,
 		CertificateAuthority: &x509.PEMEncodedCertificateAndKey{
 			Crt: bytes.Clone(bundle.Certs.OS.Crt),
 			Key: bytes.Clone(bundle.Certs.OS.Key),
@@ -110,23 +109,23 @@ func MaterialFromBundle(bundle *secrets.Bundle) (Material, error) {
 
 // ObservedClusterIDは稼働中nodeのactive machine configurationから、そのnodeが属するTalos cluster IDだけを読み取る。
 // worker configurationにはCA private keyもKubernetes PKIも含まれないため、identity照合に必要な値だけを取り出す。
-func ObservedClusterID(configuration []byte) (string, error) {
+func ObservedClusterID(configuration []byte) (clusterdomain.ClusterID, error) {
 	if len(bytes.TrimSpace(configuration)) == 0 {
-		return "", errors.New("talos machine configuration is empty")
+		return clusterdomain.ClusterID{}, errors.New("talos machine configuration is empty")
 	}
 	provider, err := configloader.NewFromBytes(configuration)
 	if err != nil {
-		return "", fmt.Errorf("load talos machine configuration: %w", err)
+		return clusterdomain.ClusterID{}, fmt.Errorf("load talos machine configuration: %w", err)
 	}
 	identity := provider.DiscoveryIdentityConfig()
 	if identity == nil {
-		return "", ErrInvalidClusterIdentity
+		return clusterdomain.ClusterID{}, ErrInvalidClusterIdentity
 	}
 	clusterID, err := clusterdomain.ParseClusterID(identity.ClusterID())
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
+		return clusterdomain.ClusterID{}, fmt.Errorf("%w: %w", ErrInvalidClusterIdentity, err)
 	}
-	return clusterID.String(), nil
+	return clusterID, nil
 }
 
 // BuildSecretはrecovery materialをprovider管理namespace上のimmutable Secretとして表現する。
@@ -146,13 +145,13 @@ func BuildSecret(namespace string, material Material) (*corev1.Secret, error) {
 		Name:      name,
 		Namespace: namespace,
 		Labels: map[string]string{
-			ClusterIDLabel:  material.ClusterID,
+			ClusterIDLabel:  material.ClusterID.String(),
 			SecretTypeLabel: SecretTypeRecovery,
 		},
 		Type:      corev1.SecretTypeOpaque,
 		Immutable: new(true),
 		Data: map[string][]byte{
-			ClusterIDKey:     []byte(material.ClusterID),
+			ClusterIDKey:     []byte(material.ClusterID.String()),
 			CACertificateKey: bytes.Clone(material.CertificateAuthority.Crt),
 			CAKeyKey:         bytes.Clone(material.CertificateAuthority.Key),
 		},
@@ -166,22 +165,21 @@ func IsRecoverySecret(secret *corev1.Secret) bool {
 
 // DecodeSecretはrecovery Secretの契約を検証し、Talos API CAとcluster identityを取り出す。
 // 呼び出し側は返却されたmaterialをStatus、Event、log、metricsへ出力してはならない。
-func DecodeSecret(secret *corev1.Secret, expectedClusterID string) (Material, error) {
+func DecodeSecret(secret *corev1.Secret, expectedClusterID clusterdomain.ClusterID) (Material, error) {
 	if secret == nil || !IsRecoverySecret(secret) || secret.Type != corev1.SecretTypeOpaque {
 		return Material{}, ErrSecretInvalid
 	}
 	if secret.Immutable == nil || !*secret.Immutable {
 		return Material{}, ErrSecretInvalid
 	}
-	clusterID := strings.TrimSpace(string(secret.Data[ClusterIDKey]))
-	parsed, err := clusterdomain.ParseClusterID(clusterID)
+	parsed, err := clusterdomain.ParseClusterID(strings.TrimSpace(string(secret.Data[ClusterIDKey])))
 	if err != nil {
 		return Material{}, fmt.Errorf("%w: %w", ErrSecretInvalid, err)
 	}
 	if secret.Labels[ClusterIDLabel] != parsed.String() {
 		return Material{}, ErrSecretInvalid
 	}
-	if expected := strings.TrimSpace(expectedClusterID); expected != "" && expected != parsed.String() {
+	if !expectedClusterID.IsZero() && expectedClusterID != parsed {
 		return Material{}, ErrSecretInvalid
 	}
 	certificate := secret.Data[CACertificateKey]
@@ -190,7 +188,7 @@ func DecodeSecret(secret *corev1.Secret, expectedClusterID string) (Material, er
 		return Material{}, ErrCertificateAuthorityMissing
 	}
 	material := Material{
-		ClusterID: parsed.String(),
+		ClusterID: parsed,
 		CertificateAuthority: &x509.PEMEncodedCertificateAndKey{
 			Crt: bytes.Clone(certificate),
 			Key: bytes.Clone(key),

@@ -17,6 +17,7 @@ import (
 	"github.com/walnuts1018/cluster-api-provider-tart/adapter/talos/certbuilder"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domaincontrolplane "github.com/walnuts1018/cluster-api-provider-tart/domain/controlplane"
 	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 	hostusecase "github.com/walnuts1018/cluster-api-provider-tart/usecase/host"
@@ -72,7 +73,7 @@ func (r *TartMachineReconciler) ensureTalosIdentityBinding(ctx context.Context, 
 // shouldRebindTalosIdentityは、現在のbindingをこのclusterのactive recovery identityへ更新してよいかを判定する。
 // bindingがない場合は確立し、同じclusterでCA rotationにより有効なCAが変わった場合だけ更新する。
 // 別clusterを指すbindingは、そのHostが保持する旧installationをresetできる唯一の根拠であるため決して上書きしない。
-func shouldRebindTalosIdentity(current *infrav1alpha1.TalosIdentityReference, clusterID, secretName string) bool {
+func shouldRebindTalosIdentity(current *infrav1alpha1.TalosIdentityReference, clusterID clusterdomain.ClusterID, secretName string) bool {
 	if current == nil {
 		return true
 	}

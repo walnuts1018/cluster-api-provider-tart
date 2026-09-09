@@ -6,13 +6,14 @@ import (
 	"strings"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	domainrecovery "github.com/walnuts1018/cluster-api-provider-tart/domain/recovery"
 )
 
 // ExpectedIdentityForHostはTartHostとrecovery identityからReset前に照合すべき期待値を組み立てる。
-func ExpectedIdentityForHost(hostObject *infrav1alpha1.TartHost, clusterID, endpoint string) domainrecovery.ExpectedIdentity {
+func ExpectedIdentityForHost(hostObject *infrav1alpha1.TartHost, clusterID clusterdomain.ClusterID, endpoint string) domainrecovery.ExpectedIdentity {
 	expected := domainrecovery.ExpectedIdentity{
-		ClusterID: strings.TrimSpace(clusterID),
+		ClusterID: clusterID,
 		Endpoint:  strings.TrimSpace(endpoint),
 	}
 	if hostObject == nil {

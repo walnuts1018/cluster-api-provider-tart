@@ -16,6 +16,7 @@ import (
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 	hostdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/host"
 	"github.com/walnuts1018/cluster-api-provider-tart/domain/network"
 )
@@ -429,6 +430,15 @@ func mustHostID(t *testing.T, value string) hostdomain.HostID {
 	id, err := hostdomain.ParseHostID(value)
 	if err != nil {
 		t.Fatalf("ParseHostID() error = %v", err)
+	}
+	return id
+}
+
+func mustClusterID(t *testing.T, value string) clusterdomain.ClusterID {
+	t.Helper()
+	id, err := clusterdomain.ParseClusterID(value)
+	if err != nil {
+		t.Fatalf("ParseClusterID() error = %v", err)
 	}
 	return id
 }

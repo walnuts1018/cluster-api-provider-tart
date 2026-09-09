@@ -21,7 +21,7 @@ func testMaterial(t *testing.T) Material {
 		t.Fatalf("secrets.NewBundle() error = %v", err)
 	}
 	return Material{
-		ClusterID:            clusterdomain.NewClusterID().String(),
+		ClusterID:            clusterdomain.NewClusterID(),
 		CertificateAuthority: bundle.Certs.OS,
 	}
 }
@@ -56,7 +56,7 @@ func TestRecoverySecretRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeSecret() clusterID = %q, want %q", decoded.ClusterID, material.ClusterID)
 	}
 
-	if _, err := DecodeSecret(secret, clusterdomain.NewClusterID().String()); err == nil {
+	if _, err := DecodeSecret(secret, clusterdomain.NewClusterID()); err == nil {
 		t.Fatal("DecodeSecret() must reject a recovery Secret from a different Talos cluster identity")
 	}
 

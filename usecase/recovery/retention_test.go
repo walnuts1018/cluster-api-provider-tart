@@ -8,7 +8,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
+	clusterdomain "github.com/walnuts1018/cluster-api-provider-tart/domain/cluster"
 )
+
+func mustClusterID(t *testing.T, value string) clusterdomain.ClusterID {
+	t.Helper()
+	parsed, err := clusterdomain.ParseClusterID(value)
+	if err != nil {
+		t.Fatalf("ParseClusterID(%q) error = %v", value, err)
+	}
+	return parsed
+}
 
 // TestShouldDeleteは、recovery Secretの削除可否を参照countではなく現在のTartHost参照の観測から判断することを確認する。
 func TestShouldDelete(t *testing.T) {
@@ -25,13 +35,13 @@ func TestShouldDelete(t *testing.T) {
 	}
 	holding := infrav1alpha1.TartHost{
 		Status: infrav1alpha1.TartHostStatus{CurrentTalosIdentityRef: &infrav1alpha1.TalosIdentityReference{
-			ClusterID:         clusterID,
+			ClusterID:         mustClusterID(t, clusterID),
 			RecoverySecretRef: infrav1alpha1.ManagementNamespaceSecretReference{Name: secret.Name},
 		}},
 	}
 	other := infrav1alpha1.TartHost{
 		Status: infrav1alpha1.TartHostStatus{CurrentTalosIdentityRef: &infrav1alpha1.TalosIdentityReference{
-			ClusterID:         "0a5e2f4a-2c67-4d13-8f0e-7a1cbb5f7d92",
+			ClusterID:         mustClusterID(t, "0a5e2f4a-2c67-4d13-8f0e-7a1cbb5f7d92"),
 			RecoverySecretRef: infrav1alpha1.ManagementNamespaceSecretReference{Name: "tart-talos-recovery-0a5e2f4a-2c67-4d13-8f0e-7a1cbb5f7d92"},
 		}},
 	}

@@ -130,15 +130,14 @@ func (s *Server) Start(ctx context.Context) error {
 	errCh := make(chan error, len(servers))
 	var wg sync.WaitGroup
 	for i, srv := range servers {
-		wg.Add(1)
-		go func(srv *server4.Server, port int) {
-			defer wg.Done()
+		port := ports[i]
+		wg.Go(func() {
 			if err := srv.Serve(); err != nil && !errors.Is(err, net.ErrClosed) {
 				errCh <- fmt.Errorf("DHCP server on port %d exited: %w", port, err)
 				return
 			}
 			errCh <- nil
-		}(srv, ports[i])
+		})
 	}
 
 	go func() {

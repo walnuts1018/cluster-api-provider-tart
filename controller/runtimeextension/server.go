@@ -19,8 +19,11 @@ type Manager struct {
 	server *server.Server
 }
 
-// NewManagerはin-place update hookをTalos OS update handlerへ接続したRuntime Extension serverを生成する。Kubernetes readerはUpdateMachineが実際のHost、Secret、provider resourceを解決するために使用する。
-func NewManager(catalog *runtimecatalog.Catalog, certDir string, readers ...client.Reader) (*Manager, error) {
+// NewManagerはin-place update hookをTalos OS update handlerへ接続したRuntime Extension serverを生成する。readerはUpdateMachineが実際のHost、Secret、provider resourceを解決するために使用する。
+func NewManager(catalog *runtimecatalog.Catalog, certDir string, reader client.Reader) (*Manager, error) {
+	if reader == nil {
+		return nil, fmt.Errorf("create runtime extension server: a Kubernetes reader is required for UpdateMachine")
+	}
 	s, err := server.New(server.Options{
 		Catalog:  catalog,
 		Port:     9443,
@@ -33,14 +36,6 @@ func NewManager(catalog *runtimecatalog.Catalog, certDir string, readers ...clie
 	}
 
 	timeout := handlerTimeoutSeconds
-	var reader client.Reader
-	if len(readers) > 1 {
-		return nil, fmt.Errorf("create runtime extension server: at most one Kubernetes reader is supported")
-	}
-	if len(readers) == 0 || readers[0] == nil {
-		return nil, fmt.Errorf("create runtime extension server: a Kubernetes reader is required for UpdateMachine")
-	}
-	reader = readers[0]
 	handlers := []server.ExtensionHandler{
 		{
 			Hook:           runtimehooksv1.CanUpdateMachine,

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	testutils "github.com/walnuts1018/cluster-api-provider-tart/test/utils"
 )
@@ -140,7 +141,7 @@ func domainNamesFromVirshList(output []byte) ([]string, error) {
 	lines := testutils.GetNonEmptyLines(string(output))
 	var names []string
 	for _, line := range lines {
-		fields := splitFields(line)
+		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
@@ -151,25 +152,6 @@ func domainNamesFromVirshList(output []byte) ([]string, error) {
 		names = append(names, fields[1])
 	}
 	return names, nil
-}
-
-func splitFields(line string) []string {
-	var fields []string
-	current := ""
-	for _, r := range line {
-		if r == ' ' || r == '\t' {
-			if current != "" {
-				fields = append(fields, current)
-				current = ""
-			}
-			continue
-		}
-		current += string(r)
-	}
-	if current != "" {
-		fields = append(fields, current)
-	}
-	return fields
 }
 
 // dumpSerialConsoleLogsは、lab.Config.WorkDir配下にlibvirtlabが書き出すserial-console.logを

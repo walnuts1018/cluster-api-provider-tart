@@ -554,13 +554,13 @@ func (c *Client) Inventory(ctx context.Context) (Inventory, error) {
 	slices.SortFunc(observed.MACAddresses, func(left, right network.MACAddress) int {
 		return strings.Compare(left.String(), right.String())
 	})
-	observed.MACAddresses = uniqueMACAddresses(observed.MACAddresses)
+	observed.MACAddresses = slices.Compact(observed.MACAddresses)
 	slices.SortFunc(observed.NetworkInterfaces, func(left, right NetworkInterfaceInventory) int {
 		return strings.Compare(left.Name, right.Name)
 	})
 	for index := range observed.NetworkInterfaces {
 		slices.Sort(observed.NetworkInterfaces[index].Addresses)
-		observed.NetworkInterfaces[index].Addresses = uniqueStrings(observed.NetworkInterfaces[index].Addresses)
+		observed.NetworkInterfaces[index].Addresses = slices.Compact(observed.NetworkInterfaces[index].Addresses)
 	}
 	slices.SortFunc(observed.Disks, func(left, right DiskInventory) int {
 		if comparison := strings.Compare(left.DevicePath, right.DevicePath); comparison != 0 {
@@ -616,32 +616,6 @@ func parseHardwareAddress(value []byte) (network.MACAddress, error) {
 		return network.MACAddress{}, nil
 	}
 	return network.ParseMACAddress(net.HardwareAddr(value).String())
-}
-
-func uniqueMACAddresses(values []network.MACAddress) []network.MACAddress {
-	if len(values) < 2 {
-		return values
-	}
-	result := values[:1]
-	for _, value := range values[1:] {
-		if value != result[len(result)-1] {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
-func uniqueStrings(values []string) []string {
-	if len(values) < 2 {
-		return values
-	}
-	result := values[:1]
-	for _, value := range values[1:] {
-		if value != result[len(result)-1] {
-			result = append(result, value)
-		}
-	}
-	return result
 }
 
 // ResetはTalos machine APIのReset RPCを呼び出し、system diskを消去してmaintenance modeへ戻す。

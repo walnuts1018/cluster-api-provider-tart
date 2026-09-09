@@ -16,8 +16,8 @@ import (
 // claimAttemptsはresourceVersion conflict発生時にHostを再取得して判定をやり直す最大回数である。
 const claimAttempts = 3
 
-// TartHostRepositoryはusecase/host.HostRepositoryの実装で、resourceVersion付きUpdateによる
-// optimistic concurrency(CAS)でTartHost.spec.consumerRefをatomicに更新する。
+// TartHostRepositoryはresourceVersion付きUpdateによるoptimistic concurrency(CAS)で
+// TartHost.spec.consumerRefをatomicに更新するrepositoryである。
 type TartHostRepository struct {
 	Client client.Client
 }
@@ -25,18 +25,6 @@ type TartHostRepository struct {
 // NewTartHostRepositoryはclientを保持するTartHostRepositoryを構築する。
 func NewTartHostRepository(c client.Client) TartHostRepository {
 	return TartHostRepository{Client: c}
-}
-
-// ClaimHostは既存claimが別consumerを指す場合は上書きせず、呼び出し側が再選択できる競合として返す。
-func (r TartHostRepository) ClaimHost(ctx context.Context, host *infrav1alpha1.TartHost, consumer corev1.ObjectReference) error {
-	if host == nil {
-		return hostusecase.ErrInvalidClaim
-	}
-	return r.ClaimHostWithRequest(ctx, host, hostusecase.ClaimRequest{
-		Consumer:       consumer,
-		ExpectedHostID: host.Spec.HostID,
-		Mode:           hostusecase.ClaimFreshAutomatic,
-	})
 }
 
 // ClaimHostWithRequestはselection predicateを含めたpreconditionを同じresourceVersion上で検証してからclaimする。

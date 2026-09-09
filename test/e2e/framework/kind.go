@@ -14,8 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
+
+	"go.yaml.in/yaml/v4"
 
 	testutils "github.com/walnuts1018/cluster-api-provider-tart/test/utils"
 )
@@ -192,6 +193,20 @@ func installTartProvider(ctx context.Context, projectDir, manifestDir, imageTag 
 	return nil
 }
 
+// kustomizationOverlayはkustomize Kustomization APIのうちこのE2Eが使うfieldだけを表す。
+type kustomizationOverlay struct {
+	APIVersion string                `yaml:"apiVersion"`
+	Kind       string                `yaml:"kind"`
+	Resources  []string              `yaml:"resources"`
+	Images     []kustomizeImageEntry `yaml:"images"`
+}
+
+type kustomizeImageEntry struct {
+	Name    string `yaml:"name"`
+	NewName string `yaml:"newName"`
+	NewTag  string `yaml:"newTag"`
+}
+
 // renderImageOverlayは、manifestDir(projectDirからの相対path)をresourceとして参照しつつ、
 // 各imageをローカルbuild済みのimage(name:newTag)へ置き換えるkustomization.yamlを、projectDir
 // 直下の一時directoryへ書き出す。checked-in fileを直接変更せずに済むよう、独立した一時overlay
@@ -203,15 +218,24 @@ func renderImageOverlay(projectDir, manifestDir string, images []providerImage, 
 		return "", fmt.Errorf("create temp overlay directory: %w", err)
 	}
 
-	var sb strings.Builder
-	sb.WriteString("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n")
-	fmt.Fprintf(&sb, "- ../%s\n", manifestDir)
-	sb.WriteString("images:\n")
+	overlay := kustomizationOverlay{
+		APIVersion: "kustomize.config.k8s.io/v1beta1",
+		Kind:       "Kustomization",
+		Resources:  []string{"../" + manifestDir},
+	}
 	for _, image := range images {
-		fmt.Fprintf(&sb, "- name: %s\n  newName: %s\n  newTag: %s\n", image.KustomizePlaceholder, image.Name, newTag)
+		overlay.Images = append(overlay.Images, kustomizeImageEntry{
+			Name:    image.KustomizePlaceholder,
+			NewName: image.Name,
+			NewTag:  newTag,
+		})
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), []byte(sb.String()), 0o644); err != nil {
+	rendered, err := yaml.Marshal(overlay)
+	if err != nil {
+		return "", fmt.Errorf("marshal overlay kustomization: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "kustomization.yaml"), rendered, 0o644); err != nil {
 		return "", fmt.Errorf("write overlay kustomization: %w", err)
 	}
 	return dir, nil

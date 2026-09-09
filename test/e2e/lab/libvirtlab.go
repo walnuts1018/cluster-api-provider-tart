@@ -76,6 +76,7 @@ type networkHostConfig struct {
 }
 
 type networkXML struct {
+	XMLName xml.Name          `xml:"network"`
 	Name    string            `xml:"name"`
 	Bridge  networkBridgeXML  `xml:"bridge"`
 	Forward networkForwardXML `xml:"forward"`
@@ -330,21 +331,32 @@ func (l *libvirtLab) desiredNetworkConfig() (networkConfig, error) {
 	return config, nil
 }
 
+// XMLはlibvirtのNetworkDefineXMLへ渡すXML表現を返す。手書きの文字列組み立てではなく
+// encoding/xmlのMarshalへ委譲することで、host MAC/IPなどの値に含まれ得る特殊文字の
+// エスケープ漏れを構造的に防ぐ。
 func (c networkConfig) XML() string {
-	var staticHosts strings.Builder
-	for _, host := range c.Hosts {
-		fmt.Fprintf(&staticHosts, "      <host mac='%s' ip='%s'/>\n", host.MAC, host.IP)
+	hosts := make([]networkHostXML, len(c.Hosts))
+	for i, host := range c.Hosts {
+		hosts[i] = networkHostXML{MAC: host.MAC, IP: host.IP}
 	}
-	return fmt.Sprintf(`<network>
-  <name>%s</name>
-  <bridge name='%s' stp='%s' delay='%s'/>
-  <forward mode='%s'/>
-  <ip address='%s'>
-    <dhcp>
-      <range start='%s' end='%s'/>
-%s    </dhcp>
-  </ip>
-</network>`, c.Name, c.Bridge, c.BridgeSTP, c.BridgeDelay, c.Forward, c.IPAddress, c.DHCPStart, c.DHCPEnd, staticHosts.String())
+	doc := networkXML{
+		Name:    c.Name,
+		Bridge:  networkBridgeXML{Name: c.Bridge, STP: c.BridgeSTP, Delay: c.BridgeDelay},
+		Forward: networkForwardXML{Mode: c.Forward},
+		IPs: []networkIPXML{{
+			Address: c.IPAddress,
+			DHCP: networkDHCPXML{
+				Ranges: []networkRangeXML{{Start: c.DHCPStart, End: c.DHCPEnd}},
+				Hosts:  hosts,
+			},
+		}},
+	}
+	out, err := xml.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		// 全fieldがstringまたはstring-backedであり、marshal errorは起こり得ない。
+		panic(fmt.Sprintf("marshal libvirt network XML: %v", err))
+	}
+	return string(out)
 }
 
 type domainXML struct {

@@ -2,8 +2,9 @@ package bootstrap
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
-	"sort"
+	"slices"
 )
 
 // Layerはmachine configuration合成pipelineにおける段階を表す。値が小さいlayerほど先に適用され、
@@ -46,8 +47,8 @@ func OrderPatches(patches []ConfigPatch) ([]ConfigPatch, error) {
 		}
 	}
 
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].Layer < ordered[j].Layer
+	slices.SortStableFunc(ordered, func(a, b ConfigPatch) int {
+		return cmp.Compare(a.Layer, b.Layer)
 	})
 
 	return ordered, nil

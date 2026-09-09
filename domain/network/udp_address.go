@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
-	"strconv"
 	"strings"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidUDPAddress = errors.New("invalid UDP address")
@@ -45,11 +46,11 @@ func (address UDPAddress) String() string {
 }
 
 func (address UDPAddress) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, address.String()), nil
+	return textmarshal.JSON(address.String())
 }
 
 func (address *UDPAddress) UnmarshalJSON(value []byte) error {
-	return unmarshalTextJSON(value, address.UnmarshalText)
+	return textmarshal.UnmarshalJSON(value, address.UnmarshalText)
 }
 
 func (address UDPAddress) MarshalText() ([]byte, error) {

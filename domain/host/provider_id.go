@@ -3,8 +3,9 @@ package host
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidProviderID = errors.New("invalid Host ProviderID")
@@ -43,11 +44,11 @@ func (id ProviderID) String() string {
 }
 
 func (id ProviderID) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, id.String()), nil
+	return textmarshal.JSON(id.String())
 }
 
 func (id *ProviderID) UnmarshalJSON(value []byte) error {
-	return unmarshalTextJSON(value, id.UnmarshalText)
+	return textmarshal.UnmarshalJSON(value, id.UnmarshalText)
 }
 
 func (id ProviderID) MarshalText() ([]byte, error) {

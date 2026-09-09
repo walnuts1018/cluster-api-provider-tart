@@ -14,14 +14,6 @@ import (
 
 var Meter = otel.Meter("github.com/walnuts1018/cluster-api-provider-tart")
 
-type MeterProviderConfig struct {
-	ServiceName    string
-	ServiceVersion string
-}
-
-func (c MeterProviderConfig) getServiceName() string    { return c.ServiceName }
-func (c MeterProviderConfig) getServiceVersion() string { return c.ServiceVersion }
-
 type MeterProvider struct {
 	metric.MeterProvider
 }
@@ -33,11 +25,7 @@ func (t MeterProvider) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func NewMeterProvider(ctx context.Context, cfg MeterProviderConfig) (MeterProvider, error) {
-	if cfg.ServiceName == "" {
-		cfg.ServiceName = defaultOTELServiceName
-	}
-
+func NewMeterProvider(ctx context.Context, cfg ResourceConfig) (MeterProvider, error) {
 	res, err := NewTelemetryResource(ctx, cfg)
 	if err != nil {
 		return MeterProvider{}, fmt.Errorf("failed to create resource: %w", err)

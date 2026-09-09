@@ -3,9 +3,10 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"uuid"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidID = errors.New("invalid cluster ID")
@@ -42,11 +43,11 @@ func (id ClusterID) String() string {
 }
 
 func (id ClusterID) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, id.String()), nil
+	return textmarshal.JSON(id.String())
 }
 
 func (id *ClusterID) UnmarshalJSON(value []byte) error {
-	return unmarshalTextJSON(value, id.UnmarshalText)
+	return textmarshal.UnmarshalJSON(value, id.UnmarshalText)
 }
 
 func (id ClusterID) MarshalText() ([]byte, error) {
@@ -64,12 +65,4 @@ func (id *ClusterID) UnmarshalText(value []byte) error {
 	}
 	*id = parsed
 	return nil
-}
-
-func unmarshalTextJSON(value []byte, unmarshal func([]byte) error) error {
-	text, err := strconv.Unquote(string(value))
-	if err != nil {
-		return err
-	}
-	return unmarshal([]byte(text))
 }

@@ -26,11 +26,11 @@ func TestClaimHostUsesResourceVersionAndDoesNotOverwrite(t *testing.T) {
 	repo := NewTartHostRepository(fakeClient)
 	consumer := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
 
-	if err := repo.ClaimHost(t.Context(), host, consumer); err != nil {
-		t.Fatalf("ClaimHost() error = %v", err)
+	if err := repo.ClaimHostWithRequest(t.Context(), host, hostusecase.ClaimRequest{Consumer: consumer, Mode: hostusecase.ClaimFreshAutomatic}); err != nil {
+		t.Fatalf("ClaimHostWithRequest() error = %v", err)
 	}
 	if host.Spec.ConsumerRef == nil || host.Spec.ConsumerRef.UID != consumer.UID {
-		t.Fatalf("ClaimHost() did not update the caller's observed binding")
+		t.Fatalf("ClaimHostWithRequest() did not update the caller's observed binding")
 	}
 
 	stored := &infrav1alpha1.TartHost{}
@@ -38,8 +38,8 @@ func TestClaimHostUsesResourceVersionAndDoesNotOverwrite(t *testing.T) {
 		t.Fatalf("Get() error = %v", err)
 	}
 	other := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-b", UID: types.UID("machine-b")}
-	if err := repo.ClaimHost(t.Context(), stored, other); !errors.Is(err, hostusecase.ErrClaimConflict) {
-		t.Errorf("ClaimHost() error = %v, want ErrClaimConflict", err)
+	if err := repo.ClaimHostWithRequest(t.Context(), stored, hostusecase.ClaimRequest{Consumer: other, Mode: hostusecase.ClaimFreshAutomatic}); !errors.Is(err, hostusecase.ErrClaimConflict) {
+		t.Errorf("ClaimHostWithRequest() error = %v, want ErrClaimConflict", err)
 	}
 }
 
@@ -88,8 +88,9 @@ func TestClaimHostRejectsUnidentifiableConsumer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			if err := tt.repository.ClaimHost(t.Context(), tt.host, tt.consumer); !errors.Is(err, hostusecase.ErrInvalidClaim) {
-				t.Errorf("ClaimHost() error = %v, want ErrInvalidClaim", err)
+			req := hostusecase.ClaimRequest{Consumer: tt.consumer, Mode: hostusecase.ClaimFreshAutomatic}
+			if err := tt.repository.ClaimHostWithRequest(t.Context(), tt.host, req); !errors.Is(err, hostusecase.ErrInvalidClaim) {
+				t.Errorf("ClaimHostWithRequest() error = %v, want ErrInvalidClaim", err)
 			}
 		})
 	}
@@ -112,8 +113,8 @@ func TestClaimHostRejectsMismatchedExistingReference(t *testing.T) {
 	wanted := existing
 	wanted.Name = "new-name"
 
-	if err := repo.ClaimHost(t.Context(), host, wanted); !errors.Is(err, hostusecase.ErrClaimConflict) {
-		t.Fatalf("ClaimHost() error = %v, want ErrClaimConflict", err)
+	if err := repo.ClaimHostWithRequest(t.Context(), host, hostusecase.ClaimRequest{Consumer: wanted, Mode: hostusecase.ClaimFreshAutomatic}); !errors.Is(err, hostusecase.ErrClaimConflict) {
+		t.Fatalf("ClaimHostWithRequest() error = %v, want ErrClaimConflict", err)
 	}
 }
 
@@ -138,14 +139,14 @@ func TestClaimHostRetriesAfterUnrelatedResourceVersionConflict(t *testing.T) {
 	}
 
 	consumer := corev1.ObjectReference{APIVersion: "infrastructure.cluster.x-k8s.io/v1alpha1", Kind: "TartMachine", Namespace: "ns", Name: "machine-a", UID: types.UID("machine-a")}
-	if err := repo.ClaimHost(t.Context(), stale, consumer); err != nil {
-		t.Fatalf("ClaimHost() error = %v", err)
+	if err := repo.ClaimHostWithRequest(t.Context(), stale, hostusecase.ClaimRequest{Consumer: consumer, Mode: hostusecase.ClaimFreshAutomatic}); err != nil {
+		t.Fatalf("ClaimHostWithRequest() error = %v", err)
 	}
 	if stale.Spec.ConsumerRef == nil || stale.Spec.ConsumerRef.UID != consumer.UID {
-		t.Fatalf("ClaimHost() did not update the caller's observed binding")
+		t.Fatalf("ClaimHostWithRequest() did not update the caller's observed binding")
 	}
 	if stale.Labels["observed"] != "true" {
-		t.Errorf("ClaimHost() discarded the refreshed Host state: labels = %#v", stale.Labels)
+		t.Errorf("ClaimHostWithRequest() discarded the refreshed Host state: labels = %#v", stale.Labels)
 	}
 }
 

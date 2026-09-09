@@ -27,20 +27,18 @@ func NewProvider(ctx context.Context) (*Provider, error) {
 		ServiceName:    defaultOTELServiceName,
 		ServiceVersion: serviceVersion(),
 	}
-
-	tp, err := NewTracerProvider(ctx, TracerProviderConfig{
+	resCfg := ResourceConfig{
 		ServiceName:    p.ServiceName,
 		ServiceVersion: p.ServiceVersion,
-	})
+	}
+
+	tp, err := NewTracerProvider(ctx, resCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tracer provider: %w", err)
 	}
 	p.TracerProvider = tp
 
-	mp, err := NewMeterProvider(ctx, MeterProviderConfig{
-		ServiceName:    p.ServiceName,
-		ServiceVersion: p.ServiceVersion,
-	})
+	mp, err := NewMeterProvider(ctx, resCfg)
 	if err != nil {
 		if shutdownErr := tp.Shutdown(ctx); shutdownErr != nil {
 			return nil, errors.Join(

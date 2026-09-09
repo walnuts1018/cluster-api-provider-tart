@@ -1,6 +1,7 @@
 package update
 
 // ChangeClassはactive configurationとdesired configurationの差分の分類である。
+// Talos documentの意味はTalos machineryへ委譲し、provider-owned lifecycle semanticだけをここで判定する。
 type ChangeClass string
 
 const (

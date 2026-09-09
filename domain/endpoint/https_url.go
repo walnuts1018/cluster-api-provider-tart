@@ -4,8 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidHTTPSURL = errors.New("invalid HTTPS URL")
@@ -28,11 +29,11 @@ func (endpoint HTTPSURL) String() string {
 }
 
 func (endpoint HTTPSURL) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, endpoint.String()), nil
+	return textmarshal.JSON(endpoint.String())
 }
 
 func (endpoint *HTTPSURL) UnmarshalJSON(value []byte) error {
-	return unmarshalTextJSON(value, endpoint.UnmarshalText)
+	return textmarshal.UnmarshalJSON(value, endpoint.UnmarshalText)
 }
 
 func (endpoint HTTPSURL) MarshalText() ([]byte, error) {
@@ -50,12 +51,4 @@ func (endpoint *HTTPSURL) UnmarshalText(value []byte) error {
 	}
 	*endpoint = parsed
 	return nil
-}
-
-func unmarshalTextJSON(value []byte, unmarshal func([]byte) error) error {
-	text, err := strconv.Unquote(string(value))
-	if err != nil {
-		return err
-	}
-	return unmarshal([]byte(text))
 }

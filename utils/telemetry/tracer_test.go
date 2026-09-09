@@ -4,23 +4,33 @@ import (
 	"testing"
 )
 
-func TestNormalizeTracerProviderConfigDefaultsServiceName(t *testing.T) {
-	cfg := normalizeTracerProviderConfig(TracerProviderConfig{})
+func TestNewTelemetryResourceDefaultsServiceName(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
+	res, err := NewTelemetryResource(t.Context(), ResourceConfig{})
+	if err != nil {
+		t.Fatalf("NewTelemetryResource() error = %v", err)
+	}
 
-	if cfg.ServiceName != defaultOTELServiceName {
-		t.Fatalf("ServiceName = %q, want %q", cfg.ServiceName, defaultOTELServiceName)
+	attrs := make(map[string]string)
+	for _, attr := range res.Attributes() {
+		attrs[string(attr.Key)] = attr.Value.AsString()
+	}
+
+	if attrs["service.name"] != defaultOTELServiceName {
+		t.Fatalf("service.name = %q, want %q", attrs["service.name"], defaultOTELServiceName)
 	}
 }
 
 func TestNewTelemetryResourceUsesStandardSDKName(t *testing.T) {
 	t.Setenv("OTEL_SERVICE_NAME", "")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
-	res, err := newTelemetryResource(t.Context(), TracerProviderConfig{
+	res, err := NewTelemetryResource(t.Context(), ResourceConfig{
 		ServiceName:    "tart-test",
 		ServiceVersion: "test",
 	})
 	if err != nil {
-		t.Fatalf("newTelemetryResource() error = %v", err)
+		t.Fatalf("NewTelemetryResource() error = %v", err)
 	}
 
 	attrs := make(map[string]string)

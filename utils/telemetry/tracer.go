@@ -22,11 +22,6 @@ const (
 
 var Tracer = otel.Tracer("github.com/walnuts1018/cluster-api-provider-tart")
 
-type TracerProviderConfig struct {
-	ServiceName    string
-	ServiceVersion string
-}
-
 type TraceProvider struct {
 	trace.TracerProvider
 }
@@ -38,10 +33,8 @@ func (t TraceProvider) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (TraceProvider, error) {
-	cfg = normalizeTracerProviderConfig(cfg)
-
-	res, err := newTelemetryResource(ctx, cfg)
+func NewTracerProvider(ctx context.Context, cfg ResourceConfig) (TraceProvider, error) {
+	res, err := NewTelemetryResource(ctx, cfg)
 	if err != nil {
 		return TraceProvider{}, fmt.Errorf("failed to create resource: %w", err)
 	}
@@ -72,30 +65,20 @@ func NewTracerProvider(ctx context.Context, cfg TracerProviderConfig) (TraceProv
 	return TraceProvider{TracerProvider: tp}, nil
 }
 
-func normalizeTracerProviderConfig(cfg TracerProviderConfig) TracerProviderConfig {
+// ResourceConfig identifies the service for both the trace and metric providers.
+type ResourceConfig struct {
+	ServiceName    string
+	ServiceVersion string
+}
+
+func NewTelemetryResource(ctx context.Context, cfg ResourceConfig) (*resource.Resource, error) {
 	if cfg.ServiceName == "" {
 		cfg.ServiceName = defaultOTELServiceName
 	}
-	return cfg
-}
-
-type telemetryResourceConfig interface {
-	getServiceName() string
-	getServiceVersion() string
-}
-
-func (c TracerProviderConfig) getServiceName() string    { return c.ServiceName }
-func (c TracerProviderConfig) getServiceVersion() string { return c.ServiceVersion }
-
-func newTelemetryResource(ctx context.Context, cfg TracerProviderConfig) (*resource.Resource, error) {
-	return NewTelemetryResource(ctx, cfg)
-}
-
-func NewTelemetryResource(ctx context.Context, cfg telemetryResourceConfig) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithAttributes(
-			semconv.ServiceName(cfg.getServiceName()),
-			semconv.ServiceVersion(cfg.getServiceVersion()),
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(cfg.ServiceVersion),
 		),
 		resource.WithTelemetrySDK(),
 		resource.WithFromEnv(),

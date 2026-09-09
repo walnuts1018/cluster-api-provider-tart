@@ -7,6 +7,8 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidEndpoint = errors.New("invalid network endpoint")
@@ -51,11 +53,11 @@ func (endpoint Endpoint) String() string {
 }
 
 func (endpoint Endpoint) MarshalJSON() ([]byte, error) {
-	return strconv.AppendQuote(nil, endpoint.String()), nil
+	return textmarshal.JSON(endpoint.String())
 }
 
 func (endpoint *Endpoint) UnmarshalJSON(value []byte) error {
-	return unmarshalTextJSON(value, endpoint.UnmarshalText)
+	return textmarshal.UnmarshalJSON(value, endpoint.UnmarshalText)
 }
 
 func (endpoint Endpoint) MarshalText() ([]byte, error) {

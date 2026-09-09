@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"reflect"
 	"strings"
 
 	siderox509 "github.com/siderolabs/crypto/x509"
@@ -118,7 +117,7 @@ func destructiveChange(active, desired talosconfig.Provider) string {
 		return "The install configuration was added or removed; the Machine must be reprovisioned."
 	}
 	if activeInstall != nil && desiredInstall != nil {
-		if !reflect.DeepEqual(activeInstall.VolumeSelector(), desiredInstall.VolumeSelector()) {
+		if activeInstall.VolumeSelector().String() != desiredInstall.VolumeSelector().String() {
 			return "The install disk selection changed; the Machine must be reprovisioned."
 		}
 		if activeInstall.VolumeWipe() != desiredInstall.VolumeWipe() {

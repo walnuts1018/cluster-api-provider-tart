@@ -65,11 +65,11 @@ func EnsureInstallDisk(configuration []byte, disk domainbootstrap.DiskIdentity) 
 		return nil, domainbootstrap.ErrInstallDiskUnavailable
 	}
 
-	selector, err := domainbootstrap.SelectDisk([]domainbootstrap.DiskIdentity{disk})
+	validatedDisk, err := domainbootstrap.SelectDisk([]domainbootstrap.DiskIdentity{disk})
 	if err != nil {
 		return nil, err
 	}
-	patchProvider, err := unattendedInstallPatch(selector)
+	patchProvider, err := unattendedInstallPatch(validatedDisk)
 	if err != nil {
 		return nil, err
 	}

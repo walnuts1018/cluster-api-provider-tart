@@ -63,8 +63,7 @@ func BuildSecret(namespace, name, clusterName string, owner metav1.OwnerReferenc
 		return nil, domainbootstrap.ErrCompleteConfigurationEmpty
 	}
 
-	controller := true
-	owner.Controller = &controller
+	owner.Controller = new(true)
 	return &corev1.Secret{
 		Name:            name,
 		Namespace:       namespace,

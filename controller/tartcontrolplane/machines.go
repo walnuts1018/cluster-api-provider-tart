@@ -341,15 +341,13 @@ func validateMachineReference(machine *clusterv1.Machine, cp *controlplanev1alph
 }
 
 func controllerOwnerReference(owner metav1.Object, apiVersion, kind string) metav1.OwnerReference {
-	controller := true
-	blockOwnerDeletion := true
 	return metav1.OwnerReference{
 		APIVersion:         apiVersion,
 		Kind:               kind,
 		Name:               owner.GetName(),
 		UID:                owner.GetUID(),
-		Controller:         &controller,
-		BlockOwnerDeletion: &blockOwnerDeletion,
+		Controller:         new(true),
+		BlockOwnerDeletion: new(true),
 	}
 }
 

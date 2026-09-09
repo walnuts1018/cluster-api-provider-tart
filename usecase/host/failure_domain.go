@@ -21,8 +21,7 @@ func FailureDomains(hosts []infrav1alpha1.TartHost) []clusterv1.FailureDomain {
 
 	result := make([]clusterv1.FailureDomain, 0, len(ordered))
 	for _, name := range ordered {
-		controlPlane := true
-		result = append(result, clusterv1.FailureDomain{Name: name, ControlPlane: &controlPlane})
+		result = append(result, clusterv1.FailureDomain{Name: name, ControlPlane: new(true)})
 	}
 	return result
 }

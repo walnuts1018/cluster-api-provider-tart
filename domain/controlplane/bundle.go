@@ -131,7 +131,6 @@ func buildBundleSecret(namespace, clusterName string, clusterID clusterdomain.Cl
 	if err != nil {
 		return nil, err
 	}
-	controller := true
 	return &corev1.Secret{
 		Name:      name,
 		Namespace: namespace,
@@ -146,7 +145,7 @@ func buildBundleSecret(namespace, clusterName string, clusterID clusterdomain.Cl
 			Kind:       owner.Kind,
 			Name:       owner.Name,
 			UID:        owner.UID,
-			Controller: &controller,
+			Controller: new(true),
 		}},
 		Type:      corev1.SecretTypeOpaque,
 		Immutable: new(true),

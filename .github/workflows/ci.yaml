@@ -50,14 +50,13 @@ jobs:
           golangci-lint-cache: "true"
           install-args: go golangci-lint
 
-      - name: Build
-        run: mise run build
-
-      - name: Build netboot-server
-        run: mise run build-netboot-server
-
-      - name: Vet
-        run: mise run vet
-
-      - name: Lint
-        run: mise run lint
+      # build/build-netboot-server/vet/lintは互いに依存せず、同一runner上で並列実行できる。
+      - parallel:
+          - name: Build
+            run: mise run build
+          - name: Build netboot-server
+            run: mise run build-netboot-server
+          - name: Vet
+            run: mise run vet
+          - name: Lint
+            run: mise run lint

@@ -75,12 +75,8 @@ jobs:
           - name: Test
             run: mise run test
 
-  # branch protectionのrequired status checkに"CI status"だけを登録すれば済むようにする
-  # 集約job。generate/staticにjobを追加・削除してもrequired checksの設定を変更せずに済む。
   status:
-    name: CI status
-    # exitコードを返すだけの集約jobであり、フルVMのubuntu-24.04は不要なため
-    # コンテナベースの軽量runnerを使う。
+    name: Status Check
     runs-on: ubuntu-slim
     needs: [generate, static]
     if: always()

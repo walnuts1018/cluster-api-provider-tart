@@ -91,55 +91,72 @@ func IntelManageabilityPowerState(ctx context.Context, reader client.Reader, man
 	return backend.PowerState(ctx)
 }
 
+// backendCredentialsはRedfish/Intel Manageability backendに共通する、Secretから解決したcredentialとCA materialである。
+type backendCredentials struct {
+	username string
+	password string
+	caData   []byte
+}
+
+// resolveBackendCredentialsは、out-of-band power backendが共通して必要とするusername/password credential Secretと
+// 任意のCA Secretをprovider管理namespaceから解決する。backendNameはerror messageにのみ使う識別用文字列である。
+func resolveBackendCredentials(ctx context.Context, reader client.Reader, managementNamespace, backendName string, credentialSecretRef infrav1alpha1.ManagementNamespaceSecretReference, caSecretRef *infrav1alpha1.ManagementNamespaceSecretReference) (backendCredentials, error) {
+	if reader == nil {
+		return backendCredentials{}, fmt.Errorf("kubernetes client is unavailable for %s credentials", backendName)
+	}
+	if strings.TrimSpace(managementNamespace) == "" {
+		return backendCredentials{}, fmt.Errorf("provider management namespace is not configured for %s credentials", backendName)
+	}
+	if strings.TrimSpace(credentialSecretRef.Name) == "" {
+		return backendCredentials{}, fmt.Errorf("%s credential Secret name is empty", backendName)
+	}
+	credentialSecret := &corev1.Secret{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: credentialSecretRef.Name}, credentialSecret); err != nil {
+		return backendCredentials{}, fmt.Errorf("get %s credential Secret: %w", backendName, err)
+	}
+	username, usernameOK := credentialSecret.Data["username"]
+	password, passwordOK := credentialSecret.Data["password"]
+	if !usernameOK || strings.TrimSpace(string(username)) == "" || !passwordOK || strings.TrimSpace(string(password)) == "" {
+		return backendCredentials{}, fmt.Errorf("%s credential Secret must contain non-empty username and password keys", backendName)
+	}
+
+	var caData []byte
+	if caSecretRef != nil {
+		if strings.TrimSpace(caSecretRef.Name) == "" {
+			return backendCredentials{}, fmt.Errorf("%s CA Secret name is empty", backendName)
+		}
+		caSecret := &corev1.Secret{}
+		if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: caSecretRef.Name}, caSecret); err != nil {
+			return backendCredentials{}, fmt.Errorf("get %s CA Secret: %w", backendName, err)
+		}
+		var ok bool
+		caData, ok = caSecret.Data["ca.crt"]
+		if !ok || len(caData) == 0 {
+			return backendCredentials{}, fmt.Errorf("%s CA Secret must contain a non-empty ca.crt key", backendName)
+		}
+	}
+
+	return backendCredentials{username: string(username), password: string(password), caData: caData}, nil
+}
+
 // NewIntelManageabilityBackendはIntel Manageability credential Secretを解決してbackendを構築する。
 func NewIntelManageabilityBackend(ctx context.Context, reader client.Reader, managementNamespace string, host *infrav1alpha1.TartHost) (*intelmanageability.Backend, error) {
 	if host == nil {
 		return nil, errors.New("tart host is unavailable")
 	}
-	if reader == nil {
-		return nil, errors.New("kubernetes client is unavailable for Intel Manageability credentials")
-	}
-	if strings.TrimSpace(managementNamespace) == "" {
-		return nil, errors.New("provider management namespace is not configured for Intel Manageability credentials")
-	}
 	config := host.Spec.Power.IntelManageability
 	if config == nil {
 		return nil, errors.New("intel manageability power configuration is missing")
 	}
-	if strings.TrimSpace(config.CredentialSecretRef.Name) == "" {
-		return nil, errors.New("intel manageability credential Secret name is empty")
+	credentials, err := resolveBackendCredentials(ctx, reader, managementNamespace, "Intel Manageability", config.CredentialSecretRef, config.CASecretRef)
+	if err != nil {
+		return nil, err
 	}
-	credentialSecret := &corev1.Secret{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CredentialSecretRef.Name}, credentialSecret); err != nil {
-		return nil, fmt.Errorf("get Intel Manageability credential Secret: %w", err)
-	}
-	username, usernameOK := credentialSecret.Data["username"]
-	password, passwordOK := credentialSecret.Data["password"]
-	if !usernameOK || strings.TrimSpace(string(username)) == "" || !passwordOK || strings.TrimSpace(string(password)) == "" {
-		return nil, errors.New("intel manageability credential Secret must contain non-empty username and password keys")
-	}
-
-	var caData []byte
-	if config.CASecretRef != nil {
-		if strings.TrimSpace(config.CASecretRef.Name) == "" {
-			return nil, errors.New("intel manageability CA Secret name is empty")
-		}
-		caSecret := &corev1.Secret{}
-		if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CASecretRef.Name}, caSecret); err != nil {
-			return nil, fmt.Errorf("get Intel Manageability CA Secret: %w", err)
-		}
-		var ok bool
-		caData, ok = caSecret.Data["ca.crt"]
-		if !ok || len(caData) == 0 {
-			return nil, errors.New("intel manageability CA Secret must contain a non-empty ca.crt key")
-		}
-	}
-
 	return intelmanageability.New(intelmanageability.Config{
 		Address:            config.Address,
-		Username:           string(username),
-		Password:           string(password),
-		CAData:             caData,
+		Username:           credentials.username,
+		Password:           credentials.password,
+		CAData:             credentials.caData,
 		InsecureSkipVerify: config.InsecureSkipVerify,
 	})
 }
@@ -149,51 +166,20 @@ func NewRedfishBackend(ctx context.Context, reader client.Reader, managementName
 	if host == nil {
 		return nil, errors.New("tart host is unavailable")
 	}
-	if reader == nil {
-		return nil, errors.New("kubernetes client is unavailable for Redfish credentials")
-	}
-	if strings.TrimSpace(managementNamespace) == "" {
-		return nil, errors.New("provider management namespace is not configured for Redfish credentials")
-	}
 	config := host.Spec.Power.Redfish
 	if config == nil {
 		return nil, errors.New("redfish power configuration is missing")
 	}
-	if strings.TrimSpace(config.CredentialSecretRef.Name) == "" {
-		return nil, errors.New("redfish credential Secret name is empty")
+	credentials, err := resolveBackendCredentials(ctx, reader, managementNamespace, "Redfish", config.CredentialSecretRef, config.CASecretRef)
+	if err != nil {
+		return nil, err
 	}
-	credentialSecret := &corev1.Secret{}
-	if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CredentialSecretRef.Name}, credentialSecret); err != nil {
-		return nil, fmt.Errorf("get Redfish credential Secret: %w", err)
-	}
-	username, usernameOK := credentialSecret.Data["username"]
-	password, passwordOK := credentialSecret.Data["password"]
-	if !usernameOK || strings.TrimSpace(string(username)) == "" || !passwordOK || strings.TrimSpace(string(password)) == "" {
-		return nil, errors.New("redfish credential Secret must contain non-empty username and password keys")
-	}
-
-	var caData []byte
-	if config.CASecretRef != nil {
-		if strings.TrimSpace(config.CASecretRef.Name) == "" {
-			return nil, errors.New("redfish CA Secret name is empty")
-		}
-		caSecret := &corev1.Secret{}
-		if err := reader.Get(ctx, client.ObjectKey{Namespace: managementNamespace, Name: config.CASecretRef.Name}, caSecret); err != nil {
-			return nil, fmt.Errorf("get Redfish CA Secret: %w", err)
-		}
-		var ok bool
-		caData, ok = caSecret.Data["ca.crt"]
-		if !ok || len(caData) == 0 {
-			return nil, errors.New("redfish CA Secret must contain a non-empty ca.crt key")
-		}
-	}
-
 	return redfish.New(redfish.Config{
 		Address:            config.Address,
 		SystemID:           config.SystemID,
-		Username:           string(username),
-		Password:           string(password),
-		CAData:             caData,
+		Username:           credentials.username,
+		Password:           credentials.password,
+		CAData:             credentials.caData,
 		InsecureSkipVerify: config.InsecureSkipVerify,
 	})
 }

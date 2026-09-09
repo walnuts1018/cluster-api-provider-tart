@@ -2,6 +2,7 @@ package host
 
 import (
 	"bytes"
+	"cmp"
 	"crypto/sha256"
 	"errors"
 	"slices"
@@ -44,29 +45,17 @@ func SelectFreshForFailureDomainWithRendezvous(hosts []infrav1alpha1.TartHost, s
 	}
 	if machineUID == "" {
 		slices.SortFunc(candidates, func(left, right infrav1alpha1.TartHost) int {
-			if left.Name < right.Name {
-				return -1
-			}
-			if left.Name > right.Name {
-				return 1
-			}
-			return 0
+			return cmp.Compare(left.Name, right.Name)
 		})
 		return &candidates[0], nil
 	}
 	slices.SortFunc(candidates, func(left, right infrav1alpha1.TartHost) int {
 		leftScore := hostScore(machineUID, left.Spec.HostID)
 		rightScore := hostScore(machineUID, right.Spec.HostID)
-		if cmp := bytes.Compare(leftScore[:], rightScore[:]); cmp != 0 {
-			return -cmp // 高スコアを先頭に
+		if diff := bytes.Compare(leftScore[:], rightScore[:]); diff != 0 {
+			return -diff // 高スコアを先頭に
 		}
-		if left.Name < right.Name {
-			return -1
-		}
-		if left.Name > right.Name {
-			return 1
-		}
-		return 0
+		return cmp.Compare(left.Name, right.Name)
 	})
 	return &candidates[0], nil
 }

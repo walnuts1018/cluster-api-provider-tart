@@ -176,6 +176,7 @@ func needsPowerOnForDiscovery(host *infrav1alpha1.TartHost) bool {
 	}
 	switch host.Spec.Power.Backend {
 	case infrav1alpha1.PowerBackendWakeOnLAN, infrav1alpha1.PowerBackendRedfish, infrav1alpha1.PowerBackendIntelManageability:
+		// 電源投入操作が可能なbackendであるため、以降の観測ベースの判定へ進む。
 	case infrav1alpha1.PowerBackendManual:
 		return false
 	default:

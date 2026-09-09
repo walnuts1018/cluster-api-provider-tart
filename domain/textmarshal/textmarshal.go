@@ -12,7 +12,12 @@ func JSON(s string) ([]byte, error) {
 
 // UnmarshalJSONはJSON文字列リテラルvalueをデコードし、その結果をunmarshalTextへ渡す。
 // 値オブジェクトのUnmarshalJSONは、既存のUnmarshalText実装をこれへ渡すだけでよい。
+// JSON null(strconv.Unquoteでは扱えない非文字列literal)は空値としてunmarshalTextへ渡し、
+// 各値オブジェクトのゼロ値への復元に委ねる。
 func UnmarshalJSON(value []byte, unmarshalText func([]byte) error) error {
+	if string(value) == "null" {
+		return unmarshalText(nil)
+	}
 	text, err := strconv.Unquote(string(value))
 	if err != nil {
 		return err

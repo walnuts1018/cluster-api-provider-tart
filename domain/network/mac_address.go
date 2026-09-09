@@ -1,10 +1,11 @@
 package network
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+
+	"github.com/walnuts1018/cluster-api-provider-tart/domain/textmarshal"
 )
 
 var ErrInvalidMACAddress = errors.New("invalid MAC address")
@@ -82,21 +83,11 @@ func (in *MACAddress) DeepCopy() *MACAddress {
 }
 
 func (address MACAddress) MarshalJSON() ([]byte, error) {
-	return json.Marshal(address.String())
+	return textmarshal.JSON(address.String())
 }
 
 func (address *MACAddress) UnmarshalJSON(value []byte) error {
-	var text *string
-	if err := json.Unmarshal(value, &text); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidMACAddress, err)
-	}
-
-	if text == nil {
-		*address = MACAddress{}
-		return nil
-	}
-
-	return address.UnmarshalText([]byte(*text))
+	return textmarshal.UnmarshalJSON(value, address.UnmarshalText)
 }
 
 func (address MACAddress) MarshalText() ([]byte, error) {

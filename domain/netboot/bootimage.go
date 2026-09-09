@@ -97,6 +97,8 @@ func DecideAgentBootFile(arch Arch, archOptionPresent, isIPXE bool, httpBootBase
 		return IPXEBootFileNameAMD64, true
 	case ArchIntelx86PC:
 		return IPXEBootFileNameLegacyBIOS, true
+	case ArchEFIBC, ArchEFIARM64:
+		return "", false
 	default:
 		return "", false
 	}

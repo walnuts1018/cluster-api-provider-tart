@@ -79,7 +79,9 @@ jobs:
   # 集約job。generate/staticにjobを追加・削除してもrequired checksの設定を変更せずに済む。
   status:
     name: CI status
-    runs-on: ubuntu-24.04
+    # exitコードを返すだけの集約jobであり、フルVMのubuntu-24.04は不要なため
+    # コンテナベースの軽量runnerを使う。
+    runs-on: ubuntu-slim
     needs: [generate, static]
     if: always()
     timeout-minutes: 5

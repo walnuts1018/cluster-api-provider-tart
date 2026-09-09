@@ -37,8 +37,6 @@ type controlPlaneCARotationObservation struct {
 	stage       domaincontrolplane.CATrustStage
 }
 
-// reconcileCARotationはTartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationを、Talos公式の段階的CA更新手順(accepted CA追加→issuing CA切替→旧CA削除)に沿って進める。
-// 進行段階はStatusのstep番号ではなく、毎回Pending/Active bundle Secretと各control-plane Machineの実際のTalos machine configurationから再計算するため、controller再起動後も安全に継続できる。
 // observeControlPlaneCARotationは、削除中でない各control-plane MachineへTalos認証接続してCA trust stageを観測する。
 // 途中で観測不能なMachineがあれば、rotationを一時停止するstateをhaltStateとして返す(errは返さずnilエラーで停止する既存の挙動を維持する)。
 func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.Context, machines []clusterv1.Machine, activeBundle, pendingBundle *secrets.Bundle, activeCAs, pendingCAs domaincontrolplane.CertBundle) ([]controlPlaneCARotationObservation, *controlPlaneCARotationState) {
@@ -73,6 +71,8 @@ func (r *TartControlPlaneReconciler) observeControlPlaneCARotation(ctx context.C
 	return observations, nil
 }
 
+// reconcileCARotationはTartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationを、Talos公式の段階的CA更新手順(accepted CA追加→issuing CA切替→旧CA削除)に沿って進める。
+// 進行段階はStatusのstep番号ではなく、毎回Pending/Active bundle Secretと各control-plane Machineの実際のTalos machine configurationから再計算するため、controller再起動後も安全に継続できる。
 func (r *TartControlPlaneReconciler) reconcileCARotation(ctx context.Context, cluster *infrav1alpha1.TartCluster, scaleDownPending bool) (controlPlaneCARotationState, error) {
 	notRequested := controlPlaneCARotationState{reason: "NotRequested", message: "No CA rotation has been requested."}
 	if cluster == nil || cluster.Spec.CARotationRequestedGeneration == nil {

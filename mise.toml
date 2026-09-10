@@ -7,7 +7,7 @@ kind = "0.33.0"
 # E2Eでcluster-api-components.yaml中の${VAR:=default}形式のvariableをsubstituteしてCAPI coreを
 # installするために使う(生のkubectl applyではこれらのvariableが展開されず起動時にparse errorになる)。
 clusterctl = "1.14.2"
-kubebuilder = "4.15.0"
+kubebuilder = "4.16.0"
 kubectl = "1.37.0"
 jq = "1.8.2"
 tilt = "0.37.7"

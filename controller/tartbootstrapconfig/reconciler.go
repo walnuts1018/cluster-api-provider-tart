@@ -307,7 +307,7 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 	if _, ok := clusterMachine.Labels[clusterv1.MachineControlPlaneLabel]; ok {
 		machineRole = domainbootstrap.MachineRoleControlPlane
 	}
-	disks, err := r.disksForMachine(ctx, clusterMachine)
+	hostName, disks, err := r.hostAndDisksForMachine(ctx, clusterMachine)
 	if err != nil {
 		return bootstrap.MachineConfigurationContext{}, err
 	}
@@ -334,52 +334,53 @@ func (r *TartBootstrapConfigReconciler) machineConfigurationContext(ctx context.
 		MachineRole:          machineRole,
 		SecretsBundle:        bundle,
 		InstallDisk:          installDiskPtr,
-		Hostname:             clusterMachine.Name,
+		Hostname:             hostName,
 	}, nil
 }
 
-// disksForMachineは、machineがclaimしているTartHostを解決し、observed disk inventoryを
-// domainbootstrap.DiskIdentityへ変換して返す。install target選択が使う共通経路である。
-func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, machine *clusterv1.Machine) ([]domainbootstrap.DiskIdentity, error) {
+// hostAndDisksForMachineは、machineがclaimしているTartHostを解決し、その名前(Talos hostnameの
+// 静的な決定先。machineConfigurationContext参照)とobserved disk inventoryをdomainbootstrap.DiskIdentityへ
+// 変換したものを返す。install target選択とhostname決定の両方が使う共通経路である。
+func (r *TartBootstrapConfigReconciler) hostAndDisksForMachine(ctx context.Context, machine *clusterv1.Machine) (string, []domainbootstrap.DiskIdentity, error) {
 	if machine == nil || machine.Spec.InfrastructureRef.APIGroup != infrav1alpha1.GroupVersion.Group || machine.Spec.InfrastructureRef.Kind != controller.TartMachineKind || machine.Spec.InfrastructureRef.Name == "" {
-		return nil, errBootstrapContextPending
+		return "", nil, errBootstrapContextPending
 	}
 	providerMachine := &infrav1alpha1.TartMachine{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: machine.Spec.InfrastructureRef.Name}, providerMachine); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: TartMachine %s/%s is not available", errBootstrapContextPending, machine.Namespace, machine.Spec.InfrastructureRef.Name)
+			return "", nil, fmt.Errorf("%w: TartMachine %s/%s is not available", errBootstrapContextPending, machine.Namespace, machine.Spec.InfrastructureRef.Name)
 		}
-		return nil, err
+		return "", nil, err
 	}
 	if err := controller.ValidateProviderOwner(providerMachine, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if providerMachine.Status.HostRef == nil || providerMachine.Status.HostRef.Name == "" {
-		return nil, fmt.Errorf("%w: TartMachine %s/%s has no HostRef", errBootstrapContextPending, providerMachine.Namespace, providerMachine.Name)
+		return "", nil, fmt.Errorf("%w: TartMachine %s/%s has no HostRef", errBootstrapContextPending, providerMachine.Namespace, providerMachine.Name)
 	}
 	host := &infrav1alpha1.TartHost{}
 	if err := r.Get(ctx, client.ObjectKey{Name: providerMachine.Status.HostRef.Name}, host); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("%w: TartHost %s is not available", errBootstrapHostUnavailable, providerMachine.Status.HostRef.Name)
+			return "", nil, fmt.Errorf("%w: TartHost %s is not available", errBootstrapHostUnavailable, providerMachine.Status.HostRef.Name)
 		}
-		return nil, err
+		return "", nil, err
 	}
 	consumer := host.Spec.ConsumerRef
 	if consumer == nil || consumer.APIVersion != infrav1alpha1.GroupVersion.String() || consumer.Kind != controller.TartMachineKind || consumer.Namespace != providerMachine.Namespace || consumer.Name != providerMachine.Name || consumer.UID != providerMachine.UID {
-		return nil, fmt.Errorf("%w: Host %s is not claimed by TartMachine %s/%s", errBootstrapBindingMismatch, host.Name, providerMachine.Namespace, providerMachine.Name)
+		return "", nil, fmt.Errorf("%w: Host %s is not claimed by TartMachine %s/%s", errBootstrapBindingMismatch, host.Name, providerMachine.Namespace, providerMachine.Name)
 	}
 	allHosts := &infrav1alpha1.TartHostList{}
 	if err := r.List(ctx, allHosts); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if hostpolicy.HasIdentityConflictForAny(allHosts.Items) {
-		return nil, errBootstrapIdentityConflict
+		return "", nil, errBootstrapIdentityConflict
 	}
 	if host.Status.Inventory == nil {
-		return nil, fmt.Errorf("%w: Host %s inventory is not observed", errBootstrapInventoryPending, host.Name)
+		return "", nil, fmt.Errorf("%w: Host %s inventory is not observed", errBootstrapInventoryPending, host.Name)
 	}
 	if len(host.Status.Inventory.Disks) == 0 {
-		return nil, fmt.Errorf("%w: Host %s reports no disks", errBootstrapDiskUnavailable, host.Name)
+		return "", nil, fmt.Errorf("%w: Host %s reports no disks", errBootstrapDiskUnavailable, host.Name)
 	}
 	disks := make([]domainbootstrap.DiskIdentity, 0, len(host.Status.Inventory.Disks))
 	for _, disk := range host.Status.Inventory.Disks {
@@ -399,9 +400,9 @@ func (r *TartBootstrapConfigReconciler) disksForMachine(ctx context.Context, mac
 		})
 	}
 	if len(disks) == 0 {
-		return nil, fmt.Errorf("%w: Host %s has no usable disks", errBootstrapDiskUnavailable, host.Name)
+		return "", nil, fmt.Errorf("%w: Host %s has no usable disks", errBootstrapDiskUnavailable, host.Name)
 	}
-	return disks, nil
+	return host.Name, disks, nil
 }
 
 // classifyConfigurationErrorは、r.configurationが返した非retryableなerrorをReady Conditionのreason/messageへ分類する。

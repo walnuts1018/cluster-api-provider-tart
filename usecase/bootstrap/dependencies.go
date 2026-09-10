@@ -24,8 +24,12 @@ type MachineConfigurationContext struct {
 	// 生成するが、DHCP等の外部sourceがこの自動hostnameより優先されてしまう(Talosの仕様)。
 	// またmulti-doc構成では`auto`と`hostname`を同一documentへ両立できないため、生成後の
 	// config patchで`auto`をnull化して打ち消すこともできない(mergeはnilの右辺を無視する)。
-	// そのためCAPI Machine名など決定論的な値をgenerate時にそのまま渡し、documentを
-	// 静的hostname一本で作り直す。空文字列の場合はTalosの既定(auto: stable)のままにする。
+	// そのため呼び出し側(tartbootstrapconfig controller)はこのmachineがclaimしている
+	// TartHostの名前をgenerate時にそのまま渡し、documentを静的hostname一本で作り直す。
+	// CAPI Machine名(ランダムsuffix付き)ではなくTartHost名を使うのは、複数replicaが
+	// 1つのTartBootstrapConfigTemplateを共有する構成(例: 複数台のcontrol plane)でも、
+	// 各machineが実体を持つ物理/仮想Hostの名前をそのままKubernetes node名として得られる
+	// ようにするためである。空文字列の場合はTalosの既定(auto: stable)のままにする。
 	Hostname string
 }
 

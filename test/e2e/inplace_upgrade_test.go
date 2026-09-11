@@ -74,18 +74,21 @@ func inPlaceUpgradeSpecs() {
 		})
 
 		It("upgrades Talos OS in place without replacing the Machine or losing disk-backed data", func() {
-			// TODO: TartMachineTemplate.spec.template.spec.imageの更新だけで既存TartMachineへ
-			// desired imageが伝播するのか、CAPI Update Extension経由で個々のTartMachine.spec.image
-			// への直接patchが必要なのかは、controller/tartmachine, controller/tartcontrolplane
-			// reconcilerの実装挙動を実CIで確認して確定する必要がある。骨格実装では両方を明示的に
-			// 更新することで、どちらの経路でもTalosUpToDate=Trueへ収束することを期待する。
 			By("bumping TartMachineTemplate's desired Talos image and waiting for TalosUpToDate")
-			Expect(updateMachineTemplateImage(ctx, upgradeTargetTalosVersion, upgradeTargetSchematicID)).To(Succeed())
-
 			var machine clusterv1.Machine
 			Expect(findMachineForCluster(ctx, e2eNamespace, e2eClusterName, &machine)).To(Succeed())
-			updatedGeneration, err := updateTartMachineImage(ctx, machine.Spec.InfrastructureRef.Name, upgradeTargetTalosVersion, upgradeTargetSchematicID)
-			Expect(err).NotTo(HaveOccurred())
+			initialGeneration := machine.Generation
+			Expect(updateMachineTemplateImage(ctx, upgradeTargetTalosVersion, upgradeTargetSchematicID)).To(Succeed())
+
+			var updatedGeneration int64
+			Eventually(func(g Gomega) {
+				var updated infrav1alpha1.TartMachine
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: machine.Spec.InfrastructureRef.Name}, &updated)).To(Succeed())
+				g.Expect(updated.Spec.Image.Version).To(Equal(upgradeTargetTalosVersion))
+				g.Expect(updated.Spec.Image.SchematicID).To(Equal(upgradeTargetSchematicID))
+				g.Expect(updated.Generation).To(BeNumerically(">", initialGeneration))
+				updatedGeneration = updated.Generation
+			}).WithContext(ctx).WithTimeout(5 * time.Minute).WithPolling(framework.DefaultPollInterval).Should(Succeed())
 
 			// TartMachineはimage更新前から既にTalosUpToDate=Trueだったため、単純にcondition.Status
 			// だけを見るとreconcilerがまだ新しいgenerationを処理していない古い観測値へ即座に
@@ -202,27 +205,6 @@ func updateMachineTemplateImage(ctx context.Context, version, schematicID string
 		machineTemplate.Spec.Template.Spec.Image.SchematicID = schematicID
 		return k8sClient.Update(ctx, &machineTemplate)
 	})
-}
-
-// updateTartMachineImageはTartMachine.Spec.Image.Versionを更新し、成功したUpdate呼び出しが
-// 返した更新後のGenerationを返す。呼び出し側はこのGenerationを使って、更新前から既に
-// True/満たされていたConditionの古い観測値と、再reconcile後の新しい観測値を区別できる。
-func updateTartMachineImage(ctx context.Context, name, version, schematicID string) (int64, error) {
-	var generation int64
-	err := updateOnConflict(ctx, func() error {
-		var machine infrav1alpha1.TartMachine
-		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: e2eNamespace, Name: name}, &machine); err != nil {
-			return err
-		}
-		machine.Spec.Image.Version = version
-		machine.Spec.Image.SchematicID = schematicID
-		if err := k8sClient.Update(ctx, &machine); err != nil {
-			return err
-		}
-		generation = machine.Generation
-		return nil
-	})
-	return generation, err
 }
 
 // conditionsAtGenerationは、指定したconditionTypeの観測値がminGenerationより古い

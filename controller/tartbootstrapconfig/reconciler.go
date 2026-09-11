@@ -449,6 +449,8 @@ func (r *TartBootstrapConfigReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&corev1.Secret{}).
 		Watches(&infrav1alpha1.TartMachine{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
 		Watches(&infrav1alpha1.TartHost{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
+		Watches(&clusterv1.Cluster{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
+		Watches(&infrav1alpha1.TartCluster{}, handler.EnqueueRequestsFromMapFunc(r.enqueueAllBootstrapConfigs)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			configs := &bootstrapv1alpha1.TartBootstrapConfigList{}
 			if err := r.List(ctx, configs, client.InNamespace(obj.GetNamespace()), client.MatchingFields{bootstrapConfigSecretIndex: obj.GetName()}); err != nil {

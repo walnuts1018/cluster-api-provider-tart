@@ -9,6 +9,8 @@ const (
 	ChangeNone ChangeClass = "None"
 	// ChangeUpdatableはdata、identityを破壊しないため、policyに従ってin-placeで適用できる差分を表す。
 	ChangeUpdatable ChangeClass = "Updatable"
+	// ChangeControlPlaneEndpointはcontrol-plane endpointだけが変更されたcluster-wideな差分を表す。
+	ChangeControlPlaneEndpoint ChangeClass = "ControlPlaneEndpoint"
 	// ChangeReprovisionRequiredはdataまたはidentityを破壊するため、通常のupdateとして適用できない差分を表す。
 	ChangeReprovisionRequired ChangeClass = "ReprovisionRequired"
 	// ChangeInvariantConflictはprovider-owned invariantと競合する差分を表す。

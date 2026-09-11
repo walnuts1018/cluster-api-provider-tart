@@ -20,6 +20,8 @@ const (
 	// TartControlPlaneCARotatingConditionは、TartCluster.spec.caRotationRequestedGenerationで要求されたCA rotationの進行状況を示す。
 	// Trueはgeneration N+1のPending bundleへ向けた段階的なCA切替が進行中であることを示し、program counterではなく毎回Talosとbundle Secretの観測から再計算する。
 	TartControlPlaneCARotatingCondition = "CARotating"
+	// TartControlPlaneEndpointConvergedConditionは全control-plane Machineが同じ新しいendpointを観測したことを示す。
+	TartControlPlaneEndpointConvergedCondition = "ControlPlaneEndpointConverged"
 	// TartControlPlaneKubernetesUpgradingConditionは、cluster-wideなKubernetes version upgradeの進行状況を示す。
 	// Kubernetes version upgradeはTartControlPlaneだけが所有し、Machine単位のUpdate Extensionからは実行しない。
 	// この値はprogram counterではなく、spec.versionとcluster側の観測から毎回再計算する。

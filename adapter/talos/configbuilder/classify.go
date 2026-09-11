@@ -65,10 +65,27 @@ func ClassifyConfigurationChange(active, desired []byte) (domainupdate.ChangeCla
 	if reason := destructiveChange(activeProvider, desiredProvider); reason != "" {
 		return domainupdate.ChangeReprovisionRequired, reason, nil
 	}
+	activeK8sCluster, desiredK8sCluster := activeProvider.K8sClusterConfig(), desiredProvider.K8sClusterConfig()
+	if !sameEndpoint(activeK8sCluster.ClusterEndpoint(), desiredK8sCluster.ClusterEndpoint()) {
+		return domainupdate.ChangeControlPlaneEndpoint, "The control-plane endpoint changed without changing cluster identity or node data.", nil
+	}
 	return domainupdate.ChangeUpdatable, "The machine configuration difference preserves node data and identity.", nil
 }
 
-// invariantConflictは、provider-ownedなcluster identity、PKI、endpoint、machine role、Kubernetes component version、
+// ControlPlaneEndpointはcomplete machine configurationから観測したworkload control-plane endpointを返す。
+func ControlPlaneEndpoint(configuration []byte) (string, error) {
+	provider, err := configloader.NewFromBytes(bytes.Clone(configuration))
+	if err != nil {
+		return "", fmt.Errorf("load machine configuration: %w", err)
+	}
+	cluster := provider.K8sClusterConfig()
+	if cluster == nil || cluster.ClusterEndpoint() == nil {
+		return "", errors.New("machine configuration does not contain a control-plane endpoint")
+	}
+	return cluster.ClusterEndpoint().String(), nil
+}
+
+// invariantConflictは、provider-ownedなcluster identity、PKI、machine role、Kubernetes component version、
 // ProviderIDの競合を検出する。競合はupdateとして適用せずfail-closedで停止するためのものである。
 func invariantConflict(active, desired talosconfig.Provider) string {
 	activeMachine, desiredMachine := active.Machine(), desired.Machine()
@@ -95,8 +112,8 @@ func invariantConflict(active, desired talosconfig.Provider) string {
 	if activeK8sCluster == nil || desiredK8sCluster == nil {
 		return "The Kubernetes cluster configuration is unavailable; the update is stopped."
 	}
-	if activeK8sCluster.ClusterName() != desiredK8sCluster.ClusterName() || !sameEndpoint(activeK8sCluster.ClusterEndpoint(), desiredK8sCluster.ClusterEndpoint()) {
-		return "The cluster name or control-plane endpoint changed; the update is stopped."
+	if activeK8sCluster.ClusterName() != desiredK8sCluster.ClusterName() {
+		return "The cluster name changed; the update is stopped."
 	}
 	if componentImages(active) != componentImages(desired) {
 		return "A Kubernetes component image changed; the update is stopped."

@@ -5,14 +5,17 @@ import (
 	"errors"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	bootstrapv1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/bootstrap/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
 )
@@ -60,6 +63,7 @@ func NewTartMachineReconciler(c client.Client) *TartMachineReconciler {
 // +kubebuilder:rbac:groups=cluster.x-k8s.io,resources=clusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=bootstrap.cluster.x-k8s.io,resources=tartbootstrapconfigs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch
 
 func (r *TartMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var machine infrav1alpha1.TartMachine
@@ -113,6 +117,44 @@ func (r *TartMachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			}
 			return []reconcile.Request{{Namespace: hostObject.Spec.ConsumerRef.Namespace, Name: hostObject.Spec.ConsumerRef.Name}}
 		})).
+		Watches(&bootstrapv1alpha1.TartBootstrapConfig{}, handler.EnqueueRequestsFromMapFunc(r.enqueueMachinesForBootstrapConfig)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.enqueueMachinesForBootstrapSecret)).
 		Named("tartmachine").
 		Complete(r)
+}
+
+func (r *TartMachineReconciler) enqueueMachinesForBootstrapConfig(ctx context.Context, object client.Object) []reconcile.Request {
+	return r.enqueueMachinesForBootstrapReference(ctx, object.GetNamespace(), object.GetName())
+}
+
+func (r *TartMachineReconciler) enqueueMachinesForBootstrapSecret(ctx context.Context, object client.Object) []reconcile.Request {
+	configs := &bootstrapv1alpha1.TartBootstrapConfigList{}
+	if err := r.List(ctx, configs, client.InNamespace(object.GetNamespace())); err != nil {
+		return nil
+	}
+	for index := range configs.Items {
+		config := &configs.Items[index]
+		if config.Status.DataSecretName == object.GetName() || (config.Spec.ConfigPatchesSecretRef != nil && config.Spec.ConfigPatchesSecretRef.Name == object.GetName()) {
+			return r.enqueueMachinesForBootstrapReference(ctx, config.Namespace, config.Name)
+		}
+	}
+	return nil
+}
+
+func (r *TartMachineReconciler) enqueueMachinesForBootstrapReference(ctx context.Context, namespace, name string) []reconcile.Request {
+	machines := &clusterv1.MachineList{}
+	if err := r.List(ctx, machines, client.InNamespace(namespace)); err != nil {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0)
+	for index := range machines.Items {
+		machine := &machines.Items[index]
+		ref := machine.Spec.Bootstrap.ConfigRef
+		if ref.APIGroup == bootstrapv1alpha1.GroupVersion.Group && ref.Kind == controller.TartBootstrapConfigKind && ref.Name == name {
+			if machine.Spec.InfrastructureRef.APIGroup == infrav1alpha1.GroupVersion.Group && machine.Spec.InfrastructureRef.Kind == controller.TartMachineKind && machine.Spec.InfrastructureRef.Name != "" {
+				requests = append(requests, reconcile.Request{Namespace: namespace, Name: machine.Spec.InfrastructureRef.Name})
+			}
+		}
+	}
+	return requests
 }

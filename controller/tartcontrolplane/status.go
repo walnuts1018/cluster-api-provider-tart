@@ -82,6 +82,10 @@ func setControlPlaneStatus(cp *controlplanev1alpha1.TartControlPlane, clusterNam
 	cp.Status.ObservedGeneration = cp.Generation
 }
 
+func setControlPlaneEndpointStatus(cp *controlplanev1alpha1.TartControlPlane, converged bool, reason, message string) {
+	controller.SetCondition(&cp.Status.Conditions, controlplanev1alpha1.TartControlPlaneEndpointConvergedCondition, conditionStatus(converged), reason, message, cp.Generation)
+}
+
 func countMachineCondition(machines []clusterv1.Machine, conditionType string) int32 {
 	var count int32
 	for i := range machines {

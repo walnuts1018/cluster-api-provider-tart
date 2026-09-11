@@ -288,6 +288,13 @@ spec:
                   provisioned:
                     type: boolean
                 type: object
+              observedConfigurationDigest:
+                description: observedConfigurationDigestはactive machine configurationの非機密digestである。
+                type: string
+              observedControlPlaneEndpoint:
+                description: observedControlPlaneEndpointはactive machine configurationから観測したworkload
+                  control-plane endpointである。
+                type: string
               observedGeneration:
                 format: int64
                 type: integer

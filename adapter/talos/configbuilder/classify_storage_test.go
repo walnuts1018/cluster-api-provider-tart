@@ -163,6 +163,37 @@ func TestClassifyConfigurationChangeLVMVolumeGroupSelectorChangeIsDestructive(t 
 	}
 }
 
+func TestClassifyConfigurationChangeEndpointOnlyIsUpdatableEndpointClass(t *testing.T) {
+	t.Parallel()
+
+	active := classifyStorageActiveConfiguration(t)
+	desired := replaceOnce(t, active, "https://192.0.2.10:6443", "https://192.0.2.20:6443")
+
+	class, reason, err := ClassifyConfigurationChange(active, desired)
+	if err != nil {
+		t.Fatalf("ClassifyConfigurationChange() error = %v", err)
+	}
+	if class != domainupdate.ChangeControlPlaneEndpoint {
+		t.Fatalf("ClassifyConfigurationChange() class = %v, want ChangeControlPlaneEndpoint (reason=%q)", class, reason)
+	}
+}
+
+func TestClassifyConfigurationChangeEndpointAndStorageChangePrefersReprovision(t *testing.T) {
+	t.Parallel()
+
+	active := classifyStorageActiveConfiguration(t)
+	desired := replaceOnce(t, active, "https://192.0.2.10:6443", "https://192.0.2.20:6443")
+	desired = replaceOnce(t, desired, `disk.serial == "disk-b"`, `disk.serial == "disk-c"`)
+
+	class, reason, err := ClassifyConfigurationChange(active, desired)
+	if err != nil {
+		t.Fatalf("ClassifyConfigurationChange() error = %v", err)
+	}
+	if class != domainupdate.ChangeReprovisionRequired {
+		t.Fatalf("ClassifyConfigurationChange() class = %v, want ChangeReprovisionRequired (reason=%q)", class, reason)
+	}
+}
+
 func TestClassifyConfigurationChangeRejectsMultipleProviderIDs(t *testing.T) {
 	t.Parallel()
 

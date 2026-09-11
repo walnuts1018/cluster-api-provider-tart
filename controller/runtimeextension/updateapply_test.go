@@ -123,6 +123,25 @@ func TestApplyConfigurationUpdate(t *testing.T) {
 		}
 	})
 
+	t.Run("endpoint update waits for the cluster gate", func(t *testing.T) {
+		t.Parallel()
+		desired := []byte(strings.Replace(string(active), "https://192.0.2.10:6443", "https://192.0.2.20:6443", 1))
+		node := &fakeUpdateNode{active: active, bootTime: 100}
+		gateCalls := 0
+		outcome := ApplyConfigurationUpdate(t.Context(), configurationUpdate{
+			node:     node,
+			strategy: bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
+			desired:  desired,
+			endpointGate: func(context.Context) (bool, string) {
+				gateCalls++
+				return false, "The preceding control-plane Machine is still recovering."
+			},
+		})
+		if gateCalls != 1 || outcome.RetryMessage == "" || node.liveApplies != 0 || node.rebootApplies != 0 {
+			t.Fatalf("ApplyConfigurationUpdate() outcome = %+v, gate calls = %d, live applies = %d, reboot applies = %d", outcome, gateCalls, node.liveApplies, node.rebootApplies)
+		}
+	})
+
 	t.Run("live policy does not fall back to a reboot", func(t *testing.T) {
 		t.Parallel()
 		node := &fakeUpdateNode{active: active, bootTime: 100, liveErr: errors.New("talos rejected the live apply")}

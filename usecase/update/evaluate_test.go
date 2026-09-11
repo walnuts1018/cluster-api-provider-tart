@@ -129,10 +129,11 @@ func TestEvaluateConfigurationChange(t *testing.T) {
 			desired:   controlPlane,
 			wantClass: domainupdate.ChangeInvariantConflict,
 		},
-		"control-plane endpoint change conflicts with a provider invariant": {
+		"control-plane endpoint change is a staged in-place update": {
 			policy:    bootstrapv1alpha1.ConfigurationApplyStrategyApplyOnly,
 			desired:   otherEndpoint,
-			wantClass: domainupdate.ChangeInvariantConflict,
+			wantClass: domainupdate.ChangeControlPlaneEndpoint,
+			wantMode:  domainupdate.ApplyModeApplyOnly,
 		},
 	}
 
@@ -173,6 +174,22 @@ func TestEvaluateIgnoresInstallerImage(t *testing.T) {
 	}
 	if decision.Class != domainupdate.ChangeNone {
 		t.Fatalf("Evaluate() class = %q (%s), want %q", decision.Class, decision.Reason, domainupdate.ChangeNone)
+	}
+}
+
+func TestEvaluateEndpointAndPKIChangeStopsForInvariantConflict(t *testing.T) {
+	t.Parallel()
+
+	activeBundle := newSecretsBundle(t)
+	desiredBundle := newSecretsBundle(t)
+	active := newConfiguration(t, activeBundle, nil)
+	desired := newConfiguration(t, desiredBundle, []configurationOption{withEndpoint("https://192.0.2.20:6443")})
+	decision, err := update.Evaluate(configbuilder.Builder{}, bootstrapv1alpha1.ConfigurationApplyStrategyStagedReboot, active, desired)
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if decision.Class != domainupdate.ChangeInvariantConflict {
+		t.Fatalf("Evaluate() class = %q (%s), want ChangeInvariantConflict", decision.Class, decision.Reason)
 	}
 }
 

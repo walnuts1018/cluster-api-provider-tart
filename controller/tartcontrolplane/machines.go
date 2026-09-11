@@ -2,6 +2,9 @@ package tartcontrolplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"reflect"
@@ -9,6 +12,7 @@ import (
 	"strconv"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	clusterv1 "sigs.k8s.io/cluster-api/api/core/v1beta2"
@@ -18,6 +22,11 @@ import (
 	controlplanev1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/controlplane/v1alpha1"
 	infrav1alpha1 "github.com/walnuts1018/cluster-api-provider-tart/api/infrastructure/v1alpha1"
 	"github.com/walnuts1018/cluster-api-provider-tart/controller"
+)
+
+const (
+	lastAppliedMachineTemplateDigestAnnotation   = "tart.cluster.x-k8s.io/last-applied-machine-template-digest"
+	lastAppliedBootstrapTemplateDigestAnnotation = "tart.cluster.x-k8s.io/last-applied-bootstrap-template-digest"
 )
 
 func (r *TartControlPlaneReconciler) getTartMachineTemplate(ctx context.Context, namespace string, ref *clusterv1.ContractVersionedObjectReference, template *infrav1alpha1.TartMachineTemplate) error {
@@ -271,6 +280,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			Image:        machineTemplate.Spec.Template.Spec.Image,
 		},
 	}
+	expectedMachine.Annotations = map[string]string{lastAppliedMachineTemplateDigestAnnotation: machineTemplateDigest(machineTemplate)}
 	var tartMachine infrav1alpha1.TartMachine
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cp.Namespace, Name: machineName}, &tartMachine); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -286,8 +296,11 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	if err := controller.ValidateProviderOwner(&tartMachine, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) || tartMachine.Spec.Image != expectedMachine.Spec.Image {
+	if !reflect.DeepEqual(tartMachine.Spec.HostSelector, expectedMachine.Spec.HostSelector) {
 		return &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The existing TartMachine does not match its immutable control-plane template."}
+	}
+	if err := r.syncMachineTemplate(ctx, &tartMachine, expectedMachine); err != nil {
+		return err
 	}
 
 	bootstrapName, err := bootstrapConfigName(cp.Name, ordinal)
@@ -307,6 +320,7 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 			UpdatePolicy:           bootstrapTemplate.Spec.Template.Spec.UpdatePolicy,
 		},
 	}
+	expectedBootstrap.Annotations = map[string]string{lastAppliedBootstrapTemplateDigestAnnotation: bootstrapTemplateDigest(bootstrapTemplate)}
 	var bootstrapConfig bootstrapv1alpha1.TartBootstrapConfig
 	if err := r.Get(ctx, client.ObjectKey{Namespace: cp.Namespace, Name: bootstrapName}, &bootstrapConfig); err != nil {
 		if !apierrors.IsNotFound(err) {
@@ -322,12 +336,151 @@ func (r *TartControlPlaneReconciler) ensureProviderResources(ctx context.Context
 	if err := controller.ValidateProviderOwner(&bootstrapConfig, machine, clusterv1.GroupVersion.String(), controller.CAPIMachineKind); err != nil {
 		return err
 	}
-	actualRef := bootstrapConfig.Spec.ConfigPatchesSecretRef
-	expectedRef := expectedBootstrap.Spec.ConfigPatchesSecretRef
-	if (actualRef == nil) != (expectedRef == nil) || (actualRef != nil && actualRef.Name != expectedRef.Name) {
-		return &controlPlaneFailure{reason: "BootstrapConfigMismatch", message: "The existing TartBootstrapConfig does not match its immutable template."}
+	if err := r.syncBootstrapTemplate(ctx, &bootstrapConfig, expectedBootstrap); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (r *TartControlPlaneReconciler) syncMachineTemplate(ctx context.Context, current, expected *infrav1alpha1.TartMachine) error {
+	last := current.Annotations[lastAppliedMachineTemplateDigestAnnotation]
+	currentDigest := machineImageDigest(current.Spec.Image)
+	desiredDigest := machineImageDigest(expected.Spec.Image)
+	if last == "" {
+		if currentDigest != desiredDigest {
+			return &controlPlaneFailure{reason: controller.ReasonMachineSpecMismatch, message: "The existing TartMachine has no trusted template observation and differs from its template."}
+		}
+		return patchTemplateDigest(ctx, r.Client, current, lastAppliedMachineTemplateDigestAnnotation, desiredDigest)
+	}
+	if currentDigest != last {
+		return nil
+	}
+	if currentDigest == desiredDigest {
+		return nil
+	}
+	original := current.DeepCopy()
+	current.Spec.Image = expected.Spec.Image
+	if current.Annotations == nil {
+		current.Annotations = make(map[string]string)
+	}
+	current.Annotations[lastAppliedMachineTemplateDigestAnnotation] = desiredDigest
+	return r.Patch(ctx, current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func (r *TartControlPlaneReconciler) syncBootstrapTemplate(ctx context.Context, current, expected *bootstrapv1alpha1.TartBootstrapConfig) error {
+	last := current.Annotations[lastAppliedBootstrapTemplateDigestAnnotation]
+	currentDigest := bootstrapConfigTemplateDigest(&current.Spec)
+	desiredDigest := bootstrapConfigTemplateDigest(&expected.Spec)
+	if last == "" {
+		if currentDigest != desiredDigest {
+			return &controlPlaneFailure{reason: "BootstrapConfigMismatch", message: "The existing TartBootstrapConfig has no trusted template observation and differs from its template."}
+		}
+		return patchTemplateDigest(ctx, r.Client, current, lastAppliedBootstrapTemplateDigestAnnotation, desiredDigest)
+	}
+	if currentDigest != last {
+		return nil
+	}
+	if currentDigest == desiredDigest {
+		return nil
+	}
+	original := current.DeepCopy()
+	current.Spec = expected.Spec
+	if current.Annotations == nil {
+		current.Annotations = make(map[string]string)
+	}
+	current.Annotations[lastAppliedBootstrapTemplateDigestAnnotation] = desiredDigest
+	return r.Patch(ctx, current, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func (r *TartControlPlaneReconciler) controlPlaneEndpointConverged(ctx context.Context, cluster *clusterv1.Cluster, machines []clusterv1.Machine) (bool, string, string) {
+	if cluster == nil || !cluster.Spec.ControlPlaneEndpoint.IsValid() {
+		return false, "EndpointUnavailable", "The Cluster control-plane endpoint is not available yet."
+	}
+	endpoint := cluster.Spec.ControlPlaneEndpoint.String()
+	controlPlaneCount := 0
+	for index := range machines {
+		machine := &machines[index]
+		if _, ok := machine.Labels[clusterv1.MachineControlPlaneLabel]; !ok {
+			continue
+		}
+		controlPlaneCount++
+		ready := meta.FindStatusCondition(machine.Status.Conditions, clusterv1.MachineReadyCondition)
+		if ready == nil || ready.Status != metav1.ConditionTrue {
+			return false, "ControlPlaneMachineNotReady", "A control-plane Machine is not Ready on the new control-plane endpoint."
+		}
+		ref := machine.Spec.InfrastructureRef
+		if ref.APIGroup != infrav1alpha1.GroupVersion.Group || ref.Kind != controller.TartMachineKind || ref.Name == "" {
+			return false, "InfrastructureReferenceInvalid", "A control-plane Machine has an invalid infrastructure reference."
+		}
+		providerMachine := &infrav1alpha1.TartMachine{}
+		if err := r.Get(ctx, client.ObjectKey{Namespace: machine.Namespace, Name: ref.Name}, providerMachine); err != nil {
+			return false, "InfrastructureUnavailable", "A control-plane TartMachine is not available for endpoint observation."
+		}
+		configuration := meta.FindStatusCondition(providerMachine.Status.Conditions, infrav1alpha1.TartMachineConfigurationUpToDateCondition)
+		if providerMachine.Status.ObservedControlPlaneEndpoint != endpoint || configuration == nil || configuration.Status != metav1.ConditionTrue {
+			return false, "ControlPlaneEndpointUpdating", "Control-plane Machines are still converging on the new control-plane endpoint."
+		}
+	}
+	if controlPlaneCount == 0 {
+		return false, "ControlPlaneMachinesUnavailable", "No control-plane Machines are available for endpoint observation."
+	}
+	return true, "ControlPlaneEndpointConverged", "All control-plane Machines report the desired control-plane endpoint."
+}
+
+func patchTemplateDigest(ctx context.Context, c client.Client, object client.Object, key, digest string) error {
+	original := object.DeepCopyObject().(client.Object)
+	annotations := maps.Clone(object.GetAnnotations())
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[key] = digest
+	object.SetAnnotations(annotations)
+	return c.Patch(ctx, object, client.MergeFromWithOptions(original, client.MergeFromWithOptimisticLock{}))
+}
+
+func machineTemplateDigest(template *infrav1alpha1.TartMachineTemplate) string {
+	return machineImageDigest(template.Spec.Template.Spec.Image)
+}
+
+func machineImageDigest(image infrav1alpha1.TalosImageSpec) string {
+	return digestTemplateValue(struct {
+		Version     string `json:"version"`
+		SchematicID string `json:"schematicID"`
+	}{Version: image.Version, SchematicID: image.SchematicID})
+}
+
+func bootstrapConfigTemplateDigest(template *bootstrapv1alpha1.TartBootstrapConfigSpec) string {
+	var secretName string
+	if template.ConfigPatchesSecretRef != nil {
+		secretName = template.ConfigPatchesSecretRef.Name
+	}
+	return digestTemplateValue(struct {
+		SecretName string                                            `json:"secretName"`
+		Policy     bootstrapv1alpha1.TartBootstrapConfigUpdatePolicy `json:"policy"`
+	}{SecretName: secretName, Policy: template.UpdatePolicy})
+}
+
+func bootstrapTemplateDigest(template *bootstrapv1alpha1.TartBootstrapConfigTemplate) string {
+	if template == nil {
+		return ""
+	}
+	var secretName string
+	if template.Spec.Template.Spec.ConfigPatchesSecretRef != nil {
+		secretName = template.Spec.Template.Spec.ConfigPatchesSecretRef.Name
+	}
+	return digestTemplateValue(struct {
+		SecretName string                                            `json:"secretName"`
+		Policy     bootstrapv1alpha1.TartBootstrapConfigUpdatePolicy `json:"policy"`
+	}{SecretName: secretName, Policy: template.Spec.Template.Spec.UpdatePolicy})
+}
+
+func digestTemplateValue(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }
 
 // validateMachineReferenceは、既存Machineのimmutableな参照fieldがTartControlPlaneの期待と

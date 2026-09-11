@@ -48,6 +48,8 @@ type configurationUpdate struct {
 	rebootGate func(ctx context.Context) (bool, string)
 	// nodeReadyはworkload cluster上のNodeがReadyであることを観測する。Nodeが未参加の場合はtrueを返す。
 	nodeReady func(ctx context.Context) (bool, string)
+	// endpointGateはcontrol-plane endpoint変更時だけ呼ばれるcluster-wideな順序制御である。
+	endpointGate func(ctx context.Context) (bool, string)
 	// rebootObservationTimeoutはreboot要求後にboot時刻の変化を観測するために待つ上限である。
 	rebootObservationTimeout time.Duration
 	// rebootObservationIntervalはboot時刻を再観測する間隔である。
@@ -93,6 +95,13 @@ func ApplyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 		return verifyConfigurationRecovered(ctx, updater)
 	case domainupdate.ChangeUpdatable:
 		// strategyに従って適用するため、この関数の後半で扱う。
+	case domainupdate.ChangeControlPlaneEndpoint:
+		if updater.endpointGate != nil {
+			proceed, message := updater.endpointGate(ctx)
+			if !proceed {
+				return ConfigurationUpdateOutcome{RetryMessage: message}
+			}
+		}
 	default:
 		// 未知のChangeClassをChangeUpdatableと同じ経路へ暗黙に進めない。安全に評価できない差分は
 		// fail-closedで停止する。
@@ -124,6 +133,31 @@ func ApplyConfigurationUpdate(ctx context.Context, updater configurationUpdate) 
 		}
 	}
 	return ConfigurationUpdateOutcome{RetryMessage: "The machine configuration was applied and the node rebooted; waiting for the desired configuration and Node readiness to be observed."}
+}
+
+// PerformConfigurationUpdateは、TartMachine controllerからも同じmachine configuration update engineを利用できるようにする。
+// CAPI Runtime Extensionが呼ばれないcontrol-plane管理Machineでも、active configurationの観測から安全に再開できる。
+func PerformConfigurationUpdate(ctx context.Context, kubeClient client.Reader, machine *clusterv1.Machine, providerID string, desired []byte, strategy bootstrapv1alpha1.ConfigurationApplyStrategy, node *talos.Client, endpointGate func(context.Context) (bool, string)) ConfigurationUpdateOutcome {
+	return ApplyConfigurationUpdate(ctx, configurationUpdate{
+		node:     node,
+		strategy: strategy,
+		desired:  desired,
+		rebootGate: func(ctx context.Context) (bool, string) {
+			if isControlPlaneMachine(machine) {
+				gateContext, cancel := context.WithTimeout(ctx, talosUpdateTimeout)
+				gateErr := controlPlaneUpgradeSafe(gateContext, kubeClient, machine, node)
+				cancel()
+				if gateErr != nil {
+					return false, "The control-plane etcd quorum could not be proven safe for a Talos restart; waiting before the machine configuration reboot."
+				}
+			}
+			return enforceDrainPolicy(ctx, kubeClient, machine, providerID)
+		},
+		nodeReady: func(ctx context.Context) (bool, string) {
+			return nodeReadyForMachine(ctx, kubeClient, machine, providerID)
+		},
+		endpointGate: endpointGate,
+	})
 }
 
 // observeRebootは、reboot要求前に観測したboot時刻が変化することを確認する。API接続が失われている間はerrorになるため、

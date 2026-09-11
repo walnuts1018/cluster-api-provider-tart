@@ -196,6 +196,8 @@ func (r *TartControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	original := cp.DeepCopy()
 	setControlPlaneStatus(&cp, clusterName, desiredReplicas, machines, bootstrapState, caRotationState, upgradeState)
+	converged, endpointReason, endpointMessage := r.controlPlaneEndpointConverged(ctx, &cluster, machines)
+	setControlPlaneEndpointStatus(&cp, converged, endpointReason, endpointMessage)
 	if err := r.Status().Patch(ctx, &cp, client.MergeFrom(original)); err != nil {
 		return ctrl.Result{}, err
 	}

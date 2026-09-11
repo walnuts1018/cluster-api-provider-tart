@@ -17,6 +17,8 @@ func Decide(class ChangeClass, reason string, strategy bootstrapv1alpha1.Configu
 		return Decision{Class: class, Reason: reason}, nil
 	case ChangeUpdatable:
 		// strategyに従って適用modeを決める。
+	case ChangeControlPlaneEndpoint:
+		// endpoint変更もdataとidentityを保持するin-place updateだが、controller側でcluster-wideの順序制御を行う。
 	default:
 		return Decision{}, fmt.Errorf("unrecognized configuration change class: %q", class)
 	}
@@ -24,5 +26,5 @@ func Decide(class ChangeClass, reason string, strategy bootstrapv1alpha1.Configu
 	if err != nil {
 		return Decision{}, err
 	}
-	return Decision{Class: ChangeUpdatable, ApplyMode: mode, Reason: reason}, nil
+	return Decision{Class: class, ApplyMode: mode, Reason: reason}, nil
 }

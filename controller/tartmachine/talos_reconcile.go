@@ -116,19 +116,7 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 	previousUpToDate := meta.FindStatusCondition(machine.Status.Conditions, infrav1alpha1.TartMachineTalosUpToDateCondition)
 	imageUpgradePending := wasImageUpgradePending(previousUpToDate)
 	if machine.Spec.Image.Version != "" && version.Tag == machine.Spec.Image.Version && observedSchematicID == machine.Spec.Image.SchematicID {
-		if result, handled, err := r.finalizeObservedImageUpgrade(ctx, machine, authenticated, version.Tag, observedSchematicID, imageUpgradePending); handled {
-			return result, true, err
-		}
-		if closeErr := authenticated.Close(); closeErr != nil {
-			ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
-		}
-		result, err := r.reportTalosStatusWithVersion(ctx, machine, version.Tag, observedSchematicID,
-			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
-			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
-			metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
-			metav1.ConditionTrue, "Ready", "The Host is running the desired Talos version and schematic.",
-			0)
-		return result, true, err
+		return r.reconcileConvergedTalos(ctx, machine, authenticated, configuration, version.Tag, observedSchematicID, imageUpgradePending)
 	}
 
 	mismatchReason := "VersionMismatch"
@@ -197,6 +185,41 @@ func (r *TartMachineReconciler) reconcileAuthenticatedTalos(ctx context.Context,
 		metav1.ConditionFalse, mismatchReason, progressMessage,
 		metav1.ConditionFalse, mismatchReason, readyMessage,
 		talosRequeue)
+	return result, true, err
+}
+
+func (r *TartMachineReconciler) reconcileConvergedTalos(ctx context.Context, machine *infrav1alpha1.TartMachine, authenticated *talos.Client, configuration []byte, version, schematicID string, imageUpgradePending bool) (ctrl.Result, bool, error) {
+	if result, handled, err := r.finalizeObservedImageUpgrade(ctx, machine, authenticated, version, schematicID, imageUpgradePending); handled {
+		return result, true, err
+	}
+	configurationOutcome := r.reconcileMachineConfiguration(ctx, machine, authenticated, configuration)
+	if closeErr := authenticated.Close(); closeErr != nil {
+		ctrl.LoggerFrom(ctx).Error(closeErr, "close authenticated Talos client")
+	}
+	if configurationOutcome.FailureMessage != "" {
+		result, err := r.reportTalosStatusWithVersion(ctx, machine, version, schematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
+			metav1.ConditionFalse, "ConfigurationUpdateFailed", configurationOutcome.FailureMessage,
+			0)
+		return result, true, err
+	}
+	if configurationOutcome.RetryMessage != "" {
+		result, err := r.reportTalosStatusWithVersion(ctx, machine, version, schematicID,
+			metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+			metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+			metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
+			metav1.ConditionFalse, "ConfigurationUpdatePending", configurationOutcome.RetryMessage,
+			talosRequeue)
+		return result, true, err
+	}
+	result, err := r.reportTalosStatusWithVersion(ctx, machine, version, schematicID,
+		metav1.ConditionTrue, "TalosReachable", "The authenticated Talos API is reachable.",
+		metav1.ConditionTrue, "Provisioned", "Talos installation has completed and the node is running.",
+		metav1.ConditionTrue, "UpToDate", "The observed Talos version and schematic match the desired image.",
+		metav1.ConditionTrue, "Ready", "The Host is running the desired Talos version and schematic.",
+		0)
 	return result, true, err
 }
 

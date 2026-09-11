@@ -10,10 +10,11 @@ import (
 
 // TartMachineのCondition typeを定義する。
 const (
-	TartMachineReadyCondition          = "Ready"
-	TartMachineTalosReachableCondition = "TalosReachable"
-	TartMachineProvisionedCondition    = "Provisioned"
-	TartMachineTalosUpToDateCondition  = "TalosUpToDate"
+	TartMachineReadyCondition                 = "Ready"
+	TartMachineTalosReachableCondition        = "TalosReachable"
+	TartMachineProvisionedCondition           = "Provisioned"
+	TartMachineTalosUpToDateCondition         = "TalosUpToDate"
+	TartMachineConfigurationUpToDateCondition = "ConfigurationUpToDate"
 )
 
 // TalosImageSpecはTalos OS versionとsystem extension setの唯一の正本である。同じschematicをboot assetとinstaller imageの双方に使用する。
@@ -88,6 +89,14 @@ type TartMachineStatus struct {
 	// talosSchematicIDは観測したImage Factory schematic identityである。versionが同じでもsystem extension setがrollbackしたことを検知するために保持する。
 	// +optional
 	TalosSchematicID string `json:"talosSchematicID,omitempty"`
+
+	// observedControlPlaneEndpointはactive machine configurationから観測したworkload control-plane endpointである。
+	// +optional
+	ObservedControlPlaneEndpoint string `json:"observedControlPlaneEndpoint,omitempty"`
+
+	// observedConfigurationDigestはactive machine configurationの非機密digestである。
+	// +optional
+	ObservedConfigurationDigest string `json:"observedConfigurationDigest,omitempty"`
 
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`

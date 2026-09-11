@@ -108,7 +108,8 @@ func (r *TartMachineReconciler) reconcileDeletion(ctx context.Context, machine *
 	return ctrl.Result{}, nil
 }
 
-// capiDeletionDrainCompleteはprovider resourceの削除前にCAPI Machine controllerがdrainとvolume detachを完了したことを確認する。pre-terminate hookがあるcontrol planeでは、そのhook解除後にCAPIがinfra削除段階へ進んだことも同時に確認できる。
+// capiDeletionDrainCompleteはprovider resourceの削除前にCAPI Machine controllerがdrainとvolume detachを完了したことを確認する。
+// pre-terminate hookがあるcontrol planeでは、そのhook解除後にCAPIがinfra削除段階へ進んだことも同時に確認できる。
 func (r *TartMachineReconciler) capiDeletionDrainComplete(ctx context.Context, machine *infrav1alpha1.TartMachine) (bool, error) {
 	capiMachine, err := controller.FindCAPIMachineForInfrastructure(ctx, r.Client, machine)
 	if err != nil {
